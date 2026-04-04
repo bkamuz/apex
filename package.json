@@ -11,14 +11,14 @@
   },
   "dependencies": {
     "@bitbybit-dev/occt": "^0.21.1",
-    "@speckle/viewer": "^2.28.0",
     "@thatopen/components": "^3.3.1",
     "@thatopen/fragments": "^3.3.3",
     "manifold-3d": "^3.3.2",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "three": "^0.182.0",
-    "web-ifc": "^0.0.75"
+    "web-ifc": "^0.0.75",
+    "zustand": "^5.0.11"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

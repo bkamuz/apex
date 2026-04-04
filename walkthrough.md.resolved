@@ -1,0 +1,31 @@
+# IFC Loading Fix Walkthrough
+
+## Issue
+The user encountered an error when trying to load an IFC file:
+`Error loading IFC: Error: You need to initialize fragments first.`
+
+## Diagnosis
+The error occurred because:
+1.  **Missing Initialization**: `FragmentsManager` was not initialized with a worker script.
+2.  **Async Setup**: `IfcLoader.setup` was not awaited, allowing premature usage.
+3.  **WASM Mismatch**: There was a mismatch between the bundled JS and the WASM file served, or configuration preventing local file usage.
+
+## Fix
+Updated [src/viewer/BIMViewer.tsx](file:///home/h3pr/apex/src/viewer/BIMViewer.tsx) to:
+1.  **Initialize `FragmentsManager`**: Added `fragments.init("/fragments/worker.mjs")`.
+2.  **Await Setup**: Wrapped `ifcLoader.setup` in an async function and awaited it.
+3.  **Force Local WASM**: Set `autoSetWasm: false` and ensured WASM files are in `public/wasm`.
+4.  **Lint Fixes**: Corrected `BoundingBoxer` usage and `world.camera.controls` typing.
+
+Copied required worker and WASM files:
+-   `public/fragments/worker.mjs`
+-   `public/wasm/web-ifc.wasm`, `web-ifc-mt.wasm`, etc.
+
+## Verification
+1.  Ran `npm run dev`.
+2.  Verified that `FragmentsManager initialized: true` appears in logs.
+3.  Uploaded sample IFC file.
+4.  Success! Console confirmed `IFC Model loaded`.
+
+## Screenshots
+![Browser Verification Successful](/home/h3pr/.gemini/antigravity/brain/db42175d-236e-486b-97a0-584a9cbb5db4/verify_ifc_load_final_check_1771224991821.webp)

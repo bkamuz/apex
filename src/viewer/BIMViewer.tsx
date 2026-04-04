@@ -1,178 +1,610 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import * as OBC from '@thatopen/components';
 import * as THREE from 'three';
+import styles from './BIMViewer.module.css';
+import type { LoadedModel, IfcLoaderConfig } from '../types/bim';
+import { Editor } from '../editor/Editor';
+import { SketchMode } from '../editor/sketch/SketchMode';
+import { SpatialTree } from '../ui/SpatialTree';
+import { VIEWER_CONSTANTS as VC } from './constants';
+import { useViewerStore } from '../store/useViewerStore';
+
+const getAssetPath = (path: string): string => {
+  const base = import.meta.env.BASE_URL;
+  return base.endsWith('/') ? `${base}${path}` : `${base}/${path}`;
+};
+
+const sanitizeFilename = (name: string): string => name.replace(/[<>:"/\\|?*]/g, '_');
 
 export const BIMViewer: React.FC = () => {
-    const containerRef = useRef<HTMLDivElement>(null);
-    const componentsRef = useRef<OBC.Components | null>(null);
-    const [isLoaderReady, setIsLoaderReady] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const componentsRef = useRef<OBC.Components | null>(null);
+  const loadedModelRef = useRef<LoadedModel | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const loadingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    useEffect(() => {
-        if (!containerRef.current) return;
+  const [isLoaderReady, setIsLoaderReady] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [loadingProgress, setLoadingProgress] = useState(0);
+  const { mode, setMode, isTreeVisible, setTreeVisible } = useViewerStore();
+  const [viewerComponents, setViewerComponents] = useState<{
+    components: OBC.Components | null;
+    scene: THREE.Scene | null;
+    camera: THREE.Camera | null;
+  }>({ components: null, scene: null, camera: null });
 
-        // 1. Initialize Components
+  // Comprehensive Three.js resource disposal
+  const disposeModel = useCallback(() => {
+    if (loadedModelRef.current) {
+      const { object } = loadedModelRef.current;
+
+      // Traverse and dispose all meshes
+      object.traverse((child) => {
+        const mesh = child as THREE.Mesh;
+        if (mesh.geometry) {
+          mesh.geometry.dispose();
+        }
+        if (mesh.material) {
+          const materials = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+          materials.forEach((mat) => {
+            // Dispose textures
+            Object.values(mat).forEach((val) => {
+              if (val?.isTexture) {
+                val.dispose();
+              }
+            });
+            mat.dispose();
+          });
+        }
+      });
+
+      // Remove from parent
+      if (object.parent) {
+        object.parent.remove(object);
+      }
+
+      loadedModelRef.current = null;
+    }
+
+    // Dispose lights if they exist
+    if (componentsRef.current) {
+      try {
+        const worlds = componentsRef.current.get(OBC.Worlds);
+        if (worlds.list.size > 0) {
+          const world = worlds.list.values().next().value;
+          if (world?.scene?.three) {
+            world.scene.three.traverse((obj: THREE.Object3D) => {
+              const light = obj as THREE.Light;
+              if (light.isLight) {
+                light.dispose?.();
+              }
+            });
+          }
+        }
+      } catch (e) {
+        console.warn('Error disposing lights:', e);
+      }
+    }
+  }, []);
+
+  // Complete cleanup function
+  const cleanup = useCallback(() => {
+    // Clear timeouts
+    if (loadingTimeoutRef.current) {
+      clearTimeout(loadingTimeoutRef.current);
+      loadingTimeoutRef.current = null;
+    }
+
+    // Abort any in-progress loading
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+
+    // Dispose 3D resources
+    disposeModel();
+
+    // Dispose components
+    if (componentsRef.current) {
+      componentsRef.current.dispose();
+      componentsRef.current = null;
+    }
+  }, [disposeModel]);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    let disposed = false;
+    let onModelSetCallback: (() => Promise<void>) | null = null;
+    let onMaterialSetCallback: (() => void) | null = null;
+
+    const initViewer = async () => {
+      try {
         const components = new OBC.Components();
         componentsRef.current = components;
 
-        // 2. Configure Worlds
         const worlds = components.get(OBC.Worlds);
-        const world = worlds.create<
-            OBC.SimpleScene,
-            OBC.SimpleCamera,
-            OBC.SimpleRenderer
-        >();
+        const world = worlds.create();
 
-        world.scene = new OBC.SimpleScene(components);
-        world.renderer = new OBC.SimpleRenderer(components, containerRef.current);
-        world.camera = new OBC.SimpleCamera(components);
+        // Setup scene
+        const scene = new OBC.SimpleScene(components);
+        world.scene = scene;
+        scene.setup();
+        scene.three.background = new THREE.Color(VC.BACKGROUND_COLOR);
+
+        // Setup renderer
+        const renderer = new OBC.SimpleRenderer(components, containerRef.current!);
+        world.renderer = renderer;
+
+        // Setup camera
+        const camera = new OBC.SimpleCamera(components);
+        world.camera = camera;
 
         components.init();
 
-        // 3. Setup Scene Content
-        world.scene.setup();
-        const scene = world.scene.three;
-        scene.background = new THREE.Color(0x202124);
+        // Setup camera controls with error handling
+        try {
+          await camera.controls.setLookAt(
+            VC.INITIAL_CAMERA_POSITION.x,
+            VC.INITIAL_CAMERA_POSITION.y,
+            VC.INITIAL_CAMERA_POSITION.z,
+            VC.INITIAL_CAMERA_TARGET.x,
+            VC.INITIAL_CAMERA_TARGET.y,
+            VC.INITIAL_CAMERA_TARGET.z,
+            true
+          );
+        } catch (err) {
+          console.error('Failed to set camera position:', err);
+        }
 
-        // 4. Add Lights
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
-        scene.add(ambientLight);
+        // Add lights
+        const ambientLight = new THREE.AmbientLight(
+          VC.AMBIENT_LIGHT_COLOR,
+          VC.AMBIENT_LIGHT_INTENSITY
+        );
+        scene.three.add(ambientLight);
 
-        const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
-        directionalLight.position.set(10, 10, 10);
-        scene.add(directionalLight);
+        const directionalLight = new THREE.DirectionalLight(
+          VC.DIRECTIONAL_LIGHT_COLOR,
+          VC.DIRECTIONAL_LIGHT_INTENSITY
+        );
+        directionalLight.position.set(
+          VC.DIRECTIONAL_LIGHT_POSITION.x,
+          VC.DIRECTIONAL_LIGHT_POSITION.y,
+          VC.DIRECTIONAL_LIGHT_POSITION.z
+        );
+        scene.three.add(directionalLight);
 
-        // 5. Grid
+        // Grid
         const grids = components.get(OBC.Grids);
         grids.create(world);
 
-        // 6. Setup Fragments Manager (Required for IFC Loader)
+        // Initialize FragmentsManager with error handling
         const fragments = components.get(OBC.FragmentsManager);
-        fragments.init("/fragments/worker.mjs");
+        try {
+          await fragments.init(getAssetPath('fragments/worker.mjs'));
+        } catch {
+          throw new Error('Failed to initialize geometry engine. Check WASM files.');
+        }
 
+        // Create callback for model loading - store reference for cleanup
+        onModelSetCallback = async () => {
+          if (disposed) return;
 
+          const model = fragments.list.values().next().value;
+          if (!model) return;
 
-        // 7. Setup IFC Loader
+          try {
+            model.useCamera(camera.three);
+            world.scene.three.add(model.object);
+            fragments.core.update(true);
+
+            // Wait for geometry with timeout
+            let retries = 0;
+            while (model.tiles?.size === 0 && retries < VC.MAX_FRAGMENT_RETRIES) {
+              await new Promise((resolve) =>
+                setTimeout(resolve, VC.FRAGMENT_CHECK_INTERVAL_MS)
+              );
+              retries++;
+            }
+
+            // Fit camera to model
+            if (
+              model.tiles?.size > 0 &&
+              model.box &&
+              camera.hasCameraControls()
+            ) {
+              const bbox = components.get(OBC.BoundingBoxer);
+              bbox.list.add(model.box);
+              const box3 = bbox.get();
+
+              if (box3 && !box3.isEmpty()) {
+                camera.controls.fitToBox(box3, true);
+              }
+              bbox.list.clear();
+            }
+          } catch (err) {
+            console.error('Error processing loaded model:', err);
+          }
+        };
+
+        // Create callback for materials - store reference for cleanup
+        onMaterialSetCallback = () => {
+          if (disposed) return;
+
+          const material = fragments.core.models.materials.list.values().next().value;
+          if (!material) return;
+
+          if (
+            !('isLodMaterial' in material && material.isLodMaterial)
+          ) {
+            material.polygonOffset = true;
+            material.polygonOffsetUnits = 1;
+            material.polygonOffsetFactor = 1; // Consistent value instead of random
+          }
+        };
+
+        // Add callbacks with stored references
+        fragments.list.onItemSet.add(onModelSetCallback);
+        fragments.core.models.materials.list.onItemSet.add(onMaterialSetCallback);
+
+        // Setup IfcLoader with error handling
         const ifcLoader = components.get(OBC.IfcLoader);
-        const setup = async () => {
-            await ifcLoader.setup({
-                wasm: {
-                    path: "/wasm/",
-                    absolute: false
-                },
-                autoSetWasm: false
-            });
-            setIsLoaderReady(true);
+
+        const config: IfcLoaderConfig = {
+          wasm: {
+            path: getAssetPath('wasm/'),
+            absolute: false,
+          },
+          autoSetWasm: false,
         };
-        setup();
-
-        // 8. Initial Camera
-        world.camera.controls.setLookAt(10, 10, 10, 0, 0, 0, true);
-
-        // Cleanup
-        return () => {
-            components.dispose();
-            componentsRef.current = null;
-        };
-    }, []);
-
-    const loadIfc = async (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (!file || !componentsRef.current) return;
-
-        const ifcLoader = componentsRef.current.get(OBC.IfcLoader);
-        const buffer = await file.arrayBuffer();
-        const data = new Uint8Array(buffer);
 
         try {
-            const model = await ifcLoader.load(data, true, file.name);
-            console.log("IFC Model loaded:", model);
-            console.log("model.object:", model.object);
-
-            if (model.object) {
-                console.log("Is model.object THREE.Object3D?", model.object instanceof THREE.Object3D);
-                console.log("model.object constructor:", model.object.constructor.name);
-                console.log("model.object visible:", model.object.visible);
-                console.log("model.object children count:", model.object.children.length);
-
-                const box = new THREE.Box3().setFromObject(model.object);
-                const size = new THREE.Vector3();
-                box.getSize(size);
-                console.log("Model BBox size:", size);
-                console.log("Model BBox center:", box.getCenter(new THREE.Vector3()));
-            }
-
-            // Zoom to model
-            const worlds = componentsRef.current.get(OBC.Worlds);
-            const world = worlds.list.size > 0 ? worlds.list.values().next().value : null;
-
-            if (world) {
-                world.scene.three.add(model.object);
-                console.log("Scene children count after add:", world.scene.three.children.length);
-                console.log("Model parent in Three.js:", model.object.parent === world.scene.three ? "Correct" : "Incorrect");
-
-                if (world.camera && world.camera.hasCameraControls()) {
-                    const bbox = componentsRef.current.get(OBC.BoundingBoxer);
-                    // element has a box property that is a THREE.Box3
-                    // @ts-ignore
-                    bbox.list.add(model.box);
-                    const box3 = bbox.get();
-                    console.log("BoundingBoxer result:", box3);
-                    world.camera.controls.fitToBox(box3, true);
-                    bbox.list.clear();
-                }
-            }
-        } catch (error) {
-            console.error("Error loading IFC:", error);
+          await ifcLoader.setup(config);
+        } catch {
+          throw new Error('Failed to setup IFC loader. Check WASM configuration.');
         }
+
+        if (!disposed) {
+          setIsLoaderReady(true);
+          // Store references for editor
+          setViewerComponents({
+            components,
+            scene: world.scene?.three as unknown as THREE.Scene || null,
+            camera: world.camera?.three || null,
+          });
+        }
+      } catch (err) {
+        if (disposed) return;
+        const errorMessage =
+          err instanceof Error ? err.message : 'Failed to initialize viewer';
+        console.error('Viewer initialization error:', err);
+        setError(errorMessage);
+      }
     };
 
-    return (
-        <div style={{ width: '100vw', height: '100vh', position: 'relative' }}>
-            <div
-                ref={containerRef}
-                style={{ width: '100%', height: '100%', overflow: 'hidden' }}
-            />
+    initViewer();
 
-            {/* Overlay UI */}
-            <div style={{
-                position: 'absolute',
-                bottom: '30px',
-                left: '50%',
-                transform: 'translateX(-50%)',
-                zIndex: 100,
-                background: 'rgba(30, 30, 30, 0.8)',
-                padding: '15px 25px',
-                borderRadius: '12px',
-                display: 'flex',
-                gap: '15px',
-                alignItems: 'center',
-                border: '1px solid #444',
-                boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
-                backdropFilter: 'blur(8px)'
-            }}>
-                <label style={{
-                    color: 'white',
-                    fontSize: '14px',
-                    fontWeight: 'bold',
-                    cursor: isLoaderReady ? 'pointer' : 'wait',
-                    background: '#3a7bd5',
-                    padding: '8px 16px',
-                    borderRadius: '6px',
-                    transition: '0.3s'
-                }}>
-                    {isLoaderReady ? "📁 Загрузить IFC" : "⏳ Загрузка ядра..."}
-                    <input
-                        type="file"
-                        accept=".ifc"
-                        onChange={loadIfc}
-                        disabled={!isLoaderReady}
-                        style={{ display: 'none' }}
-                    />
-                </label>
-                <div style={{ color: '#aaa', fontSize: '12px' }}>
-                    Поддерживаются .ifc файлы
-                </div>
-            </div>
+    // Window resize handler
+    const handleResize = () => {
+      if (componentsRef.current) {
+        try {
+          const worlds = componentsRef.current.get(OBC.Worlds);
+          if (worlds.list.size > 0) {
+            const world = worlds.list.values().next().value;
+            if (world?.renderer?.three) {
+              world.renderer.three.setSize(
+                containerRef.current!.clientWidth,
+                containerRef.current!.clientHeight
+              );
+            }
+          }
+        } catch (e) {
+          console.warn('Error handling resize:', e);
+        }
+      }
+    };
+
+    window.addEventListener('resize', handleResize);
+
+    // Cleanup function - removes event listeners and disposes resources
+    return () => {
+      disposed = true;
+      window.removeEventListener('resize', handleResize);
+
+      // Remove event callbacks
+      if (onModelSetCallback && componentsRef.current) {
+        try {
+          const fragments = componentsRef.current.get(OBC.FragmentsManager);
+          fragments.list.onItemSet.remove(onModelSetCallback);
+        } catch (e) {
+          console.warn('Error removing model callback:', e);
+        }
+      }
+
+      if (onMaterialSetCallback && componentsRef.current) {
+        try {
+          const fragments = componentsRef.current.get(OBC.FragmentsManager);
+          fragments.core.models.materials.list.onItemSet.remove(onMaterialSetCallback);
+        } catch (e) {
+          console.warn('Error removing material callback:', e);
+        }
+      }
+
+      cleanup();
+    };
+  }, [cleanup]);
+
+  // File validation
+  const validateFile = (file: File): string | null => {
+    if (file.size === 0) {
+      return 'File is empty';
+    }
+
+    if (file.size > VC.MAX_FILE_SIZE_BYTES) {
+      return `File too large. Maximum size: ${VC.MAX_FILE_SIZE_MB}MB`;
+    }
+
+    if (!file.name.toLowerCase().endsWith('.ifc')) {
+      return 'Only .ifc files are supported';
+    }
+
+    return null;
+  };
+
+  const handleFileChange = async (
+    event: React.ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file || !componentsRef.current) return;
+
+    // Validate file
+    const validationError = validateFile(file);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    // Abort any previous loading
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    abortControllerRef.current = new AbortController();
+
+    setIsLoading(true);
+    setError(null);
+    setLoadingProgress(0);
+
+    // Setup loading timeout
+    loadingTimeoutRef.current = setTimeout(() => {
+      setError('Loading timeout. The file may be too large.');
+      setIsLoading(false);
+      setLoadingProgress(0);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }, VC.LOADING_TIMEOUT_MS);
+
+    const ifcLoader = componentsRef.current.get(OBC.IfcLoader);
+
+    try {
+      disposeModel();
+
+      const buffer = await file.arrayBuffer();
+      const data = new Uint8Array(buffer);
+
+      const model = await ifcLoader.load(data, true, sanitizeFilename(file.name), {
+        processData: {
+          progressCallback: (progress) => {
+            setLoadingProgress(Math.round(progress * 100));
+            // Reset timeout on progress
+            if (loadingTimeoutRef.current) {
+              clearTimeout(loadingTimeoutRef.current);
+              loadingTimeoutRef.current = setTimeout(() => {
+                setError('Loading timeout. The file may be too large.');
+                setIsLoading(false);
+                setLoadingProgress(0);
+              }, VC.LOADING_TIMEOUT_MS);
+            }
+          },
+        },
+      });
+
+      // Clear timeout on success
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
+
+      // Wait for fragments
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+
+      // Store model reference
+      if (model.box) {
+        loadedModelRef.current = {
+          id: model.modelId || file.name,
+          name: file.name,
+          object: model.object,
+          box: model.box,
+        };
+      }
+    } catch (err) {
+      if (loadingTimeoutRef.current) {
+        clearTimeout(loadingTimeoutRef.current);
+        loadingTimeoutRef.current = null;
+      }
+
+      if ((err as { name?: string }).name === 'AbortError') {
+        setError('Loading was cancelled');
+      } else {
+        const errorMessage =
+          err instanceof Error ? err.message : 'Failed to load IFC file';
+        setError(errorMessage);
+        console.error('IFC load error:', err);
+      }
+    } finally {
+      setIsLoading(false);
+      setLoadingProgress(0);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+      abortControllerRef.current = null;
+    }
+  };
+
+  const handleRetry = () => {
+    setError(null);
+    window.location.reload();
+  };
+
+  const handleCancel = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    if (loadingTimeoutRef.current) {
+      clearTimeout(loadingTimeoutRef.current);
+      loadingTimeoutRef.current = null;
+    }
+    setIsLoading(false);
+    setLoadingProgress(0);
+  };
+
+  if (error) {
+    return (
+      <div className={styles.viewerContainer}>
+        <div className={styles.errorOverlay}>
+          <div className={styles.errorIcon}>⚠️</div>
+          <div className={styles.errorTitle}>Viewer Initialization Failed</div>
+          <div className={styles.errorMessage}>{error}</div>
+          <button className={styles.retryButton} onClick={handleRetry}>
+            Retry
+          </button>
         </div>
+      </div>
     );
+  }
+
+  return (
+    <div className={styles.viewerContainer}>
+      <div ref={containerRef} className={styles.canvas} />
+
+      {isLoading && (
+        <div className={styles.loadingOverlay}>
+          <div className={styles.spinner} />
+          <div className={styles.loadingText}>
+            Loading IFC file... {loadingProgress > 0 && `${loadingProgress}%`}
+          </div>
+          <button className={styles.retryButton} onClick={handleCancel}>
+            Cancel
+          </button>
+        </div>
+      )}
+
+      {/* Mode Toggle Buttons */}
+      {isLoaderReady && (
+        <div style={{
+          position: 'absolute',
+          top: '20px',
+          left: '20px',
+          zIndex: 1000,
+          display: 'flex',
+          gap: '8px',
+        }}>
+          <button
+            onClick={() => setMode(mode === 'edit' ? 'view' : 'edit')}
+            style={{
+              background: mode === 'edit' ? '#3a7bd5' : '#2a2a2a',
+              color: 'white',
+              border: '1px solid #444',
+              padding: '8px 16px',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '13px',
+            }}
+          >
+            {mode === 'edit' ? '👁️ View Mode' : '✏️ Edit Mode'}
+          </button>
+
+          <button
+            onClick={() => setMode(mode === 'sketch' ? 'view' : 'sketch')}
+            style={{
+              background: mode === 'sketch' ? '#3a7bd5' : '#2a2a2a',
+              color: 'white',
+              border: '1px solid #444',
+              padding: '8px 16px',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '13px',
+            }}
+          >
+            {mode === 'sketch' ? '👁️ View Mode' : '📐 Sketch Mode'}
+          </button>
+          <button
+            onClick={() => setTreeVisible(!isTreeVisible)}
+            style={{
+              background: isTreeVisible ? '#3a7bd5' : '#2a2a2a',
+              color: 'white',
+              border: '1px solid #444',
+              padding: '8px 16px',
+              borderRadius: '6px',
+              cursor: 'pointer',
+              fontSize: '13px',
+              marginLeft: '16px',
+            }}
+          >
+            {isTreeVisible ? '🌳 Hide Tree' : '🌳 Show Tree'}
+          </button>
+        </div>
+      )}
+
+      {/* Spatial Tree */}
+      {isTreeVisible && viewerComponents.components && loadedModelRef.current && (
+        <SpatialTree
+          components={viewerComponents.components}
+          model={loadedModelRef.current.object}
+          onClose={() => setTreeVisible(false)}
+        />
+      )}
+
+      {/* Editor Toolbar */}
+      {mode === 'edit' && viewerComponents.components && viewerComponents.scene && viewerComponents.camera && (
+        <Editor
+          containerRef={containerRef as React.RefObject<HTMLDivElement>}
+          scene={viewerComponents.scene}
+          camera={viewerComponents.camera}
+        />
+      )}
+
+      {/* Sketch Mode */}
+      {mode === 'sketch' && viewerComponents.scene && viewerComponents.camera && (
+        <SketchMode
+          containerRef={containerRef as React.RefObject<HTMLDivElement>}
+          scene={viewerComponents.scene}
+          camera={viewerComponents.camera}
+          isActive={true}
+        />
+      )}
+
+      {/* Upload Button */}
+      <div className={styles.overlay}>
+        <label className={styles.uploadButton}>
+          {isLoaderReady ? '📁 Загрузить IFC' : '⏳ Загрузка ядра...'}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".ifc"
+            onChange={handleFileChange}
+            disabled={!isLoaderReady || isLoading}
+            className={styles.fileInput}
+          />
+        </label>
+        <div className={styles.statusText}>
+          Поддерживаются .ifc файлы
+        </div>
+      </div>
+    </div>
+  );
 };
+
+export default BIMViewer;
