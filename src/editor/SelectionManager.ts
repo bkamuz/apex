@@ -22,6 +22,9 @@ export class SelectionManager {
 
     const intersectableObjects: THREE.Object3D[] = [];
     this.scene.traverse((child) => {
+      if (child.userData.apexSceneGizmo === true) {
+        return;
+      }
       if (
         child instanceof THREE.Mesh &&
         child.visible &&
@@ -51,10 +54,12 @@ export class SelectionManager {
 
     if (intersects.length > 0) {
       const hit = intersects[0].object;
+      const elementId = hit.userData.elementId as string | undefined;
       return {
-        id: hit.uuid,
+        id: elementId ?? hit.uuid,
         object: hit,
         ifcType: hit.name || 'Unknown',
+        elementId: elementId ?? null,
       };
     }
 

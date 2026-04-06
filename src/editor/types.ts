@@ -1,10 +1,12 @@
 import * as THREE from 'three';
 
 export interface SelectedObject {
+  /** Document element id when registered; otherwise mesh uuid */
   id: string;
   object: THREE.Object3D;
   originalColor?: THREE.Color;
   ifcType?: string;
+  elementId?: string | null;
 }
 
 export interface EditOperation {

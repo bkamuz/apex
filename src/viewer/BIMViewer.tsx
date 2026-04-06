@@ -2,7 +2,10 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import * as OBC from '@thatopen/components';
 import * as THREE from 'three';
 import styles from './BIMViewer.module.css';
-import type { LoadedModel, IfcLoaderConfig } from '../types/bim';
+import type { IfcFragmentModelHandle, LoadedModel, IfcLoaderConfig } from '../types/bim';
+import { BimApplicationProvider } from '../api/BimApplicationProvider';
+import { useBimFacade } from '../api/useBimFacade';
+import { useDocumentServerSync } from '../api/useDocumentServerSync';
 import { Editor } from '../editor/Editor';
 import { SketchMode } from '../editor/sketch/SketchMode';
 import { SpatialTree } from '../ui/SpatialTree';
@@ -16,7 +19,17 @@ const getAssetPath = (path: string): string => {
 
 const sanitizeFilename = (name: string): string => name.replace(/[<>:"/\\|?*]/g, '_');
 
-export const BIMViewer: React.FC = () => {
+export const BIMViewer: React.FC = () => (
+  <BimApplicationProvider>
+    <BIMViewerInner />
+  </BimApplicationProvider>
+);
+
+const DEFAULT_PROJECT_ID = 'default';
+
+const BIMViewerInner: React.FC = () => {
+  const facade = useBimFacade();
+  useDocumentServerSync(facade, DEFAULT_PROJECT_ID);
   const containerRef = useRef<HTMLDivElement>(null);
   const componentsRef = useRef<OBC.Components | null>(null);
   const loadedModelRef = useRef<LoadedModel | null>(null);
@@ -66,6 +79,7 @@ export const BIMViewer: React.FC = () => {
       }
 
       loadedModelRef.current = null;
+      facade.removeIfcElements();
     }
 
     // Dispose lights if they exist
@@ -87,7 +101,7 @@ export const BIMViewer: React.FC = () => {
         console.warn('Error disposing lights:', e);
       }
     }
-  }, []);
+  }, [facade]);
 
   // Complete cleanup function
   const cleanup = useCallback(() => {
@@ -105,13 +119,15 @@ export const BIMViewer: React.FC = () => {
 
     // Dispose 3D resources
     disposeModel();
+    facade.clearDocument();
+    facade.clearRuntime();
 
     // Dispose components
     if (componentsRef.current) {
       componentsRef.current.dispose();
       componentsRef.current = null;
     }
-  }, [disposeModel]);
+  }, [disposeModel, facade]);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -336,6 +352,19 @@ export const BIMViewer: React.FC = () => {
     };
   }, [cleanup]);
 
+  useEffect(() => {
+    facade.setRuntime({
+      scene: viewerComponents.scene,
+      camera: viewerComponents.camera,
+      components: viewerComponents.components,
+    });
+  }, [
+    facade,
+    viewerComponents.scene,
+    viewerComponents.camera,
+    viewerComponents.components,
+  ]);
+
   // File validation
   const validateFile = (file: File): string | null => {
     if (file.size === 0) {
@@ -420,13 +449,28 @@ export const BIMViewer: React.FC = () => {
       // Wait for fragments
       await new Promise((resolve) => setTimeout(resolve, 1000));
 
-      // Store model reference
+      // Store model reference + sync IFC metadata into Document
       if (model.box) {
+        const fm = model as unknown as Partial<IfcFragmentModelHandle> & {
+          object: THREE.Object3D;
+          box: THREE.Box3;
+          modelId?: string;
+        };
+        const fragmentModel: IfcFragmentModelHandle | undefined =
+          typeof fm.getFragmentMap === 'function'
+            ? (fm as IfcFragmentModelHandle)
+            : undefined;
+
+        if (fragmentModel?.properties) {
+          facade.replaceIfcFromProperties(fragmentModel.properties);
+        }
+
         loadedModelRef.current = {
-          id: model.modelId || file.name,
+          id: fm.modelId || file.name,
           name: file.name,
-          object: model.object,
-          box: model.box,
+          object: fm.object,
+          box: fm.box,
+          fragmentModel,
         };
       }
     } catch (err) {
@@ -559,10 +603,11 @@ export const BIMViewer: React.FC = () => {
       )}
 
       {/* Spatial Tree */}
-      {isTreeVisible && viewerComponents.components && loadedModelRef.current && (
+      {isTreeVisible && viewerComponents.components && loadedModelRef.current?.fragmentModel && (
         <SpatialTree
           components={viewerComponents.components}
-          model={loadedModelRef.current.object}
+          fragmentModel={loadedModelRef.current.fragmentModel}
+          rootName={loadedModelRef.current.name}
           onClose={() => setTreeVisible(false)}
         />
       )}

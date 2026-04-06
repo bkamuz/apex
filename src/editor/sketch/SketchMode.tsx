@@ -7,14 +7,21 @@ import { LevelManager } from '../levels/LevelManager';
 import { LevelPanel } from '../levels/LevelPanel';
 import type { SketchToolType, SketchPoint } from './types';
 import type { Level } from '../levels/types';
+import { useBimFacade } from '../../api/useBimFacade';
+import { useViewerStore } from '../../store/useViewerStore';
 import {
   WALL_HEIGHT,
-  WALL_THICKNESS,
+  COLUMN_SIZE,
   BEAM_WIDTH,
   BEAM_HEIGHT,
-  COLUMN_SIZE,
-  SLAB_THICKNESS,
 } from './types';
+import {
+  buildSketchArcWallMesh,
+  buildSketchBeamMesh,
+  buildSketchSlabMesh,
+  buildSketchWallMesh,
+} from './sketchGeometry';
+import type { ApexBeamUserData } from '../beamTypes';
 
 interface SketchModeProps {
   containerRef: React.RefObject<HTMLDivElement>;
@@ -29,12 +36,20 @@ export const SketchMode: React.FC<SketchModeProps> = ({
   camera,
   isActive,
 }) => {
+  const facade = useBimFacade();
   const [activeTool, setActiveTool] = useState<SketchToolType>('select');
   const [snapToGrid, setSnapToGrid] = useState(true);
   const [orthoMode, setOrthoMode] = useState(false);
   const [elevation, setElevation] = useState(0);
   const [isDrawing, setIsDrawing] = useState(false);
-  
+
+  const [beamProfileWidth, setBeamProfileWidth] = useState(BEAM_WIDTH);
+  const [beamProfileHeight, setBeamProfileHeight] = useState(BEAM_HEIGHT);
+  /** Смещение по высоте от активного уровня (м), первая точка сегмента */
+  const [beamOffsetStart, setBeamOffsetStart] = useState(0);
+  /** Смещение по высоте от активного уровня (м), вторая точка сегмента */
+  const [beamOffsetEnd, setBeamOffsetEnd] = useState(0);
+
   // Level system
   const [levels, setLevels] = useState<Level[]>([]);
   const [activeLevelId, setActiveLevelId] = useState<string | null>(null);
@@ -49,7 +64,7 @@ export const SketchMode: React.FC<SketchModeProps> = ({
     if (!isActive || !containerRef.current) return;
 
     sketchManagerRef.current = new SketchManager(scene, camera, { elevation });
-    
+
     // Initialize level manager
     levelManagerRef.current = new LevelManager(scene);
     setLevels(levelManagerRef.current.getAllLevels());
@@ -57,6 +72,7 @@ export const SketchMode: React.FC<SketchModeProps> = ({
     if (firstLevel) {
       setActiveLevelId(firstLevel.id);
       setElevation(firstLevel.elevation);
+      useViewerStore.getState().setActiveLevelId(firstLevel.id);
     }
 
     return () => {
@@ -64,6 +80,18 @@ export const SketchMode: React.FC<SketchModeProps> = ({
       levelManagerRef.current?.dispose();
     };
   }, [isActive, scene, camera, containerRef]);
+
+  useEffect(() => {
+    if (sketchManagerRef.current) {
+      sketchManagerRef.current.snapToGrid = snapToGrid;
+      sketchManagerRef.current.orthoMode = orthoMode;
+    }
+  }, [snapToGrid, orthoMode, isActive]);
+
+  useEffect(() => {
+    if (!isActive) return;
+    facade.applyLevelFilter(activeLevelId);
+  }, [isActive, facade, activeLevelId]);
 
   // Update elevation
   useEffect(() => {
@@ -78,7 +106,8 @@ export const SketchMode: React.FC<SketchModeProps> = ({
     
     levelManagerRef.current.setActiveLevel(levelId);
     setActiveLevelId(levelId);
-    
+    useViewerStore.getState().setActiveLevelId(levelId);
+
     const level = levelManagerRef.current.getLevel(levelId);
     if (level) {
       setElevation(level.elevation);
@@ -107,7 +136,9 @@ export const SketchMode: React.FC<SketchModeProps> = ({
     setLevels(levelManagerRef.current.getAllLevels());
     
     const newActive = levelManagerRef.current.getActiveLevel();
-    setActiveLevelId(newActive?.id || null);
+    const nextId = newActive?.id || null;
+    setActiveLevelId(nextId);
+    useViewerStore.getState().setActiveLevelId(nextId);
     if (newActive) {
       setElevation(newActive.elevation);
     }
@@ -148,70 +179,6 @@ export const SketchMode: React.FC<SketchModeProps> = ({
     sketchManagerRef.current?.startDrawing();
   }, []);
 
-  // Handle mouse move for preview
-  const handleMouseMove = useCallback(
-    (event: MouseEvent) => {
-      if (!isActive || !isDrawing || !sketchManagerRef.current) return;
-      if (activeTool === 'column' || activeTool === 'equipment') return;
-
-      const rect = containerRef.current?.getBoundingClientRect();
-      if (!rect) return;
-
-      mouseRef.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      mouseRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-      const drawMode =
-        activeTool === 'slab' ? 'polyline' : activeTool === 'arcWall' ? 'arc' : 'line';
-      
-      sketchManagerRef.current.updatePreview(mouseRef.current, drawMode);
-    },
-    [isActive, isDrawing, activeTool, containerRef]
-  );
-
-  // Handle click for drawing
-  const handleClick = useCallback(
-    (event: MouseEvent) => {
-      if (!isActive || !isDrawing || !sketchManagerRef.current) return;
-
-      const rect = containerRef.current?.getBoundingClientRect();
-      if (!rect) return;
-
-      mouseRef.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      mouseRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-      // Right click = finish drawing
-      if (event.button === 2) {
-        finishDrawing();
-        return;
-      }
-
-      const point = sketchManagerRef.current.addPoint(mouseRef.current);
-      if (!point) return;
-
-      // Point-based tools (place immediately)
-      if (activeTool === 'column' || activeTool === 'equipment') {
-        createPrimitive([point]);
-        sketchManagerRef.current?.cancelDrawing();
-        setIsDrawing(false);
-        return;
-      }
-
-      // Arc tool needs 3 points
-      if (activeTool === 'arcWall' && sketchManagerRef.current.getPoints().length === 3) {
-        createPrimitive(sketchManagerRef.current.finishDrawing());
-        setIsDrawing(false);
-        return;
-      }
-    },
-    [isActive, isDrawing, activeTool, containerRef]
-  );
-
-  // Prevent context menu
-  const handleContextMenu = useCallback((event: MouseEvent) => {
-    event.preventDefault();
-  }, []);
-
-  // Create primitives from points
   const createPrimitive = useCallback(
     (points: SketchPoint[]) => {
       if (!sketchManagerRef.current || points.length === 0) return;
@@ -221,13 +188,27 @@ export const SketchMode: React.FC<SketchModeProps> = ({
       switch (activeTool) {
         case 'wall':
           if (points.length >= 2) {
-            mesh = createWall(points[0], points[1]);
+            mesh = buildSketchWallMesh(points[0], points[1]);
           }
           break;
 
         case 'beam':
           if (points.length >= 2) {
-            mesh = createBeam(points[0], points[1]);
+            mesh = buildSketchBeamMesh(points[0], points[1], {
+              width: beamProfileWidth,
+              height: beamProfileHeight,
+            });
+            if (mesh) {
+              const levelId = activeLevelId ?? 'level-1';
+              const beamData: ApexBeamUserData = {
+                start: { x: points[0].x, y: points[0].y, z: points[0].z },
+                end: { x: points[1].x, y: points[1].y, z: points[1].z },
+                profile: { width: beamProfileWidth, height: beamProfileHeight },
+                levelId,
+                levelBaseY: elevation,
+              };
+              mesh.userData.apexBeam = beamData;
+            }
           }
           break;
 
@@ -242,13 +223,13 @@ export const SketchMode: React.FC<SketchModeProps> = ({
 
         case 'slab':
           if (points.length >= 3) {
-            mesh = createSlab(points);
+            mesh = buildSketchSlabMesh(points);
           }
           break;
 
         case 'arcWall':
           if (points.length === 3) {
-            mesh = createArcWall(points[0], points[1], points[2]);
+            mesh = buildSketchArcWallMesh(points[0], points[1], points[2]);
           }
           break;
 
@@ -261,146 +242,160 @@ export const SketchMode: React.FC<SketchModeProps> = ({
 
       if (mesh) {
         scene.add(mesh);
+        const levelId = activeLevelId ?? 'level-1';
+        facade.registerNativeMesh(mesh, {
+          category: mesh.name,
+          name: mesh.name,
+          levelId,
+        });
       }
     },
-    [activeTool, scene]
+    [activeTool, scene, facade, activeLevelId, beamProfileWidth, beamProfileHeight, elevation]
   );
 
-  // Create wall between two points
-  const createWall = (p1: SketchPoint, p2: SketchPoint): THREE.Mesh => {
-    const length = Math.sqrt(
-      Math.pow(p2.x - p1.x, 2) + Math.pow(p2.z - p1.z, 2)
-    );
-    const angle = Math.atan2(p2.z - p1.z, p2.x - p1.x);
-
-    const mesh = PrimitiveGenerator.createWall(
-      length,
-      WALL_HEIGHT,
-      WALL_THICKNESS
-    );
-    mesh.position.set(
-      (p1.x + p2.x) / 2,
-      p1.y + WALL_HEIGHT / 2,
-      (p1.z + p2.z) / 2
-    );
-    mesh.rotation.y = -angle;
-    return mesh;
-  };
-
-  // Create beam between two points
-  const createBeam = (p1: SketchPoint, p2: SketchPoint): THREE.Mesh => {
-    const length = Math.sqrt(
-      Math.pow(p2.x - p1.x, 2) + Math.pow(p2.z - p1.z, 2)
-    );
-    const angle = Math.atan2(p2.z - p1.z, p2.x - p1.x);
-
-    const mesh = PrimitiveGenerator.createBeam(
-      BEAM_WIDTH,
-      BEAM_HEIGHT,
-      length
-    );
-    mesh.position.set(
-      (p1.x + p2.x) / 2,
-      p1.y + WALL_HEIGHT, // At wall top
-      (p1.z + p2.z) / 2
-    );
-    mesh.rotation.y = -angle;
-    return mesh;
-  };
-
-  // Create slab from polygon points
-  const createSlab = (points: SketchPoint[]): THREE.Mesh => {
-    // Calculate center
-    const center = points.reduce(
-      (acc, p) => ({
-        x: acc.x + p.x / points.length,
-        y: acc.y + p.y / points.length,
-        z: acc.z + p.z / points.length,
-      }),
-      { x: 0, y: 0, z: 0 }
-    );
-
-    // Create shape in XZ plane
-    const shape = new THREE.Shape();
-    points.forEach((p, i) => {
-      const x = p.x - center.x;
-      const z = p.z - center.z;
-      if (i === 0) {
-        shape.moveTo(x, z);
-      } else {
-        shape.lineTo(x, z);
-      }
-    });
-    shape.closePath();
-
-    const geometry = new THREE.ExtrudeGeometry(shape, {
-      depth: SLAB_THICKNESS,
-      bevelEnabled: false,
-    });
-
-    const material = new THREE.MeshStandardMaterial({ color: 0x808080 });
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.position.set(center.x, center.y, center.z);
-    mesh.name = 'IfcSlab';
-    mesh.rotation.x = Math.PI / 2;
-
-    return mesh;
-  };
-
-  // Create arc wall from 3 points
-  const createArcWall = (
-    p1: SketchPoint,
-    p2: SketchPoint,
-    _p3: SketchPoint
-  ): THREE.Mesh => {
-    // Simple arc approximation
-    const radius = Math.sqrt(
-      Math.pow(p2.x - p1.x, 2) + Math.pow(p2.z - p1.z, 2)
-    );
-    const arc = new THREE.EllipseCurve(
-      p1.x,
-      p1.z,
-      radius,
-      radius,
-      0,
-      Math.PI / 2,
-      false,
-      0
-    );
-    const points = arc.getPoints(20);
-    const shape = new THREE.Shape();
-    shape.moveTo(points[0].x, points[0].y);
-    points.forEach((p) => shape.lineTo(p.x, p.y));
-
-    const geometry = new THREE.ExtrudeGeometry(shape, {
-      depth: WALL_HEIGHT,
-      bevelEnabled: false,
-    });
-
-    const material = new THREE.MeshStandardMaterial({ color: 0xd3d3d3 });
-    const mesh = new THREE.Mesh(geometry, material);
-    mesh.position.set(0, p1.y, 0);
-    mesh.name = 'IfcWall';
-    mesh.rotation.x = Math.PI / 2;
-
-    return mesh;
-  };
-
-  // Finish drawing
   const finishDrawing = useCallback(() => {
     if (!sketchManagerRef.current) return;
+
+    if (activeTool === 'wall' || activeTool === 'beam') {
+      const pts = sketchManagerRef.current.getPoints();
+      if (pts.length >= 2) {
+        createPrimitive([pts[pts.length - 2], pts[pts.length - 1]]);
+      }
+      sketchManagerRef.current.finishDrawing();
+      setIsDrawing(false);
+      return;
+    }
 
     const points = sketchManagerRef.current.finishDrawing();
     if (points.length > 0) {
       createPrimitive(points);
     }
     setIsDrawing(false);
-  }, [createPrimitive]);
+  }, [createPrimitive, activeTool]);
+
+  const handleMouseMove = useCallback(
+    (event: MouseEvent) => {
+      if (!isActive || !isDrawing || !sketchManagerRef.current) return;
+      if (activeTool === 'column' || activeTool === 'equipment') return;
+
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+
+      mouseRef.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      mouseRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+      if (activeTool === 'wall') {
+        sketchManagerRef.current.updateWallBeamPreview(mouseRef.current, 'wall');
+      } else if (activeTool === 'beam') {
+        sketchManagerRef.current.updateWallBeamPreview(mouseRef.current, 'beam', {
+          profile: { width: beamProfileWidth, height: beamProfileHeight },
+          endY: elevation + beamOffsetEnd,
+        });
+      } else {
+        const drawMode =
+          activeTool === 'slab' ? 'polyline' : activeTool === 'arcWall' ? 'arc' : 'line';
+        sketchManagerRef.current.updatePreview(mouseRef.current, drawMode);
+      }
+    },
+    [
+      isActive,
+      isDrawing,
+      activeTool,
+      containerRef,
+      elevation,
+      beamProfileWidth,
+      beamProfileHeight,
+      beamOffsetEnd,
+    ]
+  );
+
+  const handleClick = useCallback(
+    (event: MouseEvent) => {
+      if (!isActive || !isDrawing || !sketchManagerRef.current) return;
+
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+
+      mouseRef.current.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      mouseRef.current.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+      if (event.button === 2) {
+        finishDrawing();
+        return;
+      }
+
+      if (activeTool === 'column' || activeTool === 'equipment') {
+        const point = sketchManagerRef.current.addPoint(mouseRef.current);
+        if (!point) return;
+        createPrimitive([point]);
+        sketchManagerRef.current?.cancelDrawing();
+        setIsDrawing(false);
+        return;
+      }
+
+      if (activeTool === 'wall') {
+        const point = sketchManagerRef.current.addPoint(mouseRef.current);
+        if (!point) return;
+        const pts = sketchManagerRef.current.getPoints();
+        if (pts.length >= 2) {
+          createPrimitive([pts[pts.length - 2], pts[pts.length - 1]]);
+          sketchManagerRef.current.trimPolylineToLastVertex();
+        }
+        return;
+      }
+
+      if (activeTool === 'beam') {
+        const n = sketchManagerRef.current.getPoints().length;
+        const yWorld = elevation + (n === 0 ? beamOffsetStart : beamOffsetEnd);
+        const point = sketchManagerRef.current.addPoint(mouseRef.current, {
+          overrideY: yWorld,
+        });
+        if (!point) return;
+        const pts = sketchManagerRef.current.getPoints();
+        if (pts.length >= 2) {
+          createPrimitive([pts[pts.length - 2], pts[pts.length - 1]]);
+          sketchManagerRef.current.trimPolylineToLastVertex();
+        }
+        return;
+      }
+
+      const point = sketchManagerRef.current.addPoint(mouseRef.current);
+      if (!point) return;
+
+      if (activeTool === 'arcWall' && sketchManagerRef.current.getPoints().length === 3) {
+        createPrimitive(sketchManagerRef.current.finishDrawing());
+        setIsDrawing(false);
+        return;
+      }
+    },
+    [
+      isActive,
+      isDrawing,
+      activeTool,
+      containerRef,
+      createPrimitive,
+      finishDrawing,
+      elevation,
+      beamOffsetStart,
+      beamOffsetEnd,
+    ]
+  );
+
+  const handleContextMenu = useCallback((event: MouseEvent) => {
+    event.preventDefault();
+  }, []);
 
   // Cancel drawing
   const handleCancel = useCallback(() => {
     sketchManagerRef.current?.cancelDrawing();
     setIsDrawing(false);
+  }, []);
+
+  /** Esc: отменить чертёж и выйти из инструмента в «выбор» */
+  const resetToSelectTool = useCallback(() => {
+    sketchManagerRef.current?.cancelDrawing();
+    setIsDrawing(false);
+    setActiveTool('select');
   }, []);
 
   // Confirm/Finish
@@ -439,6 +434,23 @@ export const SketchMode: React.FC<SketchModeProps> = ({
     };
   }, [isActive, handleMouseMove, handleClick, handleContextMenu]);
 
+  useEffect(() => {
+    if (!isActive) return;
+
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      const el = e.target as HTMLElement | null;
+      if (el?.closest('input, textarea, select, [contenteditable="true"]')) {
+        return;
+      }
+      e.preventDefault();
+      resetToSelectTool();
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [isActive, resetToSelectTool]);
+
   if (!isActive) return null;
 
   return (
@@ -455,6 +467,14 @@ export const SketchMode: React.FC<SketchModeProps> = ({
         isDrawing={isDrawing}
         onCancel={handleCancel}
         onConfirm={handleConfirm}
+        beamProfileWidth={beamProfileWidth}
+        beamProfileHeight={beamProfileHeight}
+        beamOffsetStart={beamOffsetStart}
+        beamOffsetEnd={beamOffsetEnd}
+        onBeamProfileWidthChange={setBeamProfileWidth}
+        onBeamProfileHeightChange={setBeamProfileHeight}
+        onBeamOffsetStartChange={setBeamOffsetStart}
+        onBeamOffsetEndChange={setBeamOffsetEnd}
       />
       
       <LevelPanel

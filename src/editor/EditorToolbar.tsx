@@ -1,6 +1,18 @@
 import React from 'react';
 import styles from './EditorToolbar.module.css';
 import type { ToolType, BooleanOperationType, SelectedObject } from './types';
+import { isApexBeamMesh } from './beamTypes';
+
+export type BeamApexUpdatePayload = {
+  startOffsetFromLevel?: number;
+  endOffsetFromLevel?: number;
+  startX?: number;
+  startZ?: number;
+  endX?: number;
+  endZ?: number;
+  profileWidth?: number;
+  profileHeight?: number;
+};
 
 interface EditorToolbarProps {
   activeTool: ToolType;
@@ -8,8 +20,10 @@ interface EditorToolbarProps {
   onBooleanOperation: (operation: BooleanOperationType) => void;
   onCreatePrimitive: (type: string) => void;
   selectedObject: SelectedObject | null;
-  onPropertyChange: (key: string, value: any) => void;
+  onPropertyChange: (key: string, value: number) => void;
   canBoolean: boolean;
+  beamEditEndpoint?: 'start' | 'end' | null;
+  onBeamApexUpdate?: (u: BeamApexUpdatePayload) => void;
 }
 
 export const EditorToolbar: React.FC<EditorToolbarProps> = ({
@@ -20,7 +34,13 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
   selectedObject,
   onPropertyChange,
   canBoolean,
+  beamEditEndpoint,
+  onBeamApexUpdate,
 }) => {
+  const parametricBeam =
+    selectedObject != null && isApexBeamMesh(selectedObject.object);
+  const beamData = parametricBeam ? selectedObject.object.userData.apexBeam : null;
+
   return (
     <>
       <div className={styles.editorToolbar}>
@@ -36,18 +56,36 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
           <button
             className={`${styles.toolButton} ${activeTool === 'move' ? styles.active : ''}`}
             onClick={() => onToolChange('move')}
+            disabled={parametricBeam}
+            title={
+              parametricBeam
+                ? 'Move disabled: edit beam endpoints in the property panel'
+                : undefined
+            }
           >
             <MoveIcon /> Move
           </button>
           <button
             className={`${styles.toolButton} ${activeTool === 'rotate' ? styles.active : ''}`}
             onClick={() => onToolChange('rotate')}
+            disabled={parametricBeam}
+            title={
+              parametricBeam
+                ? 'Rotate disabled for sketch beams'
+                : undefined
+            }
           >
             <RotateIcon /> Rotate
           </button>
           <button
             className={`${styles.toolButton} ${activeTool === 'scale' ? styles.active : ''}`}
             onClick={() => onToolChange('scale')}
+            disabled={parametricBeam}
+            title={
+              parametricBeam
+                ? 'Scale disabled for sketch beams'
+                : undefined
+            }
           >
             <ScaleIcon /> Scale
           </button>
@@ -138,42 +176,180 @@ export const EditorToolbar: React.FC<EditorToolbarProps> = ({
             <span className={styles.propertyLabel}>ID</span>
             <span className={styles.propertyValue}>{selectedObject.id.slice(0, 8)}...</span>
           </div>
-          <div className={styles.propertyRow}>
-            <span className={styles.propertyLabel}>Position X</span>
-            <span className={styles.propertyValue}>
-              <input
-                type="number"
-                value={selectedObject.object.position.x.toFixed(2)}
-                onChange={(e) =>
-                  onPropertyChange('position.x', parseFloat(e.target.value))
-                }
-              />
-            </span>
-          </div>
-          <div className={styles.propertyRow}>
-            <span className={styles.propertyLabel}>Position Y</span>
-            <span className={styles.propertyValue}>
-              <input
-                type="number"
-                value={selectedObject.object.position.y.toFixed(2)}
-                onChange={(e) =>
-                  onPropertyChange('position.y', parseFloat(e.target.value))
-                }
-              />
-            </span>
-          </div>
-          <div className={styles.propertyRow}>
-            <span className={styles.propertyLabel}>Position Z</span>
-            <span className={styles.propertyValue}>
-              <input
-                type="number"
-                value={selectedObject.object.position.z.toFixed(2)}
-                onChange={(e) =>
-                  onPropertyChange('position.z', parseFloat(e.target.value))
-                }
-              />
-            </span>
-          </div>
+
+          {beamData && onBeamApexUpdate ? (
+            <>
+              <div className={styles.propertyRow}>
+                <span className={styles.propertyLabel}>Beam</span>
+                <span className={styles.propertyValue} style={{ fontSize: 12, opacity: 0.85 }}>
+                  {beamEditEndpoint === 'start'
+                    ? 'Editing start (green)'
+                    : beamEditEndpoint === 'end'
+                      ? 'Editing end (orange)'
+                      : 'Click a gizmo sphere or edit below'}
+                </span>
+              </div>
+              <div className={styles.propertyRow}>
+                <span className={styles.propertyLabel}>Level base Y</span>
+                <span className={styles.propertyValue}>
+                  {beamData.levelBaseY.toFixed(3)} m (at creation)
+                </span>
+              </div>
+              <div className={styles.propertyRow}>
+                <span className={styles.propertyLabel}>Start ↑ from level</span>
+                <span className={styles.propertyValue}>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={(beamData.start.y - beamData.levelBaseY).toFixed(3)}
+                    onChange={(e) =>
+                      onBeamApexUpdate({
+                        startOffsetFromLevel: parseFloat(e.target.value),
+                      })
+                    }
+                  />
+                </span>
+              </div>
+              <div className={styles.propertyRow}>
+                <span className={styles.propertyLabel}>End ↑ from level</span>
+                <span className={styles.propertyValue}>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={(beamData.end.y - beamData.levelBaseY).toFixed(3)}
+                    onChange={(e) =>
+                      onBeamApexUpdate({
+                        endOffsetFromLevel: parseFloat(e.target.value),
+                      })
+                    }
+                  />
+                </span>
+              </div>
+              <div className={styles.propertyRow}>
+                <span className={styles.propertyLabel}>Start X</span>
+                <span className={styles.propertyValue}>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={beamData.start.x.toFixed(3)}
+                    onChange={(e) =>
+                      onBeamApexUpdate({ startX: parseFloat(e.target.value) })
+                    }
+                  />
+                </span>
+              </div>
+              <div className={styles.propertyRow}>
+                <span className={styles.propertyLabel}>Start Z</span>
+                <span className={styles.propertyValue}>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={beamData.start.z.toFixed(3)}
+                    onChange={(e) =>
+                      onBeamApexUpdate({ startZ: parseFloat(e.target.value) })
+                    }
+                  />
+                </span>
+              </div>
+              <div className={styles.propertyRow}>
+                <span className={styles.propertyLabel}>End X</span>
+                <span className={styles.propertyValue}>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={beamData.end.x.toFixed(3)}
+                    onChange={(e) =>
+                      onBeamApexUpdate({ endX: parseFloat(e.target.value) })
+                    }
+                  />
+                </span>
+              </div>
+              <div className={styles.propertyRow}>
+                <span className={styles.propertyLabel}>End Z</span>
+                <span className={styles.propertyValue}>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={beamData.end.z.toFixed(3)}
+                    onChange={(e) =>
+                      onBeamApexUpdate({ endZ: parseFloat(e.target.value) })
+                    }
+                  />
+                </span>
+              </div>
+              <div className={styles.propertyRow}>
+                <span className={styles.propertyLabel}>Profile width</span>
+                <span className={styles.propertyValue}>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min={0.01}
+                    value={beamData.profile.width.toFixed(3)}
+                    onChange={(e) =>
+                      onBeamApexUpdate({
+                        profileWidth: parseFloat(e.target.value),
+                      })
+                    }
+                  />
+                </span>
+              </div>
+              <div className={styles.propertyRow}>
+                <span className={styles.propertyLabel}>Profile height</span>
+                <span className={styles.propertyValue}>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min={0.01}
+                    value={beamData.profile.height.toFixed(3)}
+                    onChange={(e) =>
+                      onBeamApexUpdate({
+                        profileHeight: parseFloat(e.target.value),
+                      })
+                    }
+                  />
+                </span>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className={styles.propertyRow}>
+                <span className={styles.propertyLabel}>Position X</span>
+                <span className={styles.propertyValue}>
+                  <input
+                    type="number"
+                    value={selectedObject.object.position.x.toFixed(2)}
+                    onChange={(e) =>
+                      onPropertyChange('position.x', parseFloat(e.target.value))
+                    }
+                  />
+                </span>
+              </div>
+              <div className={styles.propertyRow}>
+                <span className={styles.propertyLabel}>Position Y</span>
+                <span className={styles.propertyValue}>
+                  <input
+                    type="number"
+                    value={selectedObject.object.position.y.toFixed(2)}
+                    onChange={(e) =>
+                      onPropertyChange('position.y', parseFloat(e.target.value))
+                    }
+                  />
+                </span>
+              </div>
+              <div className={styles.propertyRow}>
+                <span className={styles.propertyLabel}>Position Z</span>
+                <span className={styles.propertyValue}>
+                  <input
+                    type="number"
+                    value={selectedObject.object.position.z.toFixed(2)}
+                    onChange={(e) =>
+                      onPropertyChange('position.z', parseFloat(e.target.value))
+                    }
+                  />
+                </span>
+              </div>
+            </>
+          )}
         </div>
       ) : (
         <div className={styles.propertyPanel}>

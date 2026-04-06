@@ -14,6 +14,16 @@ function isManifoldNodeModuleWarning(warning: RollupLog): boolean {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react()],
+  server: {
+    // Слушаем все интерфейсы — доступ с телефона/другого ПК в LAN (http://<IP>:5173)
+    host: true,
+    proxy: {
+      '/api': {
+        target: 'http://127.0.0.1:8787',
+        changeOrigin: true,
+      },
+    },
+  },
   build: {
     // Основной бандл (ThatOpen / viewer) заведомо > 500 kB — порог только для отчёта Rollup
     chunkSizeWarningLimit: 6000,

@@ -14,6 +14,15 @@ interface SketchToolbarProps {
   isDrawing: boolean;
   onCancel: () => void;
   onConfirm: () => void;
+  /** Параметры балки: профиль (м) и смещение по высоте от активного уровня (м) у начала/конца сегмента */
+  beamProfileWidth: number;
+  beamProfileHeight: number;
+  beamOffsetStart: number;
+  beamOffsetEnd: number;
+  onBeamProfileWidthChange: (v: number) => void;
+  onBeamProfileHeightChange: (v: number) => void;
+  onBeamOffsetStartChange: (v: number) => void;
+  onBeamOffsetEndChange: (v: number) => void;
 }
 
 export const SketchToolbar: React.FC<SketchToolbarProps> = ({
@@ -28,6 +37,14 @@ export const SketchToolbar: React.FC<SketchToolbarProps> = ({
   isDrawing,
   onCancel,
   onConfirm,
+  beamProfileWidth,
+  beamProfileHeight,
+  beamOffsetStart,
+  beamOffsetEnd,
+  onBeamProfileWidthChange,
+  onBeamProfileHeightChange,
+  onBeamOffsetStartChange,
+  onBeamOffsetEndChange,
 }) => {
   return (
     <div className={styles.sketchToolbar}>
@@ -75,6 +92,58 @@ export const SketchToolbar: React.FC<SketchToolbarProps> = ({
           <ArcIcon /> Arc Wall
         </button>
       </div>
+
+      {activeTool === 'beam' && (
+        <div className={styles.toolbarSection}>
+          <div className={styles.toolbarSectionTitle}>Beam profile and height</div>
+          <label className={styles.beamParamLabel}>
+            Section width (m)
+            <input
+              type="number"
+              min={0.05}
+              step={0.01}
+              value={beamProfileWidth}
+              onChange={(e) =>
+                onBeamProfileWidthChange(Math.max(0.05, parseFloat(e.target.value) || 0.05))
+              }
+            />
+          </label>
+          <label className={styles.beamParamLabel}>
+            Section height (m)
+            <input
+              type="number"
+              min={0.05}
+              step={0.01}
+              value={beamProfileHeight}
+              onChange={(e) =>
+                onBeamProfileHeightChange(Math.max(0.05, parseFloat(e.target.value) || 0.05))
+              }
+            />
+          </label>
+          <label className={styles.beamParamLabel}>
+            Start point ↑ from level (m)
+            <input
+              type="number"
+              step={0.05}
+              value={beamOffsetStart}
+              onChange={(e) => onBeamOffsetStartChange(parseFloat(e.target.value) || 0)}
+            />
+          </label>
+          <label className={styles.beamParamLabel}>
+            End point ↑ from level (m)
+            <input
+              type="number"
+              step={0.05}
+              value={beamOffsetEnd}
+              onChange={(e) => onBeamOffsetEndChange(parseFloat(e.target.value) || 0)}
+            />
+          </label>
+          <div className={styles.beamHint}>
+            Two clicks per segment like Wall. Heights apply to the next start/end click; chain
+            continues from the last end.
+          </div>
+        </div>
+      )}
 
       {/* Placement Tools */}
       <div className={styles.toolbarSection}>
@@ -148,8 +217,9 @@ function getHelpText(tool: SketchToolType, isDrawing: boolean): string {
   if (!isDrawing) {
     switch (tool) {
       case 'wall':
-      case 'beam':
         return 'Click to start, click to add points, right-click or "Finish" to complete';
+      case 'beam':
+        return 'Two points per segment (like Wall). Set profile and ↑ from level, then click start / end';
       case 'slab':
         return 'Click to add points (min 3), "Finish" to complete polygon';
       case 'column':
@@ -158,11 +228,11 @@ function getHelpText(tool: SketchToolType, isDrawing: boolean): string {
       case 'arcWall':
         return 'Click start, click end, click for arc height';
       default:
-        return 'Select a tool to start drawing';
+        return 'Select a tool to start drawing · Esc exits the current tool';
     }
   }
-  
-  return 'Continue drawing or click "Finish"';
+
+  return 'Continue drawing, Finish, or Esc to cancel the tool';
 }
 
 // Icons
