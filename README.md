@@ -39,6 +39,14 @@ cd apps/web && npm install && npm run dev
 
 Open http://localhost:5173
 
+### Live demo (GitHub Pages)
+
+After merging to `main` and enabling Pages (Settings → Pages → **GitHub Actions**), the app is at:
+
+**https://bkamuz.github.io/apex/**
+
+Each push to `main` redeploys automatically via `.github/workflows/deploy-pages.yml`.
+
 ### Demo
 
 1. Tool **Wall** is active by default.
