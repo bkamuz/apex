@@ -1,0 +1,12 @@
+[package]
+name = "apex-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Apex BIM document model: elements, levels, parameters"
+
+[dependencies]
+glam = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }

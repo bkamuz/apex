@@ -1,0 +1,17 @@
+{
+  "name": "apex-wasm",
+  "type": "module",
+  "description": "WASM bindings for the Apex BIM core",
+  "version": "0.1.0",
+  "license": "MIT",
+  "files": [
+    "apex_wasm_bg.wasm",
+    "apex_wasm.js",
+    "apex_wasm.d.ts"
+  ],
+  "main": "apex_wasm.js",
+  "types": "apex_wasm.d.ts",
+  "sideEffects": [
+    "./snippets/*"
+  ]
+}

@@ -1,0 +1,24 @@
+[package]
+name = "apex-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "WASM bindings for the Apex BIM core"
+
+[lib]
+name = "apex_wasm"
+path = "src/lib.rs"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+apex-core = { workspace = true }
+apex-geometry = { workspace = true }
+console_error_panic_hook = { workspace = true }
+getrandom = { workspace = true }
+glam = { workspace = true }
+js-sys = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde-wasm-bindgen = "0.6"
+uuid = { workspace = true }
+wasm-bindgen = { workspace = true }
