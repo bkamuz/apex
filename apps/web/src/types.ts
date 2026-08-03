@@ -29,6 +29,7 @@ export interface SceneDto {
   normals: Float32Array | number[];
   indices: Uint32Array | number[];
   pick_ids: Float64Array | number[];
+  edge_positions?: Float32Array | number[];
   elements: ElementListDto[];
   version: number;
   selected_id: string | null;

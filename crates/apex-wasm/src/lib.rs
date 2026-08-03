@@ -40,6 +40,8 @@ struct SceneDto {
     indices: Vec<u32>,
     /// Pick id per triangle.
     pick_ids: Vec<f64>,
+    /// CAD edge segments: consecutive xyz pairs.
+    edge_positions: Vec<f32>,
     elements: Vec<ElementListDto>,
     version: u64,
     selected_id: Option<String>,
@@ -98,6 +100,7 @@ fn scene_dto(doc: &Document, selected: Option<ElementId>) -> SceneDto {
         normals: buffers.normals,
         indices: buffers.indices,
         pick_ids: buffers.pick_ids.iter().map(|id| *id as f64).collect(),
+        edge_positions: buffers.edge_positions,
         elements: buffers
             .elements
             .iter()

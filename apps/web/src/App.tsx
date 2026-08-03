@@ -9,13 +9,19 @@ import {
   apexSetWallParams,
   initApex,
 } from './wasm/apex';
-import { ViewportRenderer } from './viewport/ViewportRenderer';
+import {
+  GRID_STEP,
+  orthoConstrain,
+  snapPointToGrid,
+  ViewportRenderer,
+} from './viewport/ViewportRenderer';
 import type { ElementDto, ElementListDto, SceneDto, ToolMode } from './types';
 import { ElementTree } from './components/ElementTree';
 import { PropertiesPanel } from './components/PropertiesPanel';
 
 const DEFAULT_HEIGHT = 3;
 const DEFAULT_THICKNESS = 0.2;
+const MIN_WALL_LENGTH = 0.1;
 
 function toFloatArray(data: ArrayLike<number> | number[]): Float32Array {
   return data instanceof Float32Array ? data : new Float32Array(data);
@@ -31,10 +37,17 @@ function selectedPickId(scene: SceneDto): number | null {
   return hit ? hit.pick_id : null;
 }
 
+function planLength(a: [number, number, number], b: [number, number, number]): number {
+  const dx = b[0] - a[0];
+  const dz = b[2] - a[2];
+  return Math.hypot(dx, dz);
+}
+
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<ViewportRenderer | null>(null);
   const wallStartRef = useRef<[number, number, number] | null>(null);
+  const shiftHeldRef = useRef(false);
 
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -43,7 +56,7 @@ export default function App() {
   const [selected, setSelected] = useState<ElementDto | null>(null);
   const [pendingStart, setPendingStart] = useState<[number, number, number] | null>(null);
 
-  const applyScene = useCallback(async (next: SceneDto) => {
+  const applyScene = useCallback((next: SceneDto, fitCamera = false) => {
     setScene(next);
     const renderer = rendererRef.current;
     if (renderer) {
@@ -52,24 +65,35 @@ export default function App() {
         normals: toFloatArray(next.normals),
         indices: toUint32Array(next.indices),
         pickIds: next.pick_ids,
+        edgePositions: next.edge_positions ? toFloatArray(next.edge_positions) : [],
         selectedPickId: selectedPickId(next),
+        fitCamera,
       });
+      renderer.setPreviewLine(null, null);
     }
-    const sel = await apexGetSelected();
-    setSelected(sel);
+    setSelected(apexGetSelected());
   }, []);
 
   const cancelWall = useCallback(() => {
     wallStartRef.current = null;
     setPendingStart(null);
+    rendererRef.current?.setPreviewLine(null, null);
   }, []);
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
+    const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') cancelWall();
+      if (e.key === 'Shift') shiftHeldRef.current = true;
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') shiftHeldRef.current = false;
+    };
+    window.addEventListener('keydown', onKeyDown);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('keyup', onKeyUp);
+    };
   }, [cancelWall]);
 
   useEffect(() => {
@@ -81,9 +105,9 @@ export default function App() {
         const canvas = canvasRef.current;
         if (!canvas) return;
         rendererRef.current = new ViewportRenderer(canvas);
-        const initial = await apexGetScene();
+        const initial = apexGetScene();
         if (!cancelled) {
-          await applyScene(initial);
+          applyScene(initial, false);
           setReady(true);
         }
       } catch (e) {
@@ -100,39 +124,73 @@ export default function App() {
 
   const elements: ElementListDto[] = useMemo(() => scene?.elements ?? [], [scene]);
 
-  const onCanvasClick = async (e: React.MouseEvent<HTMLCanvasElement>) => {
+  const resolveGroundPoint = (
+    renderer: ViewportRenderer,
+    clientX: number,
+    clientY: number,
+    shiftOrtho: boolean,
+  ): [number, number, number] | null => {
+    const raw = renderer.screenToGround(clientX, clientY, 0);
+    if (!raw) return null;
+    let point = snapPointToGrid(raw, GRID_STEP);
+    if (shiftOrtho && wallStartRef.current) {
+      point = snapPointToGrid(orthoConstrain(wallStartRef.current, point), GRID_STEP);
+    }
+    return point;
+  };
+
+  const onCanvasPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!ready || !rendererRef.current || tool !== 'wall' || !wallStartRef.current) return;
+    const end = resolveGroundPoint(
+      rendererRef.current,
+      e.clientX,
+      e.clientY,
+      e.shiftKey || shiftHeldRef.current,
+    );
+    if (!end) return;
+    rendererRef.current.setPreviewLine(wallStartRef.current, end);
+  };
+
+  const onCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!ready || !rendererRef.current) return;
-    if (e.button !== 0 || e.shiftKey) return;
+    if (e.button !== 0) return;
 
     const renderer = rendererRef.current;
 
     if (tool === 'select') {
       const pick = renderer.pick(e.clientX, e.clientY);
       if (pick == null) {
-        await applyScene(await apexSelectElement(null));
+        applyScene(apexSelectElement(null), false);
       } else {
-        await applyScene(await apexPickById(pick));
+        applyScene(apexPickById(pick), false);
       }
       return;
     }
 
     if (tool === 'wall') {
-      const point = renderer.screenToGround(e.clientX, e.clientY, 0);
+      const point = resolveGroundPoint(renderer, e.clientX, e.clientY, e.shiftKey);
       if (!point) return;
 
       if (!wallStartRef.current) {
         wallStartRef.current = point;
         setPendingStart(point);
+        renderer.setPreviewLine(point, point);
         return;
       }
 
       const start = wallStartRef.current;
       const end = point;
+      if (planLength(start, end) < MIN_WALL_LENGTH) {
+        setError(`Wall too short (min ${MIN_WALL_LENGTH} m). Click a farther grid point.`);
+        return;
+      }
+
       wallStartRef.current = null;
       setPendingStart(null);
+      setError(null);
 
       try {
-        const next = await apexCreateWall(
+        const next = apexCreateWall(
           start[0],
           start[1],
           start[2],
@@ -142,44 +200,45 @@ export default function App() {
           DEFAULT_HEIGHT,
           DEFAULT_THICKNESS,
         );
-        await applyScene(next);
+        applyScene(next, true);
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       }
     }
   };
 
-  const onSelectFromTree = async (id: string) => {
+  const onSelectFromTree = (id: string) => {
     setTool('select');
-    await applyScene(await apexSelectElement(id));
+    cancelWall();
+    applyScene(apexSelectElement(id), false);
   };
 
-  const onUpdateWall = async (patch: {
+  const onUpdateWall = (patch: {
     height: number;
     thickness: number;
     start: [number, number, number];
     end: [number, number, number];
   }) => {
     if (!selected) return;
-    const next = await apexSetWallParams(
+    const next = apexSetWallParams(
       selected.id,
       patch.height,
       patch.thickness,
       patch.start,
       patch.end,
     );
-    await applyScene(next);
+    applyScene(next, true);
   };
 
-  const onDelete = async () => {
-    await applyScene(await apexDeleteSelected());
+  const onDelete = () => {
+    applyScene(apexDeleteSelected(), true);
   };
 
   return (
     <div className="app">
       <header className="topbar">
         <div className="brand">
-          APEX <span>BIM</span>
+          APEX <span>BIT</span>
         </div>
         <div className="tools">
           <button
@@ -203,9 +262,9 @@ export default function App() {
         <div className="hint">
           {tool === 'wall'
             ? pendingStart
-              ? 'Click end point · Esc cancel'
-              : 'Click start point on grid'
-            : 'Click to select · Drag RMB orbit · Shift pan · Wheel zoom'}
+              ? 'Click end · Shift ortho · Esc cancel · snap 1 m'
+              : 'Click start on grid · snap 1 m'
+            : 'Click select · RMB orbit · Alt+RMB pan · Wheel zoom'}
         </div>
       </header>
 
@@ -221,10 +280,12 @@ export default function App() {
       <div className="viewport-wrap">
         {!ready && !error && <div className="loading">Loading Apex core…</div>}
         {error && <div className="error-banner">{error}</div>}
-        <canvas ref={canvasRef} onClick={onCanvasClick} />
-        <div className="viewport-badge">
-          WebGL2 · Rust/WASM · v{scene?.version ?? 0}
-        </div>
+        <canvas
+          ref={canvasRef}
+          onClick={onCanvasClick}
+          onPointerMove={onCanvasPointerMove}
+        />
+        <div className="viewport-badge">WebGL2 · Rust/WASM · v{scene?.version ?? 0}</div>
       </div>
 
       <aside className="inspector">
