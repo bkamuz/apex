@@ -14,6 +14,7 @@ import {
   orthoConstrain,
   snapPointToGrid,
   ViewportRenderer,
+  wallPlacementCenter,
 } from './viewport/ViewportRenderer';
 import { buildWallSolid } from './viewport/wallMesh';
 import type { ElementDto, ElementListDto, SceneDto, ToolMode } from './types';
@@ -52,6 +53,7 @@ export default function App() {
   const wallStartRef = useRef<[number, number, number] | null>(null);
   const shiftHeldRef = useRef(false);
   const selectedRef = useRef<ElementDto | null>(null);
+  const orbitSelIdRef = useRef<string | null>(null);
   const handleDragRef = useRef<{
     which: HandleWhich;
     start: [number, number, number];
@@ -74,8 +76,15 @@ export default function App() {
     if (!renderer) return;
     if (el?.category === 'wall' && el.start && el.end) {
       renderer.setEditGizmo(el.start, el.end);
+      const center = wallPlacementCenter(el.start, el.end);
+      const idChanged = el.id !== orbitSelIdRef.current;
+      orbitSelIdRef.current = el.id;
+      // New selection: retarget without eye jump. Same wall edit: only refresh pivot.
+      renderer.setOrbitPivot(center, idChanged);
     } else {
+      orbitSelIdRef.current = null;
       renderer.setEditGizmo(null, null);
+      renderer.setOrbitPivot(null);
     }
   }, []);
 
@@ -148,7 +157,9 @@ export default function App() {
     try {
       applyScene(apexSelectElement(null), false);
     } catch {
+      orbitSelIdRef.current = null;
       rendererRef.current?.setEditGizmo(null, null);
+      rendererRef.current?.setOrbitPivot(null);
       setSelected(null);
     }
   }, [applyScene, cancelWall]);
@@ -283,6 +294,7 @@ export default function App() {
       drag.start = start;
       drag.end = end;
       renderer.setEditGizmo(start, end);
+      renderer.setOrbitPivot(wallPlacementCenter(start, end), false);
       // Live-update solid via WASM so the wall follows the handle.
       if (planLength(start, end) >= MIN_WALL_LENGTH) {
         try {
@@ -459,7 +471,7 @@ export default function App() {
               ? 'Click end · Shift snap+ortho · Esc clears'
               : 'Click start · Shift snap to 1 m grid · Esc clears'
             : selected?.category === 'wall'
-              ? 'Drag orange endpoints · Shift snap+ortho · Esc clears selection'
+              ? 'Drag endpoints · RMB orbits selection · Esc clears'
               : 'Click select · RMB orbit · Esc clears · Wheel zoom'}
         </div>
       </header>

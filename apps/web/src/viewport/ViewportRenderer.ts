@@ -24,6 +24,18 @@ const GRID_DEFAULT_HALF = 20;
 /** Orbit pitch clamp (radians). Symmetric so the camera can go under the model. */
 const PITCH_LIMIT = 1.45; // ~83°, keeps cos(pitch) away from 0
 
+/** Center of a wall on its placement plane (XZ at base Y), not mid-height. */
+export function wallPlacementCenter(
+  start: [number, number, number],
+  end: [number, number, number],
+): [number, number, number] {
+  return [
+    (start[0] + end[0]) * 0.5,
+    Math.min(start[1], end[1]),
+    (start[2] + end[2]) * 0.5,
+  ];
+}
+
 const VERT = `#version 300 es
 precision highp float;
 layout(location=0) in vec3 aPos;
@@ -359,6 +371,8 @@ export class ViewportRenderer {
   };
   private sceneExtent = 10;
   private selectedPickId: number | null = null;
+  /** When set, RMB orbit locks the look-at to this placement-plane point. */
+  private orbitPivot: [number, number, number] | null = null;
   private dragging = false;
   private lastX = 0;
   private lastY = 0;
@@ -544,6 +558,36 @@ export class ViewportRenderer {
 
   setSelectedPickId(id: number | null): void {
     this.selectedPickId = id;
+  }
+
+  /**
+   * Orbit pivot for the selection. When `retargetEye` is true, keep the current
+   * eye position and recompute yaw/pitch/distance so the view does not jump.
+   */
+  setOrbitPivot(point: [number, number, number] | null, retargetEye = true): void {
+    if (!point) {
+      this.orbitPivot = null;
+      return;
+    }
+    this.orbitPivot = [point[0], point[1], point[2]];
+    if (retargetEye) {
+      this.focusOrbitOn(point);
+    }
+  }
+
+  /** Keep eye fixed; make `point` the new orbit / look-at target. */
+  private focusOrbitOn(point: [number, number, number]): void {
+    const eye = this.eyePosition();
+    const dx = eye[0] - point[0];
+    const dy = eye[1] - point[1];
+    const dz = eye[2] - point[2];
+    const dist = Math.hypot(dx, dy, dz);
+    this.camera.target = [point[0], point[1], point[2]];
+    if (dist < 1e-4) return;
+    this.camera.distance = Math.max(dist, 1);
+    const pitch = Math.asin(Math.max(-1, Math.min(1, dy / dist)));
+    this.camera.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, pitch));
+    this.camera.yaw = Math.atan2(dx, dz);
   }
 
   private uploadGrid(): void {
@@ -789,6 +833,12 @@ export class ViewportRenderer {
         this.camera.target[1] += dy * scale;
         this.camera.target[2] -= right[2] * dx * scale;
       } else {
+        // Orbit around selection placement center when one is active.
+        if (this.orbitPivot) {
+          this.camera.target[0] = this.orbitPivot[0];
+          this.camera.target[1] = this.orbitPivot[1];
+          this.camera.target[2] = this.orbitPivot[2];
+        }
         this.camera.yaw -= dx * 0.005;
         this.camera.pitch = Math.max(
           -PITCH_LIMIT,
