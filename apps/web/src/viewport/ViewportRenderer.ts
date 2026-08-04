@@ -57,18 +57,15 @@ layout(location=2) in float aPick;
 uniform mat4 uMVP;
 uniform mat4 uModel;
 uniform mat3 uNormalMat;
-uniform vec3 uOrigin;
 out vec3 vNormal;
 out vec3 vWorld;
 flat out float vPick;
 void main(){
-  // Camera-relative position keeps float32 precision on city-scale coords.
-  vec3 pos = aPos - uOrigin;
-  vec4 world = uModel * vec4(pos, 1.0);
+  vec4 world = uModel * vec4(aPos, 1.0);
   vWorld = world.xyz;
   vNormal = normalize(uNormalMat * aNormal);
   vPick = aPick;
-  gl_Position = uMVP * vec4(pos, 1.0);
+  gl_Position = uMVP * vec4(aPos, 1.0);
 }`;
 
 const FRAG = `#version 300 es
@@ -128,16 +125,14 @@ layout(location=3) in float aEnd;
 uniform mat4 uMVP;
 uniform vec2 uResolution;
 uniform float uLineWidthPx;
-uniform vec3 uOrigin;
 
 void main() {
-  vec3 p0 = aPos0 - uOrigin;
-  vec3 p1 = aPos1 - uOrigin;
-  vec4 c0 = uMVP * vec4(p0, 1.0);
-  vec4 c1 = uMVP * vec4(p1, 1.0);
+  vec4 c0 = uMVP * vec4(aPos0, 1.0);
+  vec4 c1 = uMVP * vec4(aPos1, 1.0);
 
-  // Expand in NDC so pixel width stays stable on long edges (clip-space * w
-  // loses the offset to float32 when |clip.xy| is huge → fat zipper slabs).
+  // Expand in NDC, then rebuild clip. The old "offset * clip.w" path looks correct
+  // for short edges, but on kilometre segments |clip.xy| is huge: float32 eats the
+  // pixel offset and the ribbon rasterizes as a fat screen-space slab.
   float w0 = c0.w == 0.0 ? 1.0 : c0.w;
   float w1 = c1.w == 0.0 ? 1.0 : c1.w;
   vec2 ndc0 = c0.xy / w0;
@@ -155,10 +150,6 @@ void main() {
   vec2 pixelToNdc = 2.0 / max(uResolution, vec2(1.0));
   ndc += perp * aSide * (0.5 * uLineWidthPx) * pixelToNdc;
 
-  // Pull slightly toward the camera so coplanar edge ribbons win over fills
-  // without fighting (the zipper triangles on huge walls).
-  ndcZ -= 1e-4;
-
   gl_Position = vec4(ndc * clipW, ndcZ * clipW, clipW);
 }`;
 
@@ -173,13 +164,11 @@ precision highp float;
 layout(location=0) in vec3 aPos;
 uniform mat4 uMVP;
 uniform vec3 uEye;
-uniform vec3 uOrigin;
 uniform float uPointSize;
 void main(){
-  vec3 pos = aPos - uOrigin;
-  vec3 toEye = uEye - pos;
+  vec3 toEye = uEye - aPos;
   float dist = length(toEye);
-  vec3 p = pos;
+  vec3 p = aPos;
   if (dist > 1e-5) {
     p += (toEye / dist) * 0.02;
   }
@@ -190,13 +179,10 @@ void main(){
 const POINT_FRAG = `#version 300 es
 precision highp float;
 uniform vec4 uColor;
-uniform float uInnerHole; // 0=solid, >0 = hollow ring (inner radius as fraction of point)
 out vec4 outColor;
 void main(){
   vec2 p = gl_PointCoord * 2.0 - 1.0;
-  float r2 = dot(p, p);
-  if (r2 > 1.0) discard;
-  if (uInnerHole > 0.0 && r2 < uInnerHole * uInnerHole) discard;
+  if (dot(p, p) > 1.0) discard;
   outColor = uColor;
 }`;
 
@@ -234,9 +220,6 @@ function mat4Identity(): Float32Array {
 const MAT4_IDENTITY = mat4Identity();
 
 type CameraMatrices = {
-  /** World-space origin subtracted in shaders (camera look-at). */
-  origin: [number, number, number];
-  /** Eye relative to origin (for handle pull). */
   eye: [number, number, number];
   view: Float32Array;
   proj: Float32Array;
@@ -248,7 +231,6 @@ type MeshUniforms = {
   uMVP: WebGLUniformLocation | null;
   uModel: WebGLUniformLocation | null;
   uNormalMat: WebGLUniformLocation | null;
-  uOrigin: WebGLUniformLocation | null;
   uLightDir: WebGLUniformLocation | null;
   uSkyColor: WebGLUniformLocation | null;
   uGroundColor: WebGLUniformLocation | null;
@@ -265,16 +247,13 @@ type LineUniforms = {
   uResolution: WebGLUniformLocation | null;
   uLineWidthPx: WebGLUniformLocation | null;
   uColor: WebGLUniformLocation | null;
-  uOrigin: WebGLUniformLocation | null;
 };
 
 type PointUniforms = {
   uMVP: WebGLUniformLocation | null;
   uEye: WebGLUniformLocation | null;
-  uOrigin: WebGLUniformLocation | null;
   uPointSize: WebGLUniformLocation | null;
   uColor: WebGLUniformLocation | null;
-  uInnerHole: WebGLUniformLocation | null;
 };
 
 function meshUniforms(gl: WebGL2RenderingContext, prog: WebGLProgram): MeshUniforms {
@@ -282,7 +261,6 @@ function meshUniforms(gl: WebGL2RenderingContext, prog: WebGLProgram): MeshUnifo
     uMVP: gl.getUniformLocation(prog, 'uMVP'),
     uModel: gl.getUniformLocation(prog, 'uModel'),
     uNormalMat: gl.getUniformLocation(prog, 'uNormalMat'),
-    uOrigin: gl.getUniformLocation(prog, 'uOrigin'),
     uLightDir: gl.getUniformLocation(prog, 'uLightDir'),
     uSkyColor: gl.getUniformLocation(prog, 'uSkyColor'),
     uGroundColor: gl.getUniformLocation(prog, 'uGroundColor'),
@@ -301,7 +279,6 @@ function lineUniforms(gl: WebGL2RenderingContext, prog: WebGLProgram): LineUnifo
     uResolution: gl.getUniformLocation(prog, 'uResolution'),
     uLineWidthPx: gl.getUniformLocation(prog, 'uLineWidthPx'),
     uColor: gl.getUniformLocation(prog, 'uColor'),
-    uOrigin: gl.getUniformLocation(prog, 'uOrigin'),
   };
 }
 
@@ -309,10 +286,8 @@ function pointUniforms(gl: WebGL2RenderingContext, prog: WebGLProgram): PointUni
   return {
     uMVP: gl.getUniformLocation(prog, 'uMVP'),
     uEye: gl.getUniformLocation(prog, 'uEye'),
-    uOrigin: gl.getUniformLocation(prog, 'uOrigin'),
     uPointSize: gl.getUniformLocation(prog, 'uPointSize'),
     uColor: gl.getUniformLocation(prog, 'uColor'),
-    uInnerHole: gl.getUniformLocation(prog, 'uInnerHole'),
   };
 }
 
@@ -601,9 +576,6 @@ export class ViewportRenderer {
   private handleVao: WebGLVertexArrayObject;
   private handleBuf: WebGLBuffer;
   private handleCount = 0;
-  private snapVao: WebGLVertexArrayObject;
-  private snapBuf: WebGLBuffer;
-  private snapCount = 0;
   private editLineVao: WebGLVertexArrayObject;
   private editLineBuf: WebGLBuffer;
   private editLineCount = 0;
@@ -635,11 +607,6 @@ export class ViewportRenderer {
   private lastMmbX = 0;
   private lastMmbY = 0;
   private raf = 0;
-  private rafPending = false;
-  private dirty = true;
-  private lastDrawAt = 0;
-  /** Skip frustum grid sampling until the view moves. */
-  private gridViewKey = '';
   private meshUniforms: MeshUniforms;
   private lineUniforms: LineUniforms;
   private pointUniforms: PointUniforms;
@@ -653,7 +620,6 @@ export class ViewportRenderer {
   private readonly scratchNormalMat = new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
   private readonly scratchPicks = new Float32Array(32);
   private readonly scratchEye = new Float32Array(3);
-  private readonly scratchOrigin = new Float32Array(3);
   private fps = 0;
   private fpsFrames = 0;
   private fpsWindowStart = 0;
@@ -736,14 +702,6 @@ export class ViewportRenderer {
     gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
     gl.bindVertexArray(null);
 
-    this.snapVao = gl.createVertexArray()!;
-    this.snapBuf = gl.createBuffer()!;
-    gl.bindVertexArray(this.snapVao);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.snapBuf);
-    gl.enableVertexAttribArray(0);
-    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
-    gl.bindVertexArray(null);
-
     this.editLineVao = gl.createVertexArray()!;
     this.editLineBuf = gl.createBuffer()!;
     this.bindThickLineVao(this.editLineVao, this.editLineBuf);
@@ -757,22 +715,7 @@ export class ViewportRenderer {
     gl.clearColor(0.09, 0.1, 0.12, 1);
 
     this.bindEvents();
-    this.observeCanvasSize();
-    this.requestRedraw();
-  }
-
-  /** Schedule a frame; coalesces to one rAF. Idle = no GPU work. */
-  requestRedraw(): void {
-    this.dirty = true;
-    if (this.rafPending) return;
-    this.rafPending = true;
-    this.raf = requestAnimationFrame(this.loop);
-  }
-
-  private observeCanvasSize(): void {
-    if (typeof ResizeObserver === 'undefined') return;
-    const ro = new ResizeObserver(() => this.requestRedraw());
-    ro.observe(this.canvas);
+    this.loop();
   }
 
   /** Interleaved thick-line attributes: p0.xyz, p1.xyz, side, end. */
@@ -805,9 +748,8 @@ export class ViewportRenderer {
     return { ...this.camera, target: [...this.camera.target] as [number, number, number] };
   }
 
-  /** Rolling FPS from recent draws; 0 when the viewport is idle. */
+  /** Rolling FPS from the render loop (display-synced via rAF). */
   getFps(): number {
-    if (performance.now() - this.lastDrawAt > 400) return 0;
     return this.fps;
   }
 
@@ -817,8 +759,6 @@ export class ViewportRenderer {
 
   setProjection(mode: ProjectionMode): void {
     this.projection = mode;
-    this.gridViewKey = '';
-    this.requestRedraw();
   }
 
   /** Restore the default home camera pose (keeps projection mode). */
@@ -829,8 +769,6 @@ export class ViewportRenderer {
       yaw: DEFAULT_CAMERA.yaw,
       pitch: DEFAULT_CAMERA.pitch,
     };
-    this.gridViewKey = '';
-    this.requestRedraw();
   }
 
   setScene(data: SceneMeshData): void {
@@ -885,8 +823,6 @@ export class ViewportRenderer {
     } else {
       this.sceneExtent = 10;
     }
-    this.gridViewKey = '';
-    this.requestRedraw();
   }
 
   fitToAabb(min: [number, number, number], max: [number, number, number]): void {
@@ -900,21 +836,10 @@ export class ViewportRenderer {
     this.camera.target = [cx, cy, cz];
     this.camera.distance = Math.max(radius * 2.6, 6);
     this.sceneExtent = Math.max(sx, sy, sz, 2);
-    this.gridViewKey = '';
-    this.requestRedraw();
   }
 
   setSelectedPickIds(ids: number[]): void {
     this.selectedPickIds = ids.slice(0, 32);
-    this.requestRedraw();
-  }
-
-  /**
-   * Current visual grid step (metres). Shift-snap should use this, not GRID_STEP,
-   * so placement matches the on-screen grid.
-   */
-  getGridStep(): number {
-    return this.gridStep;
   }
 
   private uploadGrid(): void {
@@ -924,114 +849,23 @@ export class ViewportRenderer {
   }
 
   /**
-   * Ground XZ covered by the current view (screen corners → Y=0 hits).
-   * Lets the grid follow walls into the distance when looking along them,
-   * instead of only a box around the look-at.
-   */
-  private visibleGroundBounds(): {
-    minX: number;
-    maxX: number;
-    minZ: number;
-    maxZ: number;
-  } {
-    const rect = this.canvas.getBoundingClientRect();
-    const w = Math.max(rect.width, 1);
-    const h = Math.max(rect.height, 1);
-    const samples: Array<[number, number]> = [
-      [0, 0],
-      [w, 0],
-      [0, h],
-      [w, h],
-      [w * 0.5, 0],
-      [w * 0.5, h],
-      [0, h * 0.5],
-      [w, h * 0.5],
-      [w * 0.5, h * 0.5],
-    ];
-    let minX = Infinity;
-    let maxX = -Infinity;
-    let minZ = Infinity;
-    let maxZ = -Infinity;
-    let hits = 0;
-    // Horizon rays can land extremely far; keep a generous but finite cap so
-    // step selection stays stable (still >> typical view, so long walls stay covered).
-    const maxR = Math.max(this.camera.distance * 80, 200);
-    const tx = this.camera.target[0];
-    const tz = this.camera.target[2];
-    for (const [sx, sy] of samples) {
-      const hit = this.screenToGround(rect.left + sx, rect.top + sy, 0);
-      if (!hit) continue;
-      let x = hit[0];
-      let z = hit[2];
-      const dx = x - tx;
-      const dz = z - tz;
-      const r = Math.hypot(dx, dz);
-      if (r > maxR && r > 1e-6) {
-        const s = maxR / r;
-        x = tx + dx * s;
-        z = tz + dz * s;
-      }
-      minX = Math.min(minX, x);
-      maxX = Math.max(maxX, x);
-      minZ = Math.min(minZ, z);
-      maxZ = Math.max(maxZ, z);
-      hits += 1;
-    }
-    if (hits === 0) {
-      const aspect = this.canvas.clientWidth / Math.max(1, this.canvas.clientHeight);
-      const halfH = Math.max(this.camera.distance * Math.tan(CAMERA_FOVY / 2), 0.5);
-      const half = Math.max(halfH * aspect, halfH, 8) * 1.4;
-      return {
-        minX: tx - half,
-        maxX: tx + half,
-        minZ: tz - half,
-        maxZ: tz + half,
-      };
-    }
-    // Pad slightly so the grid doesn't end exactly at the screen edge.
-    const pad = Math.max((maxX - minX), (maxZ - minZ), 8) * 0.08;
-    return {
-      minX: minX - pad,
-      maxX: maxX + pad,
-      minZ: minZ - pad,
-      maxZ: maxZ + pad,
-    };
-  }
-
-  /**
-   * View-adaptive ground grid covering the visible ground (frustum ∩ Y=0).
-   * Density stays bounded (~GRID_MAX_LINES_PER_AXIS); step coarsens as the
-   * visible span grows. Shift-snap uses `getGridStep()`.
+   * View-adaptive ground grid around the camera look-at.
+   * Density stays bounded (~GRID_MAX_LINES_PER_AXIS) even for kilometre scenes;
+   * step coarsens as you zoom out. Placement snap stays on GRID_STEP (1 m).
    */
   private syncViewGrid(): void {
-    const viewKey = [
-      this.projection,
-      this.camera.distance.toFixed(3),
-      this.camera.target[0].toFixed(2),
-      this.camera.target[1].toFixed(2),
-      this.camera.target[2].toFixed(2),
-      this.camera.yaw.toFixed(3),
-      this.camera.pitch.toFixed(3),
-      this.canvas.clientWidth,
-      this.canvas.clientHeight,
-    ].join('|');
-    if (viewKey === this.gridViewKey) return;
-
-    // Reuse one matrix build for all ground samples this sync.
-    const ownedMats = this.frameMats == null;
-    if (ownedMats) this.frameMats = this.buildCameraMatrices();
-    const bounds = this.visibleGroundBounds();
-    if (ownedMats) this.frameMats = null;
-
-    const spanX = Math.max(bounds.maxX - bounds.minX, 1);
-    const spanZ = Math.max(bounds.maxZ - bounds.minZ, 1);
-    const span = Math.max(spanX, spanZ);
-    const step = niceGridStep(span, GRID_MAX_LINES_PER_AXIS);
-    const minX = Math.floor(bounds.minX / step) * step;
-    const maxX = Math.ceil(bounds.maxX / step) * step;
-    const minZ = Math.floor(bounds.minZ / step) * step;
-    const maxZ = Math.ceil(bounds.maxZ / step) * step;
-    this.gridViewKey = viewKey;
+    const aspect = this.canvas.clientWidth / Math.max(1, this.canvas.clientHeight);
+    const halfH = Math.max(this.camera.distance * Math.tan(CAMERA_FOVY / 2), 0.5);
+    const halfW = halfH * aspect;
+    const half = Math.max(halfW, halfH, 8) * 1.4;
+    const step = niceGridStep(half * 2, GRID_MAX_LINES_PER_AXIS);
+    const cx = Math.round(this.camera.target[0] / step) * step;
+    const cz = Math.round(this.camera.target[2] / step) * step;
+    const cells = Math.ceil(half / step);
+    const minX = cx - cells * step;
+    const maxX = cx + cells * step;
+    const minZ = cz - cells * step;
+    const maxZ = cz + cells * step;
     if (
       step === this.gridStep &&
       minX === this.gridBounds.minX &&
@@ -1069,7 +903,6 @@ export class ViewportRenderer {
   ): void {
     if (!start || !end) {
       this.previewCount = 0;
-      this.requestRedraw();
       return;
     }
     this.expandGridToInclude(
@@ -1087,7 +920,6 @@ export class ViewportRenderer {
       end[2],
     ]);
     this.previewCount = this.uploadThickLines(this.previewBuf, data);
-    this.requestRedraw();
   }
 
   /** Semi-transparent ghost solid while placing a wall. */
@@ -1097,7 +929,6 @@ export class ViewportRenderer {
     const gl = this.gl;
     if (!mesh || mesh.indices.length === 0) {
       this.ghostIndexCount = 0;
-      this.requestRedraw();
       return;
     }
     gl.bindBuffer(gl.ARRAY_BUFFER, this.ghostPosBuf);
@@ -1109,24 +940,6 @@ export class ViewportRenderer {
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, mesh.indices, gl.DYNAMIC_DRAW);
     gl.bindVertexArray(null);
     this.ghostIndexCount = mesh.indices.length;
-    this.requestRedraw();
-  }
-
-  /**
-   * Hollow ring at the Shift-snap target (or clear with null).
-   * Screen-space point size — same idea as endpoint handles.
-   */
-  setSnapMarker(point: [number, number, number] | null): void {
-    if (!point) {
-      this.snapCount = 0;
-      this.requestRedraw();
-      return;
-    }
-    const data = new Float32Array([point[0], point[1] + 0.04, point[2]]);
-    this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.snapBuf);
-    this.gl.bufferData(this.gl.ARRAY_BUFFER, data, this.gl.DYNAMIC_DRAW);
-    this.snapCount = 1;
-    this.requestRedraw();
   }
 
   /** Construction line + endpoint handles for the selected wall. */
@@ -1139,7 +952,6 @@ export class ViewportRenderer {
       this.editLineCount = 0;
       this.handleCount = 0;
       this.editHandles = null;
-      this.requestRedraw();
       return;
     }
     this.expandGridToInclude(
@@ -1171,18 +983,14 @@ export class ViewportRenderer {
     gl.bufferData(gl.ARRAY_BUFFER, handles, gl.DYNAMIC_DRAW);
     this.handleCount = 2;
     this.editHandles = { start: [...start] as [number, number, number], end: [...end] as [number, number, number] };
-    this.requestRedraw();
   }
 
   /** Project world point to CSS client coordinates (relative to canvas). */
   worldToClient(p: [number, number, number]): [number, number] | null {
-    const { viewProj, origin } = this.cameraMatrices();
-    const rx = p[0] - origin[0];
-    const ry = p[1] - origin[1];
-    const rz = p[2] - origin[2];
-    const x = viewProj[0] * rx + viewProj[4] * ry + viewProj[8] * rz + viewProj[12];
-    const y = viewProj[1] * rx + viewProj[5] * ry + viewProj[9] * rz + viewProj[13];
-    const w = viewProj[3] * rx + viewProj[7] * ry + viewProj[11] * rz + viewProj[15];
+    const { viewProj } = this.cameraMatrices();
+    const x = viewProj[0] * p[0] + viewProj[4] * p[1] + viewProj[8] * p[2] + viewProj[12];
+    const y = viewProj[1] * p[0] + viewProj[5] * p[1] + viewProj[9] * p[2] + viewProj[13];
+    const w = viewProj[3] * p[0] + viewProj[7] * p[1] + viewProj[11] * p[2] + viewProj[15];
     if (Math.abs(w) < 1e-8) return null;
     const ndcX = x / w;
     const ndcY = y / w;
@@ -1220,7 +1028,7 @@ export class ViewportRenderer {
     const rect = this.canvas.getBoundingClientRect();
     const x = ((clientX - rect.left) / rect.width) * 2 - 1;
     const y = -(((clientY - rect.top) / rect.height) * 2 - 1);
-    const { viewProjInv, origin } = this.cameraMatrices();
+    const { viewProjInv } = this.cameraMatrices();
     const nearPt = this.unproject(x, y, -1, viewProjInv);
     const farPt = this.unproject(x, y, 1, viewProjInv);
     const dir = [farPt[0] - nearPt[0], farPt[1] - nearPt[1], farPt[2] - nearPt[2]] as [
@@ -1229,15 +1037,11 @@ export class ViewportRenderer {
       number,
     ];
     if (Math.abs(dir[1]) < 1e-8) return null;
-    // Unproject is in camera-relative space; ground plane Y is absolute.
-    const yRel = elevation - origin[1];
-    const t = (yRel - nearPt[1]) / dir[1];
+    // Use the unprojected near point as the ray origin so orthographic (parallel)
+    // rays hit correctly; for perspective, near→far lies on the same view ray.
+    const t = (elevation - nearPt[1]) / dir[1];
     if (t < 0) return null;
-    return [
-      nearPt[0] + dir[0] * t + origin[0],
-      elevation,
-      nearPt[2] + dir[2] * t + origin[2],
-    ];
+    return [nearPt[0] + dir[0] * t, elevation, nearPt[2] + dir[2] * t];
   }
 
   pick(clientX: number, clientY: number): number | null {
@@ -1263,8 +1067,6 @@ export class ViewportRenderer {
   }
 
   dispose(): void {
-    this.dirty = false;
-    this.rafPending = false;
     cancelAnimationFrame(this.raf);
   }
 
@@ -1307,7 +1109,6 @@ export class ViewportRenderer {
       if (this.dragMode === 'pan') {
         // Ground-plane pan only (world XZ). Never change target Y / distance.
         this.panOnGround(dx, dy);
-        this.requestRedraw();
         return;
       }
       this.camera.yaw -= dx * 0.005;
@@ -1315,7 +1116,6 @@ export class ViewportRenderer {
         -PITCH_LIMIT,
         Math.min(PITCH_LIMIT, this.camera.pitch + dy * 0.005),
       );
-      this.requestRedraw();
     });
     const endDrag = () => {
       this.dragMode = null;
@@ -1338,7 +1138,6 @@ export class ViewportRenderer {
           minDist,
           Math.min(maxDist, this.camera.distance * (1 + e.deltaY * 0.001)),
         );
-        this.requestRedraw();
       },
       { passive: false },
     );
@@ -1432,23 +1231,11 @@ export class ViewportRenderer {
       this.projection === 'orthographic'
         ? mat4Ortho(-halfW, halfW, -halfH, halfH, near, far)
         : mat4Perspective(CAMERA_FOVY, aspect, near, far);
-    // Render in camera-relative space so city-scale world coords don't destroy
-    // depth/edge precision (zipper triangles along CAD outlines).
-    const origin: [number, number, number] = [
-      this.camera.target[0],
-      this.camera.target[1],
-      this.camera.target[2],
-    ];
-    const eyeWorld = this.eyePosition();
-    const eye: [number, number, number] = [
-      eyeWorld[0] - origin[0],
-      eyeWorld[1] - origin[1],
-      eyeWorld[2] - origin[2],
-    ];
-    const view = mat4LookAt(eye, [0, 0, 0], [0, 1, 0]);
+    const eye = this.eyePosition();
+    const view = mat4LookAt(eye, this.camera.target, [0, 1, 0]);
     const viewProj = mat4Multiply(proj, view);
     const viewProjInv = invertMat4(viewProj) ?? mat4Identity();
-    return { origin, eye, view, proj, viewProj, viewProjInv };
+    return { eye, view, proj, viewProj, viewProjInv };
   }
 
   private unproject(x: number, y: number, z: number, inv: Float32Array): [number, number, number] {
@@ -1500,23 +1287,15 @@ export class ViewportRenderer {
     this.pickH = h;
   }
 
-  private bindOrigin(origin: [number, number, number]): void {
-    this.scratchOrigin[0] = origin[0];
-    this.scratchOrigin[1] = origin[1];
-    this.scratchOrigin[2] = origin[2];
-  }
-
   private drawMeshes(pickPass: boolean): void {
     const gl = this.gl;
     if (this.indexCount === 0) return;
-    const { viewProj, origin } = this.cameraMatrices();
+    const { viewProj } = this.cameraMatrices();
     const u = this.meshUniforms;
-    this.bindOrigin(origin);
     gl.useProgram(this.meshProg);
     gl.uniformMatrix4fv(u.uMVP, false, viewProj);
     gl.uniformMatrix4fv(u.uModel, false, MAT4_IDENTITY);
     gl.uniformMatrix3fv(u.uNormalMat, false, this.scratchNormalMat);
-    gl.uniform3fv(u.uOrigin, this.scratchOrigin);
     gl.uniform3fv(u.uLightDir, this.scratchLight);
     gl.uniform3fv(u.uSkyColor, this.scratchSky);
     gl.uniform3fv(u.uGroundColor, this.scratchGround);
@@ -1576,9 +1355,8 @@ export class ViewportRenderer {
   private drawGhost(): void {
     const gl = this.gl;
     if (this.ghostIndexCount === 0) return;
-    const { viewProj, origin } = this.cameraMatrices();
+    const { viewProj } = this.cameraMatrices();
     const u = this.meshUniforms;
-    this.bindOrigin(origin);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.depthMask(false);
@@ -1587,7 +1365,6 @@ export class ViewportRenderer {
     gl.uniformMatrix4fv(u.uMVP, false, viewProj);
     gl.uniformMatrix4fv(u.uModel, false, MAT4_IDENTITY);
     gl.uniformMatrix3fv(u.uNormalMat, false, this.scratchNormalMat);
-    gl.uniform3fv(u.uOrigin, this.scratchOrigin);
     gl.uniform3fv(u.uLightDir, this.scratchLight);
     gl.uniform3fv(u.uSkyColor, this.scratchGhostSky);
     gl.uniform3fv(u.uGroundColor, this.scratchGhostGround);
@@ -1610,40 +1387,30 @@ export class ViewportRenderer {
     count: number,
     color: [number, number, number, number],
     widthPx = 1.5,
-    overlay = false,
   ): void {
     if (count === 0) return;
     const gl = this.gl;
-    const { viewProj, origin } = this.cameraMatrices();
+    const { viewProj } = this.cameraMatrices();
     const u = this.lineUniforms;
-    this.bindOrigin(origin);
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     gl.disable(gl.BLEND);
-    if (overlay) {
-      // Overlay axis / preview: constant px width, never buried by zoom/depth.
-      gl.disable(gl.DEPTH_TEST);
-    } else {
-      gl.enable(gl.DEPTH_TEST);
-      gl.depthMask(true);
-    }
+    gl.enable(gl.DEPTH_TEST);
+    gl.depthMask(true);
     gl.useProgram(this.lineProg);
     gl.uniformMatrix4fv(u.uMVP, false, viewProj);
-    gl.uniform3fv(u.uOrigin, this.scratchOrigin);
     gl.uniform2f(u.uResolution, this.canvas.width, this.canvas.height);
     gl.uniform1f(u.uLineWidthPx, widthPx * dpr);
     gl.uniform4f(u.uColor, color[0], color[1], color[2], color[3]);
     gl.bindVertexArray(vao);
     gl.drawArrays(gl.TRIANGLES, 0, count);
     gl.bindVertexArray(null);
-    if (overlay) gl.enable(gl.DEPTH_TEST);
   }
 
   private drawHandles(): void {
     if (this.handleCount === 0) return;
     const gl = this.gl;
-    const { viewProj, eye, origin } = this.cameraMatrices();
+    const { viewProj, eye } = this.cameraMatrices();
     const u = this.pointUniforms;
-    this.bindOrigin(origin);
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.scratchEye[0] = eye[0];
     this.scratchEye[1] = eye[1];
@@ -1653,9 +1420,7 @@ export class ViewportRenderer {
     gl.useProgram(this.pointProg);
     gl.uniformMatrix4fv(u.uMVP, false, viewProj);
     gl.uniform3fv(u.uEye, this.scratchEye);
-    gl.uniform3fv(u.uOrigin, this.scratchOrigin);
-    gl.uniform1f(u.uPointSize, 10 * dpr);
-    gl.uniform1f(u.uInnerHole, 0);
+    gl.uniform1f(u.uPointSize, 8 * dpr);
     gl.uniform4f(u.uColor, 0.95, 0.72, 0.28, 1);
     gl.bindVertexArray(this.handleVao);
     gl.drawArrays(gl.POINTS, 0, this.handleCount);
@@ -1663,38 +1428,9 @@ export class ViewportRenderer {
     gl.enable(gl.DEPTH_TEST);
   }
 
-  private drawSnapMarker(): void {
-    if (this.snapCount === 0) return;
-    const gl = this.gl;
-    const { viewProj, eye, origin } = this.cameraMatrices();
-    const u = this.pointUniforms;
-    this.bindOrigin(origin);
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    this.scratchEye[0] = eye[0];
-    this.scratchEye[1] = eye[1];
-    this.scratchEye[2] = eye[2];
-    gl.disable(gl.BLEND);
-    gl.disable(gl.DEPTH_TEST);
-    gl.useProgram(this.pointProg);
-    gl.uniformMatrix4fv(u.uMVP, false, viewProj);
-    gl.uniform3fv(u.uEye, this.scratchEye);
-    gl.uniform3fv(u.uOrigin, this.scratchOrigin);
-    gl.uniform1f(u.uPointSize, 14 * dpr);
-    gl.uniform1f(u.uInnerHole, 0.55);
-    gl.uniform4f(u.uColor, 0.95, 0.78, 0.35, 1);
-    gl.bindVertexArray(this.snapVao);
-    gl.drawArrays(gl.POINTS, 0, this.snapCount);
-    gl.bindVertexArray(null);
-    gl.enable(gl.DEPTH_TEST);
-  }
-
   private loop = (): void => {
-    this.rafPending = false;
-    if (!this.dirty) return;
-    this.dirty = false;
-
+    this.raf = requestAnimationFrame(this.loop);
     const now = performance.now();
-    this.lastDrawAt = now;
     if (this.fpsWindowStart === 0) this.fpsWindowStart = now;
     this.fpsFrames += 1;
     if (now - this.fpsWindowStart >= 500) {
@@ -1715,17 +1451,12 @@ export class ViewportRenderer {
     this.drawLines(this.gridVao, this.gridCount, [0.22, 0.24, 0.28, 1], 1.25);
     this.drawMeshes(false);
     // Outlines at true depth; solids were polygon-offset back.
-    this.drawLines(this.edgeVao, this.edgeCount, [0.08, 0.09, 0.1, 1], 2.5);
+    this.drawLines(this.edgeVao, this.edgeCount, [0.08, 0.09, 0.1, 1], 2.0);
     this.drawGhost();
-    // Axis / preview: screen-space overlays (constant px, like handles).
-    this.drawLines(this.previewVao, this.previewCount, [0.95, 0.7, 0.3, 1], 3.0, true);
-    this.drawLines(this.editLineVao, this.editLineCount, [0.95, 0.72, 0.28, 1], 3.0, true);
+    this.drawLines(this.previewVao, this.previewCount, [0.95, 0.7, 0.3, 1], 2.25);
+    this.drawLines(this.editLineVao, this.editLineCount, [0.95, 0.72, 0.28, 1], 2.25);
     this.drawHandles();
-    this.drawSnapMarker();
     this.frameMats = null;
-
-    // Another mutation happened during the frame (e.g. continuous orbit).
-    if (this.dirty) this.requestRedraw();
   };
 }
 

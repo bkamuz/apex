@@ -12,6 +12,7 @@ import {
   initApex,
 } from './wasm/apex';
 import {
+  GRID_STEP,
   orthoConstrain,
   snapPointToGrid,
   ViewportRenderer,
@@ -149,26 +150,11 @@ export default function App() {
     [clearPlacementPreview, syncEditGizmo],
   );
 
-  const clearSnapMarker = useCallback(() => {
-    rendererRef.current?.setSnapMarker(null);
-  }, []);
-
-  const showSnapMarker = useCallback(
-    (point: [number, number, number] | null, shiftHeld: boolean) => {
-      const renderer = rendererRef.current;
-      if (!renderer) return;
-      if (shiftHeld && point) renderer.setSnapMarker(point);
-      else renderer.setSnapMarker(null);
-    },
-    [],
-  );
-
   const cancelWall = useCallback(() => {
     wallStartRef.current = null;
     setPendingStart(null);
     clearPlacementPreview();
-    clearSnapMarker();
-  }, [clearPlacementPreview, clearSnapMarker]);
+  }, [clearPlacementPreview]);
 
   /** Escape: cancel placement, clear selection, switch to Select. */
   const onEscape = useCallback(() => {
@@ -218,10 +204,7 @@ export default function App() {
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
-      if (e.key === 'Shift') {
-        shiftHeldRef.current = false;
-        clearSnapMarker();
-      }
+      if (e.key === 'Shift') shiftHeldRef.current = false;
     };
     // Capture phase so Escape still wins when an input has focus.
     window.addEventListener('keydown', onKeyDown, true);
@@ -230,7 +213,7 @@ export default function App() {
       window.removeEventListener('keydown', onKeyDown, true);
       window.removeEventListener('keyup', onKeyUp, true);
     };
-  }, [applyScene, clearSnapMarker, onEscape]);
+  }, [applyScene, onEscape]);
 
   useEffect(() => {
     let cancelled = false;
@@ -283,11 +266,9 @@ export default function App() {
     const raw = renderer.screenToGround(clientX, clientY, 0);
     if (!raw) return null;
     if (!shiftHeld) return raw;
-    // Match the on-screen adaptive grid (coarser when zoomed out / looking far).
-    const step = renderer.getGridStep();
-    let point = snapPointToGrid(raw, step);
+    let point = snapPointToGrid(raw, GRID_STEP);
     if (anchor) {
-      point = snapPointToGrid(orthoConstrain(anchor, point), step);
+      point = snapPointToGrid(orthoConstrain(anchor, point), GRID_STEP);
     }
     return point;
   };
@@ -343,7 +324,6 @@ export default function App() {
       const fixed = drag.which === 'start' ? drag.end : drag.start;
       const point = resolveGroundPoint(renderer, e.clientX, e.clientY, shift, fixed);
       if (!point) return;
-      showSnapMarker(point, shift);
       drag.moved = true;
       const start = drag.which === 'start' ? point : drag.start;
       const end = drag.which === 'end' ? point : drag.end;
@@ -379,25 +359,10 @@ export default function App() {
       return;
     }
 
-    if (tool === 'wall') {
-      const anchor = wallStartRef.current;
-      const point = resolveGroundPoint(renderer, e.clientX, e.clientY, shift, anchor);
-      if (!point) {
-        showSnapMarker(null, false);
-        return;
-      }
-      showSnapMarker(point, shift);
-      if (anchor) showPlacementPreview(anchor, point);
-      return;
-    }
-
-    // Select tool: still show snap ring while Shift-moving over the ground.
-    if (shift) {
-      const point = resolveGroundPoint(renderer, e.clientX, e.clientY, true);
-      showSnapMarker(point, !!point);
-    } else {
-      showSnapMarker(null, false);
-    }
+    if (tool !== 'wall' || !wallStartRef.current) return;
+    const end = resolveGroundPoint(renderer, e.clientX, e.clientY, shift);
+    if (!end) return;
+    showPlacementPreview(wallStartRef.current, end);
   };
 
   const onCanvasPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -562,7 +527,7 @@ export default function App() {
           {tool === 'wall'
             ? pendingStart
               ? 'Click end · Shift snap+ortho · Esc clears'
-              : 'Click start · Shift snap to grid · Esc clears'
+              : 'Click start · Shift snap to 1 m grid · Esc clears'
             : selectedCount > 1
               ? `${selectedCount} selected · Ctrl+click toggle · Del · Esc clears`
               : selected?.category === 'wall'
