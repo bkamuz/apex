@@ -1008,20 +1008,37 @@ export class ViewportRenderer {
   private cameraMatrices() {
     this.resize();
     const aspect = this.canvas.clientWidth / Math.max(1, this.canvas.clientHeight);
-    // Depth band centered on the look-at so pitched ground / near walls stay
-    // inside the frustum (a large near = k*distance was clipping axonometric views).
     const gridSpan = Math.max(
       this.gridBounds.maxX - this.gridBounds.minX,
       this.gridBounds.maxZ - this.gridBounds.minZ,
       this.sceneExtent,
     );
     const radius = Math.max(this.camera.distance * 2, gridSpan, this.sceneExtent * 4, 40);
-    const near = Math.max(0.05, this.camera.distance - radius);
-    const far = this.camera.distance + radius;
     // Ortho half-extents match the perspective frustum at `distance` so wheel zoom
     // and mode switches keep the same framing.
     const halfH = this.camera.distance * Math.tan(CAMERA_FOVY / 2);
     const halfW = halfH * aspect;
+
+    let near: number;
+    let far: number;
+    if (this.projection === 'orthographic') {
+      // Symmetric eye-space Z about the camera. A positive near plane (even 5cm)
+      // still slices pitched ground/walls in axonometric views; negative near puts
+      // that plane behind the eye so nothing in front is near-clipped.
+      const depth = Math.max(
+        this.camera.distance + radius,
+        gridSpan * 2,
+        halfH * 4,
+        halfW * 4,
+        200,
+      );
+      near = -depth;
+      far = depth;
+    } else {
+      near = Math.max(0.05, this.camera.distance - radius);
+      far = this.camera.distance + radius;
+    }
+
     const proj =
       this.projection === 'orthographic'
         ? mat4Ortho(-halfW, halfW, -halfH, halfH, near, far)
