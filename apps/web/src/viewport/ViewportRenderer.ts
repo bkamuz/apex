@@ -108,20 +108,43 @@ void main(){
 
 const LINE_VERT = `#version 300 es
 precision highp float;
-layout(location=0) in vec3 aPos;
+layout(location=0) in vec3 aPos0;
+layout(location=1) in vec3 aPos1;
+layout(location=2) in float aSide;
+layout(location=3) in float aEnd;
 uniform mat4 uMVP;
 uniform vec3 uEye;
 uniform float uWorldBias;
-void main(){
-  // Optional tiny pull toward camera (meters). Prefer solid-away bias instead;
-  // keep this near zero for CAD edges so zoomed-out back edges stay occluded.
-  vec3 toEye = uEye - aPos;
+uniform vec2 uResolution;
+uniform float uLineWidthPx;
+
+vec3 biasPoint(vec3 p) {
+  vec3 toEye = uEye - p;
   float dist = length(toEye);
-  vec3 p = aPos;
   if (dist > 1e-5 && uWorldBias > 0.0) {
-    p += (toEye / dist) * uWorldBias;
+    return p + (toEye / dist) * uWorldBias;
   }
-  gl_Position = uMVP * vec4(p, 1.0);
+  return p;
+}
+
+void main() {
+  vec3 p0 = biasPoint(aPos0);
+  vec3 p1 = biasPoint(aPos1);
+  vec4 c0 = uMVP * vec4(p0, 1.0);
+  vec4 c1 = uMVP * vec4(p1, 1.0);
+
+  // Screen direction from clip (stable across differing w). Falls back when the
+  // segment collapses on screen (looking along the edge).
+  vec2 clipDir = c1.xy * c0.w - c0.xy * c1.w;
+  float clipLen = length(clipDir);
+  vec2 dir = clipLen > 1e-8 ? clipDir / clipLen : vec2(1.0, 0.0);
+  vec2 perp = vec2(-dir.y, dir.x);
+
+  vec4 clip = mix(c0, c1, aEnd);
+  // Constant pixel width independent of zoom / projection.
+  vec2 pixelToNdc = 2.0 / max(uResolution, vec2(1.0));
+  clip.xy += perp * aSide * (0.5 * uLineWidthPx) * pixelToNdc * clip.w;
+  gl_Position = clip;
 }`;
 
 const LINE_FRAG = `#version 300 es
@@ -299,6 +322,48 @@ function buildGridRect(
   return new Float32Array(lines);
 }
 
+/**
+ * Expand endpoint pairs (xyzxyz…) into screen-space thick-line quads.
+ * Each segment → 6 verts × (p0.xyz, p1.xyz, side, end) interleaved.
+ */
+const THICK_LINE_CORNERS: ReadonlyArray<readonly [number, number]> = [
+  [-1, 0],
+  [1, 0],
+  [-1, 1],
+  [1, 0],
+  [1, 1],
+  [-1, 1],
+];
+const THICK_LINE_FLOATS_PER_VERT = 8;
+const THICK_LINE_STRIDE_BYTES = THICK_LINE_FLOATS_PER_VERT * 4;
+
+function expandLineSegments(segments: ArrayLike<number>): Float32Array {
+  const nVerts = Math.floor(segments.length / 3);
+  const nSeg = Math.floor(nVerts / 2);
+  const out = new Float32Array(nSeg * 6 * THICK_LINE_FLOATS_PER_VERT);
+  let o = 0;
+  for (let s = 0; s < nSeg; s++) {
+    const i = s * 6;
+    const ax = segments[i];
+    const ay = segments[i + 1];
+    const az = segments[i + 2];
+    const bx = segments[i + 3];
+    const by = segments[i + 4];
+    const bz = segments[i + 5];
+    for (const [side, end] of THICK_LINE_CORNERS) {
+      out[o++] = ax;
+      out[o++] = ay;
+      out[o++] = az;
+      out[o++] = bx;
+      out[o++] = by;
+      out[o++] = bz;
+      out[o++] = side;
+      out[o++] = end;
+    }
+  }
+  return out;
+}
+
 export function snapToGrid(value: number, step = GRID_STEP): number {
   return Math.round(value / step) * step;
 }
@@ -444,28 +509,16 @@ export class ViewportRenderer {
 
     this.edgeVao = gl.createVertexArray()!;
     this.edgeBuf = gl.createBuffer()!;
-    gl.bindVertexArray(this.edgeVao);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.edgeBuf);
-    gl.enableVertexAttribArray(0);
-    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
-    gl.bindVertexArray(null);
+    this.bindThickLineVao(this.edgeVao, this.edgeBuf);
 
     this.gridVao = gl.createVertexArray()!;
     this.gridBuf = gl.createBuffer()!;
-    gl.bindVertexArray(this.gridVao);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.gridBuf);
-    gl.enableVertexAttribArray(0);
-    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
-    gl.bindVertexArray(null);
+    this.bindThickLineVao(this.gridVao, this.gridBuf);
     this.uploadGrid();
 
     this.previewVao = gl.createVertexArray()!;
     this.previewBuf = gl.createBuffer()!;
-    gl.bindVertexArray(this.previewVao);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.previewBuf);
-    gl.enableVertexAttribArray(0);
-    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
-    gl.bindVertexArray(null);
+    this.bindThickLineVao(this.previewVao, this.previewBuf);
 
     this.ghostVao = gl.createVertexArray()!;
     this.ghostPosBuf = gl.createBuffer()!;
@@ -494,11 +547,7 @@ export class ViewportRenderer {
 
     this.editLineVao = gl.createVertexArray()!;
     this.editLineBuf = gl.createBuffer()!;
-    gl.bindVertexArray(this.editLineVao);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.editLineBuf);
-    gl.enableVertexAttribArray(0);
-    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
-    gl.bindVertexArray(null);
+    this.bindThickLineVao(this.editLineVao, this.editLineBuf);
 
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
@@ -510,6 +559,31 @@ export class ViewportRenderer {
 
     this.bindEvents();
     this.loop();
+  }
+
+  /** Interleaved thick-line attributes: p0.xyz, p1.xyz, side, end. */
+  private bindThickLineVao(vao: WebGLVertexArrayObject, buf: WebGLBuffer): void {
+    const gl = this.gl;
+    const stride = THICK_LINE_STRIDE_BYTES;
+    gl.bindVertexArray(vao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, stride, 0);
+    gl.enableVertexAttribArray(1);
+    gl.vertexAttribPointer(1, 3, gl.FLOAT, false, stride, 12);
+    gl.enableVertexAttribArray(2);
+    gl.vertexAttribPointer(2, 1, gl.FLOAT, false, stride, 24);
+    gl.enableVertexAttribArray(3);
+    gl.vertexAttribPointer(3, 1, gl.FLOAT, false, stride, 28);
+    gl.bindVertexArray(null);
+  }
+
+  /** Upload segment endpoint pairs; returns triangle vertex count. */
+  private uploadThickLines(buf: WebGLBuffer, segments: ArrayLike<number>): number {
+    const expanded = expandLineSegments(segments);
+    this.gl.bindBuffer(this.gl.ARRAY_BUFFER, buf);
+    this.gl.bufferData(this.gl.ARRAY_BUFFER, expanded, this.gl.DYNAMIC_DRAW);
+    return expanded.length / THICK_LINE_FLOATS_PER_VERT;
   }
 
   getCamera(): CameraState {
@@ -568,9 +642,7 @@ export class ViewportRenderer {
     gl.bindVertexArray(null);
     this.indexCount = indices.length;
 
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.edgeBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, edges, gl.DYNAMIC_DRAW);
-    this.edgeCount = edges.length / 3;
+    this.edgeCount = this.uploadThickLines(this.edgeBuf, edges);
 
     this.selectedPickId = data.selectedPickId;
 
@@ -608,12 +680,9 @@ export class ViewportRenderer {
   }
 
   private uploadGrid(): void {
-    const gl = this.gl;
     const { minX, maxX, minZ, maxZ } = this.gridBounds;
     const grid = buildGridRect(minX, maxX, minZ, maxZ, GRID_STEP);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.gridBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, grid, gl.DYNAMIC_DRAW);
-    this.gridCount = grid.length / 3;
+    this.gridCount = this.uploadThickLines(this.gridBuf, grid);
   }
 
   /**
@@ -656,7 +725,6 @@ export class ViewportRenderer {
     start: [number, number, number] | null,
     end: [number, number, number] | null,
   ): void {
-    const gl = this.gl;
     if (!start || !end) {
       this.previewCount = 0;
       return;
@@ -675,9 +743,7 @@ export class ViewportRenderer {
       end[1] + 0.02,
       end[2],
     ]);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.previewBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, data, gl.DYNAMIC_DRAW);
-    this.previewCount = 2;
+    this.previewCount = this.uploadThickLines(this.previewBuf, data);
   }
 
   /** Semi-transparent ghost solid while placing a wall. */
@@ -727,9 +793,7 @@ export class ViewportRenderer {
       end[1] + y,
       end[2],
     ]);
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.editLineBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, line, gl.DYNAMIC_DRAW);
-    this.editLineCount = 2;
+    this.editLineCount = this.uploadThickLines(this.editLineBuf, line);
 
     const handles = new Float32Array([
       start[0],
@@ -944,9 +1008,16 @@ export class ViewportRenderer {
   private cameraMatrices() {
     this.resize();
     const aspect = this.canvas.clientWidth / Math.max(1, this.canvas.clientHeight);
-    // Keep near/far ratio modest for depth precision when zoomed out.
-    const near = Math.max(0.05, this.camera.distance * 0.04);
-    const far = Math.max(this.camera.distance * 12, this.sceneExtent * 4, near + 20);
+    // Depth band centered on the look-at so pitched ground / near walls stay
+    // inside the frustum (a large near = k*distance was clipping axonometric views).
+    const gridSpan = Math.max(
+      this.gridBounds.maxX - this.gridBounds.minX,
+      this.gridBounds.maxZ - this.gridBounds.minZ,
+      this.sceneExtent,
+    );
+    const radius = Math.max(this.camera.distance * 2, gridSpan, this.sceneExtent * 4, 40);
+    const near = Math.max(0.05, this.camera.distance - radius);
+    const far = this.camera.distance + radius;
     // Ortho half-extents match the perspective frustum at `distance` so wheel zoom
     // and mode switches keep the same framing.
     const halfH = this.camera.distance * Math.tan(CAMERA_FOVY / 2);
@@ -1110,10 +1181,12 @@ export class ViewportRenderer {
     count: number,
     color: [number, number, number, number],
     worldBiasMeters = 0.01,
+    widthPx = 1.5,
   ): void {
     if (count === 0) return;
     const gl = this.gl;
     const { viewProj, eye } = this.cameraMatrices();
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
     gl.disable(gl.BLEND);
     gl.enable(gl.DEPTH_TEST);
     gl.depthMask(true);
@@ -1121,9 +1194,11 @@ export class ViewportRenderer {
     gl.uniformMatrix4fv(gl.getUniformLocation(this.lineProg, 'uMVP'), false, viewProj);
     gl.uniform3fv(gl.getUniformLocation(this.lineProg, 'uEye'), new Float32Array(eye));
     gl.uniform1f(gl.getUniformLocation(this.lineProg, 'uWorldBias'), worldBiasMeters);
+    gl.uniform2f(gl.getUniformLocation(this.lineProg, 'uResolution'), this.canvas.width, this.canvas.height);
+    gl.uniform1f(gl.getUniformLocation(this.lineProg, 'uLineWidthPx'), widthPx * dpr);
     gl.uniform4f(gl.getUniformLocation(this.lineProg, 'uColor'), color[0], color[1], color[2], color[3]);
     gl.bindVertexArray(vao);
-    gl.drawArrays(gl.LINES, 0, count);
+    gl.drawArrays(gl.TRIANGLES, 0, count);
     gl.bindVertexArray(null);
   }
 
@@ -1155,13 +1230,13 @@ export class ViewportRenderer {
     gl.clearColor(0.09, 0.1, 0.12, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     // Grid: tiny bias only (lies on ground plane).
-    this.drawLines(this.gridVao, this.gridCount, [0.22, 0.24, 0.28, 1], 0.002);
+    this.drawLines(this.gridVao, this.gridCount, [0.22, 0.24, 0.28, 1], 0.002, 1.25);
     this.drawMeshes(false);
     // CAD edges at true depth (solids are pushed away) — no toward-camera bias.
-    this.drawLines(this.edgeVao, this.edgeCount, [0.12, 0.13, 0.15, 1], 0.0);
+    this.drawLines(this.edgeVao, this.edgeCount, [0.12, 0.13, 0.15, 1], 0.0, 2.0);
     this.drawGhost();
-    this.drawLines(this.previewVao, this.previewCount, [0.95, 0.7, 0.3, 1], 0.01);
-    this.drawLines(this.editLineVao, this.editLineCount, [0.95, 0.72, 0.28, 1], 0.01);
+    this.drawLines(this.previewVao, this.previewCount, [0.95, 0.7, 0.3, 1], 0.01, 2.25);
+    this.drawLines(this.editLineVao, this.editLineCount, [0.95, 0.72, 0.28, 1], 0.01, 2.25);
     this.drawHandles();
   };
 }
