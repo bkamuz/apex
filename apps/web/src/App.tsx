@@ -128,12 +128,14 @@ export default function App() {
     renderer: ViewportRenderer,
     clientX: number,
     clientY: number,
-    shiftOrtho: boolean,
+    shiftHeld: boolean,
   ): [number, number, number] | null => {
     const raw = renderer.screenToGround(clientX, clientY, 0);
     if (!raw) return null;
+    if (!shiftHeld) return raw;
+    // Shift: snap to grid; while placing the end point, also ortho-constrain.
     let point = snapPointToGrid(raw, GRID_STEP);
-    if (shiftOrtho && wallStartRef.current) {
+    if (wallStartRef.current) {
       point = snapPointToGrid(orthoConstrain(wallStartRef.current, point), GRID_STEP);
     }
     return point;
@@ -168,7 +170,12 @@ export default function App() {
     }
 
     if (tool === 'wall') {
-      const point = resolveGroundPoint(renderer, e.clientX, e.clientY, e.shiftKey);
+      const point = resolveGroundPoint(
+        renderer,
+        e.clientX,
+        e.clientY,
+        e.shiftKey || shiftHeldRef.current,
+      );
       if (!point) return;
 
       if (!wallStartRef.current) {
@@ -181,7 +188,7 @@ export default function App() {
       const start = wallStartRef.current;
       const end = point;
       if (planLength(start, end) < MIN_WALL_LENGTH) {
-        setError(`Wall too short (min ${MIN_WALL_LENGTH} m). Click a farther grid point.`);
+        setError(`Wall too short (min ${MIN_WALL_LENGTH} m). Click farther apart.`);
         return;
       }
 
@@ -200,7 +207,8 @@ export default function App() {
           DEFAULT_HEIGHT,
           DEFAULT_THICKNESS,
         );
-        applyScene(next, true);
+        // Keep the user's camera — do not refit after place.
+        applyScene(next, false);
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
       }
@@ -227,11 +235,11 @@ export default function App() {
       patch.start,
       patch.end,
     );
-    applyScene(next, true);
+    applyScene(next, false);
   };
 
   const onDelete = () => {
-    applyScene(apexDeleteSelected(), true);
+    applyScene(apexDeleteSelected(), false);
   };
 
   return (
@@ -262,8 +270,8 @@ export default function App() {
         <div className="hint">
           {tool === 'wall'
             ? pendingStart
-              ? 'Click end · Shift ortho · Esc cancel · snap 1 m'
-              : 'Click start on grid · snap 1 m'
+              ? 'Click end · Shift snap+ortho · Esc cancel'
+              : 'Click start · Shift snap to 1 m grid'
             : 'Click select · RMB orbit · Alt+RMB pan · Wheel zoom'}
         </div>
       </header>
