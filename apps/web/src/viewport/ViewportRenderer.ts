@@ -190,10 +190,13 @@ void main(){
 const POINT_FRAG = `#version 300 es
 precision highp float;
 uniform vec4 uColor;
+uniform float uInnerHole; // 0=solid, >0 = hollow ring (inner radius as fraction of point)
 out vec4 outColor;
 void main(){
   vec2 p = gl_PointCoord * 2.0 - 1.0;
-  if (dot(p, p) > 1.0) discard;
+  float r2 = dot(p, p);
+  if (r2 > 1.0) discard;
+  if (uInnerHole > 0.0 && r2 < uInnerHole * uInnerHole) discard;
   outColor = uColor;
 }`;
 
@@ -271,6 +274,7 @@ type PointUniforms = {
   uOrigin: WebGLUniformLocation | null;
   uPointSize: WebGLUniformLocation | null;
   uColor: WebGLUniformLocation | null;
+  uInnerHole: WebGLUniformLocation | null;
 };
 
 function meshUniforms(gl: WebGL2RenderingContext, prog: WebGLProgram): MeshUniforms {
@@ -308,6 +312,7 @@ function pointUniforms(gl: WebGL2RenderingContext, prog: WebGLProgram): PointUni
     uOrigin: gl.getUniformLocation(prog, 'uOrigin'),
     uPointSize: gl.getUniformLocation(prog, 'uPointSize'),
     uColor: gl.getUniformLocation(prog, 'uColor'),
+    uInnerHole: gl.getUniformLocation(prog, 'uInnerHole'),
   };
 }
 
@@ -596,6 +601,9 @@ export class ViewportRenderer {
   private handleVao: WebGLVertexArrayObject;
   private handleBuf: WebGLBuffer;
   private handleCount = 0;
+  private snapVao: WebGLVertexArrayObject;
+  private snapBuf: WebGLBuffer;
+  private snapCount = 0;
   private editLineVao: WebGLVertexArrayObject;
   private editLineBuf: WebGLBuffer;
   private editLineCount = 0;
@@ -724,6 +732,14 @@ export class ViewportRenderer {
     this.handleBuf = gl.createBuffer()!;
     gl.bindVertexArray(this.handleVao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.handleBuf);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+    gl.bindVertexArray(null);
+
+    this.snapVao = gl.createVertexArray()!;
+    this.snapBuf = gl.createBuffer()!;
+    gl.bindVertexArray(this.snapVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.snapBuf);
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
     gl.bindVertexArray(null);
@@ -1093,6 +1109,23 @@ export class ViewportRenderer {
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, mesh.indices, gl.DYNAMIC_DRAW);
     gl.bindVertexArray(null);
     this.ghostIndexCount = mesh.indices.length;
+    this.requestRedraw();
+  }
+
+  /**
+   * Hollow ring at the Shift-snap target (or clear with null).
+   * Screen-space point size — same idea as endpoint handles.
+   */
+  setSnapMarker(point: [number, number, number] | null): void {
+    if (!point) {
+      this.snapCount = 0;
+      this.requestRedraw();
+      return;
+    }
+    const data = new Float32Array([point[0], point[1] + 0.04, point[2]]);
+    this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.snapBuf);
+    this.gl.bufferData(this.gl.ARRAY_BUFFER, data, this.gl.DYNAMIC_DRAW);
+    this.snapCount = 1;
     this.requestRedraw();
   }
 
@@ -1577,6 +1610,7 @@ export class ViewportRenderer {
     count: number,
     color: [number, number, number, number],
     widthPx = 1.5,
+    overlay = false,
   ): void {
     if (count === 0) return;
     const gl = this.gl;
@@ -1585,8 +1619,13 @@ export class ViewportRenderer {
     this.bindOrigin(origin);
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     gl.disable(gl.BLEND);
-    gl.enable(gl.DEPTH_TEST);
-    gl.depthMask(true);
+    if (overlay) {
+      // Overlay axis / preview: constant px width, never buried by zoom/depth.
+      gl.disable(gl.DEPTH_TEST);
+    } else {
+      gl.enable(gl.DEPTH_TEST);
+      gl.depthMask(true);
+    }
     gl.useProgram(this.lineProg);
     gl.uniformMatrix4fv(u.uMVP, false, viewProj);
     gl.uniform3fv(u.uOrigin, this.scratchOrigin);
@@ -1596,6 +1635,7 @@ export class ViewportRenderer {
     gl.bindVertexArray(vao);
     gl.drawArrays(gl.TRIANGLES, 0, count);
     gl.bindVertexArray(null);
+    if (overlay) gl.enable(gl.DEPTH_TEST);
   }
 
   private drawHandles(): void {
@@ -1614,10 +1654,36 @@ export class ViewportRenderer {
     gl.uniformMatrix4fv(u.uMVP, false, viewProj);
     gl.uniform3fv(u.uEye, this.scratchEye);
     gl.uniform3fv(u.uOrigin, this.scratchOrigin);
-    gl.uniform1f(u.uPointSize, 8 * dpr);
+    gl.uniform1f(u.uPointSize, 10 * dpr);
+    gl.uniform1f(u.uInnerHole, 0);
     gl.uniform4f(u.uColor, 0.95, 0.72, 0.28, 1);
     gl.bindVertexArray(this.handleVao);
     gl.drawArrays(gl.POINTS, 0, this.handleCount);
+    gl.bindVertexArray(null);
+    gl.enable(gl.DEPTH_TEST);
+  }
+
+  private drawSnapMarker(): void {
+    if (this.snapCount === 0) return;
+    const gl = this.gl;
+    const { viewProj, eye, origin } = this.cameraMatrices();
+    const u = this.pointUniforms;
+    this.bindOrigin(origin);
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.scratchEye[0] = eye[0];
+    this.scratchEye[1] = eye[1];
+    this.scratchEye[2] = eye[2];
+    gl.disable(gl.BLEND);
+    gl.disable(gl.DEPTH_TEST);
+    gl.useProgram(this.pointProg);
+    gl.uniformMatrix4fv(u.uMVP, false, viewProj);
+    gl.uniform3fv(u.uEye, this.scratchEye);
+    gl.uniform3fv(u.uOrigin, this.scratchOrigin);
+    gl.uniform1f(u.uPointSize, 14 * dpr);
+    gl.uniform1f(u.uInnerHole, 0.55);
+    gl.uniform4f(u.uColor, 0.95, 0.78, 0.35, 1);
+    gl.bindVertexArray(this.snapVao);
+    gl.drawArrays(gl.POINTS, 0, this.snapCount);
     gl.bindVertexArray(null);
     gl.enable(gl.DEPTH_TEST);
   }
@@ -1649,11 +1715,13 @@ export class ViewportRenderer {
     this.drawLines(this.gridVao, this.gridCount, [0.22, 0.24, 0.28, 1], 1.25);
     this.drawMeshes(false);
     // Outlines at true depth; solids were polygon-offset back.
-    this.drawLines(this.edgeVao, this.edgeCount, [0.08, 0.09, 0.1, 1], 2.0);
+    this.drawLines(this.edgeVao, this.edgeCount, [0.08, 0.09, 0.1, 1], 2.5);
     this.drawGhost();
-    this.drawLines(this.previewVao, this.previewCount, [0.95, 0.7, 0.3, 1], 2.25);
-    this.drawLines(this.editLineVao, this.editLineCount, [0.95, 0.72, 0.28, 1], 2.25);
+    // Axis / preview: screen-space overlays (constant px, like handles).
+    this.drawLines(this.previewVao, this.previewCount, [0.95, 0.7, 0.3, 1], 3.0, true);
+    this.drawLines(this.editLineVao, this.editLineCount, [0.95, 0.72, 0.28, 1], 3.0, true);
     this.drawHandles();
+    this.drawSnapMarker();
     this.frameMats = null;
 
     // Another mutation happened during the frame (e.g. continuous orbit).
