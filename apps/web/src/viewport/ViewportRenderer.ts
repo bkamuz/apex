@@ -38,6 +38,8 @@ export const GRID_MARGIN_CELLS = 4;
 const GRID_DEFAULT_HALF = 20;
 /** Orbit pitch clamp (radians). Symmetric so the camera can go under the model. */
 const PITCH_LIMIT = 1.45; // ~83°, keeps cos(pitch) away from 0
+/** Closest wheel-zoom distance (metres). Independent of scene size so huge walls still allow mm inspection. */
+const MIN_CAMERA_DISTANCE = 0.001;
 
 const VERT = `#version 300 es
 precision highp float;
@@ -941,7 +943,9 @@ export class ViewportRenderer {
         // Wheel while middle-dragging is often accidental (or feels like zoom
         // during pan) — ignore until the pan gesture ends.
         if (this.dragMode === 'pan') return;
-        const minDist = Math.max(this.sceneExtent * 0.35, 2);
+        // Do not scale the min by sceneExtent — a long wall used to lock zoom out
+        // at tens/hundreds of metres and block close inspection.
+        const minDist = MIN_CAMERA_DISTANCE;
         const maxDist = Math.max(this.sceneExtent * 12, 80);
         this.camera.distance = Math.max(
           minDist,
@@ -1022,7 +1026,9 @@ export class ViewportRenderer {
       near = -depth;
       far = depth;
     } else {
-      near = Math.max(0.05, this.camera.distance - radius);
+      // Keep near < distance so close zoom does not clip the look-at point when
+      // the scene radius is huge (distance - radius would be largely negative).
+      near = Math.max(MIN_CAMERA_DISTANCE * 0.1, Math.min(0.05, this.camera.distance * 0.25));
       far = this.camera.distance + radius;
     }
 
