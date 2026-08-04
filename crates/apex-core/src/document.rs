@@ -96,12 +96,13 @@ impl Document {
         self.bump(DocumentChangeKind::Clear, ids)
     }
 
-    /// Build a single scene mesh with per-triangle element pick ids.
+    /// Build a single scene mesh with per-triangle element pick ids and CAD edges.
     pub fn build_scene_buffers(&self) -> SceneBuffers {
         let mut positions = Vec::new();
         let mut normals = Vec::new();
         let mut indices = Vec::new();
         let mut pick_ids = Vec::new();
+        let mut edge_positions = Vec::new();
         let mut element_index = Vec::new();
 
         let mut elements: Vec<_> = self.elements.values().collect();
@@ -117,6 +118,7 @@ impl Document {
 
             positions.extend_from_slice(&mesh.positions);
             normals.extend_from_slice(&mesh.normals);
+            edge_positions.extend_from_slice(&mesh.edges);
 
             for tri in mesh.indices.chunks_exact(3) {
                 indices.push(base + tri[0]);
@@ -139,6 +141,7 @@ impl Document {
             normals,
             indices,
             pick_ids,
+            edge_positions,
             elements: element_index,
             version: self.version,
         }
@@ -170,6 +173,8 @@ pub struct SceneBuffers {
     pub indices: Vec<u32>,
     /// One pick id per triangle (indices.len() / 3).
     pub pick_ids: Vec<u64>,
+    /// CAD edge segments: consecutive xyz pairs.
+    pub edge_positions: Vec<f32>,
     pub elements: Vec<ElementSceneEntry>,
     pub version: u64,
 }
