@@ -130,18 +130,27 @@ void main() {
   vec4 c0 = uMVP * vec4(aPos0, 1.0);
   vec4 c1 = uMVP * vec4(aPos1, 1.0);
 
-  // Screen direction from clip (stable across differing w). Falls back when the
-  // segment collapses on screen (looking along the edge).
-  vec2 clipDir = c1.xy * c0.w - c0.xy * c1.w;
-  float clipLen = length(clipDir);
-  vec2 dir = clipLen > 1e-8 ? clipDir / clipLen : vec2(1.0, 0.0);
+  // Expand in NDC, then rebuild clip. The old "offset * clip.w" path looks correct
+  // for short edges, but on kilometre segments |clip.xy| is huge: float32 eats the
+  // pixel offset and the ribbon rasterizes as a fat screen-space slab.
+  float w0 = c0.w == 0.0 ? 1.0 : c0.w;
+  float w1 = c1.w == 0.0 ? 1.0 : c1.w;
+  vec2 ndc0 = c0.xy / w0;
+  vec2 ndc1 = c1.xy / w1;
+
+  vec2 ndcDir = ndc1 - ndc0;
+  float ndcLen = length(ndcDir);
+  vec2 dir = ndcLen > 1e-8 ? ndcDir / ndcLen : vec2(1.0, 0.0);
   vec2 perp = vec2(-dir.y, dir.x);
 
-  vec4 clip = mix(c0, c1, aEnd);
-  // Constant pixel width independent of zoom / projection.
+  vec2 ndc = mix(ndc0, ndc1, aEnd);
+  float ndcZ = mix(c0.z / w0, c1.z / w1, aEnd);
+  float clipW = mix(w0, w1, aEnd);
+
   vec2 pixelToNdc = 2.0 / max(uResolution, vec2(1.0));
-  clip.xy += perp * aSide * (0.5 * uLineWidthPx) * pixelToNdc * clip.w;
-  gl_Position = clip;
+  ndc += perp * aSide * (0.5 * uLineWidthPx) * pixelToNdc;
+
+  gl_Position = vec4(ndc * clipW, ndcZ * clipW, clipW);
 }`;
 
 const LINE_FRAG = `#version 300 es
@@ -402,8 +411,9 @@ function niceGridStep(span: number, maxLines: number): number {
 }
 
 /**
- * Split long xyzxyz segments so thick-line expansion stays numerically stable.
- * A single kilometre edge in screen-space line math blows out to full-screen slabs.
+ * Split long xyzxyz segments so NDC thick-line width stays stable.
+ * Kilometre edges push |clip/NDC| so high that float32 eats the pixel offset
+ * and the ribbon reads as a inflated slab — not a segment-count problem.
  */
 function subdivideLineSegments(
   segments: ArrayLike<number>,
