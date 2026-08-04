@@ -26,7 +26,7 @@ export function LevelList({
       {levels.length === 0 ? (
         <div className="empty">No levels.</div>
       ) : (
-        <ul className="element-list level-list">
+        <ul className="level-list">
           {levels.map((level) => {
             const active = level.id === activeLevelId;
             const selected = level.id === selectedLevelId;

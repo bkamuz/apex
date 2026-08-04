@@ -173,12 +173,40 @@ button:focus-visible {
 }
 
 .level-list {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+  overflow: auto;
   flex: 1;
   max-height: 160px;
 }
 
+.level-list li {
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.level-list li:hover {
+  background: var(--bg-elevated);
+}
+
+.level-list li.selected {
+  background: var(--accent-soft);
+  color: #f3d2a8;
+}
+
 .level-list li.active-level:not(.selected) {
   box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.level-list .cat {
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 11px;
 }
 
 .level-badge {
