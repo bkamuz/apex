@@ -432,7 +432,7 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <div className="brand">
-          APEX <span>BIT</span>
+          APEX
         </div>
         <div className="tools">
           <button
