@@ -2,6 +2,9 @@ import initWasm, {
   initApp,
   createWall,
   setWallParams,
+  createLevel,
+  setActiveLevel,
+  setLevelElevation,
   selectElement,
   toggleSelectElement,
   pickById,
@@ -27,6 +30,12 @@ function asScene(value: unknown): SceneDto {
   // Be defensive if an older pkg is present briefly during rebuild.
   if (!Array.isArray(scene.selected_ids)) {
     scene.selected_ids = scene.selected_id ? [scene.selected_id] : [];
+  }
+  if (!Array.isArray(scene.levels)) {
+    scene.levels = [];
+  }
+  if (scene.active_level_id === undefined) {
+    scene.active_level_id = null;
   }
   return scene;
 }
@@ -54,6 +63,18 @@ export function apexSetWallParams(
   return asScene(
     setWallParams(id, height, thickness, start[0], start[1], start[2], end[0], end[1], end[2]),
   );
+}
+
+export function apexCreateLevel(name: string, elevation: number): SceneDto {
+  return asScene(createLevel(name, elevation));
+}
+
+export function apexSetActiveLevel(id: string): SceneDto {
+  return asScene(setActiveLevel(id));
+}
+
+export function apexSetLevelElevation(id: string, elevation: number): SceneDto {
+  return asScene(setLevelElevation(id, elevation));
 }
 
 export function apexSelectElement(id: string | null): SceneDto {

@@ -374,13 +374,14 @@ function mat4Multiply(a: Float32Array, b: Float32Array): Float32Array {
   return out;
 }
 
-/** Axis-aligned ground grid covering [minX,maxX] × [minZ,maxZ] (inclusive). */
+/** Axis-aligned grid covering [minX,maxX] × [minZ,maxZ] at elevation y. */
 function buildGridRect(
   minX: number,
   maxX: number,
   minZ: number,
   maxZ: number,
   step: number,
+  y = 0,
 ): Float32Array {
   const x0 = Math.floor(minX / step) * step;
   const x1 = Math.ceil(maxX / step) * step;
@@ -388,12 +389,51 @@ function buildGridRect(
   const z1 = Math.ceil(maxZ / step) * step;
   const lines: number[] = [];
   for (let z = z0; z <= z1 + step * 0.5; z += step) {
-    lines.push(x0, 0, z, x1, 0, z);
+    lines.push(x0, y, z, x1, y, z);
   }
   for (let x = x0; x <= x1 + step * 0.5; x += step) {
-    lines.push(x, 0, z0, x, 0, z1);
+    lines.push(x, y, z0, x, y, z1);
   }
   return new Float32Array(lines);
+}
+
+/** Closed rectangle outline on the level plane (matches grid bounds). */
+function buildRectContour(
+  minX: number,
+  maxX: number,
+  minZ: number,
+  maxZ: number,
+  y: number,
+): Float32Array {
+  return new Float32Array([
+    minX, y, minZ, maxX, y, minZ,
+    maxX, y, minZ, maxX, y, maxZ,
+    maxX, y, maxZ, minX, y, maxZ,
+    minX, y, maxZ, minX, y, minZ,
+  ]);
+}
+
+function distPointToSegment2d(
+  px: number,
+  py: number,
+  ax: number,
+  ay: number,
+  bx: number,
+  by: number,
+): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const lenSq = dx * dx + dy * dy;
+  if (lenSq < 1e-12) return Math.hypot(px - ax, py - ay);
+  let t = ((px - ax) * dx + (py - ay) * dy) / lenSq;
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
+}
+
+export interface LevelPlaneView {
+  id: string;
+  elevation: number;
+  active: boolean;
 }
 
 /**
@@ -544,12 +584,19 @@ export class ViewportRenderer {
   private gridVao: WebGLVertexArrayObject;
   private gridBuf: WebGLBuffer;
   private gridCount = 0;
+  private contourVao: WebGLVertexArrayObject;
+  private contourBuf: WebGLBuffer;
+  private contourCount = 0;
+  private activeContourVao: WebGLVertexArrayObject;
+  private activeContourBuf: WebGLBuffer;
+  private activeContourCount = 0;
   private gridBounds = {
     minX: -GRID_DEFAULT_HALF,
     maxX: GRID_DEFAULT_HALF,
     minZ: -GRID_DEFAULT_HALF,
     maxZ: GRID_DEFAULT_HALF,
   };
+  private levelPlanes: LevelPlaneView[] = [];
   private previewVao: WebGLVertexArrayObject;
   private previewBuf: WebGLBuffer;
   private previewCount = 0;
@@ -656,7 +703,14 @@ export class ViewportRenderer {
     this.gridVao = gl.createVertexArray()!;
     this.gridBuf = gl.createBuffer()!;
     this.bindThickLineVao(this.gridVao, this.gridBuf);
-    this.uploadGrid();
+
+    this.contourVao = gl.createVertexArray()!;
+    this.contourBuf = gl.createBuffer()!;
+    this.bindThickLineVao(this.contourVao, this.contourBuf);
+
+    this.activeContourVao = gl.createVertexArray()!;
+    this.activeContourBuf = gl.createBuffer()!;
+    this.bindThickLineVao(this.activeContourVao, this.activeContourBuf);
 
     this.previewVao = gl.createVertexArray()!;
     this.previewBuf = gl.createBuffer()!;
@@ -827,15 +881,45 @@ export class ViewportRenderer {
     this.selectedPickIds = ids.slice(0, 32);
   }
 
-  private uploadGrid(): void {
+  /**
+   * Work-plane levels: active level gets a semi-transparent grid; every level
+   * gets a contour matching the shared XZ grid bounds.
+   */
+  setLevelPlanes(levels: LevelPlaneView[]): void {
+    this.levelPlanes = levels.slice();
+    this.refreshLevelVisuals();
+  }
+
+  getGridBounds(): { minX: number; maxX: number; minZ: number; maxZ: number } {
+    return { ...this.gridBounds };
+  }
+
+  private refreshLevelVisuals(): void {
     const { minX, maxX, minZ, maxZ } = this.gridBounds;
-    const grid = buildGridRect(minX, maxX, minZ, maxZ, GRID_STEP);
-    this.gridCount = this.uploadThickLines(this.gridBuf, grid);
+    const active = this.levelPlanes.find((l) => l.active) ?? null;
+    if (active) {
+      const grid = buildGridRect(minX, maxX, minZ, maxZ, GRID_STEP, active.elevation);
+      this.gridCount = this.uploadThickLines(this.gridBuf, grid);
+      const contour = buildRectContour(minX, maxX, minZ, maxZ, active.elevation);
+      this.activeContourCount = this.uploadThickLines(this.activeContourBuf, contour);
+    } else {
+      this.gridCount = 0;
+      this.activeContourCount = 0;
+    }
+
+    const segs: number[] = [];
+    for (const level of this.levelPlanes) {
+      if (level.active) continue;
+      const c = buildRectContour(minX, maxX, minZ, maxZ, level.elevation);
+      for (let i = 0; i < c.length; i++) segs.push(c[i]);
+    }
+    this.contourCount =
+      segs.length > 0 ? this.uploadThickLines(this.contourBuf, new Float32Array(segs)) : 0;
   }
 
   /**
-   * Grow the ground grid to cover the given XZ bounds, plus GRID_MARGIN_CELLS
-   * on each side. Fixed GRID_STEP (1 m) — does not change with zoom. Never shrinks.
+   * Grow shared XZ grid bounds to cover the given region, plus GRID_MARGIN_CELLS.
+   * Fixed GRID_STEP (1 m) — does not change with zoom. Never shrinks.
    */
   expandGridToInclude(
     minX: number,
@@ -861,7 +945,38 @@ export class ViewportRenderer {
     this.gridBounds = { minX: nextMinX, maxX: nextMaxX, minZ: nextMinZ, maxZ: nextMaxZ };
     const span = Math.max(nextMaxX - nextMinX, nextMaxZ - nextMinZ, 2);
     this.sceneExtent = Math.max(this.sceneExtent, span);
-    this.uploadGrid();
+    this.refreshLevelVisuals();
+  }
+
+  /** Screen-space hit on a level's outer contour (for double-click activate). */
+  hitLevelContour(
+    clientX: number,
+    clientY: number,
+    pixelRadius = 12,
+  ): string | null {
+    let bestId: string | null = null;
+    let bestDist = pixelRadius;
+    const { minX, maxX, minZ, maxZ } = this.gridBounds;
+    for (const level of this.levelPlanes) {
+      const y = level.elevation;
+      const corners: Array<[number, number, number]> = [
+        [minX, y, minZ],
+        [maxX, y, minZ],
+        [maxX, y, maxZ],
+        [minX, y, maxZ],
+      ];
+      for (let i = 0; i < 4; i++) {
+        const a = this.worldToClient(corners[i]);
+        const b = this.worldToClient(corners[(i + 1) % 4]);
+        if (!a || !b) continue;
+        const d = distPointToSegment2d(clientX, clientY, a[0], a[1], b[0], b[1]);
+        if (d <= bestDist) {
+          bestDist = d;
+          bestId = level.id;
+        }
+      }
+    }
+    return bestId;
   }
 
   /** Preview wall centerline while placing (or clear with null). */
@@ -1361,13 +1476,19 @@ export class ViewportRenderer {
     const { viewProj } = this.cameraMatrices();
     const u = this.lineUniforms;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    gl.disable(gl.BLEND);
+    const useBlend = overlay || color[3] < 0.999;
     if (overlay) {
       // Axis / preview: same constant px width as handles, independent of zoom.
       gl.disable(gl.DEPTH_TEST);
     } else {
       gl.enable(gl.DEPTH_TEST);
-      gl.depthMask(true);
+      gl.depthMask(!useBlend);
+    }
+    if (useBlend) {
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    } else {
+      gl.disable(gl.BLEND);
     }
     gl.useProgram(this.lineProg);
     gl.uniformMatrix4fv(u.uMVP, false, viewProj);
@@ -1377,7 +1498,9 @@ export class ViewportRenderer {
     gl.bindVertexArray(vao);
     gl.drawArrays(gl.TRIANGLES, 0, count);
     gl.bindVertexArray(null);
+    if (useBlend) gl.disable(gl.BLEND);
     if (overlay) gl.enable(gl.DEPTH_TEST);
+    gl.depthMask(true);
   }
 
   private drawHandles(): void {
@@ -1420,12 +1543,21 @@ export class ViewportRenderer {
     gl.depthMask(true);
     gl.clearColor(0.09, 0.1, 0.12, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-    // Grid: tiny bias only (lies on ground plane).
-    this.drawLines(this.gridVao, this.gridCount, [0.22, 0.24, 0.28, 1], 1.25);
+    // Active level grid (semi-transparent) — no separate Y=0 ground grid.
+    this.drawLines(this.gridVao, this.gridCount, [0.42, 0.55, 0.68, 0.28], 1.15);
     this.drawMeshes(false);
     // Outlines at true depth; solids were polygon-offset back.
     this.drawLines(this.edgeVao, this.edgeCount, [0.08, 0.09, 0.1, 1], 2.0);
     this.drawGhost();
+    // Level contours (inactive dim, active brighter) — double-click to activate.
+    this.drawLines(this.contourVao, this.contourCount, [0.5, 0.56, 0.64, 0.45], 2.0, true);
+    this.drawLines(
+      this.activeContourVao,
+      this.activeContourCount,
+      [0.72, 0.84, 0.98, 0.8],
+      2.4,
+      true,
+    );
     // Axis / preview: screen-space overlays (constant px, like handles).
     this.drawLines(this.previewVao, this.previewCount, [0.95, 0.7, 0.3, 1], 3.0, true);
     this.drawLines(this.editLineVao, this.editLineCount, [0.95, 0.72, 0.28, 1], 3.0, true);

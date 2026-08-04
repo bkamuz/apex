@@ -22,6 +22,13 @@ export interface ElementListDto {
   name: string;
   category: string;
   pick_id: number;
+  level_id: string;
+}
+
+export interface LevelDto {
+  id: string;
+  name: string;
+  elevation: number;
 }
 
 export interface SceneDto {
@@ -31,6 +38,8 @@ export interface SceneDto {
   pick_ids: Float64Array | number[];
   edge_positions?: Float32Array | number[];
   elements: ElementListDto[];
+  levels: LevelDto[];
+  active_level_id: string | null;
   version: number;
   selected_ids: string[];
   /** Primary / first selected id; null when empty. */

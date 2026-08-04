@@ -144,6 +144,52 @@ button:focus-visible {
   border-bottom: 1px solid var(--border);
 }
 
+.panel-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.panel-title-row .panel-title {
+  border-bottom: none;
+  flex: 1;
+}
+
+.panel-action {
+  margin-right: 10px;
+  padding: 4px 8px;
+  font-size: 11px;
+}
+
+.level-panel {
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+  max-height: 40%;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.level-list {
+  flex: 1;
+  max-height: 160px;
+}
+
+.level-list li.active-level:not(.selected) {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.level-badge {
+  margin-left: 6px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  font-family: var(--mono);
+}
+
 .element-list {
   list-style: none;
   margin: 0;
