@@ -21,7 +21,7 @@ export function createWall(x0, y0, z0, x1, y1, z1, height, thickness) {
 }
 
 /**
- * Delete selected element.
+ * Delete all selected elements.
  * @returns {any}
  */
 export function deleteSelected() {
@@ -45,7 +45,7 @@ export function getScene() {
 }
 
 /**
- * Selected element details (or null).
+ * Selected element details when exactly one is selected (otherwise null).
  * @returns {any}
  */
 export function getSelected() {
@@ -79,7 +79,7 @@ export function listElements() {
 }
 
 /**
- * Pick by GPU pick id (1-based sequential). Returns scene with selection.
+ * Pick by GPU pick id (1-based sequential). Replaces selection.
  * @param {number} pick_id
  * @returns {any}
  */
@@ -92,7 +92,7 @@ export function pickById(pick_id) {
 }
 
 /**
- * Set selection by element id (or clear with empty string).
+ * Replace selection with one element (or clear with empty string).
  * @param {string} id
  * @returns {any}
  */
@@ -123,6 +123,34 @@ export function setWallParams(id, height, thickness, x0, y0, z0, x1, y1, z1) {
     const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
     const ret = wasm.setWallParams(ptr0, len0, height, thickness, x0, y0, z0, x1, y1, z1);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Toggle selection by GPU pick id (Ctrl/Cmd+click).
+ * @param {number} pick_id
+ * @returns {any}
+ */
+export function togglePickById(pick_id) {
+    const ret = wasm.togglePickById(pick_id);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Toggle one element in/out of the selection (Ctrl/Cmd multi-select).
+ * @param {string} id
+ * @returns {any}
+ */
+export function toggleSelectElement(id) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.toggleSelectElement(ptr0, len0);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }

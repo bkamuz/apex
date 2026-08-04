@@ -6,7 +6,7 @@ export interface SceneMeshData {
   indices: ArrayLike<number>;
   pickIds: ArrayLike<number>;
   edgePositions?: ArrayLike<number>;
-  selectedPickId: number | null;
+  selectedPickIds: number[];
   fitCamera?: boolean;
 }
 
@@ -66,11 +66,22 @@ flat in float vPick;
 uniform vec3 uLightDir;
 uniform vec3 uSkyColor;
 uniform vec3 uGroundColor;
-uniform float uSelectedPick;
+uniform float uSelectedPick; // unused when count>0; kept for layout stability
+uniform float uSelectedPicks[32];
+uniform int uSelectedCount;
 uniform bool uPickPass;
 uniform float uOpacity;
 uniform int uSelectionMode; // 0=all, 1=opaque others, 2=selected only
 out vec4 outColor;
+
+bool isSelectedPick(float pick) {
+  for (int i = 0; i < 32; i++) {
+    if (i >= uSelectedCount) break;
+    if (abs(pick - uSelectedPicks[i]) < 0.5) return true;
+  }
+  return false;
+}
+
 void main(){
   if (uPickPass) {
     uint id = uint(vPick);
@@ -81,7 +92,7 @@ void main(){
     outColor = vec4(r, g, b, a);
     return;
   }
-  bool selected = abs(vPick - uSelectedPick) < 0.5 && uSelectedPick > 0.0;
+  bool selected = isSelectedPick(vPick);
   if (uSelectionMode == 1 && selected) discard;
   if (uSelectionMode == 2 && !selected) discard;
   vec3 n = normalize(vNormal);
@@ -438,7 +449,7 @@ export class ViewportRenderer {
   /** CAD default: parallel projection (axonometric when pitched/yawed). */
   private projection: ProjectionMode = 'orthographic';
   private sceneExtent = 10;
-  private selectedPickId: number | null = null;
+  private selectedPickIds: number[] = [];
   /** Locked for the whole gesture so MMB never falls through into orbit/zoom. */
   private dragMode: 'pan' | 'orbit' | null = null;
   private lastX = 0;
@@ -620,7 +631,7 @@ export class ViewportRenderer {
 
     this.edgeCount = this.uploadThickLines(this.edgeBuf, edges);
 
-    this.selectedPickId = data.selectedPickId;
+    this.selectedPickIds = data.selectedPickIds.slice(0, 32);
 
     const aabb = aabbFromPositions(positions);
     if (aabb) {
@@ -651,8 +662,8 @@ export class ViewportRenderer {
     this.sceneExtent = Math.max(sx, sy, sz, 2);
   }
 
-  setSelectedPickId(id: number | null): void {
-    this.selectedPickId = id;
+  setSelectedPickIds(ids: number[]): void {
+    this.selectedPickIds = ids.slice(0, 32);
   }
 
   private uploadGrid(): void {
@@ -1090,7 +1101,13 @@ export class ViewportRenderer {
     gl.uniform3fv(gl.getUniformLocation(this.meshProg, 'uLightDir'), new Float32Array([0.45, 0.85, 0.35]));
     gl.uniform3fv(gl.getUniformLocation(this.meshProg, 'uSkyColor'), new Float32Array([0.92, 0.94, 0.98]));
     gl.uniform3fv(gl.getUniformLocation(this.meshProg, 'uGroundColor'), new Float32Array([0.28, 0.3, 0.34]));
-    gl.uniform1f(gl.getUniformLocation(this.meshProg, 'uSelectedPick'), this.selectedPickId ?? 0);
+    const picks = new Float32Array(32);
+    for (let i = 0; i < this.selectedPickIds.length && i < 32; i++) {
+      picks[i] = this.selectedPickIds[i];
+    }
+    gl.uniform1fv(gl.getUniformLocation(this.meshProg, 'uSelectedPicks'), picks);
+    gl.uniform1i(gl.getUniformLocation(this.meshProg, 'uSelectedCount'), this.selectedPickIds.length);
+    gl.uniform1f(gl.getUniformLocation(this.meshProg, 'uSelectedPick'), this.selectedPickIds[0] ?? 0);
     gl.uniform1i(gl.getUniformLocation(this.meshProg, 'uPickPass'), pickPass ? 1 : 0);
 
     gl.bindVertexArray(this.vao);
@@ -1107,7 +1124,7 @@ export class ViewportRenderer {
       gl.uniform1i(gl.getUniformLocation(this.meshProg, 'uSelectionMode'), 0);
       gl.uniform1f(gl.getUniformLocation(this.meshProg, 'uOpacity'), 1.0);
       gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_INT, 0);
-    } else if (this.selectedPickId != null && this.selectedPickId > 0) {
+    } else if (this.selectedPickIds.length > 0) {
       // Opaque walls first (skip selection).
       gl.disable(gl.BLEND);
       gl.depthMask(true);
@@ -1115,7 +1132,7 @@ export class ViewportRenderer {
       gl.uniform1f(gl.getUniformLocation(this.meshProg, 'uOpacity'), 1.0);
       gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_INT, 0);
 
-      // Selected wall: translucent so the construction line reads clearly.
+      // Selected wall(s): translucent so construction / multi-select reads clearly.
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
       gl.depthMask(false);
