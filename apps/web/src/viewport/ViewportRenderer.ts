@@ -17,12 +17,17 @@ export interface CameraState {
   pitch: number;
 }
 
+export type ProjectionMode = 'perspective' | 'orthographic';
+
 const DEFAULT_CAMERA: CameraState = {
   target: [0, 1.2, 0],
   distance: 18,
   yaw: 0.7,
   pitch: 0.55,
 };
+
+/** Vertical FOV for perspective; also sizes the ortho frustum from `distance`. */
+const CAMERA_FOVY = (50 * Math.PI) / 180;
 
 const MMB_DBLCLICK_MS = 400;
 const MMB_DBLCLICK_PX = 8;
@@ -251,6 +256,28 @@ function mat4Perspective(fovy: number, aspect: number, near: number, far: number
   return out;
 }
 
+function mat4Ortho(
+  left: number,
+  right: number,
+  bottom: number,
+  top: number,
+  near: number,
+  far: number,
+): Float32Array {
+  const out = new Float32Array(16);
+  const rl = right - left;
+  const tb = top - bottom;
+  const fn = far - near;
+  out[0] = 2 / rl;
+  out[5] = 2 / tb;
+  out[10] = -2 / fn;
+  out[12] = -(right + left) / rl;
+  out[13] = -(top + bottom) / tb;
+  out[14] = -(far + near) / fn;
+  out[15] = 1;
+  return out;
+}
+
 function mat4LookAt(
   eye: [number, number, number],
   target: [number, number, number],
@@ -424,6 +451,8 @@ export class ViewportRenderer {
     yaw: DEFAULT_CAMERA.yaw,
     pitch: DEFAULT_CAMERA.pitch,
   };
+  /** CAD default: parallel projection (axonometric when pitched/yawed). */
+  private projection: ProjectionMode = 'orthographic';
   private sceneExtent = 10;
   private selectedPickId: number | null = null;
   /** When set, RMB orbit rotates the view around this placement-plane point. */
@@ -546,7 +575,15 @@ export class ViewportRenderer {
     return { ...this.camera, target: [...this.camera.target] as [number, number, number] };
   }
 
-  /** Restore the default home camera (does not clear selection / orbit pivot). */
+  getProjection(): ProjectionMode {
+    return this.projection;
+  }
+
+  setProjection(mode: ProjectionMode): void {
+    this.projection = mode;
+  }
+
+  /** Restore the default home camera pose (keeps projection mode + selection pivot). */
   resetCamera(): void {
     this.camera = {
       target: [...DEFAULT_CAMERA.target] as [number, number, number],
@@ -867,7 +904,7 @@ export class ViewportRenderer {
     const rect = this.canvas.getBoundingClientRect();
     const x = ((clientX - rect.left) / rect.width) * 2 - 1;
     const y = -(((clientY - rect.top) / rect.height) * 2 - 1);
-    const { eye, viewProjInv } = this.cameraMatrices();
+    const { viewProjInv } = this.cameraMatrices();
     const nearPt = this.unproject(x, y, -1, viewProjInv);
     const farPt = this.unproject(x, y, 1, viewProjInv);
     const dir = [farPt[0] - nearPt[0], farPt[1] - nearPt[1], farPt[2] - nearPt[2]] as [
@@ -876,9 +913,11 @@ export class ViewportRenderer {
       number,
     ];
     if (Math.abs(dir[1]) < 1e-8) return null;
-    const t = (elevation - eye[1]) / dir[1];
+    // Use the unprojected near point as the ray origin so orthographic (parallel)
+    // rays hit correctly; for perspective, near→far lies on the same view ray.
+    const t = (elevation - nearPt[1]) / dir[1];
     if (t < 0) return null;
-    return [eye[0] + dir[0] * t, elevation, eye[2] + dir[2] * t];
+    return [nearPt[0] + dir[0] * t, elevation, nearPt[2] + dir[2] * t];
   }
 
   pick(clientX: number, clientY: number): number | null {
@@ -1030,7 +1069,14 @@ export class ViewportRenderer {
     // Keep near/far ratio modest for depth precision when zoomed out.
     const near = Math.max(0.05, this.camera.distance * 0.04);
     const far = Math.max(this.camera.distance * 12, this.sceneExtent * 4, near + 20);
-    const proj = mat4Perspective((50 * Math.PI) / 180, aspect, near, far);
+    // Ortho half-extents match the perspective frustum at `distance` so wheel zoom
+    // and mode switches keep the same framing.
+    const halfH = this.camera.distance * Math.tan(CAMERA_FOVY / 2);
+    const halfW = halfH * aspect;
+    const proj =
+      this.projection === 'orthographic'
+        ? mat4Ortho(-halfW, halfW, -halfH, halfH, near, far)
+        : mat4Perspective(CAMERA_FOVY, aspect, near, far);
     const eye = this.eyePosition();
     const view = mat4LookAt(eye, this.camera.target, [0, 1, 0]);
     const viewProj = mat4Multiply(proj, view);
