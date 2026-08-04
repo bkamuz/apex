@@ -627,6 +627,11 @@ export class ViewportRenderer {
   private lastMmbX = 0;
   private lastMmbY = 0;
   private raf = 0;
+  private rafPending = false;
+  private dirty = true;
+  private lastDrawAt = 0;
+  /** Skip frustum grid sampling until the view moves. */
+  private gridViewKey = '';
   private meshUniforms: MeshUniforms;
   private lineUniforms: LineUniforms;
   private pointUniforms: PointUniforms;
@@ -736,7 +741,22 @@ export class ViewportRenderer {
     gl.clearColor(0.09, 0.1, 0.12, 1);
 
     this.bindEvents();
-    this.loop();
+    this.observeCanvasSize();
+    this.requestRedraw();
+  }
+
+  /** Schedule a frame; coalesces to one rAF. Idle = no GPU work. */
+  requestRedraw(): void {
+    this.dirty = true;
+    if (this.rafPending) return;
+    this.rafPending = true;
+    this.raf = requestAnimationFrame(this.loop);
+  }
+
+  private observeCanvasSize(): void {
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(() => this.requestRedraw());
+    ro.observe(this.canvas);
   }
 
   /** Interleaved thick-line attributes: p0.xyz, p1.xyz, side, end. */
@@ -769,8 +789,9 @@ export class ViewportRenderer {
     return { ...this.camera, target: [...this.camera.target] as [number, number, number] };
   }
 
-  /** Rolling FPS from the render loop (display-synced via rAF). */
+  /** Rolling FPS from recent draws; 0 when the viewport is idle. */
   getFps(): number {
+    if (performance.now() - this.lastDrawAt > 400) return 0;
     return this.fps;
   }
 
@@ -780,6 +801,8 @@ export class ViewportRenderer {
 
   setProjection(mode: ProjectionMode): void {
     this.projection = mode;
+    this.gridViewKey = '';
+    this.requestRedraw();
   }
 
   /** Restore the default home camera pose (keeps projection mode). */
@@ -790,6 +813,8 @@ export class ViewportRenderer {
       yaw: DEFAULT_CAMERA.yaw,
       pitch: DEFAULT_CAMERA.pitch,
     };
+    this.gridViewKey = '';
+    this.requestRedraw();
   }
 
   setScene(data: SceneMeshData): void {
@@ -844,6 +869,8 @@ export class ViewportRenderer {
     } else {
       this.sceneExtent = 10;
     }
+    this.gridViewKey = '';
+    this.requestRedraw();
   }
 
   fitToAabb(min: [number, number, number], max: [number, number, number]): void {
@@ -857,10 +884,13 @@ export class ViewportRenderer {
     this.camera.target = [cx, cy, cz];
     this.camera.distance = Math.max(radius * 2.6, 6);
     this.sceneExtent = Math.max(sx, sy, sz, 2);
+    this.gridViewKey = '';
+    this.requestRedraw();
   }
 
   setSelectedPickIds(ids: number[]): void {
     this.selectedPickIds = ids.slice(0, 32);
+    this.requestRedraw();
   }
 
   /**
@@ -958,6 +988,19 @@ export class ViewportRenderer {
    * visible span grows. Shift-snap uses `getGridStep()`.
    */
   private syncViewGrid(): void {
+    const viewKey = [
+      this.projection,
+      this.camera.distance.toFixed(3),
+      this.camera.target[0].toFixed(2),
+      this.camera.target[1].toFixed(2),
+      this.camera.target[2].toFixed(2),
+      this.camera.yaw.toFixed(3),
+      this.camera.pitch.toFixed(3),
+      this.canvas.clientWidth,
+      this.canvas.clientHeight,
+    ].join('|');
+    if (viewKey === this.gridViewKey) return;
+
     // Reuse one matrix build for all ground samples this sync.
     const ownedMats = this.frameMats == null;
     if (ownedMats) this.frameMats = this.buildCameraMatrices();
@@ -972,6 +1015,7 @@ export class ViewportRenderer {
     const maxX = Math.ceil(bounds.maxX / step) * step;
     const minZ = Math.floor(bounds.minZ / step) * step;
     const maxZ = Math.ceil(bounds.maxZ / step) * step;
+    this.gridViewKey = viewKey;
     if (
       step === this.gridStep &&
       minX === this.gridBounds.minX &&
@@ -1009,6 +1053,7 @@ export class ViewportRenderer {
   ): void {
     if (!start || !end) {
       this.previewCount = 0;
+      this.requestRedraw();
       return;
     }
     this.expandGridToInclude(
@@ -1026,6 +1071,7 @@ export class ViewportRenderer {
       end[2],
     ]);
     this.previewCount = this.uploadThickLines(this.previewBuf, data);
+    this.requestRedraw();
   }
 
   /** Semi-transparent ghost solid while placing a wall. */
@@ -1035,6 +1081,7 @@ export class ViewportRenderer {
     const gl = this.gl;
     if (!mesh || mesh.indices.length === 0) {
       this.ghostIndexCount = 0;
+      this.requestRedraw();
       return;
     }
     gl.bindBuffer(gl.ARRAY_BUFFER, this.ghostPosBuf);
@@ -1046,6 +1093,7 @@ export class ViewportRenderer {
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, mesh.indices, gl.DYNAMIC_DRAW);
     gl.bindVertexArray(null);
     this.ghostIndexCount = mesh.indices.length;
+    this.requestRedraw();
   }
 
   /** Construction line + endpoint handles for the selected wall. */
@@ -1058,6 +1106,7 @@ export class ViewportRenderer {
       this.editLineCount = 0;
       this.handleCount = 0;
       this.editHandles = null;
+      this.requestRedraw();
       return;
     }
     this.expandGridToInclude(
@@ -1089,6 +1138,7 @@ export class ViewportRenderer {
     gl.bufferData(gl.ARRAY_BUFFER, handles, gl.DYNAMIC_DRAW);
     this.handleCount = 2;
     this.editHandles = { start: [...start] as [number, number, number], end: [...end] as [number, number, number] };
+    this.requestRedraw();
   }
 
   /** Project world point to CSS client coordinates (relative to canvas). */
@@ -1180,6 +1230,8 @@ export class ViewportRenderer {
   }
 
   dispose(): void {
+    this.dirty = false;
+    this.rafPending = false;
     cancelAnimationFrame(this.raf);
   }
 
@@ -1222,6 +1274,7 @@ export class ViewportRenderer {
       if (this.dragMode === 'pan') {
         // Ground-plane pan only (world XZ). Never change target Y / distance.
         this.panOnGround(dx, dy);
+        this.requestRedraw();
         return;
       }
       this.camera.yaw -= dx * 0.005;
@@ -1229,6 +1282,7 @@ export class ViewportRenderer {
         -PITCH_LIMIT,
         Math.min(PITCH_LIMIT, this.camera.pitch + dy * 0.005),
       );
+      this.requestRedraw();
     });
     const endDrag = () => {
       this.dragMode = null;
@@ -1251,6 +1305,7 @@ export class ViewportRenderer {
           minDist,
           Math.min(maxDist, this.camera.distance * (1 + e.deltaY * 0.001)),
         );
+        this.requestRedraw();
       },
       { passive: false },
     );
@@ -1568,8 +1623,12 @@ export class ViewportRenderer {
   }
 
   private loop = (): void => {
-    this.raf = requestAnimationFrame(this.loop);
+    this.rafPending = false;
+    if (!this.dirty) return;
+    this.dirty = false;
+
     const now = performance.now();
+    this.lastDrawAt = now;
     if (this.fpsWindowStart === 0) this.fpsWindowStart = now;
     this.fpsFrames += 1;
     if (now - this.fpsWindowStart >= 500) {
@@ -1596,6 +1655,9 @@ export class ViewportRenderer {
     this.drawLines(this.editLineVao, this.editLineCount, [0.95, 0.72, 0.28, 1], 2.25);
     this.drawHandles();
     this.frameMats = null;
+
+    // Another mutation happened during the frame (e.g. continuous orbit).
+    if (this.dirty) this.requestRedraw();
   };
 }
 
