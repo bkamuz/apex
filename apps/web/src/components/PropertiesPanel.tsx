@@ -131,7 +131,7 @@ export function PropertiesPanel({
           Apply elevation
         </button>
         <div className="empty" style={{ padding: 0 }}>
-          Double-click the level contour in the viewport to make it the active work plane.
+          Double-click the level plane (or its contour) in the viewport to activate it.
         </div>
       </div>
     );

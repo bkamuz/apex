@@ -37,8 +37,8 @@ export function LevelList({
                 onClick={() => onSelect(level.id)}
                 title={
                   active
-                    ? 'Active work plane — double-click contour in viewport to switch'
-                    : 'Select to edit elevation · double-click contour to activate'
+                    ? 'Active work plane — double-click another level plane to switch'
+                    : 'Select to edit elevation · double-click plane/contour to activate'
                 }
               >
                 <span>

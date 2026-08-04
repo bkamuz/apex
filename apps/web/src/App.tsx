@@ -625,7 +625,7 @@ export default function App() {
             ? pendingStart
               ? `Click end on ${activeLevel?.name ?? 'level'} · Shift snap · Esc`
               : `Wall on ${activeLevel?.name ?? 'level'} · dbl-click contour to switch`
-            : 'Dbl-click level contour to activate · Ctrl+click multi · Esc'}
+            : 'Dbl-click level plane/contour to activate · Ctrl+click multi · Esc'}
         </div>
       </header>
 

@@ -948,15 +948,16 @@ export class ViewportRenderer {
     this.refreshLevelVisuals();
   }
 
-  /** Screen-space hit on a level's outer contour (for double-click activate). */
-  hitLevelContour(
-    clientX: number,
-    clientY: number,
-    pixelRadius = 12,
-  ): string | null {
+  /**
+   * Double-click target for activating a level.
+   * Prefer a screen-space hit on the outer contour; otherwise accept a ray hit
+   * on the level plane inside the shared grid bounds (closest plane wins).
+   */
+  hitLevelContour(clientX: number, clientY: number, pixelRadius = 16): string | null {
+    const { minX, maxX, minZ, maxZ } = this.gridBounds;
     let bestId: string | null = null;
     let bestDist = pixelRadius;
-    const { minX, maxX, minZ, maxZ } = this.gridBounds;
+
     for (const level of this.levelPlanes) {
       const y = level.elevation;
       const corners: Array<[number, number, number]> = [
@@ -974,6 +975,21 @@ export class ViewportRenderer {
           bestDist = d;
           bestId = level.id;
         }
+      }
+    }
+    if (bestId) return bestId;
+
+    // Contour often sits outside the current frustum — fall back to the plane.
+    const { eye } = this.cameraMatrices();
+    let bestDepth = Number.POSITIVE_INFINITY;
+    for (const level of this.levelPlanes) {
+      const hit = this.screenToGround(clientX, clientY, level.elevation);
+      if (!hit) continue;
+      if (hit[0] < minX || hit[0] > maxX || hit[2] < minZ || hit[2] > maxZ) continue;
+      const depth = Math.hypot(hit[0] - eye[0], hit[1] - eye[1], hit[2] - eye[2]);
+      if (depth < bestDepth) {
+        bestDepth = depth;
+        bestId = level.id;
       }
     }
     return bestId;
