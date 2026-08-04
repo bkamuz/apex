@@ -80,6 +80,7 @@ export default function App() {
   const [scene, setScene] = useState<SceneDto | null>(null);
   const [selected, setSelected] = useState<ElementDto | null>(null);
   const [pendingStart, setPendingStart] = useState<[number, number, number] | null>(null);
+  const [fps, setFps] = useState(0);
 
   selectedRef.current = selected;
   selectedCountRef.current = scene
@@ -239,6 +240,14 @@ export default function App() {
       rendererRef.current = null;
     };
   }, [applyScene]);
+
+  useEffect(() => {
+    if (!ready) return;
+    const id = window.setInterval(() => {
+      setFps(rendererRef.current?.getFps() ?? 0);
+    }, 500);
+    return () => window.clearInterval(id);
+  }, [ready]);
 
   const setProjectionMode = useCallback((mode: ProjectionMode) => {
     setProjection(mode);
@@ -547,7 +556,9 @@ export default function App() {
           onPointerUp={onCanvasPointerUp}
           onPointerCancel={onCanvasPointerUp}
         />
-        <div className="viewport-badge">WebGL2 · Rust/WASM · v{scene?.version ?? 0}</div>
+        <div className="viewport-badge">
+          WebGL2 · {fps > 0 ? `${fps} fps` : '…'} · v{scene?.version ?? 0}
+        </div>
       </div>
 
       <aside className="inspector">

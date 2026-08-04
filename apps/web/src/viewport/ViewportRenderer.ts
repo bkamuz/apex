@@ -198,6 +198,80 @@ function mat4Identity(): Float32Array {
   return new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
 }
 
+const MAT4_IDENTITY = mat4Identity();
+
+type CameraMatrices = {
+  eye: [number, number, number];
+  view: Float32Array;
+  proj: Float32Array;
+  viewProj: Float32Array;
+  viewProjInv: Float32Array;
+};
+
+type MeshUniforms = {
+  uMVP: WebGLUniformLocation | null;
+  uModel: WebGLUniformLocation | null;
+  uNormalMat: WebGLUniformLocation | null;
+  uLightDir: WebGLUniformLocation | null;
+  uSkyColor: WebGLUniformLocation | null;
+  uGroundColor: WebGLUniformLocation | null;
+  uSelectedPick: WebGLUniformLocation | null;
+  uSelectedPicks: WebGLUniformLocation | null;
+  uSelectedCount: WebGLUniformLocation | null;
+  uPickPass: WebGLUniformLocation | null;
+  uOpacity: WebGLUniformLocation | null;
+  uSelectionMode: WebGLUniformLocation | null;
+};
+
+type LineUniforms = {
+  uMVP: WebGLUniformLocation | null;
+  uResolution: WebGLUniformLocation | null;
+  uLineWidthPx: WebGLUniformLocation | null;
+  uColor: WebGLUniformLocation | null;
+};
+
+type PointUniforms = {
+  uMVP: WebGLUniformLocation | null;
+  uEye: WebGLUniformLocation | null;
+  uPointSize: WebGLUniformLocation | null;
+  uColor: WebGLUniformLocation | null;
+};
+
+function meshUniforms(gl: WebGL2RenderingContext, prog: WebGLProgram): MeshUniforms {
+  return {
+    uMVP: gl.getUniformLocation(prog, 'uMVP'),
+    uModel: gl.getUniformLocation(prog, 'uModel'),
+    uNormalMat: gl.getUniformLocation(prog, 'uNormalMat'),
+    uLightDir: gl.getUniformLocation(prog, 'uLightDir'),
+    uSkyColor: gl.getUniformLocation(prog, 'uSkyColor'),
+    uGroundColor: gl.getUniformLocation(prog, 'uGroundColor'),
+    uSelectedPick: gl.getUniformLocation(prog, 'uSelectedPick'),
+    uSelectedPicks: gl.getUniformLocation(prog, 'uSelectedPicks'),
+    uSelectedCount: gl.getUniformLocation(prog, 'uSelectedCount'),
+    uPickPass: gl.getUniformLocation(prog, 'uPickPass'),
+    uOpacity: gl.getUniformLocation(prog, 'uOpacity'),
+    uSelectionMode: gl.getUniformLocation(prog, 'uSelectionMode'),
+  };
+}
+
+function lineUniforms(gl: WebGL2RenderingContext, prog: WebGLProgram): LineUniforms {
+  return {
+    uMVP: gl.getUniformLocation(prog, 'uMVP'),
+    uResolution: gl.getUniformLocation(prog, 'uResolution'),
+    uLineWidthPx: gl.getUniformLocation(prog, 'uLineWidthPx'),
+    uColor: gl.getUniformLocation(prog, 'uColor'),
+  };
+}
+
+function pointUniforms(gl: WebGL2RenderingContext, prog: WebGLProgram): PointUniforms {
+  return {
+    uMVP: gl.getUniformLocation(prog, 'uMVP'),
+    uEye: gl.getUniformLocation(prog, 'uEye'),
+    uPointSize: gl.getUniformLocation(prog, 'uPointSize'),
+    uColor: gl.getUniformLocation(prog, 'uColor'),
+  };
+}
+
 function mat4Perspective(fovy: number, aspect: number, near: number, far: number): Float32Array {
   const f = 1 / Math.tan(fovy / 2);
   const out = new Float32Array(16);
@@ -458,6 +532,22 @@ export class ViewportRenderer {
   private lastMmbX = 0;
   private lastMmbY = 0;
   private raf = 0;
+  private meshUniforms: MeshUniforms;
+  private lineUniforms: LineUniforms;
+  private pointUniforms: PointUniforms;
+  /** Valid only inside `loop()` so pick/ground rays still recompute after camera edits. */
+  private frameMats: CameraMatrices | null = null;
+  private readonly scratchLight = new Float32Array([0.45, 0.85, 0.35]);
+  private readonly scratchSky = new Float32Array([0.92, 0.94, 0.98]);
+  private readonly scratchGround = new Float32Array([0.28, 0.3, 0.34]);
+  private readonly scratchGhostSky = new Float32Array([0.95, 0.9, 0.75]);
+  private readonly scratchGhostGround = new Float32Array([0.45, 0.35, 0.2]);
+  private readonly scratchNormalMat = new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
+  private readonly scratchPicks = new Float32Array(32);
+  private readonly scratchEye = new Float32Array(3);
+  private fps = 0;
+  private fpsFrames = 0;
+  private fpsWindowStart = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -467,13 +557,18 @@ export class ViewportRenderer {
       depth: true,
       stencil: false,
       premultipliedAlpha: false,
-      preserveDrawingBuffer: true,
+      // false: cheaper swap-chain on high-Hz displays; pick uses an offscreen FBO.
+      preserveDrawingBuffer: false,
+      powerPreference: 'high-performance',
     });
     if (!gl) throw new Error('WebGL2 not available');
     this.gl = gl;
     this.meshProg = link(gl, VERT, FRAG);
     this.lineProg = link(gl, LINE_VERT, LINE_FRAG);
     this.pointProg = link(gl, POINT_VERT, POINT_FRAG);
+    this.meshUniforms = meshUniforms(gl, this.meshProg);
+    this.lineUniforms = lineUniforms(gl, this.lineProg);
+    this.pointUniforms = pointUniforms(gl, this.pointProg);
 
     this.vao = gl.createVertexArray()!;
     this.posBuf = gl.createBuffer()!;
@@ -575,6 +670,11 @@ export class ViewportRenderer {
 
   getCamera(): CameraState {
     return { ...this.camera, target: [...this.camera.target] as [number, number, number] };
+  }
+
+  /** Rolling FPS from the render loop (display-synced via rAF). */
+  getFps(): number {
+    return this.fps;
   }
 
   getProjection(): ProjectionMode {
@@ -993,6 +1093,11 @@ export class ViewportRenderer {
   }
 
   private cameraMatrices() {
+    if (this.frameMats) return this.frameMats;
+    return this.buildCameraMatrices();
+  }
+
+  private buildCameraMatrices(): CameraMatrices {
     this.resize();
     const aspect = this.canvas.clientWidth / Math.max(1, this.canvas.clientHeight);
     const gridSpan = Math.max(
@@ -1090,25 +1195,22 @@ export class ViewportRenderer {
     const gl = this.gl;
     if (this.indexCount === 0) return;
     const { viewProj } = this.cameraMatrices();
+    const u = this.meshUniforms;
     gl.useProgram(this.meshProg);
-    gl.uniformMatrix4fv(gl.getUniformLocation(this.meshProg, 'uMVP'), false, viewProj);
-    gl.uniformMatrix4fv(gl.getUniformLocation(this.meshProg, 'uModel'), false, mat4Identity());
-    gl.uniformMatrix3fv(
-      gl.getUniformLocation(this.meshProg, 'uNormalMat'),
-      false,
-      new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]),
-    );
-    gl.uniform3fv(gl.getUniformLocation(this.meshProg, 'uLightDir'), new Float32Array([0.45, 0.85, 0.35]));
-    gl.uniform3fv(gl.getUniformLocation(this.meshProg, 'uSkyColor'), new Float32Array([0.92, 0.94, 0.98]));
-    gl.uniform3fv(gl.getUniformLocation(this.meshProg, 'uGroundColor'), new Float32Array([0.28, 0.3, 0.34]));
-    const picks = new Float32Array(32);
+    gl.uniformMatrix4fv(u.uMVP, false, viewProj);
+    gl.uniformMatrix4fv(u.uModel, false, MAT4_IDENTITY);
+    gl.uniformMatrix3fv(u.uNormalMat, false, this.scratchNormalMat);
+    gl.uniform3fv(u.uLightDir, this.scratchLight);
+    gl.uniform3fv(u.uSkyColor, this.scratchSky);
+    gl.uniform3fv(u.uGroundColor, this.scratchGround);
+    this.scratchPicks.fill(0);
     for (let i = 0; i < this.selectedPickIds.length && i < 32; i++) {
-      picks[i] = this.selectedPickIds[i];
+      this.scratchPicks[i] = this.selectedPickIds[i];
     }
-    gl.uniform1fv(gl.getUniformLocation(this.meshProg, 'uSelectedPicks'), picks);
-    gl.uniform1i(gl.getUniformLocation(this.meshProg, 'uSelectedCount'), this.selectedPickIds.length);
-    gl.uniform1f(gl.getUniformLocation(this.meshProg, 'uSelectedPick'), this.selectedPickIds[0] ?? 0);
-    gl.uniform1i(gl.getUniformLocation(this.meshProg, 'uPickPass'), pickPass ? 1 : 0);
+    gl.uniform1fv(u.uSelectedPicks, this.scratchPicks);
+    gl.uniform1i(u.uSelectedCount, this.selectedPickIds.length);
+    gl.uniform1f(u.uSelectedPick, this.selectedPickIds[0] ?? 0);
+    gl.uniform1i(u.uPickPass, pickPass ? 1 : 0);
 
     gl.bindVertexArray(this.vao);
     gl.enable(gl.DEPTH_TEST);
@@ -1121,23 +1223,23 @@ export class ViewportRenderer {
     if (pickPass) {
       gl.disable(gl.BLEND);
       gl.depthMask(true);
-      gl.uniform1i(gl.getUniformLocation(this.meshProg, 'uSelectionMode'), 0);
-      gl.uniform1f(gl.getUniformLocation(this.meshProg, 'uOpacity'), 1.0);
+      gl.uniform1i(u.uSelectionMode, 0);
+      gl.uniform1f(u.uOpacity, 1.0);
       gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_INT, 0);
     } else if (this.selectedPickIds.length > 0) {
       // Opaque walls first (skip selection).
       gl.disable(gl.BLEND);
       gl.depthMask(true);
-      gl.uniform1i(gl.getUniformLocation(this.meshProg, 'uSelectionMode'), 1);
-      gl.uniform1f(gl.getUniformLocation(this.meshProg, 'uOpacity'), 1.0);
+      gl.uniform1i(u.uSelectionMode, 1);
+      gl.uniform1f(u.uOpacity, 1.0);
       gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_INT, 0);
 
       // Selected wall(s): translucent so construction / multi-select reads clearly.
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
       gl.depthMask(false);
-      gl.uniform1i(gl.getUniformLocation(this.meshProg, 'uSelectionMode'), 2);
-      gl.uniform1f(gl.getUniformLocation(this.meshProg, 'uOpacity'), 0.38);
+      gl.uniform1i(u.uSelectionMode, 2);
+      gl.uniform1f(u.uOpacity, 0.38);
       gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_INT, 0);
 
       gl.depthMask(true);
@@ -1145,8 +1247,8 @@ export class ViewportRenderer {
     } else {
       gl.disable(gl.BLEND);
       gl.depthMask(true);
-      gl.uniform1i(gl.getUniformLocation(this.meshProg, 'uSelectionMode'), 0);
-      gl.uniform1f(gl.getUniformLocation(this.meshProg, 'uOpacity'), 1.0);
+      gl.uniform1i(u.uSelectionMode, 0);
+      gl.uniform1f(u.uOpacity, 1.0);
       gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_INT, 0);
     }
 
@@ -1158,25 +1260,22 @@ export class ViewportRenderer {
     const gl = this.gl;
     if (this.ghostIndexCount === 0) return;
     const { viewProj } = this.cameraMatrices();
+    const u = this.meshUniforms;
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.depthMask(false);
     gl.enable(gl.DEPTH_TEST);
     gl.useProgram(this.meshProg);
-    gl.uniformMatrix4fv(gl.getUniformLocation(this.meshProg, 'uMVP'), false, viewProj);
-    gl.uniformMatrix4fv(gl.getUniformLocation(this.meshProg, 'uModel'), false, mat4Identity());
-    gl.uniformMatrix3fv(
-      gl.getUniformLocation(this.meshProg, 'uNormalMat'),
-      false,
-      new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]),
-    );
-    gl.uniform3fv(gl.getUniformLocation(this.meshProg, 'uLightDir'), new Float32Array([0.45, 0.85, 0.35]));
-    gl.uniform3fv(gl.getUniformLocation(this.meshProg, 'uSkyColor'), new Float32Array([0.95, 0.9, 0.75]));
-    gl.uniform3fv(gl.getUniformLocation(this.meshProg, 'uGroundColor'), new Float32Array([0.45, 0.35, 0.2]));
-    gl.uniform1f(gl.getUniformLocation(this.meshProg, 'uSelectedPick'), 0);
-    gl.uniform1i(gl.getUniformLocation(this.meshProg, 'uPickPass'), 0);
-    gl.uniform1i(gl.getUniformLocation(this.meshProg, 'uSelectionMode'), 0);
-    gl.uniform1f(gl.getUniformLocation(this.meshProg, 'uOpacity'), 0.35);
+    gl.uniformMatrix4fv(u.uMVP, false, viewProj);
+    gl.uniformMatrix4fv(u.uModel, false, MAT4_IDENTITY);
+    gl.uniformMatrix3fv(u.uNormalMat, false, this.scratchNormalMat);
+    gl.uniform3fv(u.uLightDir, this.scratchLight);
+    gl.uniform3fv(u.uSkyColor, this.scratchGhostSky);
+    gl.uniform3fv(u.uGroundColor, this.scratchGhostGround);
+    gl.uniform1f(u.uSelectedPick, 0);
+    gl.uniform1i(u.uPickPass, 0);
+    gl.uniform1i(u.uSelectionMode, 0);
+    gl.uniform1f(u.uOpacity, 0.35);
 
     gl.bindVertexArray(this.ghostVao);
     gl.vertexAttrib1f(2, 0);
@@ -1196,15 +1295,16 @@ export class ViewportRenderer {
     if (count === 0) return;
     const gl = this.gl;
     const { viewProj } = this.cameraMatrices();
+    const u = this.lineUniforms;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     gl.disable(gl.BLEND);
     gl.enable(gl.DEPTH_TEST);
     gl.depthMask(true);
     gl.useProgram(this.lineProg);
-    gl.uniformMatrix4fv(gl.getUniformLocation(this.lineProg, 'uMVP'), false, viewProj);
-    gl.uniform2f(gl.getUniformLocation(this.lineProg, 'uResolution'), this.canvas.width, this.canvas.height);
-    gl.uniform1f(gl.getUniformLocation(this.lineProg, 'uLineWidthPx'), widthPx * dpr);
-    gl.uniform4f(gl.getUniformLocation(this.lineProg, 'uColor'), color[0], color[1], color[2], color[3]);
+    gl.uniformMatrix4fv(u.uMVP, false, viewProj);
+    gl.uniform2f(u.uResolution, this.canvas.width, this.canvas.height);
+    gl.uniform1f(u.uLineWidthPx, widthPx * dpr);
+    gl.uniform4f(u.uColor, color[0], color[1], color[2], color[3]);
     gl.bindVertexArray(vao);
     gl.drawArrays(gl.TRIANGLES, 0, count);
     gl.bindVertexArray(null);
@@ -1214,14 +1314,18 @@ export class ViewportRenderer {
     if (this.handleCount === 0) return;
     const gl = this.gl;
     const { viewProj, eye } = this.cameraMatrices();
+    const u = this.pointUniforms;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.scratchEye[0] = eye[0];
+    this.scratchEye[1] = eye[1];
+    this.scratchEye[2] = eye[2];
     gl.disable(gl.BLEND);
     gl.disable(gl.DEPTH_TEST);
     gl.useProgram(this.pointProg);
-    gl.uniformMatrix4fv(gl.getUniformLocation(this.pointProg, 'uMVP'), false, viewProj);
-    gl.uniform3fv(gl.getUniformLocation(this.pointProg, 'uEye'), new Float32Array(eye));
-    gl.uniform1f(gl.getUniformLocation(this.pointProg, 'uPointSize'), 8 * dpr);
-    gl.uniform4f(gl.getUniformLocation(this.pointProg, 'uColor'), 0.95, 0.72, 0.28, 1);
+    gl.uniformMatrix4fv(u.uMVP, false, viewProj);
+    gl.uniform3fv(u.uEye, this.scratchEye);
+    gl.uniform1f(u.uPointSize, 8 * dpr);
+    gl.uniform4f(u.uColor, 0.95, 0.72, 0.28, 1);
     gl.bindVertexArray(this.handleVao);
     gl.drawArrays(gl.POINTS, 0, this.handleCount);
     gl.bindVertexArray(null);
@@ -1230,8 +1334,17 @@ export class ViewportRenderer {
 
   private loop = (): void => {
     this.raf = requestAnimationFrame(this.loop);
+    const now = performance.now();
+    if (this.fpsWindowStart === 0) this.fpsWindowStart = now;
+    this.fpsFrames += 1;
+    if (now - this.fpsWindowStart >= 500) {
+      this.fps = Math.round((this.fpsFrames * 1000) / (now - this.fpsWindowStart));
+      this.fpsFrames = 0;
+      this.fpsWindowStart = now;
+    }
+
     const gl = this.gl;
-    this.resize();
+    this.frameMats = this.buildCameraMatrices();
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.disable(gl.BLEND);
     gl.depthMask(true);
@@ -1246,6 +1359,7 @@ export class ViewportRenderer {
     this.drawLines(this.previewVao, this.previewCount, [0.95, 0.7, 0.3, 1], 2.25);
     this.drawLines(this.editLineVao, this.editLineCount, [0.95, 0.72, 0.28, 1], 2.25);
     this.drawHandles();
+    this.frameMats = null;
   };
 }
 
