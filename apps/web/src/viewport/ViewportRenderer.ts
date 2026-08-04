@@ -565,6 +565,13 @@ export class ViewportRenderer {
     maxZ: GRID_DEFAULT_HALF,
   };
   private gridStep = GRID_STEP;
+  /** XZ AABB of placed geometry — unioned with the camera box when drawing the grid. */
+  private contentBounds: {
+    minX: number;
+    maxX: number;
+    minZ: number;
+    maxZ: number;
+  } | null = null;
   private previewVao: WebGLVertexArrayObject;
   private previewBuf: WebGLBuffer;
   private previewCount = 0;
@@ -809,6 +816,8 @@ export class ViewportRenderer {
 
     this.selectedPickIds = data.selectedPickIds.slice(0, 32);
 
+    // Replace content tracking from the current mesh (walls may have been deleted).
+    this.contentBounds = null;
     const aabb = aabbFromPositions(positions);
     if (aabb) {
       const sx = aabb.max[0] - aabb.min[0];
@@ -822,6 +831,7 @@ export class ViewportRenderer {
       }
     } else {
       this.sceneExtent = 10;
+      this.syncViewGrid();
     }
   }
 
@@ -849,23 +859,33 @@ export class ViewportRenderer {
   }
 
   /**
-   * View-adaptive ground grid around the camera look-at.
-   * Density stays bounded (~GRID_MAX_LINES_PER_AXIS) even for kilometre scenes;
-   * step coarsens as you zoom out. Placement snap stays on GRID_STEP (1 m).
+   * Ground grid covering union(content XZ, local camera box).
+   * Step always via niceGridStep(..., GRID_MAX_LINES_PER_AXIS) so kilometre
+   * walls stay under ~64 lines/axis. Placement snap stays on GRID_STEP (1 m).
    */
   private syncViewGrid(): void {
     const aspect = this.canvas.clientWidth / Math.max(1, this.canvas.clientHeight);
     const halfH = Math.max(this.camera.distance * Math.tan(CAMERA_FOVY / 2), 0.5);
     const halfW = halfH * aspect;
     const half = Math.max(halfW, halfH, 8) * 1.4;
-    const step = niceGridStep(half * 2, GRID_MAX_LINES_PER_AXIS);
-    const cx = Math.round(this.camera.target[0] / step) * step;
-    const cz = Math.round(this.camera.target[2] / step) * step;
-    const cells = Math.ceil(half / step);
-    const minX = cx - cells * step;
-    const maxX = cx + cells * step;
-    const minZ = cz - cells * step;
-    const maxZ = cz + cells * step;
+    const lookX = this.camera.target[0];
+    const lookZ = this.camera.target[2];
+    let minX = lookX - half;
+    let maxX = lookX + half;
+    let minZ = lookZ - half;
+    let maxZ = lookZ + half;
+    if (this.contentBounds) {
+      minX = Math.min(minX, this.contentBounds.minX);
+      maxX = Math.max(maxX, this.contentBounds.maxX);
+      minZ = Math.min(minZ, this.contentBounds.minZ);
+      maxZ = Math.max(maxZ, this.contentBounds.maxZ);
+    }
+    const span = Math.max(maxX - minX, maxZ - minZ, 1);
+    const step = niceGridStep(span, GRID_MAX_LINES_PER_AXIS);
+    minX = Math.floor(minX / step) * step;
+    maxX = Math.ceil(maxX / step) * step;
+    minZ = Math.floor(minZ / step) * step;
+    maxZ = Math.ceil(maxZ / step) * step;
     if (
       step === this.gridStep &&
       minX === this.gridBounds.minX &&
@@ -881,8 +901,8 @@ export class ViewportRenderer {
   }
 
   /**
-   * Track content XZ for zoom-out / extent only. Visual grid is view-adaptive
-   * (`syncViewGrid`) and must not grow with the scene AABB.
+   * Grow content XZ bounds (and sceneExtent for zoom-out). Visual grid is the
+   * union of content and the camera box, with an adaptive capped step.
    */
   expandGridToInclude(
     minX: number,
@@ -892,8 +912,29 @@ export class ViewportRenderer {
     marginCells = GRID_MARGIN_CELLS,
   ): void {
     const margin = marginCells * GRID_STEP;
-    const span = Math.max(maxX - minX, maxZ - minZ, 2) + margin * 2;
+    const next = {
+      minX: minX - margin,
+      maxX: maxX + margin,
+      minZ: minZ - margin,
+      maxZ: maxZ + margin,
+    };
+    if (!this.contentBounds) {
+      this.contentBounds = next;
+    } else {
+      this.contentBounds = {
+        minX: Math.min(this.contentBounds.minX, next.minX),
+        maxX: Math.max(this.contentBounds.maxX, next.maxX),
+        minZ: Math.min(this.contentBounds.minZ, next.minZ),
+        maxZ: Math.max(this.contentBounds.maxZ, next.maxZ),
+      };
+    }
+    const span = Math.max(
+      this.contentBounds.maxX - this.contentBounds.minX,
+      this.contentBounds.maxZ - this.contentBounds.minZ,
+      2,
+    );
     this.sceneExtent = Math.max(this.sceneExtent, span);
+    this.syncViewGrid();
   }
 
   /** Preview wall centerline while placing (or clear with null). */
