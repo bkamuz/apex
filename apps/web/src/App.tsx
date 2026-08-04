@@ -14,7 +14,6 @@ import {
   orthoConstrain,
   snapPointToGrid,
   ViewportRenderer,
-  wallPlacementCenter,
   type ProjectionMode,
 } from './viewport/ViewportRenderer';
 import { buildWallSolid } from './viewport/wallMesh';
@@ -77,11 +76,8 @@ export default function App() {
     if (!renderer) return;
     if (el?.category === 'wall' && el.start && el.end) {
       renderer.setEditGizmo(el.start, el.end);
-      // Pivot only — never retarget/frame the camera on select or create.
-      renderer.setOrbitPivot(wallPlacementCenter(el.start, el.end));
     } else {
       renderer.setEditGizmo(null, null);
-      renderer.setOrbitPivot(null);
     }
   }, []);
 
@@ -155,7 +151,6 @@ export default function App() {
       applyScene(apexSelectElement(null), false);
     } catch {
       rendererRef.current?.setEditGizmo(null, null);
-      rendererRef.current?.setOrbitPivot(null);
       setSelected(null);
     }
   }, [applyScene, cancelWall]);
@@ -295,7 +290,6 @@ export default function App() {
       drag.start = start;
       drag.end = end;
       renderer.setEditGizmo(start, end);
-      renderer.setOrbitPivot(wallPlacementCenter(start, end));
       // Live-update solid via WASM so the wall follows the handle.
       if (planLength(start, end) >= MIN_WALL_LENGTH) {
         try {

@@ -39,63 +39,6 @@ const GRID_DEFAULT_HALF = 20;
 /** Orbit pitch clamp (radians). Symmetric so the camera can go under the model. */
 const PITCH_LIMIT = 1.45; // ~83°, keeps cos(pitch) away from 0
 
-/** Center of a wall on its placement plane (XZ at base Y), not mid-height. */
-export function wallPlacementCenter(
-  start: [number, number, number],
-  end: [number, number, number],
-): [number, number, number] {
-  return [
-    (start[0] + end[0]) * 0.5,
-    Math.min(start[1], end[1]),
-    (start[2] + end[2]) * 0.5,
-  ];
-}
-
-type Vec3 = [number, number, number];
-
-function vSub(a: Vec3, b: Vec3): Vec3 {
-  return [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
-}
-
-function vAdd(a: Vec3, b: Vec3): Vec3 {
-  return [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
-}
-
-function vScale(a: Vec3, s: number): Vec3 {
-  return [a[0] * s, a[1] * s, a[2] * s];
-}
-
-function vDot(a: Vec3, b: Vec3): number {
-  return a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
-}
-
-function vLen(a: Vec3): number {
-  return Math.hypot(a[0], a[1], a[2]);
-}
-
-function vNormalize(a: Vec3): Vec3 | null {
-  const l = vLen(a);
-  if (l < 1e-8) return null;
-  return [a[0] / l, a[1] / l, a[2] / l];
-}
-
-function vCross(a: Vec3, b: Vec3): Vec3 {
-  return [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
-}
-
-/** Rotate `point` around `pivot` by `angle` radians about unit `axis` (Rodrigues). */
-function rotateAroundAxis(point: Vec3, pivot: Vec3, axis: Vec3, angle: number): Vec3 {
-  const v = vSub(point, pivot);
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
-  const cross = vCross(axis, v);
-  const dot = vDot(axis, v);
-  return vAdd(
-    pivot,
-    vAdd(vAdd(vScale(v, cos), vScale(cross, sin)), vScale(axis, dot * (1 - cos))),
-  );
-}
-
 const VERT = `#version 300 es
 precision highp float;
 layout(location=0) in vec3 aPos;
@@ -455,8 +398,6 @@ export class ViewportRenderer {
   private projection: ProjectionMode = 'orthographic';
   private sceneExtent = 10;
   private selectedPickId: number | null = null;
-  /** When set, RMB orbit rotates the view around this placement-plane point. */
-  private orbitPivot: [number, number, number] | null = null;
   /** Locked for the whole gesture so MMB never falls through into orbit/zoom. */
   private dragMode: 'pan' | 'orbit' | null = null;
   private lastX = 0;
@@ -583,7 +524,7 @@ export class ViewportRenderer {
     this.projection = mode;
   }
 
-  /** Restore the default home camera pose (keeps projection mode + selection pivot). */
+  /** Restore the default home camera pose (keeps projection mode). */
   resetCamera(): void {
     this.camera = {
       target: [...DEFAULT_CAMERA.target] as [number, number, number],
@@ -664,63 +605,6 @@ export class ViewportRenderer {
 
   setSelectedPickId(id: number | null): void {
     this.selectedPickId = id;
-  }
-
-  /**
-   * Set/clear the selection orbit pivot. Does not move the camera — only
-   * changes what point RMB orbit rotates around.
-   */
-  setOrbitPivot(point: [number, number, number] | null): void {
-    this.orbitPivot = point ? [point[0], point[1], point[2]] : null;
-  }
-
-  /** Rotate eye + look-at around `orbitPivot` (yaw around world Y, pitch around view right). */
-  private orbitAroundPivot(yawDelta: number, pitchDelta: number): void {
-    const pivot = this.orbitPivot;
-    if (!pivot) return;
-
-    let eye = this.eyePosition();
-    let target: Vec3 = [...this.camera.target];
-    const up: Vec3 = [0, 1, 0];
-
-    eye = rotateAroundAxis(eye, pivot, up, yawDelta);
-    target = rotateAroundAxis(target, pivot, up, yawDelta);
-
-    const forward = vNormalize(vSub(target, eye));
-    let right = forward ? vNormalize(vCross(forward, up)) : null;
-    if (!right) {
-      // Looking along ±Y — fall back to yaw-based right.
-      right = [Math.cos(this.camera.yaw), 0, -Math.sin(this.camera.yaw)];
-    }
-
-    // Clamp pitch using the eye's elevation around the pivot.
-    const toEye = vSub(eye, pivot);
-    const elevDist = vLen(toEye);
-    const elev =
-      elevDist > 1e-8 ? Math.asin(Math.max(-1, Math.min(1, toEye[1] / elevDist))) : 0;
-    let pitch = pitchDelta;
-    if (elev + pitch > PITCH_LIMIT) pitch = PITCH_LIMIT - elev;
-    if (elev + pitch < -PITCH_LIMIT) pitch = -PITCH_LIMIT - elev;
-
-    if (Math.abs(pitch) > 1e-8) {
-      eye = rotateAroundAxis(eye, pivot, right, pitch);
-      target = rotateAroundAxis(target, pivot, right, pitch);
-    }
-
-    this.applyEyeAndTarget(eye, target);
-  }
-
-  /** Write spherical camera state from an explicit eye + look-at. */
-  private applyEyeAndTarget(eye: Vec3, target: Vec3): void {
-    this.camera.target = [target[0], target[1], target[2]];
-    const dx = eye[0] - target[0];
-    const dy = eye[1] - target[1];
-    const dz = eye[2] - target[2];
-    const dist = Math.hypot(dx, dy, dz);
-    if (dist < 1e-6) return;
-    this.camera.distance = dist;
-    this.camera.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, Math.asin(dy / dist)));
-    this.camera.yaw = Math.atan2(dx, dz);
   }
 
   private uploadGrid(): void {
@@ -987,17 +871,11 @@ export class ViewportRenderer {
         this.panOnGround(dx, dy);
         return;
       }
-      if (this.orbitPivot) {
-        // Rotate the whole view around the selection placement center — do not
-        // snap the look-at to that center (avoids framing jumps on select).
-        this.orbitAroundPivot(-dx * 0.005, dy * 0.005);
-      } else {
-        this.camera.yaw -= dx * 0.005;
-        this.camera.pitch = Math.max(
-          -PITCH_LIMIT,
-          Math.min(PITCH_LIMIT, this.camera.pitch + dy * 0.005),
-        );
-      }
+      this.camera.yaw -= dx * 0.005;
+      this.camera.pitch = Math.max(
+        -PITCH_LIMIT,
+        Math.min(PITCH_LIMIT, this.camera.pitch + dy * 0.005),
+      );
     });
     const endDrag = () => {
       this.dragMode = null;
