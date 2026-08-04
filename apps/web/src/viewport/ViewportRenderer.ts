@@ -21,6 +21,8 @@ export const GRID_STEP = 1.0;
 /** Extra cells beyond scene/placement bounds when growing the ground grid. */
 export const GRID_MARGIN_CELLS = 4;
 const GRID_DEFAULT_HALF = 20;
+/** Orbit pitch clamp (radians). Symmetric so the camera can go under the model. */
+const PITCH_LIMIT = 1.45; // ~83°, keeps cos(pitch) away from 0
 
 const VERT = `#version 300 es
 precision highp float;
@@ -788,7 +790,10 @@ export class ViewportRenderer {
         this.camera.target[2] -= right[2] * dx * scale;
       } else {
         this.camera.yaw -= dx * 0.005;
-        this.camera.pitch = Math.max(0.12, Math.min(1.35, this.camera.pitch + dy * 0.005));
+        this.camera.pitch = Math.max(
+          -PITCH_LIMIT,
+          Math.min(PITCH_LIMIT, this.camera.pitch + dy * 0.005),
+        );
       }
     });
     this.canvas.addEventListener('pointerup', () => {
