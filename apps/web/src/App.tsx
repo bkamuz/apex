@@ -466,7 +466,7 @@ export default function App() {
               : 'Click start · Shift snap to 1 m grid · Esc clears'
             : selected?.category === 'wall'
               ? 'Drag endpoints · RMB orbits selection · Esc clears'
-              : 'Click select · RMB orbit · Esc clears · Wheel zoom'}
+              : 'Click select · RMB orbit · MMB×2 home · Esc clears'}
         </div>
       </header>
 

@@ -17,6 +17,16 @@ export interface CameraState {
   pitch: number;
 }
 
+const DEFAULT_CAMERA: CameraState = {
+  target: [0, 1.2, 0],
+  distance: 18,
+  yaw: 0.7,
+  pitch: 0.55,
+};
+
+const MMB_DBLCLICK_MS = 400;
+const MMB_DBLCLICK_PX = 8;
+
 export const GRID_STEP = 1.0;
 /** Extra cells beyond scene/placement bounds when growing the ground grid. */
 export const GRID_MARGIN_CELLS = 4;
@@ -409,10 +419,10 @@ export class ViewportRenderer {
   private pickW = 0;
   private pickH = 0;
   private camera: CameraState = {
-    target: [0, 1.2, 0],
-    distance: 18,
-    yaw: 0.7,
-    pitch: 0.55,
+    target: [...DEFAULT_CAMERA.target] as [number, number, number],
+    distance: DEFAULT_CAMERA.distance,
+    yaw: DEFAULT_CAMERA.yaw,
+    pitch: DEFAULT_CAMERA.pitch,
   };
   private sceneExtent = 10;
   private selectedPickId: number | null = null;
@@ -421,6 +431,9 @@ export class ViewportRenderer {
   private dragging = false;
   private lastX = 0;
   private lastY = 0;
+  private lastMmbAt = 0;
+  private lastMmbX = 0;
+  private lastMmbY = 0;
   private raf = 0;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -530,6 +543,16 @@ export class ViewportRenderer {
 
   getCamera(): CameraState {
     return { ...this.camera, target: [...this.camera.target] as [number, number, number] };
+  }
+
+  /** Restore the default home camera (does not clear selection / orbit pivot). */
+  resetCamera(): void {
+    this.camera = {
+      target: [...DEFAULT_CAMERA.target] as [number, number, number],
+      distance: DEFAULT_CAMERA.distance,
+      yaw: DEFAULT_CAMERA.yaw,
+      pitch: DEFAULT_CAMERA.pitch,
+    };
   }
 
   setScene(data: SceneMeshData): void {
@@ -885,12 +908,33 @@ export class ViewportRenderer {
 
   private bindEvents(): void {
     this.canvas.addEventListener('pointerdown', (e) => {
+      if (e.button === 1) {
+        // Middle button: double-click resets camera. Browsers do not fire
+        // dblclick for MMB, so detect it from timing + distance.
+        e.preventDefault();
+        const now = performance.now();
+        const dt = now - this.lastMmbAt;
+        const dist = Math.hypot(e.clientX - this.lastMmbX, e.clientY - this.lastMmbY);
+        this.lastMmbAt = now;
+        this.lastMmbX = e.clientX;
+        this.lastMmbY = e.clientY;
+        if (dt > 0 && dt <= MMB_DBLCLICK_MS && dist <= MMB_DBLCLICK_PX) {
+          this.resetCamera();
+          this.dragging = false;
+          this.lastMmbAt = 0;
+          return;
+        }
+      }
       if (e.button === 1 || e.button === 2) {
         this.dragging = true;
         this.lastX = e.clientX;
         this.lastY = e.clientY;
         this.canvas.setPointerCapture(e.pointerId);
       }
+    });
+    this.canvas.addEventListener('auxclick', (e) => {
+      // Suppress browser middle-click autoscroll / open-link quirks.
+      if (e.button === 1) e.preventDefault();
     });
     this.canvas.addEventListener('pointermove', (e) => {
       if (!this.dragging) return;
