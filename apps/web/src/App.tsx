@@ -53,7 +53,6 @@ export default function App() {
   const wallStartRef = useRef<[number, number, number] | null>(null);
   const shiftHeldRef = useRef(false);
   const selectedRef = useRef<ElementDto | null>(null);
-  const orbitSelIdRef = useRef<string | null>(null);
   const handleDragRef = useRef<{
     which: HandleWhich;
     start: [number, number, number];
@@ -76,13 +75,9 @@ export default function App() {
     if (!renderer) return;
     if (el?.category === 'wall' && el.start && el.end) {
       renderer.setEditGizmo(el.start, el.end);
-      const center = wallPlacementCenter(el.start, el.end);
-      const idChanged = el.id !== orbitSelIdRef.current;
-      orbitSelIdRef.current = el.id;
-      // New selection: retarget without eye jump. Same wall edit: only refresh pivot.
-      renderer.setOrbitPivot(center, idChanged);
+      // Pivot only — never retarget/frame the camera on select or create.
+      renderer.setOrbitPivot(wallPlacementCenter(el.start, el.end));
     } else {
-      orbitSelIdRef.current = null;
       renderer.setEditGizmo(null, null);
       renderer.setOrbitPivot(null);
     }
@@ -157,7 +152,6 @@ export default function App() {
     try {
       applyScene(apexSelectElement(null), false);
     } catch {
-      orbitSelIdRef.current = null;
       rendererRef.current?.setEditGizmo(null, null);
       rendererRef.current?.setOrbitPivot(null);
       setSelected(null);
@@ -294,7 +288,7 @@ export default function App() {
       drag.start = start;
       drag.end = end;
       renderer.setEditGizmo(start, end);
-      renderer.setOrbitPivot(wallPlacementCenter(start, end), false);
+      renderer.setOrbitPivot(wallPlacementCenter(start, end));
       // Live-update solid via WASM so the wall follows the handle.
       if (planLength(start, end) >= MIN_WALL_LENGTH) {
         try {
