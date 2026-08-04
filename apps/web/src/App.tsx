@@ -132,31 +132,54 @@ export default function App() {
     wallStartRef.current = null;
     setPendingStart(null);
     clearPlacementPreview();
-    syncEditGizmo(selectedRef.current);
-  }, [clearPlacementPreview, syncEditGizmo]);
+  }, [clearPlacementPreview]);
+
+  /** Escape: cancel placement, clear selection, switch to Select. */
+  const onEscape = useCallback(() => {
+    cancelWall();
+    setTool('select');
+    const active = document.activeElement;
+    if (
+      active instanceof HTMLElement &&
+      (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT')
+    ) {
+      active.blur();
+    }
+    try {
+      applyScene(apexSelectElement(null), false);
+    } catch {
+      rendererRef.current?.setEditGizmo(null, null);
+      setSelected(null);
+    }
+  }, [applyScene, cancelWall]);
 
   const goSelect = useCallback(() => {
     cancelWall();
     setTool('select');
-  }, [cancelWall]);
+    syncEditGizmo(selectedRef.current);
+  }, [cancelWall, syncEditGizmo]);
 
   useEffect(() => {
+    const isEscape = (e: KeyboardEvent) => e.key === 'Escape' || e.code === 'Escape';
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        goSelect();
+      if (isEscape(e)) {
+        e.preventDefault();
+        onEscape();
+        return;
       }
       if (e.key === 'Shift') shiftHeldRef.current = true;
     };
     const onKeyUp = (e: KeyboardEvent) => {
       if (e.key === 'Shift') shiftHeldRef.current = false;
     };
-    window.addEventListener('keydown', onKeyDown);
-    window.addEventListener('keyup', onKeyUp);
+    // Capture phase so Escape still wins when an input has focus.
+    window.addEventListener('keydown', onKeyDown, true);
+    window.addEventListener('keyup', onKeyUp, true);
     return () => {
-      window.removeEventListener('keydown', onKeyDown);
-      window.removeEventListener('keyup', onKeyUp);
+      window.removeEventListener('keydown', onKeyDown, true);
+      window.removeEventListener('keyup', onKeyUp, true);
     };
-  }, [goSelect]);
+  }, [onEscape]);
 
   useEffect(() => {
     let cancelled = false;
@@ -433,11 +456,11 @@ export default function App() {
         <div className="hint">
           {tool === 'wall'
             ? pendingStart
-              ? 'Click end · Shift snap+ortho · Esc → Select'
-              : 'Click start · Shift snap to 1 m grid · Esc → Select'
+              ? 'Click end · Shift snap+ortho · Esc clears'
+              : 'Click start · Shift snap to 1 m grid · Esc clears'
             : selected?.category === 'wall'
-              ? 'Drag orange endpoints · Shift snap+ortho · RMB orbit'
-              : 'Click select · RMB orbit · Alt+RMB pan · Wheel zoom'}
+              ? 'Drag orange endpoints · Shift snap+ortho · Esc clears selection'
+              : 'Click select · RMB orbit · Esc clears · Wheel zoom'}
         </div>
       </header>
 
