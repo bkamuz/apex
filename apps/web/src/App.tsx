@@ -538,15 +538,21 @@ export default function App() {
   };
 
   const onCreateLevel = () => {
-    const maxElev = levels.reduce((m, l) => Math.max(m, l.elevation), 0);
+    const maxElev = levels.reduce(
+      (m, l) => Math.max(m, l.elevation),
+      Number.NEGATIVE_INFINITY,
+    );
     const elevation = levels.length === 0 ? 0 : maxElev + DEFAULT_LEVEL_RISE;
     try {
       const next = apexCreateLevel('', elevation);
-      const created = next.levels.find(
-        (l) => !levels.some((prev) => prev.id === l.id),
-      );
-      setSelectedLevelId(created?.id ?? next.levels[next.levels.length - 1]?.id ?? null);
-      applyScene(next, false);
+      const createdId =
+        next.levels.find((l) => !levels.some((prev) => prev.id === l.id))?.id ??
+        next.levels[next.levels.length - 1]?.id ??
+        null;
+      // Clear wall selection so applyScene does not overwrite the new level id.
+      const cleared = apexSelectElement(null);
+      applyScene(cleared, false);
+      setSelectedLevelId(createdId);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
