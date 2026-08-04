@@ -103,6 +103,14 @@ button:focus-visible {
 .tools {
   display: flex;
   gap: 8px;
+  align-items: center;
+}
+
+.tools-sep {
+  width: 1px;
+  height: 18px;
+  margin: 0 2px;
+  background: var(--border);
 }
 
 .hint {

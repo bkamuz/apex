@@ -15,6 +15,7 @@ import {
   snapPointToGrid,
   ViewportRenderer,
   wallPlacementCenter,
+  type ProjectionMode,
 } from './viewport/ViewportRenderer';
 import { buildWallSolid } from './viewport/wallMesh';
 import type { ElementDto, ElementListDto, SceneDto, ToolMode } from './types';
@@ -64,6 +65,7 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [tool, setTool] = useState<ToolMode>('wall');
+  const [projection, setProjection] = useState<ProjectionMode>('orthographic');
   const [scene, setScene] = useState<SceneDto | null>(null);
   const [selected, setSelected] = useState<ElementDto | null>(null);
   const [pendingStart, setPendingStart] = useState<[number, number, number] | null>(null);
@@ -211,6 +213,11 @@ export default function App() {
       rendererRef.current = null;
     };
   }, [applyScene]);
+
+  const setProjectionMode = useCallback((mode: ProjectionMode) => {
+    setProjection(mode);
+    rendererRef.current?.setProjection(mode);
+  }, []);
 
   const elements: ElementListDto[] = useMemo(() => scene?.elements ?? [], [scene]);
 
@@ -457,6 +464,23 @@ export default function App() {
             }}
           >
             Wall
+          </button>
+          <span className="tools-sep" aria-hidden="true" />
+          <button
+            type="button"
+            className={projection === 'orthographic' ? 'active' : ''}
+            onClick={() => setProjectionMode('orthographic')}
+            title="Parallel (axonometric) projection"
+          >
+            Ortho
+          </button>
+          <button
+            type="button"
+            className={projection === 'perspective' ? 'active' : ''}
+            onClick={() => setProjectionMode('perspective')}
+            title="Perspective projection"
+          >
+            Persp
           </button>
         </div>
         <div className="hint">
