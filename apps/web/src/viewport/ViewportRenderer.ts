@@ -18,6 +18,9 @@ export interface CameraState {
 }
 
 export const GRID_STEP = 1.0;
+/** Extra cells beyond scene/placement bounds when growing the ground grid. */
+export const GRID_MARGIN_CELLS = 4;
+const GRID_DEFAULT_HALF = 20;
 
 const VERT = `#version 300 es
 precision highp float;
@@ -232,11 +235,24 @@ function mat4Multiply(a: Float32Array, b: Float32Array): Float32Array {
   return out;
 }
 
-function buildGrid(size: number, step: number): Float32Array {
+/** Axis-aligned ground grid covering [minX,maxX] × [minZ,maxZ] (inclusive). */
+function buildGridRect(
+  minX: number,
+  maxX: number,
+  minZ: number,
+  maxZ: number,
+  step: number,
+): Float32Array {
+  const x0 = Math.floor(minX / step) * step;
+  const x1 = Math.ceil(maxX / step) * step;
+  const z0 = Math.floor(minZ / step) * step;
+  const z1 = Math.ceil(maxZ / step) * step;
   const lines: number[] = [];
-  for (let i = -size; i <= size; i += step) {
-    lines.push(-size, 0, i, size, 0, i);
-    lines.push(i, 0, -size, i, 0, size);
+  for (let z = z0; z <= z1 + step * 0.5; z += step) {
+    lines.push(x0, 0, z, x1, 0, z);
+  }
+  for (let x = x0; x <= x1 + step * 0.5; x += step) {
+    lines.push(x, 0, z0, x, 0, z1);
   }
   return new Float32Array(lines);
 }
@@ -300,6 +316,12 @@ export class ViewportRenderer {
   private gridVao: WebGLVertexArrayObject;
   private gridBuf: WebGLBuffer;
   private gridCount = 0;
+  private gridBounds = {
+    minX: -GRID_DEFAULT_HALF,
+    maxX: GRID_DEFAULT_HALF,
+    minZ: -GRID_DEFAULT_HALF,
+    maxZ: GRID_DEFAULT_HALF,
+  };
   private previewVao: WebGLVertexArrayObject;
   private previewBuf: WebGLBuffer;
   private previewCount = 0;
@@ -382,14 +404,12 @@ export class ViewportRenderer {
 
     this.gridVao = gl.createVertexArray()!;
     this.gridBuf = gl.createBuffer()!;
-    const grid = buildGrid(20, GRID_STEP);
-    this.gridCount = grid.length / 3;
     gl.bindVertexArray(this.gridVao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.gridBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, grid, gl.STATIC_DRAW);
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
     gl.bindVertexArray(null);
+    this.uploadGrid();
 
     this.previewVao = gl.createVertexArray()!;
     this.previewBuf = gl.createBuffer()!;
@@ -494,6 +514,7 @@ export class ViewportRenderer {
       const sy = aabb.max[1] - aabb.min[1];
       const sz = aabb.max[2] - aabb.min[2];
       this.sceneExtent = Math.max(sx, sy, sz, 2);
+      this.expandGridToInclude(aabb.min[0], aabb.max[0], aabb.min[2], aabb.max[2]);
       // Opt-in only — never yank the camera unless the caller asked.
       if (data.fitCamera === true) {
         this.fitToAabb(aabb.min, aabb.max);
@@ -520,6 +541,50 @@ export class ViewportRenderer {
     this.selectedPickId = id;
   }
 
+  private uploadGrid(): void {
+    const gl = this.gl;
+    const { minX, maxX, minZ, maxZ } = this.gridBounds;
+    const grid = buildGridRect(minX, maxX, minZ, maxZ, GRID_STEP);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.gridBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, grid, gl.DYNAMIC_DRAW);
+    this.gridCount = grid.length / 3;
+  }
+
+  /**
+   * Grow the ground grid to cover the given XZ bounds, plus GRID_MARGIN_CELLS
+   * on each side that needs expansion. Never shrinks.
+   */
+  expandGridToInclude(
+    minX: number,
+    maxX: number,
+    minZ: number,
+    maxZ: number,
+    marginCells = GRID_MARGIN_CELLS,
+  ): void {
+    const step = GRID_STEP;
+    const margin = marginCells * step;
+    const nextMinX = Math.min(this.gridBounds.minX, Math.floor((minX - margin) / step) * step);
+    const nextMaxX = Math.max(this.gridBounds.maxX, Math.ceil((maxX + margin) / step) * step);
+    const nextMinZ = Math.min(this.gridBounds.minZ, Math.floor((minZ - margin) / step) * step);
+    const nextMaxZ = Math.max(this.gridBounds.maxZ, Math.ceil((maxZ + margin) / step) * step);
+    if (
+      nextMinX === this.gridBounds.minX &&
+      nextMaxX === this.gridBounds.maxX &&
+      nextMinZ === this.gridBounds.minZ &&
+      nextMaxZ === this.gridBounds.maxZ
+    ) {
+      return;
+    }
+    this.gridBounds = { minX: nextMinX, maxX: nextMaxX, minZ: nextMinZ, maxZ: nextMaxZ };
+    const span = Math.max(
+      nextMaxX - nextMinX,
+      nextMaxZ - nextMinZ,
+      2,
+    );
+    this.sceneExtent = Math.max(this.sceneExtent, span);
+    this.uploadGrid();
+  }
+
   /** Preview wall centerline while placing (or clear with null). */
   setPreviewLine(
     start: [number, number, number] | null,
@@ -530,6 +595,12 @@ export class ViewportRenderer {
       this.previewCount = 0;
       return;
     }
+    this.expandGridToInclude(
+      Math.min(start[0], end[0]),
+      Math.max(start[0], end[0]),
+      Math.min(start[2], end[2]),
+      Math.max(start[2], end[2]),
+    );
     const data = new Float32Array([
       start[0],
       start[1] + 0.02,
@@ -575,6 +646,12 @@ export class ViewportRenderer {
       this.editHandles = null;
       return;
     }
+    this.expandGridToInclude(
+      Math.min(start[0], end[0]),
+      Math.max(start[0], end[0]),
+      Math.min(start[2], end[2]),
+      Math.max(start[2], end[2]),
+    );
     const y = 0.03;
     const line = new Float32Array([
       start[0],
