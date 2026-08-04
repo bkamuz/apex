@@ -33,9 +33,17 @@ const MMB_DBLCLICK_MS = 400;
 const MMB_DBLCLICK_PX = 8;
 
 export const GRID_STEP = 1.0;
-/** Extra cells beyond scene/placement bounds when growing the ground grid. */
+/** Extra cells beyond scene/placement bounds when growing content tracking. */
 export const GRID_MARGIN_CELLS = 4;
 const GRID_DEFAULT_HALF = 20;
+/** Cap visual grid density — scene-sized 1 m grids explode on kilometre walls. */
+const GRID_MAX_LINES_PER_AXIS = 64;
+const GRID_NICE_STEPS = [
+  0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000,
+  50000, 100000,
+] as const;
+/** World-space chunk length for thick lines (avoids screen-space width blow-ups). */
+const MAX_THICK_SEGMENT_LEN = 48;
 /** Orbit pitch clamp (radians). Symmetric so the camera can go under the model. */
 const PITCH_LIMIT = 1.45; // ~83°, keeps cos(pitch) away from 0
 /** Closest wheel-zoom distance (metres). Independent of scene size so huge walls still allow mm inspection. */
@@ -385,6 +393,60 @@ function buildGridRect(
   return new Float32Array(lines);
 }
 
+function niceGridStep(span: number, maxLines: number): number {
+  const raw = span / Math.max(maxLines - 1, 1);
+  for (const step of GRID_NICE_STEPS) {
+    if (step >= raw) return step;
+  }
+  return GRID_NICE_STEPS[GRID_NICE_STEPS.length - 1];
+}
+
+/**
+ * Split long xyzxyz segments so thick-line expansion stays numerically stable.
+ * A single kilometre edge in screen-space line math blows out to full-screen slabs.
+ */
+function subdivideLineSegments(
+  segments: ArrayLike<number>,
+  maxLen: number,
+): Float32Array {
+  const nVerts = Math.floor(segments.length / 3);
+  const nSeg = Math.floor(nVerts / 2);
+  const out: number[] = [];
+  const maxLenSq = maxLen * maxLen;
+  for (let s = 0; s < nSeg; s++) {
+    const i = s * 6;
+    const ax = segments[i];
+    const ay = segments[i + 1];
+    const az = segments[i + 2];
+    const bx = segments[i + 3];
+    const by = segments[i + 4];
+    const bz = segments[i + 5];
+    const dx = bx - ax;
+    const dy = by - ay;
+    const dz = bz - az;
+    const lenSq = dx * dx + dy * dy + dz * dz;
+    if (!(lenSq > maxLenSq)) {
+      out.push(ax, ay, az, bx, by, bz);
+      continue;
+    }
+    const len = Math.sqrt(lenSq);
+    const parts = Math.max(2, Math.ceil(len / maxLen));
+    for (let p = 0; p < parts; p++) {
+      const t0 = p / parts;
+      const t1 = (p + 1) / parts;
+      out.push(
+        ax + dx * t0,
+        ay + dy * t0,
+        az + dz * t0,
+        ax + dx * t1,
+        ay + dy * t1,
+        az + dz * t1,
+      );
+    }
+  }
+  return new Float32Array(out);
+}
+
 /**
  * Expand endpoint pairs (xyzxyz…) into screen-space thick-line quads.
  * Each segment → 6 verts × (p0.xyz, p1.xyz, side, end) interleaved.
@@ -492,6 +554,7 @@ export class ViewportRenderer {
     minZ: -GRID_DEFAULT_HALF,
     maxZ: GRID_DEFAULT_HALF,
   };
+  private gridStep = GRID_STEP;
   private previewVao: WebGLVertexArrayObject;
   private previewBuf: WebGLBuffer;
   private previewCount = 0;
@@ -664,7 +727,8 @@ export class ViewportRenderer {
 
   /** Upload segment endpoint pairs; returns triangle vertex count. */
   private uploadThickLines(buf: WebGLBuffer, segments: ArrayLike<number>): number {
-    const expanded = expandLineSegments(segments);
+    const chunked = subdivideLineSegments(segments, MAX_THICK_SEGMENT_LEN);
+    const expanded = expandLineSegments(chunked);
     this.gl.bindBuffer(this.gl.ARRAY_BUFFER, buf);
     this.gl.bufferData(this.gl.ARRAY_BUFFER, expanded, this.gl.DYNAMIC_DRAW);
     return expanded.length / THICK_LINE_FLOATS_PER_VERT;
@@ -770,13 +834,45 @@ export class ViewportRenderer {
 
   private uploadGrid(): void {
     const { minX, maxX, minZ, maxZ } = this.gridBounds;
-    const grid = buildGridRect(minX, maxX, minZ, maxZ, GRID_STEP);
+    const grid = buildGridRect(minX, maxX, minZ, maxZ, this.gridStep);
     this.gridCount = this.uploadThickLines(this.gridBuf, grid);
   }
 
   /**
-   * Grow the ground grid to cover the given XZ bounds, plus GRID_MARGIN_CELLS
-   * on each side that needs expansion. Never shrinks.
+   * View-adaptive ground grid around the camera look-at.
+   * Density stays bounded (~GRID_MAX_LINES_PER_AXIS) even for kilometre scenes;
+   * step coarsens as you zoom out. Placement snap stays on GRID_STEP (1 m).
+   */
+  private syncViewGrid(): void {
+    const aspect = this.canvas.clientWidth / Math.max(1, this.canvas.clientHeight);
+    const halfH = Math.max(this.camera.distance * Math.tan(CAMERA_FOVY / 2), 0.5);
+    const halfW = halfH * aspect;
+    const half = Math.max(halfW, halfH, 8) * 1.4;
+    const step = niceGridStep(half * 2, GRID_MAX_LINES_PER_AXIS);
+    const cx = Math.round(this.camera.target[0] / step) * step;
+    const cz = Math.round(this.camera.target[2] / step) * step;
+    const cells = Math.ceil(half / step);
+    const minX = cx - cells * step;
+    const maxX = cx + cells * step;
+    const minZ = cz - cells * step;
+    const maxZ = cz + cells * step;
+    if (
+      step === this.gridStep &&
+      minX === this.gridBounds.minX &&
+      maxX === this.gridBounds.maxX &&
+      minZ === this.gridBounds.minZ &&
+      maxZ === this.gridBounds.maxZ
+    ) {
+      return;
+    }
+    this.gridStep = step;
+    this.gridBounds = { minX, maxX, minZ, maxZ };
+    this.uploadGrid();
+  }
+
+  /**
+   * Track content XZ for zoom-out / extent only. Visual grid is view-adaptive
+   * (`syncViewGrid`) and must not grow with the scene AABB.
    */
   expandGridToInclude(
     minX: number,
@@ -785,28 +881,9 @@ export class ViewportRenderer {
     maxZ: number,
     marginCells = GRID_MARGIN_CELLS,
   ): void {
-    const step = GRID_STEP;
-    const margin = marginCells * step;
-    const nextMinX = Math.min(this.gridBounds.minX, Math.floor((minX - margin) / step) * step);
-    const nextMaxX = Math.max(this.gridBounds.maxX, Math.ceil((maxX + margin) / step) * step);
-    const nextMinZ = Math.min(this.gridBounds.minZ, Math.floor((minZ - margin) / step) * step);
-    const nextMaxZ = Math.max(this.gridBounds.maxZ, Math.ceil((maxZ + margin) / step) * step);
-    if (
-      nextMinX === this.gridBounds.minX &&
-      nextMaxX === this.gridBounds.maxX &&
-      nextMinZ === this.gridBounds.minZ &&
-      nextMaxZ === this.gridBounds.maxZ
-    ) {
-      return;
-    }
-    this.gridBounds = { minX: nextMinX, maxX: nextMaxX, minZ: nextMinZ, maxZ: nextMaxZ };
-    const span = Math.max(
-      nextMaxX - nextMinX,
-      nextMaxZ - nextMinZ,
-      2,
-    );
+    const margin = marginCells * GRID_STEP;
+    const span = Math.max(maxX - minX, maxZ - minZ, 2) + margin * 2;
     this.sceneExtent = Math.max(this.sceneExtent, span);
-    this.uploadGrid();
   }
 
   /** Preview wall centerline while placing (or clear with null). */
@@ -1104,12 +1181,15 @@ export class ViewportRenderer {
   private buildCameraMatrices(): CameraMatrices {
     this.resize();
     const aspect = this.canvas.clientWidth / Math.max(1, this.canvas.clientHeight);
-    const gridSpan = Math.max(
+    // Depth range follows the view (and a soft scene cap), never the raw AABB —
+    // kilometre walls used to force enormous near/far and trash precision.
+    const viewSpan = Math.max(
       this.gridBounds.maxX - this.gridBounds.minX,
       this.gridBounds.maxZ - this.gridBounds.minZ,
-      this.sceneExtent,
+      this.camera.distance * 2,
+      40,
     );
-    const radius = Math.max(this.camera.distance * 2, gridSpan, this.sceneExtent * 4, 40);
+    const radius = Math.max(this.camera.distance * 2, viewSpan, Math.min(this.sceneExtent, this.camera.distance * 40), 40);
     // Ortho half-extents match the perspective frustum at `distance` so wheel zoom
     // and mode switches keep the same framing.
     const halfH = this.camera.distance * Math.tan(CAMERA_FOVY / 2);
@@ -1123,7 +1203,7 @@ export class ViewportRenderer {
       // that plane behind the eye so nothing in front is near-clipped.
       const depth = Math.max(
         this.camera.distance + radius,
-        gridSpan * 2,
+        viewSpan * 2,
         halfH * 4,
         halfW * 4,
         200,
@@ -1350,6 +1430,7 @@ export class ViewportRenderer {
     }
 
     const gl = this.gl;
+    this.syncViewGrid();
     this.frameMats = this.buildCameraMatrices();
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.disable(gl.BLEND);
