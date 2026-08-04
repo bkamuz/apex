@@ -60,13 +60,14 @@ void main(){
     return;
   }
   vec3 n = normalize(vNormal);
-  float hemi = n.y * 0.5 + 0.5;
+  // Two-sided: thin walls stay lit when viewed from either side.
+  float ndl = abs(dot(n, normalize(uLightDir)));
+  float hemi = abs(n.y) * 0.5 + 0.5;
   vec3 ambient = mix(uGroundColor, uSkyColor, hemi);
-  float ndl = max(dot(n, normalize(uLightDir)), 0.0);
-  float wrap = ndl * 0.75 + 0.25;
+  float wrap = ndl * 0.65 + 0.35;
   bool selected = abs(vPick - uSelectedPick) < 0.5 && uSelectedPick > 0.0;
-  vec3 base = selected ? vec3(0.86, 0.52, 0.22) : vec3(0.62, 0.68, 0.74);
-  vec3 color = base * (ambient * 0.55 + vec3(wrap) * 0.55);
+  vec3 base = selected ? vec3(0.86, 0.52, 0.22) : vec3(0.72, 0.76, 0.80);
+  vec3 color = base * (ambient * 0.45 + vec3(wrap) * 0.7);
   outColor = vec4(color, 1.0);
 }`;
 
@@ -277,7 +278,14 @@ export class ViewportRenderer {
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
-    const gl = canvas.getContext('webgl2', { antialias: true, preserveDrawingBuffer: true });
+    const gl = canvas.getContext('webgl2', {
+      antialias: true,
+      alpha: false,
+      depth: true,
+      stencil: false,
+      premultipliedAlpha: false,
+      preserveDrawingBuffer: true,
+    });
     if (!gl) throw new Error('WebGL2 not available');
     this.gl = gl;
     this.meshProg = link(gl, VERT, FRAG);
@@ -330,7 +338,11 @@ export class ViewportRenderer {
     gl.bindVertexArray(null);
 
     gl.enable(gl.DEPTH_TEST);
-    gl.enable(gl.CULL_FACE);
+    gl.depthFunc(gl.LEQUAL);
+    gl.depthMask(true);
+    gl.disable(gl.BLEND);
+    // Two-sided solids: avoid empty/see-through walls if winding disagrees with the view.
+    gl.disable(gl.CULL_FACE);
     gl.clearColor(0.09, 0.1, 0.12, 1);
 
     this.bindEvents();
@@ -368,8 +380,11 @@ export class ViewportRenderer {
     gl.bufferData(gl.ARRAY_BUFFER, normals, gl.DYNAMIC_DRAW);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.pickBuf);
     gl.bufferData(gl.ARRAY_BUFFER, pickPerVertex, gl.DYNAMIC_DRAW);
+    // ELEMENT_ARRAY_BUFFER binding lives on the VAO — update while it is bound.
+    gl.bindVertexArray(this.vao);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.idxBuf);
     gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, indices, gl.DYNAMIC_DRAW);
+    gl.bindVertexArray(null);
     this.indexCount = indices.length;
 
     gl.bindBuffer(gl.ARRAY_BUFFER, this.edgeBuf);
@@ -384,7 +399,8 @@ export class ViewportRenderer {
       const sy = aabb.max[1] - aabb.min[1];
       const sz = aabb.max[2] - aabb.min[2];
       this.sceneExtent = Math.max(sx, sy, sz, 2);
-      if (data.fitCamera !== false && positions.length > 0) {
+      // Opt-in only — never yank the camera unless the caller asked.
+      if (data.fitCamera === true) {
         this.fitToAabb(aabb.min, aabb.max);
       }
     } else {
@@ -603,6 +619,9 @@ export class ViewportRenderer {
     const gl = this.gl;
     if (this.indexCount === 0) return;
     const { viewProj } = this.cameraMatrices();
+    gl.disable(gl.BLEND);
+    gl.depthMask(true);
+    gl.enable(gl.DEPTH_TEST);
     gl.useProgram(this.meshProg);
     gl.uniformMatrix4fv(gl.getUniformLocation(this.meshProg, 'uMVP'), false, viewProj);
     gl.uniformMatrix4fv(gl.getUniformLocation(this.meshProg, 'uModel'), false, mat4Identity());
@@ -630,6 +649,8 @@ export class ViewportRenderer {
     if (count === 0) return;
     const gl = this.gl;
     const { viewProj } = this.cameraMatrices();
+    gl.disable(gl.BLEND);
+    gl.enable(gl.DEPTH_TEST);
     gl.useProgram(this.lineProg);
     gl.uniformMatrix4fv(gl.getUniformLocation(this.lineProg, 'uMVP'), false, viewProj);
     gl.uniform4f(gl.getUniformLocation(this.lineProg, 'uColor'), color[0], color[1], color[2], color[3]);
@@ -643,6 +664,8 @@ export class ViewportRenderer {
     const gl = this.gl;
     this.resize();
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.disable(gl.BLEND);
+    gl.depthMask(true);
     gl.clearColor(0.09, 0.1, 0.12, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     this.drawLines(this.gridVao, this.gridCount, [0.22, 0.24, 0.28, 1]);
