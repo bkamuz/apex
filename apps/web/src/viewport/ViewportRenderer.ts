@@ -57,15 +57,18 @@ layout(location=2) in float aPick;
 uniform mat4 uMVP;
 uniform mat4 uModel;
 uniform mat3 uNormalMat;
+uniform vec3 uOrigin;
 out vec3 vNormal;
 out vec3 vWorld;
 flat out float vPick;
 void main(){
-  vec4 world = uModel * vec4(aPos, 1.0);
+  // Camera-relative position keeps float32 precision on city-scale coords.
+  vec3 pos = aPos - uOrigin;
+  vec4 world = uModel * vec4(pos, 1.0);
   vWorld = world.xyz;
   vNormal = normalize(uNormalMat * aNormal);
   vPick = aPick;
-  gl_Position = uMVP * vec4(aPos, 1.0);
+  gl_Position = uMVP * vec4(pos, 1.0);
 }`;
 
 const FRAG = `#version 300 es
@@ -125,23 +128,38 @@ layout(location=3) in float aEnd;
 uniform mat4 uMVP;
 uniform vec2 uResolution;
 uniform float uLineWidthPx;
+uniform vec3 uOrigin;
 
 void main() {
-  vec4 c0 = uMVP * vec4(aPos0, 1.0);
-  vec4 c1 = uMVP * vec4(aPos1, 1.0);
+  vec3 p0 = aPos0 - uOrigin;
+  vec3 p1 = aPos1 - uOrigin;
+  vec4 c0 = uMVP * vec4(p0, 1.0);
+  vec4 c1 = uMVP * vec4(p1, 1.0);
 
-  // Screen direction from clip (stable across differing w). Falls back when the
-  // segment collapses on screen (looking along the edge).
-  vec2 clipDir = c1.xy * c0.w - c0.xy * c1.w;
-  float clipLen = length(clipDir);
-  vec2 dir = clipLen > 1e-8 ? clipDir / clipLen : vec2(1.0, 0.0);
+  // Expand in NDC so pixel width stays stable on long edges (clip-space * w
+  // loses the offset to float32 when |clip.xy| is huge → fat zipper slabs).
+  float w0 = c0.w == 0.0 ? 1.0 : c0.w;
+  float w1 = c1.w == 0.0 ? 1.0 : c1.w;
+  vec2 ndc0 = c0.xy / w0;
+  vec2 ndc1 = c1.xy / w1;
+
+  vec2 ndcDir = ndc1 - ndc0;
+  float ndcLen = length(ndcDir);
+  vec2 dir = ndcLen > 1e-8 ? ndcDir / ndcLen : vec2(1.0, 0.0);
   vec2 perp = vec2(-dir.y, dir.x);
 
-  vec4 clip = mix(c0, c1, aEnd);
-  // Constant pixel width independent of zoom / projection.
+  vec2 ndc = mix(ndc0, ndc1, aEnd);
+  float ndcZ = mix(c0.z / w0, c1.z / w1, aEnd);
+  float clipW = mix(w0, w1, aEnd);
+
   vec2 pixelToNdc = 2.0 / max(uResolution, vec2(1.0));
-  clip.xy += perp * aSide * (0.5 * uLineWidthPx) * pixelToNdc * clip.w;
-  gl_Position = clip;
+  ndc += perp * aSide * (0.5 * uLineWidthPx) * pixelToNdc;
+
+  // Pull slightly toward the camera so coplanar edge ribbons win over fills
+  // without fighting (the zipper triangles on huge walls).
+  ndcZ -= 1e-4;
+
+  gl_Position = vec4(ndc * clipW, ndcZ * clipW, clipW);
 }`;
 
 const LINE_FRAG = `#version 300 es
@@ -155,11 +173,13 @@ precision highp float;
 layout(location=0) in vec3 aPos;
 uniform mat4 uMVP;
 uniform vec3 uEye;
+uniform vec3 uOrigin;
 uniform float uPointSize;
 void main(){
-  vec3 toEye = uEye - aPos;
+  vec3 pos = aPos - uOrigin;
+  vec3 toEye = uEye - pos;
   float dist = length(toEye);
-  vec3 p = aPos;
+  vec3 p = pos;
   if (dist > 1e-5) {
     p += (toEye / dist) * 0.02;
   }
@@ -211,6 +231,9 @@ function mat4Identity(): Float32Array {
 const MAT4_IDENTITY = mat4Identity();
 
 type CameraMatrices = {
+  /** World-space origin subtracted in shaders (camera look-at). */
+  origin: [number, number, number];
+  /** Eye relative to origin (for handle pull). */
   eye: [number, number, number];
   view: Float32Array;
   proj: Float32Array;
@@ -222,6 +245,7 @@ type MeshUniforms = {
   uMVP: WebGLUniformLocation | null;
   uModel: WebGLUniformLocation | null;
   uNormalMat: WebGLUniformLocation | null;
+  uOrigin: WebGLUniformLocation | null;
   uLightDir: WebGLUniformLocation | null;
   uSkyColor: WebGLUniformLocation | null;
   uGroundColor: WebGLUniformLocation | null;
@@ -238,11 +262,13 @@ type LineUniforms = {
   uResolution: WebGLUniformLocation | null;
   uLineWidthPx: WebGLUniformLocation | null;
   uColor: WebGLUniformLocation | null;
+  uOrigin: WebGLUniformLocation | null;
 };
 
 type PointUniforms = {
   uMVP: WebGLUniformLocation | null;
   uEye: WebGLUniformLocation | null;
+  uOrigin: WebGLUniformLocation | null;
   uPointSize: WebGLUniformLocation | null;
   uColor: WebGLUniformLocation | null;
 };
@@ -252,6 +278,7 @@ function meshUniforms(gl: WebGL2RenderingContext, prog: WebGLProgram): MeshUnifo
     uMVP: gl.getUniformLocation(prog, 'uMVP'),
     uModel: gl.getUniformLocation(prog, 'uModel'),
     uNormalMat: gl.getUniformLocation(prog, 'uNormalMat'),
+    uOrigin: gl.getUniformLocation(prog, 'uOrigin'),
     uLightDir: gl.getUniformLocation(prog, 'uLightDir'),
     uSkyColor: gl.getUniformLocation(prog, 'uSkyColor'),
     uGroundColor: gl.getUniformLocation(prog, 'uGroundColor'),
@@ -270,6 +297,7 @@ function lineUniforms(gl: WebGL2RenderingContext, prog: WebGLProgram): LineUnifo
     uResolution: gl.getUniformLocation(prog, 'uResolution'),
     uLineWidthPx: gl.getUniformLocation(prog, 'uLineWidthPx'),
     uColor: gl.getUniformLocation(prog, 'uColor'),
+    uOrigin: gl.getUniformLocation(prog, 'uOrigin'),
   };
 }
 
@@ -277,6 +305,7 @@ function pointUniforms(gl: WebGL2RenderingContext, prog: WebGLProgram): PointUni
   return {
     uMVP: gl.getUniformLocation(prog, 'uMVP'),
     uEye: gl.getUniformLocation(prog, 'uEye'),
+    uOrigin: gl.getUniformLocation(prog, 'uOrigin'),
     uPointSize: gl.getUniformLocation(prog, 'uPointSize'),
     uColor: gl.getUniformLocation(prog, 'uColor'),
   };
@@ -610,6 +639,7 @@ export class ViewportRenderer {
   private readonly scratchNormalMat = new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
   private readonly scratchPicks = new Float32Array(32);
   private readonly scratchEye = new Float32Array(3);
+  private readonly scratchOrigin = new Float32Array(3);
   private fps = 0;
   private fpsFrames = 0;
   private fpsWindowStart = 0;
@@ -977,10 +1007,13 @@ export class ViewportRenderer {
 
   /** Project world point to CSS client coordinates (relative to canvas). */
   worldToClient(p: [number, number, number]): [number, number] | null {
-    const { viewProj } = this.cameraMatrices();
-    const x = viewProj[0] * p[0] + viewProj[4] * p[1] + viewProj[8] * p[2] + viewProj[12];
-    const y = viewProj[1] * p[0] + viewProj[5] * p[1] + viewProj[9] * p[2] + viewProj[13];
-    const w = viewProj[3] * p[0] + viewProj[7] * p[1] + viewProj[11] * p[2] + viewProj[15];
+    const { viewProj, origin } = this.cameraMatrices();
+    const rx = p[0] - origin[0];
+    const ry = p[1] - origin[1];
+    const rz = p[2] - origin[2];
+    const x = viewProj[0] * rx + viewProj[4] * ry + viewProj[8] * rz + viewProj[12];
+    const y = viewProj[1] * rx + viewProj[5] * ry + viewProj[9] * rz + viewProj[13];
+    const w = viewProj[3] * rx + viewProj[7] * ry + viewProj[11] * rz + viewProj[15];
     if (Math.abs(w) < 1e-8) return null;
     const ndcX = x / w;
     const ndcY = y / w;
@@ -1018,7 +1051,7 @@ export class ViewportRenderer {
     const rect = this.canvas.getBoundingClientRect();
     const x = ((clientX - rect.left) / rect.width) * 2 - 1;
     const y = -(((clientY - rect.top) / rect.height) * 2 - 1);
-    const { viewProjInv } = this.cameraMatrices();
+    const { viewProjInv, origin } = this.cameraMatrices();
     const nearPt = this.unproject(x, y, -1, viewProjInv);
     const farPt = this.unproject(x, y, 1, viewProjInv);
     const dir = [farPt[0] - nearPt[0], farPt[1] - nearPt[1], farPt[2] - nearPt[2]] as [
@@ -1027,11 +1060,15 @@ export class ViewportRenderer {
       number,
     ];
     if (Math.abs(dir[1]) < 1e-8) return null;
-    // Use the unprojected near point as the ray origin so orthographic (parallel)
-    // rays hit correctly; for perspective, near→far lies on the same view ray.
-    const t = (elevation - nearPt[1]) / dir[1];
+    // Unproject is in camera-relative space; ground plane Y is absolute.
+    const yRel = elevation - origin[1];
+    const t = (yRel - nearPt[1]) / dir[1];
     if (t < 0) return null;
-    return [nearPt[0] + dir[0] * t, elevation, nearPt[2] + dir[2] * t];
+    return [
+      nearPt[0] + dir[0] * t + origin[0],
+      elevation,
+      nearPt[2] + dir[2] * t + origin[2],
+    ];
   }
 
   pick(clientX: number, clientY: number): number | null {
@@ -1221,11 +1258,23 @@ export class ViewportRenderer {
       this.projection === 'orthographic'
         ? mat4Ortho(-halfW, halfW, -halfH, halfH, near, far)
         : mat4Perspective(CAMERA_FOVY, aspect, near, far);
-    const eye = this.eyePosition();
-    const view = mat4LookAt(eye, this.camera.target, [0, 1, 0]);
+    // Render in camera-relative space so city-scale world coords don't destroy
+    // depth/edge precision (zipper triangles along CAD outlines).
+    const origin: [number, number, number] = [
+      this.camera.target[0],
+      this.camera.target[1],
+      this.camera.target[2],
+    ];
+    const eyeWorld = this.eyePosition();
+    const eye: [number, number, number] = [
+      eyeWorld[0] - origin[0],
+      eyeWorld[1] - origin[1],
+      eyeWorld[2] - origin[2],
+    ];
+    const view = mat4LookAt(eye, [0, 0, 0], [0, 1, 0]);
     const viewProj = mat4Multiply(proj, view);
     const viewProjInv = invertMat4(viewProj) ?? mat4Identity();
-    return { eye, view, proj, viewProj, viewProjInv };
+    return { origin, eye, view, proj, viewProj, viewProjInv };
   }
 
   private unproject(x: number, y: number, z: number, inv: Float32Array): [number, number, number] {
@@ -1277,15 +1326,23 @@ export class ViewportRenderer {
     this.pickH = h;
   }
 
+  private bindOrigin(origin: [number, number, number]): void {
+    this.scratchOrigin[0] = origin[0];
+    this.scratchOrigin[1] = origin[1];
+    this.scratchOrigin[2] = origin[2];
+  }
+
   private drawMeshes(pickPass: boolean): void {
     const gl = this.gl;
     if (this.indexCount === 0) return;
-    const { viewProj } = this.cameraMatrices();
+    const { viewProj, origin } = this.cameraMatrices();
     const u = this.meshUniforms;
+    this.bindOrigin(origin);
     gl.useProgram(this.meshProg);
     gl.uniformMatrix4fv(u.uMVP, false, viewProj);
     gl.uniformMatrix4fv(u.uModel, false, MAT4_IDENTITY);
     gl.uniformMatrix3fv(u.uNormalMat, false, this.scratchNormalMat);
+    gl.uniform3fv(u.uOrigin, this.scratchOrigin);
     gl.uniform3fv(u.uLightDir, this.scratchLight);
     gl.uniform3fv(u.uSkyColor, this.scratchSky);
     gl.uniform3fv(u.uGroundColor, this.scratchGround);
@@ -1345,8 +1402,9 @@ export class ViewportRenderer {
   private drawGhost(): void {
     const gl = this.gl;
     if (this.ghostIndexCount === 0) return;
-    const { viewProj } = this.cameraMatrices();
+    const { viewProj, origin } = this.cameraMatrices();
     const u = this.meshUniforms;
+    this.bindOrigin(origin);
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.depthMask(false);
@@ -1355,6 +1413,7 @@ export class ViewportRenderer {
     gl.uniformMatrix4fv(u.uMVP, false, viewProj);
     gl.uniformMatrix4fv(u.uModel, false, MAT4_IDENTITY);
     gl.uniformMatrix3fv(u.uNormalMat, false, this.scratchNormalMat);
+    gl.uniform3fv(u.uOrigin, this.scratchOrigin);
     gl.uniform3fv(u.uLightDir, this.scratchLight);
     gl.uniform3fv(u.uSkyColor, this.scratchGhostSky);
     gl.uniform3fv(u.uGroundColor, this.scratchGhostGround);
@@ -1380,14 +1439,16 @@ export class ViewportRenderer {
   ): void {
     if (count === 0) return;
     const gl = this.gl;
-    const { viewProj } = this.cameraMatrices();
+    const { viewProj, origin } = this.cameraMatrices();
     const u = this.lineUniforms;
+    this.bindOrigin(origin);
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     gl.disable(gl.BLEND);
     gl.enable(gl.DEPTH_TEST);
     gl.depthMask(true);
     gl.useProgram(this.lineProg);
     gl.uniformMatrix4fv(u.uMVP, false, viewProj);
+    gl.uniform3fv(u.uOrigin, this.scratchOrigin);
     gl.uniform2f(u.uResolution, this.canvas.width, this.canvas.height);
     gl.uniform1f(u.uLineWidthPx, widthPx * dpr);
     gl.uniform4f(u.uColor, color[0], color[1], color[2], color[3]);
@@ -1399,8 +1460,9 @@ export class ViewportRenderer {
   private drawHandles(): void {
     if (this.handleCount === 0) return;
     const gl = this.gl;
-    const { viewProj, eye } = this.cameraMatrices();
+    const { viewProj, eye, origin } = this.cameraMatrices();
     const u = this.pointUniforms;
+    this.bindOrigin(origin);
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     this.scratchEye[0] = eye[0];
     this.scratchEye[1] = eye[1];
@@ -1410,6 +1472,7 @@ export class ViewportRenderer {
     gl.useProgram(this.pointProg);
     gl.uniformMatrix4fv(u.uMVP, false, viewProj);
     gl.uniform3fv(u.uEye, this.scratchEye);
+    gl.uniform3fv(u.uOrigin, this.scratchOrigin);
     gl.uniform1f(u.uPointSize, 8 * dpr);
     gl.uniform4f(u.uColor, 0.95, 0.72, 0.28, 1);
     gl.bindVertexArray(this.handleVao);
