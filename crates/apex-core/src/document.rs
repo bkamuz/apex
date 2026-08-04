@@ -29,7 +29,8 @@ pub struct Document {
     elements: HashMap<ElementId, Element>,
     meshes: HashMap<ElementId, TriangleMesh>,
     version: u64,
-    default_level: Option<LevelId>,
+    /// Level used for new placements (active work plane).
+    active_level: Option<LevelId>,
 }
 
 impl Document {
@@ -38,7 +39,7 @@ impl Document {
         let level = Level::new("Level 0", 0.0);
         let id = level.id;
         doc.levels.insert(id, level);
-        doc.default_level = Some(id);
+        doc.active_level = Some(id);
         doc.version = 1;
         doc
     }
@@ -47,8 +48,13 @@ impl Document {
         self.version
     }
 
+    pub fn active_level_id(&self) -> Option<LevelId> {
+        self.active_level
+    }
+
+    /// Backward-compatible alias for the active placement level.
     pub fn default_level_id(&self) -> Option<LevelId> {
-        self.default_level
+        self.active_level_id()
     }
 
     pub fn levels(&self) -> impl Iterator<Item = &Level> {
@@ -57,6 +63,49 @@ impl Document {
 
     pub fn get_level(&self, id: LevelId) -> Option<&Level> {
         self.levels.get(&id)
+    }
+
+    pub fn add_level(&mut self, name: impl Into<String>, elevation: f32) -> (LevelId, DocumentChange) {
+        let level = Level::new(name, elevation);
+        let id = level.id;
+        self.levels.insert(id, level);
+        (id, self.bump(DocumentChangeKind::LevelChanged, vec![]))
+    }
+
+    pub fn set_active_level(&mut self, id: LevelId) -> Result<DocumentChange, String> {
+        if !self.levels.contains_key(&id) {
+            return Err("Level not found".into());
+        }
+        self.active_level = Some(id);
+        Ok(self.bump(DocumentChangeKind::LevelChanged, vec![]))
+    }
+
+    /// Set level elevation and move wall feet on that level to the new Y.
+    /// Returns element ids whose wall params changed (meshes must be regenerated).
+    pub fn set_level_elevation(
+        &mut self,
+        id: LevelId,
+        elevation: f32,
+    ) -> Result<(DocumentChange, Vec<ElementId>), String> {
+        let level = self
+            .levels
+            .get_mut(&id)
+            .ok_or_else(|| "Level not found".to_string())?;
+        level.elevation = elevation;
+
+        let mut moved = Vec::new();
+        for element in self.elements.values_mut() {
+            if element.level_id != id {
+                continue;
+            }
+            if let Some(wall) = element.wall.as_mut() {
+                wall.start[1] = elevation;
+                wall.end[1] = elevation;
+                moved.push(element.id);
+            }
+        }
+
+        Ok((self.bump(DocumentChangeKind::LevelChanged, moved.clone()), moved))
     }
 
     pub fn elements(&self) -> impl Iterator<Item = &Element> {
@@ -177,4 +226,54 @@ pub struct SceneBuffers {
     pub edge_positions: Vec<f32>,
     pub elements: Vec<ElementSceneEntry>,
     pub version: u64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::element::WallParams;
+    use crate::mesh::TriangleMesh;
+
+    #[test]
+    fn new_document_has_level_zero_active() {
+        let doc = Document::new();
+        let levels: Vec<_> = doc.levels().collect();
+        assert_eq!(levels.len(), 1);
+        assert_eq!(levels[0].name, "Level 0");
+        assert_eq!(levels[0].elevation, 0.0);
+        assert_eq!(doc.active_level_id(), Some(levels[0].id));
+    }
+
+    #[test]
+    fn add_and_activate_level() {
+        let mut doc = Document::new();
+        let (id, _) = doc.add_level("Level 1", 3.0);
+        assert_eq!(doc.levels().count(), 2);
+        doc.set_active_level(id).unwrap();
+        assert_eq!(doc.active_level_id(), Some(id));
+        assert_eq!(doc.get_level(id).unwrap().elevation, 3.0);
+    }
+
+    #[test]
+    fn set_elevation_moves_wall_feet() {
+        let mut doc = Document::new();
+        let level0 = doc.active_level_id().unwrap();
+        let wall = WallParams {
+            start: [0.0, 0.0, 0.0],
+            end: [4.0, 0.0, 0.0],
+            height: 3.0,
+            thickness: 0.2,
+        };
+        let element = Element::wall("Wall 1", level0, wall);
+        let id = element.id;
+        doc.upsert_element(element, TriangleMesh::empty());
+
+        let (_change, moved) = doc.set_level_elevation(level0, 2.5).unwrap();
+        assert_eq!(moved, vec![id]);
+        let el = doc.get_element(id).unwrap();
+        let w = el.wall.as_ref().unwrap();
+        assert_eq!(w.start[1], 2.5);
+        assert_eq!(w.end[1], 2.5);
+        assert_eq!(doc.get_level(level0).unwrap().elevation, 2.5);
+    }
 }

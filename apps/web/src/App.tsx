@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  apexCreateLevel,
   apexCreateWall,
   apexDeleteSelected,
   apexGetScene,
   apexGetSelected,
   apexPickById,
   apexSelectElement,
+  apexSetActiveLevel,
+  apexSetLevelElevation,
   apexSetWallParams,
   apexTogglePickById,
   apexToggleSelectElement,
@@ -19,13 +22,15 @@ import {
   type ProjectionMode,
 } from './viewport/ViewportRenderer';
 import { buildWallSolid } from './viewport/wallMesh';
-import type { ElementDto, ElementListDto, SceneDto, ToolMode } from './types';
+import type { ElementDto, ElementListDto, LevelDto, SceneDto, ToolMode } from './types';
 import { ElementTree } from './components/ElementTree';
+import { LevelList } from './components/LevelList';
 import { PropertiesPanel } from './components/PropertiesPanel';
 
 const DEFAULT_HEIGHT = 3;
 const DEFAULT_THICKNESS = 0.2;
 const MIN_WALL_LENGTH = 0.1;
+const DEFAULT_LEVEL_RISE = 3;
 
 function toFloatArray(data: ArrayLike<number> | number[]): Float32Array {
   return data instanceof Float32Array ? data : new Float32Array(data);
@@ -56,6 +61,17 @@ function planLength(a: [number, number, number], b: [number, number, number]): n
   return Math.hypot(dx, dz);
 }
 
+function syncLevelPlanes(renderer: ViewportRenderer, scene: SceneDto): void {
+  const activeId = scene.active_level_id;
+  renderer.setLevelPlanes(
+    (scene.levels ?? []).map((level) => ({
+      id: level.id,
+      elevation: level.elevation,
+      active: level.id === activeId,
+    })),
+  );
+}
+
 type HandleWhich = 'start' | 'end';
 
 export default function App() {
@@ -65,6 +81,7 @@ export default function App() {
   const shiftHeldRef = useRef(false);
   const selectedRef = useRef<ElementDto | null>(null);
   const selectedCountRef = useRef(0);
+  const activeElevationRef = useRef(0);
   const handleDragRef = useRef<{
     which: HandleWhich;
     start: [number, number, number];
@@ -79,17 +96,30 @@ export default function App() {
   const [projection, setProjection] = useState<ProjectionMode>('orthographic');
   const [scene, setScene] = useState<SceneDto | null>(null);
   const [selected, setSelected] = useState<ElementDto | null>(null);
+  const [selectedLevelId, setSelectedLevelId] = useState<string | null>(null);
   const [pendingStart, setPendingStart] = useState<[number, number, number] | null>(null);
   const [fps, setFps] = useState(0);
 
   selectedRef.current = selected;
   selectedCountRef.current = scene
-    ? (Array.isArray(scene.selected_ids)
-        ? scene.selected_ids.length
-        : scene.selected_id
-          ? 1
-          : 0)
+    ? Array.isArray(scene.selected_ids)
+      ? scene.selected_ids.length
+      : scene.selected_id
+        ? 1
+        : 0
     : 0;
+
+  const levels: LevelDto[] = useMemo(() => scene?.levels ?? [], [scene]);
+  const activeLevel = useMemo(() => {
+    if (!scene?.active_level_id) return levels[0] ?? null;
+    return levels.find((l) => l.id === scene.active_level_id) ?? levels[0] ?? null;
+  }, [scene, levels]);
+  activeElevationRef.current = activeLevel?.elevation ?? 0;
+
+  const selectedLevel = useMemo(() => {
+    if (!selectedLevelId) return activeLevel;
+    return levels.find((l) => l.id === selectedLevelId) ?? activeLevel;
+  }, [selectedLevelId, levels, activeLevel]);
 
   const syncEditGizmo = useCallback((el: ElementDto | null) => {
     const renderer = rendererRef.current;
@@ -139,9 +169,11 @@ export default function App() {
           selectedPickIds: selectedPickIds(next),
           fitCamera,
         });
+        syncLevelPlanes(renderer, next);
       }
       const sel = apexGetSelected();
       setSelected(sel);
+      if (sel) setSelectedLevelId(sel.level_id);
       if (!wallStartRef.current) {
         clearPlacementPreview();
         syncEditGizmo(sel);
@@ -227,6 +259,7 @@ export default function App() {
         const initial = apexGetScene();
         if (!cancelled) {
           applyScene(initial, false);
+          setSelectedLevelId(initial.active_level_id);
           setReady(true);
         }
       } catch (e) {
@@ -261,9 +294,10 @@ export default function App() {
     clientX: number,
     clientY: number,
     shiftHeld: boolean,
+    elevation: number,
     anchor: [number, number, number] | null = wallStartRef.current,
   ): [number, number, number] | null => {
-    const raw = renderer.screenToGround(clientX, clientY, 0);
+    const raw = renderer.screenToGround(clientX, clientY, elevation);
     if (!raw) return null;
     if (!shiftHeld) return raw;
     let point = snapPointToGrid(raw, GRID_STEP);
@@ -322,7 +356,8 @@ export default function App() {
     if (drag && selectedRef.current) {
       const sel = selectedRef.current;
       const fixed = drag.which === 'start' ? drag.end : drag.start;
-      const point = resolveGroundPoint(renderer, e.clientX, e.clientY, shift, fixed);
+      const elev = sel.start?.[1] ?? activeElevationRef.current;
+      const point = resolveGroundPoint(renderer, e.clientX, e.clientY, shift, elev, fixed);
       if (!point) return;
       drag.moved = true;
       const start = drag.which === 'start' ? point : drag.start;
@@ -349,6 +384,7 @@ export default function App() {
             selectedPickIds: selectedPickIds(next),
             fitCamera: false,
           });
+          syncLevelPlanes(renderer, next);
           setScene(next);
           const updated = apexGetSelected();
           setSelected(updated);
@@ -360,7 +396,13 @@ export default function App() {
     }
 
     if (tool !== 'wall' || !wallStartRef.current) return;
-    const end = resolveGroundPoint(renderer, e.clientX, e.clientY, shift);
+    const end = resolveGroundPoint(
+      renderer,
+      e.clientX,
+      e.clientY,
+      shift,
+      activeElevationRef.current,
+    );
     if (!end) return;
     showPlacementPreview(wallStartRef.current, end);
   };
@@ -418,6 +460,7 @@ export default function App() {
         e.clientX,
         e.clientY,
         e.shiftKey || shiftHeldRef.current,
+        activeElevationRef.current,
       );
       if (!point) return;
 
@@ -459,9 +502,71 @@ export default function App() {
     }
   };
 
+  const onCanvasDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    if (!ready || !rendererRef.current) return;
+    if (e.button !== 0) return;
+    e.preventDefault();
+    const hit = rendererRef.current.hitLevelContour(e.clientX, e.clientY);
+    if (!hit) return;
+    suppressClickRef.current = true;
+    window.setTimeout(() => {
+      suppressClickRef.current = false;
+    }, 0);
+    try {
+      cancelWall();
+      const next = apexSetActiveLevel(hit);
+      setSelectedLevelId(hit);
+      applyScene(next, false);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const onSelectFromTree = (id: string, multi: boolean) => {
     goSelect();
     applyScene(multi ? apexToggleSelectElement(id) : apexSelectElement(id), false);
+  };
+
+  const onSelectLevel = (id: string) => {
+    setSelectedLevelId(id);
+    try {
+      applyScene(apexSelectElement(null), false);
+    } catch {
+      setSelected(null);
+    }
+  };
+
+  const onCreateLevel = () => {
+    const maxElev = levels.reduce(
+      (m, l) => Math.max(m, l.elevation),
+      Number.NEGATIVE_INFINITY,
+    );
+    const elevation = levels.length === 0 ? 0 : maxElev + DEFAULT_LEVEL_RISE;
+    try {
+      const next = apexCreateLevel('', elevation);
+      const createdId =
+        next.levels.find((l) => !levels.some((prev) => prev.id === l.id))?.id ??
+        next.levels[next.levels.length - 1]?.id ??
+        null;
+      // Clear wall selection so applyScene does not overwrite the new level id.
+      const cleared = apexSelectElement(null);
+      applyScene(cleared, false);
+      setSelectedLevelId(createdId);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const onUpdateLevelElevation = (id: string, elevation: number) => {
+    try {
+      const next = apexSetLevelElevation(id, elevation);
+      applyScene(next, false);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   };
 
   const selectedIds = scene ? selectedIdList(scene) : [];
@@ -484,9 +589,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand">
-          APEX
-        </div>
+        <div className="brand">APEX</div>
         <div className="tools">
           <button
             type="button"
@@ -526,17 +629,20 @@ export default function App() {
         <div className="hint">
           {tool === 'wall'
             ? pendingStart
-              ? 'Click end · Shift snap+ortho · Esc clears'
-              : 'Click start · Shift snap to 1 m grid · Esc clears'
-            : selectedCount > 1
-              ? `${selectedCount} selected · Ctrl+click toggle · Del · Esc clears`
-              : selected?.category === 'wall'
-                ? 'Drag endpoints · Ctrl+click multi · Esc clears'
-                : 'Click select · Ctrl+click multi · RMB orbit · MMB pan'}
+              ? `Click end on ${activeLevel?.name ?? 'level'} · Shift snap · Esc`
+              : `Wall on ${activeLevel?.name ?? 'level'} · dbl-click contour to switch`
+            : 'Dbl-click level plane/contour to activate · Ctrl+click multi · Esc'}
         </div>
       </header>
 
       <aside className="sidebar">
+        <LevelList
+          levels={levels}
+          activeLevelId={scene?.active_level_id ?? null}
+          selectedLevelId={selectedLevel?.id ?? null}
+          onSelect={onSelectLevel}
+          onCreate={onCreateLevel}
+        />
         <div className="panel-title">Elements</div>
         <ElementTree
           elements={elements}
@@ -551,13 +657,15 @@ export default function App() {
         <canvas
           ref={canvasRef}
           onClick={onCanvasClick}
+          onDoubleClick={onCanvasDoubleClick}
           onPointerDown={onCanvasPointerDown}
           onPointerMove={onCanvasPointerMove}
           onPointerUp={onCanvasPointerUp}
           onPointerCancel={onCanvasPointerUp}
         />
         <div className="viewport-badge">
-          WebGL2 · {fps > 0 ? `${fps} fps` : '…'} · v{scene?.version ?? 0}
+          WebGL2 · {fps > 0 ? `${fps} fps` : '…'} · {activeLevel?.name ?? '—'} · v
+          {scene?.version ?? 0}
         </div>
       </div>
 
@@ -566,7 +674,9 @@ export default function App() {
         <PropertiesPanel
           selected={selected}
           selectedCount={selectedCount}
+          selectedLevel={selectedCount === 0 ? selectedLevel : null}
           onUpdate={onUpdateWall}
+          onUpdateLevelElevation={onUpdateLevelElevation}
           onDelete={onDelete}
         />
       </aside>

@@ -1,7 +1,23 @@
 /* @ts-self-types="./apex_wasm.d.ts" */
 
 /**
- * Create a wall from two points. Returns updated scene JSON.
+ * Create a new level. Empty name → auto "Level N". Returns updated scene.
+ * @param {string} name
+ * @param {number} elevation
+ * @returns {any}
+ */
+export function createLevel(name, elevation) {
+    const ptr0 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.createLevel(ptr0, len0, elevation);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Create a wall from two points on the active level. Returns updated scene JSON.
  * @param {number} x0
  * @param {number} y0
  * @param {number} z0
@@ -100,6 +116,37 @@ export function selectElement(id) {
     const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
     const ret = wasm.selectElement(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Activate a level as the current work plane.
+ * @param {string} id
+ * @returns {any}
+ */
+export function setActiveLevel(id) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.setActiveLevel(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Change a level's elevation; walls on that level move with it.
+ * @param {string} id
+ * @param {number} elevation
+ * @returns {any}
+ */
+export function setLevelElevation(id, elevation) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.setLevelElevation(ptr0, len0, elevation);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }

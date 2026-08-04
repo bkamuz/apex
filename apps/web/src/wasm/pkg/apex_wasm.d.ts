@@ -2,7 +2,12 @@
 /* eslint-disable */
 
 /**
- * Create a wall from two points. Returns updated scene JSON.
+ * Create a new level. Empty name → auto "Level N". Returns updated scene.
+ */
+export function createLevel(name: string, elevation: number): any;
+
+/**
+ * Create a wall from two points on the active level. Returns updated scene JSON.
  */
 export function createWall(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, height: number, thickness: number): any;
 
@@ -42,6 +47,16 @@ export function pickById(pick_id: number): any;
 export function selectElement(id: string): any;
 
 /**
+ * Activate a level as the current work plane.
+ */
+export function setActiveLevel(id: string): any;
+
+/**
+ * Change a level's elevation; walls on that level move with it.
+ */
+export function setLevelElevation(id: string, elevation: number): any;
+
+/**
  * Update wall parameters by element id. Returns updated scene.
  */
 export function setWallParams(id: string, height: number, thickness: number, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): any;
@@ -60,6 +75,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly createLevel: (a: number, b: number, c: number) => [number, number, number];
     readonly createWall: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number];
     readonly deleteSelected: () => [number, number, number];
     readonly getScene: () => [number, number, number];
@@ -68,6 +84,8 @@ export interface InitOutput {
     readonly listElements: () => [number, number, number];
     readonly pickById: (a: number) => [number, number, number];
     readonly selectElement: (a: number, b: number) => [number, number, number];
+    readonly setActiveLevel: (a: number, b: number) => [number, number, number];
+    readonly setLevelElevation: (a: number, b: number, c: number) => [number, number, number];
     readonly setWallParams: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
     readonly togglePickById: (a: number) => [number, number, number];
     readonly toggleSelectElement: (a: number, b: number) => [number, number, number];
