@@ -699,7 +699,7 @@ export class ViewportRenderer {
   hitEditHandle(
     clientX: number,
     clientY: number,
-    pixelRadius = 14,
+    pixelRadius = 12,
   ): 'start' | 'end' | null {
     if (!this.editHandles) return null;
     const s = this.worldToClient([
@@ -1014,7 +1014,7 @@ export class ViewportRenderer {
     gl.useProgram(this.pointProg);
     gl.uniformMatrix4fv(gl.getUniformLocation(this.pointProg, 'uMVP'), false, viewProj);
     gl.uniform3fv(gl.getUniformLocation(this.pointProg, 'uEye'), new Float32Array(eye));
-    gl.uniform1f(gl.getUniformLocation(this.pointProg, 'uPointSize'), 14 * dpr);
+    gl.uniform1f(gl.getUniformLocation(this.pointProg, 'uPointSize'), 8 * dpr);
     gl.uniform4f(gl.getUniformLocation(this.pointProg, 'uColor'), 0.95, 0.72, 0.28, 1);
     gl.bindVertexArray(this.handleVao);
     gl.drawArrays(gl.POINTS, 0, this.handleCount);
