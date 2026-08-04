@@ -431,8 +431,9 @@ function niceGridStep(span: number, maxLines: number): number {
 }
 
 /**
- * Split long xyzxyz segments so thick-line expansion stays numerically stable.
- * A single kilometre edge in screen-space line math blows out to full-screen slabs.
+ * Split long xyzxyz segments so NDC thick-line width stays stable.
+ * Kilometre edges push |clip/NDC| so high that float32 eats the pixel offset
+ * and the ribbon reads as a inflated slab — not a segment-count problem.
  */
 function subdivideLineSegments(
   segments: ArrayLike<number>,
