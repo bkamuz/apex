@@ -100,10 +100,6 @@ button:focus-visible {
   font-size: 15px;
 }
 
-.brand span {
-  color: var(--accent);
-}
-
 .tools {
   display: flex;
   gap: 8px;
