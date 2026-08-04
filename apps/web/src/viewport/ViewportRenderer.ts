@@ -859,9 +859,10 @@ export class ViewportRenderer {
   }
 
   /**
-   * Ground grid covering union(content XZ, local camera box).
-   * Step always via niceGridStep(..., GRID_MAX_LINES_PER_AXIS) so kilometre
-   * walls stay under ~64 lines/axis. Placement snap stays on GRID_STEP (1 m).
+   * Ground grid: step follows the camera view (zooming in refines again).
+   * Extent is union(content, camera) when that fits ~GRID_MAX_LINES_PER_AXIS
+   * at the view step; otherwise camera-local only — avoids locking a huge
+   * step to the whole project AABB. Placement snap stays on GRID_STEP (1 m).
    */
   private syncViewGrid(): void {
     const aspect = this.canvas.clientWidth / Math.max(1, this.canvas.clientHeight);
@@ -870,18 +871,34 @@ export class ViewportRenderer {
     const half = Math.max(halfW, halfH, 8) * 1.4;
     const lookX = this.camera.target[0];
     const lookZ = this.camera.target[2];
-    let minX = lookX - half;
-    let maxX = lookX + half;
-    let minZ = lookZ - half;
-    let maxZ = lookZ + half;
+    const camMinX = lookX - half;
+    const camMaxX = lookX + half;
+    const camMinZ = lookZ - half;
+    const camMaxZ = lookZ + half;
+    const viewSpan = Math.max(half * 2, 1);
+    const step = niceGridStep(viewSpan, GRID_MAX_LINES_PER_AXIS);
+
+    let minX = camMinX;
+    let maxX = camMaxX;
+    let minZ = camMinZ;
+    let maxZ = camMaxZ;
     if (this.contentBounds) {
-      minX = Math.min(minX, this.contentBounds.minX);
-      maxX = Math.max(maxX, this.contentBounds.maxX);
-      minZ = Math.min(minZ, this.contentBounds.minZ);
-      maxZ = Math.max(maxZ, this.contentBounds.maxZ);
+      const uMinX = Math.min(camMinX, this.contentBounds.minX);
+      const uMaxX = Math.max(camMaxX, this.contentBounds.maxX);
+      const uMinZ = Math.min(camMinZ, this.contentBounds.minZ);
+      const uMaxZ = Math.max(camMaxZ, this.contentBounds.maxZ);
+      const unionSpan = Math.max(uMaxX - uMinX, uMaxZ - uMinZ, 1);
+      // Fine view step over a kilometre AABB would blow the line budget —
+      // keep dense grid around the camera instead of coarsening forever.
+      const maxSpan = step * (GRID_MAX_LINES_PER_AXIS - 1);
+      if (unionSpan <= maxSpan) {
+        minX = uMinX;
+        maxX = uMaxX;
+        minZ = uMinZ;
+        maxZ = uMaxZ;
+      }
     }
-    const span = Math.max(maxX - minX, maxZ - minZ, 1);
-    const step = niceGridStep(span, GRID_MAX_LINES_PER_AXIS);
+
     minX = Math.floor(minX / step) * step;
     maxX = Math.ceil(maxX / step) * step;
     minZ = Math.floor(minZ / step) * step;
@@ -901,8 +918,8 @@ export class ViewportRenderer {
   }
 
   /**
-   * Grow content XZ bounds (and sceneExtent for zoom-out). Visual grid is the
-   * union of content and the camera box, with an adaptive capped step.
+   * Grow content XZ bounds (and sceneExtent for zoom-out). Visual grid may
+   * cover the full content AABB when the view step still fits the line cap.
    */
   expandGridToInclude(
     minX: number,
