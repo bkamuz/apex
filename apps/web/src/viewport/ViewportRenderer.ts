@@ -428,7 +428,8 @@ export class ViewportRenderer {
   private selectedPickId: number | null = null;
   /** When set, RMB orbit rotates the view around this placement-plane point. */
   private orbitPivot: [number, number, number] | null = null;
-  private dragging = false;
+  /** Locked for the whole gesture so MMB never falls through into orbit/zoom. */
+  private dragMode: 'pan' | 'orbit' | null = null;
   private lastX = 0;
   private lastY = 0;
   private lastMmbAt = 0;
@@ -920,16 +921,16 @@ export class ViewportRenderer {
         this.lastMmbY = e.clientY;
         if (dt > 0 && dt <= MMB_DBLCLICK_MS && dist <= MMB_DBLCLICK_PX) {
           this.resetCamera();
-          this.dragging = false;
+          this.dragMode = null;
           this.lastMmbAt = 0;
           return;
         }
+        this.beginDrag('pan', e);
+        return;
       }
-      if (e.button === 1 || e.button === 2) {
-        this.dragging = true;
-        this.lastX = e.clientX;
-        this.lastY = e.clientY;
-        this.canvas.setPointerCapture(e.pointerId);
+      if (e.button === 2) {
+        // Alt+RMB pans (same as MMB); plain RMB orbits.
+        this.beginDrag(e.altKey ? 'pan' : 'orbit', e);
       }
     });
     this.canvas.addEventListener('auxclick', (e) => {
@@ -937,18 +938,17 @@ export class ViewportRenderer {
       if (e.button === 1) e.preventDefault();
     });
     this.canvas.addEventListener('pointermove', (e) => {
-      if (!this.dragging) return;
+      if (!this.dragMode) return;
       const dx = e.clientX - this.lastX;
       const dy = e.clientY - this.lastY;
       this.lastX = e.clientX;
       this.lastY = e.clientY;
-      if (e.buttons === 4 || (e.buttons === 2 && e.altKey)) {
-        const right = this.cameraRight();
-        const scale = this.camera.distance * 0.0015;
-        this.camera.target[0] -= right[0] * dx * scale;
-        this.camera.target[1] += dy * scale;
-        this.camera.target[2] -= right[2] * dx * scale;
-      } else if (this.orbitPivot) {
+      if (this.dragMode === 'pan') {
+        // Ground-plane pan only (world XZ). Never change target Y / distance.
+        this.panOnGround(dx, dy);
+        return;
+      }
+      if (this.orbitPivot) {
         // Rotate the whole view around the selection placement center — do not
         // snap the look-at to that center (avoids framing jumps on select).
         this.orbitAroundPivot(-dx * 0.005, dy * 0.005);
@@ -960,13 +960,19 @@ export class ViewportRenderer {
         );
       }
     });
-    this.canvas.addEventListener('pointerup', () => {
-      this.dragging = false;
-    });
+    const endDrag = () => {
+      this.dragMode = null;
+    };
+    this.canvas.addEventListener('pointerup', endDrag);
+    this.canvas.addEventListener('pointercancel', endDrag);
+    this.canvas.addEventListener('lostpointercapture', endDrag);
     this.canvas.addEventListener(
       'wheel',
       (e) => {
         e.preventDefault();
+        // Wheel while middle-dragging is often accidental (or feels like zoom
+        // during pan) — ignore until the pan gesture ends.
+        if (this.dragMode === 'pan') return;
         const minDist = Math.max(this.sceneExtent * 0.35, 2);
         const maxDist = Math.max(this.sceneExtent * 12, 80);
         this.camera.distance = Math.max(
@@ -979,9 +985,31 @@ export class ViewportRenderer {
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
+  private beginDrag(mode: 'pan' | 'orbit', e: PointerEvent): void {
+    this.dragMode = mode;
+    this.lastX = e.clientX;
+    this.lastY = e.clientY;
+    this.canvas.setPointerCapture(e.pointerId);
+  }
+
+  /** Translate look-at on the placement plane (X/Z). Screen Y → forward on ground, not world up. */
+  private panOnGround(dx: number, dy: number): void {
+    const right = this.cameraRight();
+    const forward = this.cameraForwardXZ();
+    const scale = this.camera.distance * 0.0015;
+    this.camera.target[0] -= (right[0] * dx + forward[0] * dy) * scale;
+    this.camera.target[2] -= (right[2] * dx + forward[2] * dy) * scale;
+  }
+
   private cameraRight(): [number, number, number] {
     const { yaw } = this.camera;
     return [Math.cos(yaw), 0, -Math.sin(yaw)];
+  }
+
+  /** Unit look direction projected onto the ground plane (Y-up world). */
+  private cameraForwardXZ(): [number, number, number] {
+    const { yaw } = this.camera;
+    return [-Math.sin(yaw), 0, -Math.cos(yaw)];
   }
 
   private eyePosition(): [number, number, number] {
