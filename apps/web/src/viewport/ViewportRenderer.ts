@@ -47,24 +47,15 @@ layout(location=2) in float aPick;
 uniform mat4 uMVP;
 uniform mat4 uModel;
 uniform mat3 uNormalMat;
-uniform vec3 uEye;
-uniform vec3 uViewForward;
-uniform float uSolidBias;
 out vec3 vNormal;
 out vec3 vWorld;
 flat out float vPick;
 void main(){
-  vec3 p = aPos;
-  // Push solid along the view axis (not toward the eye point) so Ortho parallel
-  // rays get a stable depth separation from CAD edges on the same plane.
-  if (uSolidBias > 0.0) {
-    p += uViewForward * uSolidBias;
-  }
-  vec4 world = uModel * vec4(p, 1.0);
+  vec4 world = uModel * vec4(aPos, 1.0);
   vWorld = world.xyz;
   vNormal = normalize(uNormalMat * aNormal);
   vPick = aPick;
-  gl_Position = uMVP * vec4(p, 1.0);
+  gl_Position = uMVP * vec4(aPos, 1.0);
 }`;
 
 const FRAG = `#version 300 es
@@ -111,25 +102,12 @@ layout(location=1) in vec3 aPos1;
 layout(location=2) in float aSide;
 layout(location=3) in float aEnd;
 uniform mat4 uMVP;
-uniform vec3 uViewForward;
-uniform float uWorldBias;
-uniform float uDepthPull;
 uniform vec2 uResolution;
 uniform float uLineWidthPx;
 
-vec3 biasPoint(vec3 p) {
-  // Pull toward the camera along the view axis (matches solid push direction).
-  if (uWorldBias > 0.0) {
-    return p - uViewForward * uWorldBias;
-  }
-  return p;
-}
-
 void main() {
-  vec3 p0 = biasPoint(aPos0);
-  vec3 p1 = biasPoint(aPos1);
-  vec4 c0 = uMVP * vec4(p0, 1.0);
-  vec4 c1 = uMVP * vec4(p1, 1.0);
+  vec4 c0 = uMVP * vec4(aPos0, 1.0);
+  vec4 c1 = uMVP * vec4(aPos1, 1.0);
 
   // Screen direction from clip (stable across differing w). Falls back when the
   // segment collapses on screen (looking along the edge).
@@ -142,8 +120,6 @@ void main() {
   // Constant pixel width independent of zoom / projection.
   vec2 pixelToNdc = 2.0 / max(uResolution, vec2(1.0));
   clip.xy += perp * aSide * (0.5 * uLineWidthPx) * pixelToNdc * clip.w;
-  // Tiny clip-space pull so coplanar outlines win depth without world-meter bleed.
-  clip.z -= uDepthPull * clip.w;
   gl_Position = clip;
 }`;
 
@@ -1047,24 +1023,7 @@ export class ViewportRenderer {
     const view = mat4LookAt(eye, this.camera.target, [0, 1, 0]);
     const viewProj = mat4Multiply(proj, view);
     const viewProjInv = invertMat4(viewProj) ?? mat4Identity();
-    const forward: [number, number, number] = [
-      this.camera.target[0] - eye[0],
-      this.camera.target[1] - eye[1],
-      this.camera.target[2] - eye[2],
-    ];
-    const fl = Math.hypot(forward[0], forward[1], forward[2]) || 1;
-    const viewForward: [number, number, number] = [
-      forward[0] / fl,
-      forward[1] / fl,
-      forward[2] / fl,
-    ];
-    return { eye, view, proj, viewProj, viewProjInv, viewForward, near, far };
-  }
-
-  /** World-meters solid push along view axis; always < half of min wall thickness. */
-  private solidDepthBiasMeters(): number {
-    // Cap below ~half of 0.2m walls so back edges stay occluded by the front face.
-    return Math.min(0.08, Math.max(0.035, this.camera.distance * 0.0025));
+    return { eye, view, proj, viewProj, viewProjInv };
   }
 
   private unproject(x: number, y: number, z: number, inv: Float32Array): [number, number, number] {
@@ -1119,7 +1078,7 @@ export class ViewportRenderer {
   private drawMeshes(pickPass: boolean): void {
     const gl = this.gl;
     if (this.indexCount === 0) return;
-    const { viewProj, eye, viewForward } = this.cameraMatrices();
+    const { viewProj } = this.cameraMatrices();
     gl.useProgram(this.meshProg);
     gl.uniformMatrix4fv(gl.getUniformLocation(this.meshProg, 'uMVP'), false, viewProj);
     gl.uniformMatrix4fv(gl.getUniformLocation(this.meshProg, 'uModel'), false, mat4Identity());
@@ -1127,13 +1086,6 @@ export class ViewportRenderer {
       gl.getUniformLocation(this.meshProg, 'uNormalMat'),
       false,
       new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]),
-    );
-    gl.uniform3fv(gl.getUniformLocation(this.meshProg, 'uEye'), new Float32Array(eye));
-    gl.uniform3fv(gl.getUniformLocation(this.meshProg, 'uViewForward'), new Float32Array(viewForward));
-    // Pick pass must stay unbiased for accurate hits.
-    gl.uniform1f(
-      gl.getUniformLocation(this.meshProg, 'uSolidBias'),
-      pickPass ? 0.0 : this.solidDepthBiasMeters(),
     );
     gl.uniform3fv(gl.getUniformLocation(this.meshProg, 'uLightDir'), new Float32Array([0.45, 0.85, 0.35]));
     gl.uniform3fv(gl.getUniformLocation(this.meshProg, 'uSkyColor'), new Float32Array([0.92, 0.94, 0.98]));
@@ -1143,6 +1095,11 @@ export class ViewportRenderer {
 
     gl.bindVertexArray(this.vao);
     gl.enable(gl.DEPTH_TEST);
+    // Classic CAD: push filled surfaces back so coplanar outlines win depth.
+    if (!pickPass) {
+      gl.enable(gl.POLYGON_OFFSET_FILL);
+      gl.polygonOffset(1, 1);
+    }
 
     if (pickPass) {
       gl.disable(gl.BLEND);
@@ -1176,13 +1133,14 @@ export class ViewportRenderer {
       gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_INT, 0);
     }
 
+    if (!pickPass) gl.disable(gl.POLYGON_OFFSET_FILL);
     gl.bindVertexArray(null);
   }
 
   private drawGhost(): void {
     const gl = this.gl;
     if (this.ghostIndexCount === 0) return;
-    const { viewProj, eye, viewForward } = this.cameraMatrices();
+    const { viewProj } = this.cameraMatrices();
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
     gl.depthMask(false);
@@ -1195,9 +1153,6 @@ export class ViewportRenderer {
       false,
       new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]),
     );
-    gl.uniform3fv(gl.getUniformLocation(this.meshProg, 'uEye'), new Float32Array(eye));
-    gl.uniform3fv(gl.getUniformLocation(this.meshProg, 'uViewForward'), new Float32Array(viewForward));
-    gl.uniform1f(gl.getUniformLocation(this.meshProg, 'uSolidBias'), 0.0);
     gl.uniform3fv(gl.getUniformLocation(this.meshProg, 'uLightDir'), new Float32Array([0.45, 0.85, 0.35]));
     gl.uniform3fv(gl.getUniformLocation(this.meshProg, 'uSkyColor'), new Float32Array([0.95, 0.9, 0.75]));
     gl.uniform3fv(gl.getUniformLocation(this.meshProg, 'uGroundColor'), new Float32Array([0.45, 0.35, 0.2]));
@@ -1219,36 +1174,23 @@ export class ViewportRenderer {
     vao: WebGLVertexArrayObject,
     count: number,
     color: [number, number, number, number],
-    worldBiasMeters = 0.01,
     widthPx = 1.5,
-    depthPull = 0,
-    polygonOffset = false,
   ): void {
     if (count === 0) return;
     const gl = this.gl;
-    const { viewProj, viewForward } = this.cameraMatrices();
+    const { viewProj } = this.cameraMatrices();
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     gl.disable(gl.BLEND);
     gl.enable(gl.DEPTH_TEST);
-    // Don't write depth from outlines — avoids thick-line quads burying neighboring edges.
-    gl.depthMask(false);
-    if (polygonOffset) {
-      gl.enable(gl.POLYGON_OFFSET_FILL);
-      gl.polygonOffset(-2, -8);
-    }
+    gl.depthMask(true);
     gl.useProgram(this.lineProg);
     gl.uniformMatrix4fv(gl.getUniformLocation(this.lineProg, 'uMVP'), false, viewProj);
-    gl.uniform3fv(gl.getUniformLocation(this.lineProg, 'uViewForward'), new Float32Array(viewForward));
-    gl.uniform1f(gl.getUniformLocation(this.lineProg, 'uWorldBias'), worldBiasMeters);
-    gl.uniform1f(gl.getUniformLocation(this.lineProg, 'uDepthPull'), depthPull);
     gl.uniform2f(gl.getUniformLocation(this.lineProg, 'uResolution'), this.canvas.width, this.canvas.height);
     gl.uniform1f(gl.getUniformLocation(this.lineProg, 'uLineWidthPx'), widthPx * dpr);
     gl.uniform4f(gl.getUniformLocation(this.lineProg, 'uColor'), color[0], color[1], color[2], color[3]);
     gl.bindVertexArray(vao);
     gl.drawArrays(gl.TRIANGLES, 0, count);
     gl.bindVertexArray(null);
-    if (polygonOffset) gl.disable(gl.POLYGON_OFFSET_FILL);
-    gl.depthMask(true);
   }
 
   private drawHandles(): void {
@@ -1279,14 +1221,13 @@ export class ViewportRenderer {
     gl.clearColor(0.09, 0.1, 0.12, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     // Grid: tiny bias only (lies on ground plane).
-    this.drawLines(this.gridVao, this.gridCount, [0.22, 0.24, 0.28, 1], 0.002, 1.25, 1e-4, true);
+    this.drawLines(this.gridVao, this.gridCount, [0.22, 0.24, 0.28, 1], 1.25);
     this.drawMeshes(false);
-    // CAD edges: view-axis pull + clip depth pull + polygon offset so outlines stay
-    // on top of coplanar faces (especially Ortho) without bleeding through thin walls.
-    this.drawLines(this.edgeVao, this.edgeCount, [0.08, 0.09, 0.1, 1], 0.01, 2.25, 8e-4, true);
+    // Outlines at true depth; solids were polygon-offset back.
+    this.drawLines(this.edgeVao, this.edgeCount, [0.08, 0.09, 0.1, 1], 2.0);
     this.drawGhost();
-    this.drawLines(this.previewVao, this.previewCount, [0.95, 0.7, 0.3, 1], 0.012, 2.25, 8e-4, true);
-    this.drawLines(this.editLineVao, this.editLineCount, [0.95, 0.72, 0.28, 1], 0.012, 2.25, 8e-4, true);
+    this.drawLines(this.previewVao, this.previewCount, [0.95, 0.7, 0.3, 1], 2.25);
+    this.drawLines(this.editLineVao, this.editLineCount, [0.95, 0.72, 0.28, 1], 2.25);
     this.drawHandles();
   };
 }
