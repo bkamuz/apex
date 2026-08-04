@@ -12,7 +12,6 @@ import {
   initApex,
 } from './wasm/apex';
 import {
-  GRID_STEP,
   orthoConstrain,
   snapPointToGrid,
   ViewportRenderer,
@@ -266,9 +265,11 @@ export default function App() {
     const raw = renderer.screenToGround(clientX, clientY, 0);
     if (!raw) return null;
     if (!shiftHeld) return raw;
-    let point = snapPointToGrid(raw, GRID_STEP);
+    // Match the on-screen adaptive grid (coarser when zoomed out / looking far).
+    const step = renderer.getGridStep();
+    let point = snapPointToGrid(raw, step);
     if (anchor) {
-      point = snapPointToGrid(orthoConstrain(anchor, point), GRID_STEP);
+      point = snapPointToGrid(orthoConstrain(anchor, point), step);
     }
     return point;
   };
@@ -527,7 +528,7 @@ export default function App() {
           {tool === 'wall'
             ? pendingStart
               ? 'Click end · Shift snap+ortho · Esc clears'
-              : 'Click start · Shift snap to 1 m grid · Esc clears'
+              : 'Click start · Shift snap to grid · Esc clears'
             : selectedCount > 1
               ? `${selectedCount} selected · Ctrl+click toggle · Del · Esc clears`
               : selected?.category === 'wall'
