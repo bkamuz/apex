@@ -60,6 +60,7 @@ uniform vec3 uGroundColor;
 uniform float uSelectedPick;
 uniform bool uPickPass;
 uniform float uOpacity;
+uniform int uSelectionMode; // 0=all, 1=opaque others, 2=selected only
 out vec4 outColor;
 void main(){
   if (uPickPass) {
@@ -71,13 +72,15 @@ void main(){
     outColor = vec4(r, g, b, a);
     return;
   }
+  bool selected = abs(vPick - uSelectedPick) < 0.5 && uSelectedPick > 0.0;
+  if (uSelectionMode == 1 && selected) discard;
+  if (uSelectionMode == 2 && !selected) discard;
   vec3 n = normalize(vNormal);
   // Two-sided: thin walls stay lit when viewed from either side.
   float ndl = abs(dot(n, normalize(uLightDir)));
   float hemi = abs(n.y) * 0.5 + 0.5;
   vec3 ambient = mix(uGroundColor, uSkyColor, hemi);
   float wrap = ndl * 0.65 + 0.35;
-  bool selected = abs(vPick - uSelectedPick) < 0.5 && uSelectedPick > 0.0;
   vec3 base = selected ? vec3(0.86, 0.52, 0.22) : vec3(0.72, 0.76, 0.80);
   vec3 color = base * (ambient * 0.45 + vec3(wrap) * 0.7);
   outColor = vec4(color, uOpacity);
@@ -812,9 +815,6 @@ export class ViewportRenderer {
     const gl = this.gl;
     if (this.indexCount === 0) return;
     const { viewProj, eye } = this.cameraMatrices();
-    gl.disable(gl.BLEND);
-    gl.depthMask(true);
-    gl.enable(gl.DEPTH_TEST);
     gl.useProgram(this.meshProg);
     gl.uniformMatrix4fv(gl.getUniformLocation(this.meshProg, 'uMVP'), false, viewProj);
     gl.uniformMatrix4fv(gl.getUniformLocation(this.meshProg, 'uModel'), false, mat4Identity());
@@ -831,10 +831,42 @@ export class ViewportRenderer {
     gl.uniform3fv(gl.getUniformLocation(this.meshProg, 'uGroundColor'), new Float32Array([0.28, 0.3, 0.34]));
     gl.uniform1f(gl.getUniformLocation(this.meshProg, 'uSelectedPick'), this.selectedPickId ?? 0);
     gl.uniform1i(gl.getUniformLocation(this.meshProg, 'uPickPass'), pickPass ? 1 : 0);
-    gl.uniform1f(gl.getUniformLocation(this.meshProg, 'uOpacity'), 1.0);
 
     gl.bindVertexArray(this.vao);
-    gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_INT, 0);
+    gl.enable(gl.DEPTH_TEST);
+
+    if (pickPass) {
+      gl.disable(gl.BLEND);
+      gl.depthMask(true);
+      gl.uniform1i(gl.getUniformLocation(this.meshProg, 'uSelectionMode'), 0);
+      gl.uniform1f(gl.getUniformLocation(this.meshProg, 'uOpacity'), 1.0);
+      gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_INT, 0);
+    } else if (this.selectedPickId != null && this.selectedPickId > 0) {
+      // Opaque walls first (skip selection).
+      gl.disable(gl.BLEND);
+      gl.depthMask(true);
+      gl.uniform1i(gl.getUniformLocation(this.meshProg, 'uSelectionMode'), 1);
+      gl.uniform1f(gl.getUniformLocation(this.meshProg, 'uOpacity'), 1.0);
+      gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_INT, 0);
+
+      // Selected wall: translucent so the construction line reads clearly.
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.depthMask(false);
+      gl.uniform1i(gl.getUniformLocation(this.meshProg, 'uSelectionMode'), 2);
+      gl.uniform1f(gl.getUniformLocation(this.meshProg, 'uOpacity'), 0.38);
+      gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_INT, 0);
+
+      gl.depthMask(true);
+      gl.disable(gl.BLEND);
+    } else {
+      gl.disable(gl.BLEND);
+      gl.depthMask(true);
+      gl.uniform1i(gl.getUniformLocation(this.meshProg, 'uSelectionMode'), 0);
+      gl.uniform1f(gl.getUniformLocation(this.meshProg, 'uOpacity'), 1.0);
+      gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_INT, 0);
+    }
+
     gl.bindVertexArray(null);
   }
 
@@ -861,6 +893,7 @@ export class ViewportRenderer {
     gl.uniform3fv(gl.getUniformLocation(this.meshProg, 'uGroundColor'), new Float32Array([0.45, 0.35, 0.2]));
     gl.uniform1f(gl.getUniformLocation(this.meshProg, 'uSelectedPick'), 0);
     gl.uniform1i(gl.getUniformLocation(this.meshProg, 'uPickPass'), 0);
+    gl.uniform1i(gl.getUniformLocation(this.meshProg, 'uSelectionMode'), 0);
     gl.uniform1f(gl.getUniformLocation(this.meshProg, 'uOpacity'), 0.35);
 
     gl.bindVertexArray(this.ghostVao);
