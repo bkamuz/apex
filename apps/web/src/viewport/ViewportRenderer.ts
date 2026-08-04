@@ -863,6 +863,14 @@ export class ViewportRenderer {
     this.selectedPickIds = ids.slice(0, 32);
   }
 
+  /**
+   * Current visual grid step (metres). Shift-snap should use this, not GRID_STEP,
+   * so placement matches the on-screen grid.
+   */
+  getGridStep(): number {
+    return this.gridStep;
+  }
+
   private uploadGrid(): void {
     const { minX, maxX, minZ, maxZ } = this.gridBounds;
     const grid = buildGridRect(minX, maxX, minZ, maxZ, this.gridStep);
@@ -870,23 +878,100 @@ export class ViewportRenderer {
   }
 
   /**
-   * View-adaptive ground grid around the camera look-at.
-   * Density stays bounded (~GRID_MAX_LINES_PER_AXIS) even for kilometre scenes;
-   * step coarsens as you zoom out. Placement snap stays on GRID_STEP (1 m).
+   * Ground XZ covered by the current view (screen corners → Y=0 hits).
+   * Lets the grid follow walls into the distance when looking along them,
+   * instead of only a box around the look-at.
+   */
+  private visibleGroundBounds(): {
+    minX: number;
+    maxX: number;
+    minZ: number;
+    maxZ: number;
+  } {
+    const rect = this.canvas.getBoundingClientRect();
+    const w = Math.max(rect.width, 1);
+    const h = Math.max(rect.height, 1);
+    const samples: Array<[number, number]> = [
+      [0, 0],
+      [w, 0],
+      [0, h],
+      [w, h],
+      [w * 0.5, 0],
+      [w * 0.5, h],
+      [0, h * 0.5],
+      [w, h * 0.5],
+      [w * 0.5, h * 0.5],
+    ];
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    let hits = 0;
+    // Horizon rays can land extremely far; keep a generous but finite cap so
+    // step selection stays stable (still >> typical view, so long walls stay covered).
+    const maxR = Math.max(this.camera.distance * 80, 200);
+    const tx = this.camera.target[0];
+    const tz = this.camera.target[2];
+    for (const [sx, sy] of samples) {
+      const hit = this.screenToGround(rect.left + sx, rect.top + sy, 0);
+      if (!hit) continue;
+      let x = hit[0];
+      let z = hit[2];
+      const dx = x - tx;
+      const dz = z - tz;
+      const r = Math.hypot(dx, dz);
+      if (r > maxR && r > 1e-6) {
+        const s = maxR / r;
+        x = tx + dx * s;
+        z = tz + dz * s;
+      }
+      minX = Math.min(minX, x);
+      maxX = Math.max(maxX, x);
+      minZ = Math.min(minZ, z);
+      maxZ = Math.max(maxZ, z);
+      hits += 1;
+    }
+    if (hits === 0) {
+      const aspect = this.canvas.clientWidth / Math.max(1, this.canvas.clientHeight);
+      const halfH = Math.max(this.camera.distance * Math.tan(CAMERA_FOVY / 2), 0.5);
+      const half = Math.max(halfH * aspect, halfH, 8) * 1.4;
+      return {
+        minX: tx - half,
+        maxX: tx + half,
+        minZ: tz - half,
+        maxZ: tz + half,
+      };
+    }
+    // Pad slightly so the grid doesn't end exactly at the screen edge.
+    const pad = Math.max((maxX - minX), (maxZ - minZ), 8) * 0.08;
+    return {
+      minX: minX - pad,
+      maxX: maxX + pad,
+      minZ: minZ - pad,
+      maxZ: maxZ + pad,
+    };
+  }
+
+  /**
+   * View-adaptive ground grid covering the visible ground (frustum ∩ Y=0).
+   * Density stays bounded (~GRID_MAX_LINES_PER_AXIS); step coarsens as the
+   * visible span grows. Shift-snap uses `getGridStep()`.
    */
   private syncViewGrid(): void {
-    const aspect = this.canvas.clientWidth / Math.max(1, this.canvas.clientHeight);
-    const halfH = Math.max(this.camera.distance * Math.tan(CAMERA_FOVY / 2), 0.5);
-    const halfW = halfH * aspect;
-    const half = Math.max(halfW, halfH, 8) * 1.4;
-    const step = niceGridStep(half * 2, GRID_MAX_LINES_PER_AXIS);
-    const cx = Math.round(this.camera.target[0] / step) * step;
-    const cz = Math.round(this.camera.target[2] / step) * step;
-    const cells = Math.ceil(half / step);
-    const minX = cx - cells * step;
-    const maxX = cx + cells * step;
-    const minZ = cz - cells * step;
-    const maxZ = cz + cells * step;
+    // Reuse one matrix build for all ground samples this sync.
+    const ownedMats = this.frameMats == null;
+    if (ownedMats) this.frameMats = this.buildCameraMatrices();
+    const bounds = this.visibleGroundBounds();
+    if (ownedMats) this.frameMats = null;
+
+    const spanX = Math.max(bounds.maxX - bounds.minX, 1);
+    const spanZ = Math.max(bounds.maxZ - bounds.minZ, 1);
+    const span = Math.max(spanX, spanZ);
+    const step = niceGridStep(span, GRID_MAX_LINES_PER_AXIS);
+    const minX = Math.floor(bounds.minX / step) * step;
+    const maxX = Math.ceil(bounds.maxX / step) * step;
+    const minZ = Math.floor(bounds.minZ / step) * step;
+    const maxZ = Math.ceil(bounds.maxZ / step) * step;
     if (
       step === this.gridStep &&
       minX === this.gridBounds.minX &&
