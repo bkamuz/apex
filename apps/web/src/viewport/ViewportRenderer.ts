@@ -33,15 +33,9 @@ const MMB_DBLCLICK_MS = 400;
 const MMB_DBLCLICK_PX = 8;
 
 export const GRID_STEP = 1.0;
-/** Extra cells beyond scene/placement bounds when growing content tracking. */
+/** Extra cells beyond scene/placement bounds when growing the ground grid. */
 export const GRID_MARGIN_CELLS = 4;
 const GRID_DEFAULT_HALF = 20;
-/** Cap visual grid density — scene-sized 1 m grids explode on kilometre walls. */
-const GRID_MAX_LINES_PER_AXIS = 64;
-const GRID_NICE_STEPS = [
-  0.01, 0.05, 0.1, 0.25, 0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000,
-  50000, 100000,
-] as const;
 /** World-space chunk length for thick lines (avoids screen-space width blow-ups). */
 const MAX_THICK_SEGMENT_LEN = 48;
 /** Orbit pitch clamp (radians). Symmetric so the camera can go under the model. */
@@ -402,14 +396,6 @@ function buildGridRect(
   return new Float32Array(lines);
 }
 
-function niceGridStep(span: number, maxLines: number): number {
-  const raw = span / Math.max(maxLines - 1, 1);
-  for (const step of GRID_NICE_STEPS) {
-    if (step >= raw) return step;
-  }
-  return GRID_NICE_STEPS[GRID_NICE_STEPS.length - 1];
-}
-
 /**
  * Split long xyzxyz segments so NDC thick-line width stays stable.
  * Kilometre edges push |clip/NDC| so high that float32 eats the pixel offset
@@ -564,14 +550,6 @@ export class ViewportRenderer {
     minZ: -GRID_DEFAULT_HALF,
     maxZ: GRID_DEFAULT_HALF,
   };
-  private gridStep = GRID_STEP;
-  /** XZ AABB of placed geometry — unioned with the camera box when drawing the grid. */
-  private contentBounds: {
-    minX: number;
-    maxX: number;
-    minZ: number;
-    maxZ: number;
-  } | null = null;
   private previewVao: WebGLVertexArrayObject;
   private previewBuf: WebGLBuffer;
   private previewCount = 0;
@@ -816,8 +794,6 @@ export class ViewportRenderer {
 
     this.selectedPickIds = data.selectedPickIds.slice(0, 32);
 
-    // Replace content tracking from the current mesh (walls may have been deleted).
-    this.contentBounds = null;
     const aabb = aabbFromPositions(positions);
     if (aabb) {
       const sx = aabb.max[0] - aabb.min[0];
@@ -831,7 +807,6 @@ export class ViewportRenderer {
       }
     } else {
       this.sceneExtent = 10;
-      this.syncViewGrid();
     }
   }
 
@@ -854,72 +829,13 @@ export class ViewportRenderer {
 
   private uploadGrid(): void {
     const { minX, maxX, minZ, maxZ } = this.gridBounds;
-    const grid = buildGridRect(minX, maxX, minZ, maxZ, this.gridStep);
+    const grid = buildGridRect(minX, maxX, minZ, maxZ, GRID_STEP);
     this.gridCount = this.uploadThickLines(this.gridBuf, grid);
   }
 
   /**
-   * Ground grid: step follows the camera view (zooming in refines again).
-   * Extent is union(content, camera) when that fits ~GRID_MAX_LINES_PER_AXIS
-   * at the view step; otherwise camera-local only — avoids locking a huge
-   * step to the whole project AABB. Placement snap stays on GRID_STEP (1 m).
-   */
-  private syncViewGrid(): void {
-    const aspect = this.canvas.clientWidth / Math.max(1, this.canvas.clientHeight);
-    const halfH = Math.max(this.camera.distance * Math.tan(CAMERA_FOVY / 2), 0.5);
-    const halfW = halfH * aspect;
-    const half = Math.max(halfW, halfH, 8) * 1.4;
-    const lookX = this.camera.target[0];
-    const lookZ = this.camera.target[2];
-    const camMinX = lookX - half;
-    const camMaxX = lookX + half;
-    const camMinZ = lookZ - half;
-    const camMaxZ = lookZ + half;
-    const viewSpan = Math.max(half * 2, 1);
-    const step = niceGridStep(viewSpan, GRID_MAX_LINES_PER_AXIS);
-
-    let minX = camMinX;
-    let maxX = camMaxX;
-    let minZ = camMinZ;
-    let maxZ = camMaxZ;
-    if (this.contentBounds) {
-      const uMinX = Math.min(camMinX, this.contentBounds.minX);
-      const uMaxX = Math.max(camMaxX, this.contentBounds.maxX);
-      const uMinZ = Math.min(camMinZ, this.contentBounds.minZ);
-      const uMaxZ = Math.max(camMaxZ, this.contentBounds.maxZ);
-      const unionSpan = Math.max(uMaxX - uMinX, uMaxZ - uMinZ, 1);
-      // Fine view step over a kilometre AABB would blow the line budget —
-      // keep dense grid around the camera instead of coarsening forever.
-      const maxSpan = step * (GRID_MAX_LINES_PER_AXIS - 1);
-      if (unionSpan <= maxSpan) {
-        minX = uMinX;
-        maxX = uMaxX;
-        minZ = uMinZ;
-        maxZ = uMaxZ;
-      }
-    }
-
-    minX = Math.floor(minX / step) * step;
-    maxX = Math.ceil(maxX / step) * step;
-    minZ = Math.floor(minZ / step) * step;
-    maxZ = Math.ceil(maxZ / step) * step;
-    if (
-      step === this.gridStep &&
-      minX === this.gridBounds.minX &&
-      maxX === this.gridBounds.maxX &&
-      minZ === this.gridBounds.minZ &&
-      maxZ === this.gridBounds.maxZ
-    ) {
-      return;
-    }
-    this.gridStep = step;
-    this.gridBounds = { minX, maxX, minZ, maxZ };
-    this.uploadGrid();
-  }
-
-  /**
-   * Grow content XZ bounds (and sceneExtent for zoom-out). Visual grid may
-   * cover the full content AABB when the view step still fits the line cap.
+   * Grow the ground grid to cover the given XZ bounds, plus GRID_MARGIN_CELLS
+   * on each side. Fixed GRID_STEP (1 m) — does not change with zoom. Never shrinks.
    */
   expandGridToInclude(
     minX: number,
@@ -928,30 +844,24 @@ export class ViewportRenderer {
     maxZ: number,
     marginCells = GRID_MARGIN_CELLS,
   ): void {
-    const margin = marginCells * GRID_STEP;
-    const next = {
-      minX: minX - margin,
-      maxX: maxX + margin,
-      minZ: minZ - margin,
-      maxZ: maxZ + margin,
-    };
-    if (!this.contentBounds) {
-      this.contentBounds = next;
-    } else {
-      this.contentBounds = {
-        minX: Math.min(this.contentBounds.minX, next.minX),
-        maxX: Math.max(this.contentBounds.maxX, next.maxX),
-        minZ: Math.min(this.contentBounds.minZ, next.minZ),
-        maxZ: Math.max(this.contentBounds.maxZ, next.maxZ),
-      };
+    const step = GRID_STEP;
+    const margin = marginCells * step;
+    const nextMinX = Math.min(this.gridBounds.minX, Math.floor((minX - margin) / step) * step);
+    const nextMaxX = Math.max(this.gridBounds.maxX, Math.ceil((maxX + margin) / step) * step);
+    const nextMinZ = Math.min(this.gridBounds.minZ, Math.floor((minZ - margin) / step) * step);
+    const nextMaxZ = Math.max(this.gridBounds.maxZ, Math.ceil((maxZ + margin) / step) * step);
+    if (
+      nextMinX === this.gridBounds.minX &&
+      nextMaxX === this.gridBounds.maxX &&
+      nextMinZ === this.gridBounds.minZ &&
+      nextMaxZ === this.gridBounds.maxZ
+    ) {
+      return;
     }
-    const span = Math.max(
-      this.contentBounds.maxX - this.contentBounds.minX,
-      this.contentBounds.maxZ - this.contentBounds.minZ,
-      2,
-    );
+    this.gridBounds = { minX: nextMinX, maxX: nextMaxX, minZ: nextMinZ, maxZ: nextMaxZ };
+    const span = Math.max(nextMaxX - nextMinX, nextMaxZ - nextMinZ, 2);
     this.sceneExtent = Math.max(this.sceneExtent, span);
-    this.syncViewGrid();
+    this.uploadGrid();
   }
 
   /** Preview wall centerline while placing (or clear with null). */
@@ -1249,15 +1159,14 @@ export class ViewportRenderer {
   private buildCameraMatrices(): CameraMatrices {
     this.resize();
     const aspect = this.canvas.clientWidth / Math.max(1, this.canvas.clientHeight);
-    // Depth range follows the view (and a soft scene cap), never the raw AABB —
-    // kilometre walls used to force enormous near/far and trash precision.
-    const viewSpan = Math.max(
-      this.gridBounds.maxX - this.gridBounds.minX,
-      this.gridBounds.maxZ - this.gridBounds.minZ,
+    // Depth range follows the view (and a soft scene cap), never the raw grid
+    // AABB — kilometre walls used to force enormous near/far and trash precision.
+    const viewSpan = Math.max(this.camera.distance * 2, 40);
+    const radius = Math.max(
       this.camera.distance * 2,
+      Math.min(this.sceneExtent, this.camera.distance * 40),
       40,
     );
-    const radius = Math.max(this.camera.distance * 2, viewSpan, Math.min(this.sceneExtent, this.camera.distance * 40), 40);
     // Ortho half-extents match the perspective frustum at `distance` so wheel zoom
     // and mode switches keep the same framing.
     const halfH = this.camera.distance * Math.tan(CAMERA_FOVY / 2);
@@ -1445,6 +1354,7 @@ export class ViewportRenderer {
     count: number,
     color: [number, number, number, number],
     widthPx = 1.5,
+    overlay = false,
   ): void {
     if (count === 0) return;
     const gl = this.gl;
@@ -1452,8 +1362,13 @@ export class ViewportRenderer {
     const u = this.lineUniforms;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
     gl.disable(gl.BLEND);
-    gl.enable(gl.DEPTH_TEST);
-    gl.depthMask(true);
+    if (overlay) {
+      // Axis / preview: same constant px width as handles, independent of zoom.
+      gl.disable(gl.DEPTH_TEST);
+    } else {
+      gl.enable(gl.DEPTH_TEST);
+      gl.depthMask(true);
+    }
     gl.useProgram(this.lineProg);
     gl.uniformMatrix4fv(u.uMVP, false, viewProj);
     gl.uniform2f(u.uResolution, this.canvas.width, this.canvas.height);
@@ -1462,6 +1377,7 @@ export class ViewportRenderer {
     gl.bindVertexArray(vao);
     gl.drawArrays(gl.TRIANGLES, 0, count);
     gl.bindVertexArray(null);
+    if (overlay) gl.enable(gl.DEPTH_TEST);
   }
 
   private drawHandles(): void {
@@ -1498,7 +1414,6 @@ export class ViewportRenderer {
     }
 
     const gl = this.gl;
-    this.syncViewGrid();
     this.frameMats = this.buildCameraMatrices();
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.disable(gl.BLEND);
@@ -1511,8 +1426,9 @@ export class ViewportRenderer {
     // Outlines at true depth; solids were polygon-offset back.
     this.drawLines(this.edgeVao, this.edgeCount, [0.08, 0.09, 0.1, 1], 2.0);
     this.drawGhost();
-    this.drawLines(this.previewVao, this.previewCount, [0.95, 0.7, 0.3, 1], 2.25);
-    this.drawLines(this.editLineVao, this.editLineCount, [0.95, 0.72, 0.28, 1], 2.25);
+    // Axis / preview: screen-space overlays (constant px, like handles).
+    this.drawLines(this.previewVao, this.previewCount, [0.95, 0.7, 0.3, 1], 3.0, true);
+    this.drawLines(this.editLineVao, this.editLineCount, [0.95, 0.72, 0.28, 1], 3.0, true);
     this.drawHandles();
     this.frameMats = null;
   };
