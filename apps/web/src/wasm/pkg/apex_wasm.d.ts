@@ -7,7 +7,7 @@
 export function createWall(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, height: number, thickness: number): any;
 
 /**
- * Delete selected element.
+ * Delete all selected elements.
  */
 export function deleteSelected(): any;
 
@@ -17,7 +17,7 @@ export function deleteSelected(): any;
 export function getScene(): any;
 
 /**
- * Selected element details (or null).
+ * Selected element details when exactly one is selected (otherwise null).
  */
 export function getSelected(): any;
 
@@ -32,12 +32,12 @@ export function initApp(): void;
 export function listElements(): any;
 
 /**
- * Pick by GPU pick id (1-based sequential). Returns scene with selection.
+ * Pick by GPU pick id (1-based sequential). Replaces selection.
  */
 export function pickById(pick_id: number): any;
 
 /**
- * Set selection by element id (or clear with empty string).
+ * Replace selection with one element (or clear with empty string).
  */
 export function selectElement(id: string): any;
 
@@ -45,6 +45,16 @@ export function selectElement(id: string): any;
  * Update wall parameters by element id. Returns updated scene.
  */
 export function setWallParams(id: string, height: number, thickness: number, x0: number, y0: number, z0: number, x1: number, y1: number, z1: number): any;
+
+/**
+ * Toggle selection by GPU pick id (Ctrl/Cmd+click).
+ */
+export function togglePickById(pick_id: number): any;
+
+/**
+ * Toggle one element in/out of the selection (Ctrl/Cmd multi-select).
+ */
+export function toggleSelectElement(id: string): any;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
@@ -59,6 +69,8 @@ export interface InitOutput {
     readonly pickById: (a: number) => [number, number, number];
     readonly selectElement: (a: number, b: number) => [number, number, number];
     readonly setWallParams: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
+    readonly togglePickById: (a: number) => [number, number, number];
+    readonly toggleSelectElement: (a: number, b: number) => [number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;

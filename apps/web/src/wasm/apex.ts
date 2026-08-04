@@ -3,7 +3,9 @@ import initWasm, {
   createWall,
   setWallParams,
   selectElement,
+  toggleSelectElement,
   pickById,
+  togglePickById,
   getScene,
   getSelected,
   listElements,
@@ -21,7 +23,12 @@ export async function initApex(): Promise<void> {
 }
 
 function asScene(value: unknown): SceneDto {
-  return value as SceneDto;
+  const scene = value as SceneDto;
+  // Be defensive if an older pkg is present briefly during rebuild.
+  if (!Array.isArray(scene.selected_ids)) {
+    scene.selected_ids = scene.selected_id ? [scene.selected_id] : [];
+  }
+  return scene;
 }
 
 export function apexCreateWall(
@@ -53,8 +60,16 @@ export function apexSelectElement(id: string | null): SceneDto {
   return asScene(selectElement(id ?? ''));
 }
 
+export function apexToggleSelectElement(id: string): SceneDto {
+  return asScene(toggleSelectElement(id));
+}
+
 export function apexPickById(pickId: number): SceneDto {
   return asScene(pickById(pickId));
+}
+
+export function apexTogglePickById(pickId: number): SceneDto {
+  return asScene(togglePickById(pickId));
 }
 
 export function apexGetScene(): SceneDto {

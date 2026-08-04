@@ -3,6 +3,8 @@ import type { ElementDto } from '../types';
 
 interface Props {
   selected: ElementDto | null;
+  /** Total selection size (0, 1, or many). */
+  selectedCount: number;
   onUpdate: (patch: {
     height: number;
     thickness: number;
@@ -12,7 +14,12 @@ interface Props {
   onDelete: () => void;
 }
 
-export function PropertiesPanel({ selected, onUpdate, onDelete }: Props) {
+export function PropertiesPanel({
+  selected,
+  selectedCount,
+  onUpdate,
+  onDelete,
+}: Props) {
   const [height, setHeight] = useState(3);
   const [thickness, setThickness] = useState(0.2);
 
@@ -21,6 +28,21 @@ export function PropertiesPanel({ selected, onUpdate, onDelete }: Props) {
     setHeight(selected.height ?? 3);
     setThickness(selected.thickness ?? 0.2);
   }, [selected]);
+
+  if (selectedCount === 0) {
+    return <div className="empty">Select a wall to edit height and thickness.</div>;
+  }
+
+  if (selectedCount > 1) {
+    return (
+      <div className="inspector-body">
+        <div className="empty">{selectedCount} walls selected</div>
+        <button type="button" className="danger" onClick={onDelete}>
+          Delete selected
+        </button>
+      </div>
+    );
+  }
 
   if (!selected) {
     return <div className="empty">Select a wall to edit height and thickness.</div>;

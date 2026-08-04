@@ -3,9 +3,7 @@
 use std::cell::RefCell;
 use std::str::FromStr;
 
-use apex_core::{
-    Document, Element, ElementId, SceneBuffers, WallParams,
-};
+use apex_core::{Document, Element, ElementId, SceneBuffers, WallParams};
 use apex_geometry::generate_wall_mesh;
 use serde::Serialize;
 use wasm_bindgen::prelude::*;
@@ -17,7 +15,8 @@ thread_local! {
 struct ApexApp {
     document: Document,
     wall_counter: u32,
-    selected: Option<ElementId>,
+    /// Selection order; empty = nothing selected.
+    selected: Vec<ElementId>,
 }
 
 #[derive(Serialize)]
@@ -44,6 +43,9 @@ struct SceneDto {
     edge_positions: Vec<f32>,
     elements: Vec<ElementListDto>,
     version: u64,
+    /// All selected element ids (selection order).
+    selected_ids: Vec<String>,
+    /// First selected id (compat / primary); null when empty.
     selected_id: Option<String>,
 }
 
@@ -93,8 +95,10 @@ fn element_dto(el: &Element) -> ElementDto {
     }
 }
 
-fn scene_dto(doc: &Document, selected: Option<ElementId>) -> SceneDto {
+fn scene_dto(doc: &Document, selected: &[ElementId]) -> SceneDto {
     let buffers: SceneBuffers = doc.build_scene_buffers();
+    let selected_ids: Vec<String> = selected.iter().map(|id| id.to_string()).collect();
+    let selected_id = selected_ids.first().cloned();
     SceneDto {
         positions: buffers.positions,
         normals: buffers.normals,
@@ -112,7 +116,23 @@ fn scene_dto(doc: &Document, selected: Option<ElementId>) -> SceneDto {
             })
             .collect(),
         version: buffers.version,
-        selected_id: selected.map(|id| id.to_string()),
+        selected_ids,
+        selected_id,
+    }
+}
+
+fn set_selection(app: &mut ApexApp, id: Option<ElementId>) {
+    app.selected.clear();
+    if let Some(id) = id {
+        app.selected.push(id);
+    }
+}
+
+fn toggle_selection(app: &mut ApexApp, id: ElementId) {
+    if let Some(i) = app.selected.iter().position(|x| *x == id) {
+        app.selected.remove(i);
+    } else {
+        app.selected.push(id);
     }
 }
 
@@ -124,7 +144,7 @@ pub fn init_app() -> Result<(), JsValue> {
         *cell.borrow_mut() = Some(ApexApp {
             document: Document::new(),
             wall_counter: 0,
-            selected: None,
+            selected: Vec::new(),
         });
     });
     Ok(())
@@ -162,9 +182,9 @@ pub fn create_wall(
         let element = Element::wall(name, level_id, wall);
         let id = element.id;
         app.document.upsert_element(element, mesh);
-        app.selected = Some(id);
+        set_selection(app, Some(id));
 
-        to_js(&scene_dto(&app.document, app.selected))
+        to_js(&scene_dto(&app.document, &app.selected))
     })
 }
 
@@ -198,30 +218,46 @@ pub fn set_wall_params(
         let mesh = generate_wall_mesh(&wall).map_err(|e| JsValue::from_str(&e.to_string()))?;
         element.wall = Some(wall);
         app.document.update_element(element, mesh);
-        app.selected = Some(element_id);
-        to_js(&scene_dto(&app.document, app.selected))
+        // Keep multi-selection if this wall was already selected; otherwise select only it.
+        if !app.selected.iter().any(|x| *x == element_id) {
+            set_selection(app, Some(element_id));
+        }
+        to_js(&scene_dto(&app.document, &app.selected))
     })
 }
 
-/// Set selection by element id (or clear with empty string).
+/// Replace selection with one element (or clear with empty string).
 #[wasm_bindgen(js_name = selectElement)]
 pub fn select_element(id: &str) -> Result<JsValue, JsValue> {
     with_app(|app| {
         if id.is_empty() {
-            app.selected = None;
+            app.selected.clear();
         } else {
             let element_id =
                 ElementId::from_str(id).map_err(|e| JsValue::from_str(&e.to_string()))?;
             if app.document.get_element(element_id).is_none() {
                 return Err(JsValue::from_str("Element not found"));
             }
-            app.selected = Some(element_id);
+            set_selection(app, Some(element_id));
         }
-        to_js(&scene_dto(&app.document, app.selected))
+        to_js(&scene_dto(&app.document, &app.selected))
     })
 }
 
-/// Pick by GPU pick id (1-based sequential). Returns scene with selection.
+/// Toggle one element in/out of the selection (Ctrl/Cmd multi-select).
+#[wasm_bindgen(js_name = toggleSelectElement)]
+pub fn toggle_select_element(id: &str) -> Result<JsValue, JsValue> {
+    with_app(|app| {
+        let element_id = ElementId::from_str(id).map_err(|e| JsValue::from_str(&e.to_string()))?;
+        if app.document.get_element(element_id).is_none() {
+            return Err(JsValue::from_str("Element not found"));
+        }
+        toggle_selection(app, element_id);
+        to_js(&scene_dto(&app.document, &app.selected))
+    })
+}
+
+/// Pick by GPU pick id (1-based sequential). Replaces selection.
 #[wasm_bindgen(js_name = pickById)]
 pub fn pick_by_id(pick_id: f64) -> Result<JsValue, JsValue> {
     with_app(|app| {
@@ -233,24 +269,44 @@ pub fn pick_by_id(pick_id: f64) -> Result<JsValue, JsValue> {
             .find(|e| e.pick_id == target)
             .map(|e| e.id);
 
-        app.selected = found;
-        to_js(&scene_dto(&app.document, app.selected))
+        set_selection(app, found);
+        to_js(&scene_dto(&app.document, &app.selected))
+    })
+}
+
+/// Toggle selection by GPU pick id (Ctrl/Cmd+click).
+#[wasm_bindgen(js_name = togglePickById)]
+pub fn toggle_pick_by_id(pick_id: f64) -> Result<JsValue, JsValue> {
+    with_app(|app| {
+        let target = pick_id as u64;
+        let buffers = app.document.build_scene_buffers();
+        let found = buffers
+            .elements
+            .iter()
+            .find(|e| e.pick_id == target)
+            .map(|e| e.id);
+
+        if let Some(id) = found {
+            toggle_selection(app, id);
+        }
+        to_js(&scene_dto(&app.document, &app.selected))
     })
 }
 
 /// Full scene buffers for the viewport.
 #[wasm_bindgen(js_name = getScene)]
 pub fn get_scene() -> Result<JsValue, JsValue> {
-    with_app(|app| to_js(&scene_dto(&app.document, app.selected)))
+    with_app(|app| to_js(&scene_dto(&app.document, &app.selected)))
 }
 
-/// Selected element details (or null).
+/// Selected element details when exactly one is selected (otherwise null).
 #[wasm_bindgen(js_name = getSelected)]
 pub fn get_selected() -> Result<JsValue, JsValue> {
     with_app(|app| {
-        let Some(id) = app.selected else {
+        if app.selected.len() != 1 {
             return Ok(JsValue::NULL);
-        };
+        }
+        let id = app.selected[0];
         let el = app
             .document
             .get_element(id)
@@ -269,13 +325,14 @@ pub fn list_elements() -> Result<JsValue, JsValue> {
     })
 }
 
-/// Delete selected element.
+/// Delete all selected elements.
 #[wasm_bindgen(js_name = deleteSelected)]
 pub fn delete_selected() -> Result<JsValue, JsValue> {
     with_app(|app| {
-        if let Some(id) = app.selected.take() {
+        let ids: Vec<ElementId> = app.selected.drain(..).collect();
+        for id in ids {
             app.document.remove_element(id);
         }
-        to_js(&scene_dto(&app.document, app.selected))
+        to_js(&scene_dto(&app.document, &app.selected))
     })
 }

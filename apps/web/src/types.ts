@@ -32,6 +32,8 @@ export interface SceneDto {
   edge_positions?: Float32Array | number[];
   elements: ElementListDto[];
   version: number;
+  selected_ids: string[];
+  /** Primary / first selected id; null when empty. */
   selected_id: string | null;
 }
 

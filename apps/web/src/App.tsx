@@ -7,6 +7,8 @@ import {
   apexPickById,
   apexSelectElement,
   apexSetWallParams,
+  apexTogglePickById,
+  apexToggleSelectElement,
   initApex,
 } from './wasm/apex';
 import {
@@ -33,10 +35,19 @@ function toUint32Array(data: ArrayLike<number> | number[]): Uint32Array {
   return data instanceof Uint32Array ? data : new Uint32Array(data);
 }
 
-function selectedPickId(scene: SceneDto): number | null {
-  if (!scene.selected_id) return null;
-  const hit = scene.elements.find((e) => e.id === scene.selected_id);
-  return hit ? hit.pick_id : null;
+function selectedPickIds(scene: SceneDto): number[] {
+  const ids = scene.selected_ids ?? (scene.selected_id ? [scene.selected_id] : []);
+  const picks: number[] = [];
+  for (const id of ids) {
+    const hit = scene.elements.find((e) => e.id === id);
+    if (hit) picks.push(hit.pick_id);
+  }
+  return picks;
+}
+
+function selectedIdList(scene: SceneDto): string[] {
+  if (Array.isArray(scene.selected_ids)) return scene.selected_ids;
+  return scene.selected_id ? [scene.selected_id] : [];
 }
 
 function planLength(a: [number, number, number], b: [number, number, number]): number {
@@ -53,6 +64,7 @@ export default function App() {
   const wallStartRef = useRef<[number, number, number] | null>(null);
   const shiftHeldRef = useRef(false);
   const selectedRef = useRef<ElementDto | null>(null);
+  const selectedCountRef = useRef(0);
   const handleDragRef = useRef<{
     which: HandleWhich;
     start: [number, number, number];
@@ -70,6 +82,13 @@ export default function App() {
   const [pendingStart, setPendingStart] = useState<[number, number, number] | null>(null);
 
   selectedRef.current = selected;
+  selectedCountRef.current = scene
+    ? (Array.isArray(scene.selected_ids)
+        ? scene.selected_ids.length
+        : scene.selected_id
+          ? 1
+          : 0)
+    : 0;
 
   const syncEditGizmo = useCallback((el: ElementDto | null) => {
     const renderer = rendererRef.current;
@@ -116,7 +135,7 @@ export default function App() {
           indices: toUint32Array(next.indices),
           pickIds: next.pick_ids,
           edgePositions: next.edge_positions ? toFloatArray(next.edge_positions) : [],
-          selectedPickId: selectedPickId(next),
+          selectedPickIds: selectedPickIds(next),
           fitCamera,
         });
       }
@@ -170,6 +189,18 @@ export default function App() {
         return;
       }
       if (e.key === 'Shift') shiftHeldRef.current = true;
+      const active = document.activeElement;
+      const typing =
+        active instanceof HTMLElement &&
+        (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT');
+      if (!typing && (e.key === 'Delete' || e.key === 'Backspace') && selectedCountRef.current > 0) {
+        e.preventDefault();
+        try {
+          applyScene(apexDeleteSelected(), false);
+        } catch {
+          /* ignore */
+        }
+      }
     };
     const onKeyUp = (e: KeyboardEvent) => {
       if (e.key === 'Shift') shiftHeldRef.current = false;
@@ -181,7 +212,7 @@ export default function App() {
       window.removeEventListener('keydown', onKeyDown, true);
       window.removeEventListener('keyup', onKeyUp, true);
     };
-  }, [onEscape]);
+  }, [applyScene, onEscape]);
 
   useEffect(() => {
     let cancelled = false;
@@ -306,7 +337,7 @@ export default function App() {
             indices: toUint32Array(next.indices),
             pickIds: next.pick_ids,
             edgePositions: next.edge_positions ? toFloatArray(next.edge_positions) : [],
-            selectedPickId: selectedPickId(next),
+            selectedPickIds: selectedPickIds(next),
             fitCamera: false,
           });
           setScene(next);
@@ -360,9 +391,12 @@ export default function App() {
     if (tool === 'select') {
       // Prefer handle hit — click on handle alone should not deselect.
       if (renderer.hitEditHandle(e.clientX, e.clientY)) return;
+      const multi = e.ctrlKey || e.metaKey;
       const pick = renderer.pick(e.clientX, e.clientY);
       if (pick == null) {
-        applyScene(apexSelectElement(null), false);
+        if (!multi) applyScene(apexSelectElement(null), false);
+      } else if (multi) {
+        applyScene(apexTogglePickById(pick), false);
       } else {
         applyScene(apexPickById(pick), false);
       }
@@ -416,10 +450,13 @@ export default function App() {
     }
   };
 
-  const onSelectFromTree = (id: string) => {
+  const onSelectFromTree = (id: string, multi: boolean) => {
     goSelect();
-    applyScene(apexSelectElement(id), false);
+    applyScene(multi ? apexToggleSelectElement(id) : apexSelectElement(id), false);
   };
+
+  const selectedIds = scene ? selectedIdList(scene) : [];
+  const selectedCount = selectedIds.length;
 
   const onUpdateWall = (patch: {
     height: number;
@@ -482,9 +519,11 @@ export default function App() {
             ? pendingStart
               ? 'Click end · Shift snap+ortho · Esc clears'
               : 'Click start · Shift snap to 1 m grid · Esc clears'
-            : selected?.category === 'wall'
-              ? 'Drag endpoints · RMB orbit · MMB pan · Esc clears'
-              : 'Click select · RMB orbit · MMB pan (ground) · MMB×2 home'}
+            : selectedCount > 1
+              ? `${selectedCount} selected · Ctrl+click toggle · Del · Esc clears`
+              : selected?.category === 'wall'
+                ? 'Drag endpoints · Ctrl+click multi · Esc clears'
+                : 'Click select · Ctrl+click multi · RMB orbit · MMB pan'}
         </div>
       </header>
 
@@ -492,7 +531,7 @@ export default function App() {
         <div className="panel-title">Elements</div>
         <ElementTree
           elements={elements}
-          selectedId={scene?.selected_id ?? null}
+          selectedIds={selectedIds}
           onSelect={onSelectFromTree}
         />
       </aside>
@@ -513,7 +552,12 @@ export default function App() {
 
       <aside className="inspector">
         <div className="panel-title">Properties</div>
-        <PropertiesPanel selected={selected} onUpdate={onUpdateWall} onDelete={onDelete} />
+        <PropertiesPanel
+          selected={selected}
+          selectedCount={selectedCount}
+          onUpdate={onUpdateWall}
+          onDelete={onDelete}
+        />
       </aside>
     </div>
   );
