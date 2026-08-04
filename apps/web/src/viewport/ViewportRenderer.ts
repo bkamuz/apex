@@ -74,7 +74,13 @@ const LINE_VERT = `#version 300 es
 precision highp float;
 layout(location=0) in vec3 aPos;
 uniform mat4 uMVP;
-void main(){ gl_Position = uMVP * vec4(aPos, 1.0); }`;
+void main(){
+  vec4 clip = uMVP * vec4(aPos, 1.0);
+  // Tiny pull toward camera so CAD edges win coplanar z-fights without
+  // polygon-offset on thin solids (which can let back edges bleed through).
+  clip.z -= 2e-4 * clip.w;
+  gl_Position = clip;
+}`;
 
 const LINE_FRAG = `#version 300 es
 precision highp float;
@@ -611,16 +617,9 @@ export class ViewportRenderer {
     gl.uniform1f(gl.getUniformLocation(this.meshProg, 'uSelectedPick'), this.selectedPickId ?? 0);
     gl.uniform1i(gl.getUniformLocation(this.meshProg, 'uPickPass'), pickPass ? 1 : 0);
 
-    if (!pickPass) {
-      gl.enable(gl.POLYGON_OFFSET_FILL);
-      gl.polygonOffset(1.0, 1.0);
-    }
     gl.bindVertexArray(this.vao);
     gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_INT, 0);
     gl.bindVertexArray(null);
-    if (!pickPass) {
-      gl.disable(gl.POLYGON_OFFSET_FILL);
-    }
   }
 
   private drawLines(
