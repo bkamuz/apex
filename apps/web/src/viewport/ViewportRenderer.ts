@@ -997,8 +997,10 @@ export class ViewportRenderer {
     const right = this.cameraRight();
     const forward = this.cameraForwardXZ();
     const scale = this.camera.distance * 0.0015;
-    this.camera.target[0] -= (right[0] * dx + forward[0] * dy) * scale;
-    this.camera.target[2] -= (right[2] * dx + forward[2] * dy) * scale;
+    // Grab-style: drag down (dy > 0) moves the scene down on screen → target toward camera
+    // on the ground (-forward). Same sign convention as horizontal (`-= right * dx`).
+    this.camera.target[0] -= (right[0] * dx - forward[0] * dy) * scale;
+    this.camera.target[2] -= (right[2] * dx - forward[2] * dy) * scale;
   }
 
   private cameraRight(): [number, number, number] {
