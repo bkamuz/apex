@@ -6,6 +6,7 @@ interface Props {
   selectedLevelId: string | null;
   onSelect: (id: string) => void;
   onCreate: () => void;
+  onClose?: () => void;
 }
 
 export function LevelList({
@@ -14,6 +15,7 @@ export function LevelList({
   selectedLevelId,
   onSelect,
   onCreate,
+  onClose,
 }: Props) {
   return (
     <div className="level-panel">
@@ -22,6 +24,11 @@ export function LevelList({
         <button type="button" className="panel-action" onClick={onCreate} title="Add level">
           + Level
         </button>
+        {onClose ? (
+          <button type="button" className="panel-close" onClick={onClose} title="Close">
+            Close
+          </button>
+        ) : null}
       </div>
       {levels.length === 0 ? (
         <div className="empty">No levels.</div>
