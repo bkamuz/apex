@@ -31,8 +31,6 @@ const CAMERA_FOVY = (50 * Math.PI) / 180;
 
 const MMB_DBLCLICK_MS = 400;
 const MMB_DBLCLICK_PX = 8;
-/** Movement before a single touch becomes orbit (keeps taps for place/select). */
-const TOUCH_ORBIT_SLOP_PX = 10;
 
 export const GRID_STEP = 1.0;
 /** Extra cells beyond scene/placement bounds when growing the ground grid. */
@@ -644,9 +642,6 @@ export class ViewportRenderer {
   private pointers = new Map<number, { x: number; y: number; type: string }>();
   private touchGesture: 'none' | 'orbit' | 'pinchpan' = 'none';
   private touchOrbitEnabled = true;
-  private orbitTouchId: number | null = null;
-  private orbitStartX = 0;
-  private orbitStartY = 0;
   private pinchStartSpan = 0;
   private pinchStartDistance = 0;
   private lastCentroidX = 0;
@@ -1194,12 +1189,11 @@ export class ViewportRenderer {
     return consumed;
   }
 
-  /** Disable one-finger orbit while placing a wall or dragging handles. */
+  /** Disable three-finger orbit while placing a wall or dragging handles. */
   setTouchOrbitEnabled(enabled: boolean): void {
     this.touchOrbitEnabled = enabled;
     if (!enabled && this.touchGesture === 'orbit') {
       this.touchGesture = 'none';
-      this.orbitTouchId = null;
     }
   }
 
@@ -1208,17 +1202,19 @@ export class ViewportRenderer {
       this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
 
       if (e.pointerType === 'touch') {
-        if (this.pointers.size >= 2) {
+        const n = this.touchPointerCount();
+        if (n >= 3) {
+          e.preventDefault();
+          if (this.touchOrbitEnabled) this.beginTouchOrbit();
+          else this.beginPinchPan();
+          return;
+        }
+        if (n >= 2) {
           e.preventDefault();
           this.beginPinchPan();
           return;
         }
-        // Single touch: may become orbit after slop, or stay a tap for App.
-        this.orbitTouchId = e.pointerId;
-        this.orbitStartX = e.clientX;
-        this.orbitStartY = e.clientY;
-        this.lastX = e.clientX;
-        this.lastY = e.clientY;
+        // Single touch: tap for App place/select — no camera gesture.
         this.touchGesture = 'none';
         return;
       }
@@ -1256,44 +1252,20 @@ export class ViewportRenderer {
         this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
       }
 
-      if (this.pointers.size >= 2 && e.pointerType === 'touch') {
-        e.preventDefault();
-        if (this.touchGesture !== 'pinchpan') this.beginPinchPan();
-        this.updatePinchPan();
-        return;
-      }
-
-      if (
-        e.pointerType === 'touch' &&
-        this.orbitTouchId === e.pointerId &&
-        this.pointers.size === 1
-      ) {
-        if (this.touchGesture === 'orbit') {
+      if (e.pointerType === 'touch') {
+        const n = this.touchPointerCount();
+        if (n >= 3 && this.touchOrbitEnabled) {
           e.preventDefault();
-          const dx = e.clientX - this.lastX;
-          const dy = e.clientY - this.lastY;
-          this.lastX = e.clientX;
-          this.lastY = e.clientY;
-          this.applyOrbitDelta(dx, dy);
+          if (this.touchGesture !== 'orbit') this.beginTouchOrbit();
+          this.updateTouchOrbit();
           return;
         }
-        if (this.touchOrbitEnabled) {
-          const dist = Math.hypot(e.clientX - this.orbitStartX, e.clientY - this.orbitStartY);
-          if (dist >= TOUCH_ORBIT_SLOP_PX) {
-            e.preventDefault();
-            this.touchGesture = 'orbit';
-            this.cameraGestureConsumed = true;
-            this.dragMode = null;
-            this.lastX = e.clientX;
-            this.lastY = e.clientY;
-            try {
-              this.canvas.setPointerCapture(e.pointerId);
-            } catch {
-              /* ignore */
-            }
-          }
+        if (n >= 2) {
+          e.preventDefault();
+          if (this.touchGesture !== 'pinchpan') this.beginPinchPan();
+          this.updatePinchPan();
+          return;
         }
-        return;
       }
 
       if (!this.dragMode) return;
@@ -1311,15 +1283,13 @@ export class ViewportRenderer {
     const endPointer = (e: PointerEvent) => {
       const endedGesture = this.touchGesture;
       this.pointers.delete(e.pointerId);
-      if (this.orbitTouchId === e.pointerId) this.orbitTouchId = null;
 
-      if (this.touchGesture === 'pinchpan') {
-        if (this.pointers.size >= 2) {
-          this.beginPinchPan();
-        } else {
-          this.touchGesture = 'none';
-        }
-      } else if (this.touchGesture === 'orbit' && this.pointers.size === 0) {
+      const n = this.touchPointerCount();
+      if (n >= 3 && this.touchOrbitEnabled) {
+        this.beginTouchOrbit();
+      } else if (n >= 2) {
+        this.beginPinchPan();
+      } else {
         this.touchGesture = 'none';
       }
 
@@ -1386,10 +1356,35 @@ export class ViewportRenderer {
     this.canvas.addEventListener('gestureend', blockSafariGesture);
   }
 
+  private touchPointerCount(): number {
+    let n = 0;
+    for (const p of this.pointers.values()) {
+      if (p.type === 'touch') n += 1;
+    }
+    return n;
+  }
+
+  private beginTouchOrbit(): void {
+    this.touchGesture = 'orbit';
+    this.dragMode = null;
+    this.cameraGestureConsumed = true;
+    const c = this.pointerCentroid();
+    this.lastCentroidX = c.x;
+    this.lastCentroidY = c.y;
+  }
+
+  private updateTouchOrbit(): void {
+    const c = this.pointerCentroid();
+    const dx = c.x - this.lastCentroidX;
+    const dy = c.y - this.lastCentroidY;
+    this.lastCentroidX = c.x;
+    this.lastCentroidY = c.y;
+    this.applyOrbitDelta(dx, dy);
+  }
+
   private beginPinchPan(): void {
     this.touchGesture = 'pinchpan';
     this.dragMode = null;
-    this.orbitTouchId = null;
     this.cameraGestureConsumed = true;
     const c = this.pointerCentroid();
     this.lastCentroidX = c.x;

@@ -99,6 +99,7 @@ export default function App() {
   const [selectedLevelId, setSelectedLevelId] = useState<string | null>(null);
   const [pendingStart, setPendingStart] = useState<[number, number, number] | null>(null);
   const [fps, setFps] = useState(0);
+  const [mobilePanel, setMobilePanel] = useState<'scene' | 'props' | null>(null);
 
   selectedRef.current = selected;
   selectedCountRef.current = scene
@@ -275,6 +276,12 @@ export default function App() {
     };
   }, [applyScene]);
 
+  const closeMobilePanel = useCallback(() => setMobilePanel(null), []);
+
+  const openMobilePanel = useCallback((panel: 'scene' | 'props') => {
+    setMobilePanel((prev) => (prev === panel ? null : panel));
+  }, []);
+
   useEffect(() => {
     if (!ready) return;
     const id = window.setInterval(() => {
@@ -282,6 +289,17 @@ export default function App() {
     }, 500);
     return () => window.clearInterval(id);
   }, [ready]);
+
+  // Close drawers when the layout becomes desktop-width again.
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 900px)');
+    const onChange = () => {
+      if (!mq.matches) setMobilePanel(null);
+    };
+    onChange();
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
 
   const setProjectionMode = useCallback((mode: ProjectionMode) => {
     setProjection(mode);
@@ -600,6 +618,14 @@ export default function App() {
         <div className="tools">
           <button
             type="button"
+            className={`mobile-only ${mobilePanel === 'scene' ? 'active' : ''}`}
+            onClick={() => openMobilePanel('scene')}
+            title="Levels and elements"
+          >
+            Scene
+          </button>
+          <button
+            type="button"
             className={tool === 'select' ? 'active' : ''}
             onClick={() => goSelect()}
           >
@@ -632,29 +658,52 @@ export default function App() {
           >
             Persp
           </button>
+          <button
+            type="button"
+            className={`mobile-only ${mobilePanel === 'props' ? 'active' : ''}`}
+            onClick={() => openMobilePanel('props')}
+            title="Properties"
+          >
+            Props
+          </button>
         </div>
         <div className="hint">
           {tool === 'wall'
             ? pendingStart
               ? `Click end on ${activeLevel?.name ?? 'level'} · Shift snap · Esc`
               : `Wall on ${activeLevel?.name ?? 'level'} · pinch zoom · 2-finger pan`
-            : '1-finger orbit · 2-finger pan · pinch zoom · dbl-click level'}
+            : '3-finger orbit · 2-finger pan · pinch zoom · dbl-click level'}
         </div>
       </header>
 
-      <aside className="sidebar">
+      {mobilePanel ? (
+        <button
+          type="button"
+          className="panel-backdrop"
+          aria-label="Close panel"
+          onClick={closeMobilePanel}
+        />
+      ) : null}
+
+      <aside className={`sidebar ${mobilePanel === 'scene' ? 'open' : ''}`}>
         <LevelList
           levels={levels}
           activeLevelId={scene?.active_level_id ?? null}
           selectedLevelId={selectedLevel?.id ?? null}
-          onSelect={onSelectLevel}
+          onSelect={(id) => {
+            onSelectLevel(id);
+            closeMobilePanel();
+          }}
           onCreate={onCreateLevel}
         />
         <div className="panel-title">Elements</div>
         <ElementTree
           elements={elements}
           selectedIds={selectedIds}
-          onSelect={onSelectFromTree}
+          onSelect={(id, multi) => {
+            onSelectFromTree(id, multi);
+            if (!multi) closeMobilePanel();
+          }}
         />
       </aside>
 
@@ -676,7 +725,7 @@ export default function App() {
         </div>
       </div>
 
-      <aside className="inspector">
+      <aside className={`inspector ${mobilePanel === 'props' ? 'open' : ''}`}>
         <div className="panel-title">Properties</div>
         <PropertiesPanel
           selected={selected}
