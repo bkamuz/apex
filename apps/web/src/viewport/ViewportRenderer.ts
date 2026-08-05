@@ -1359,7 +1359,31 @@ export class ViewportRenderer {
       },
       { passive: false },
     );
-    this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    // iOS Safari / Chrome-on-WebKit: page pinch-zoom and two-finger scroll are
+    // not fully blocked by touch-action alone. Non-passive touch + Safari
+    // gesture* events keep those gestures on the canvas camera only.
+    this.canvas.addEventListener(
+      'touchstart',
+      (e) => {
+        // Multi-touch: block browser page zoom/pan. Leave single-finger alone
+        // so taps still synthesize clicks for place/select.
+        if (e.touches.length >= 2) e.preventDefault();
+      },
+      { passive: false },
+    );
+    this.canvas.addEventListener(
+      'touchmove',
+      (e) => {
+        e.preventDefault();
+      },
+      { passive: false },
+    );
+    const blockSafariGesture = (e: Event) => {
+      e.preventDefault();
+    };
+    this.canvas.addEventListener('gesturestart', blockSafariGesture);
+    this.canvas.addEventListener('gesturechange', blockSafariGesture);
+    this.canvas.addEventListener('gestureend', blockSafariGesture);
   }
 
   private beginPinchPan(): void {
