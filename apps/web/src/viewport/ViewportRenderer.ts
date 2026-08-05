@@ -31,6 +31,8 @@ const CAMERA_FOVY = (50 * Math.PI) / 180;
 
 const MMB_DBLCLICK_MS = 400;
 const MMB_DBLCLICK_PX = 8;
+/** Movement before a single touch becomes orbit (keeps taps for place/select). */
+const TOUCH_ORBIT_SLOP_PX = 10;
 
 export const GRID_STEP = 1.0;
 /** Extra cells beyond scene/placement bounds when growing the ground grid. */
@@ -638,6 +640,19 @@ export class ViewportRenderer {
   private lastMmbAt = 0;
   private lastMmbX = 0;
   private lastMmbY = 0;
+  /** Active pointers for multi-touch (pinch zoom + two-finger pan). */
+  private pointers = new Map<number, { x: number; y: number; type: string }>();
+  private touchGesture: 'none' | 'orbit' | 'pinchpan' = 'none';
+  private touchOrbitEnabled = true;
+  private orbitTouchId: number | null = null;
+  private orbitStartX = 0;
+  private orbitStartY = 0;
+  private pinchStartSpan = 0;
+  private pinchStartDistance = 0;
+  private lastCentroidX = 0;
+  private lastCentroidY = 0;
+  /** Cleared by App after a click so place/select ignore camera gestures. */
+  private cameraGestureConsumed = false;
   private raf = 0;
   private meshUniforms: MeshUniforms;
   private lineUniforms: LineUniforms;
@@ -1169,8 +1184,45 @@ export class ViewportRenderer {
     cancelAnimationFrame(this.raf);
   }
 
+  /**
+   * True once after a touch camera gesture (orbit / pan / pinch).
+   * App should skip the following click so place/select do not fire.
+   */
+  consumeCameraGesture(): boolean {
+    const consumed = this.cameraGestureConsumed;
+    this.cameraGestureConsumed = false;
+    return consumed;
+  }
+
+  /** Disable one-finger orbit while placing a wall or dragging handles. */
+  setTouchOrbitEnabled(enabled: boolean): void {
+    this.touchOrbitEnabled = enabled;
+    if (!enabled && this.touchGesture === 'orbit') {
+      this.touchGesture = 'none';
+      this.orbitTouchId = null;
+    }
+  }
+
   private bindEvents(): void {
     this.canvas.addEventListener('pointerdown', (e) => {
+      this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
+
+      if (e.pointerType === 'touch') {
+        if (this.pointers.size >= 2) {
+          e.preventDefault();
+          this.beginPinchPan();
+          return;
+        }
+        // Single touch: may become orbit after slop, or stay a tap for App.
+        this.orbitTouchId = e.pointerId;
+        this.orbitStartX = e.clientX;
+        this.orbitStartY = e.clientY;
+        this.lastX = e.clientX;
+        this.lastY = e.clientY;
+        this.touchGesture = 'none';
+        return;
+      }
+
       if (e.button === 1) {
         // Middle button: double-click resets camera. Browsers do not fire
         // dblclick for MMB, so detect it from timing + distance.
@@ -1200,6 +1252,50 @@ export class ViewportRenderer {
       if (e.button === 1) e.preventDefault();
     });
     this.canvas.addEventListener('pointermove', (e) => {
+      if (this.pointers.has(e.pointerId)) {
+        this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
+      }
+
+      if (this.pointers.size >= 2 && e.pointerType === 'touch') {
+        e.preventDefault();
+        if (this.touchGesture !== 'pinchpan') this.beginPinchPan();
+        this.updatePinchPan();
+        return;
+      }
+
+      if (
+        e.pointerType === 'touch' &&
+        this.orbitTouchId === e.pointerId &&
+        this.pointers.size === 1
+      ) {
+        if (this.touchGesture === 'orbit') {
+          e.preventDefault();
+          const dx = e.clientX - this.lastX;
+          const dy = e.clientY - this.lastY;
+          this.lastX = e.clientX;
+          this.lastY = e.clientY;
+          this.applyOrbitDelta(dx, dy);
+          return;
+        }
+        if (this.touchOrbitEnabled) {
+          const dist = Math.hypot(e.clientX - this.orbitStartX, e.clientY - this.orbitStartY);
+          if (dist >= TOUCH_ORBIT_SLOP_PX) {
+            e.preventDefault();
+            this.touchGesture = 'orbit';
+            this.cameraGestureConsumed = true;
+            this.dragMode = null;
+            this.lastX = e.clientX;
+            this.lastY = e.clientY;
+            try {
+              this.canvas.setPointerCapture(e.pointerId);
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+        return;
+      }
+
       if (!this.dragMode) return;
       const dx = e.clientX - this.lastX;
       const dy = e.clientY - this.lastY;
@@ -1210,37 +1306,127 @@ export class ViewportRenderer {
         this.panOnGround(dx, dy);
         return;
       }
-      this.camera.yaw -= dx * 0.005;
-      this.camera.pitch = Math.max(
-        -PITCH_LIMIT,
-        Math.min(PITCH_LIMIT, this.camera.pitch + dy * 0.005),
-      );
+      this.applyOrbitDelta(dx, dy);
     });
-    const endDrag = () => {
-      this.dragMode = null;
+    const endPointer = (e: PointerEvent) => {
+      const endedGesture = this.touchGesture;
+      this.pointers.delete(e.pointerId);
+      if (this.orbitTouchId === e.pointerId) this.orbitTouchId = null;
+
+      if (this.touchGesture === 'pinchpan') {
+        if (this.pointers.size >= 2) {
+          this.beginPinchPan();
+        } else {
+          this.touchGesture = 'none';
+        }
+      } else if (this.touchGesture === 'orbit' && this.pointers.size === 0) {
+        this.touchGesture = 'none';
+      }
+
+      if (this.pointers.size === 0) {
+        this.dragMode = null;
+      } else if (e.pointerType === 'mouse' || e.pointerType === 'pen') {
+        this.dragMode = null;
+      }
+
+      // Keep the suppress-click flag briefly so the synthetic click (if any) is
+      // ignored, then clear it — some touch paths never emit click.
+      if (
+        (endedGesture === 'orbit' || endedGesture === 'pinchpan') &&
+        this.pointers.size === 0
+      ) {
+        this.cameraGestureConsumed = true;
+        window.setTimeout(() => {
+          this.cameraGestureConsumed = false;
+        }, 50);
+      }
     };
-    this.canvas.addEventListener('pointerup', endDrag);
-    this.canvas.addEventListener('pointercancel', endDrag);
-    this.canvas.addEventListener('lostpointercapture', endDrag);
+    this.canvas.addEventListener('pointerup', endPointer);
+    this.canvas.addEventListener('pointercancel', endPointer);
+    this.canvas.addEventListener('lostpointercapture', (e) => {
+      if (e.pointerType === 'mouse' || e.pointerType === 'pen') {
+        this.dragMode = null;
+      }
+    });
     this.canvas.addEventListener(
       'wheel',
       (e) => {
         e.preventDefault();
         // Wheel while middle-dragging is often accidental (or feels like zoom
         // during pan) — ignore until the pan gesture ends.
-        if (this.dragMode === 'pan') return;
-        // Do not scale the min by sceneExtent — a long wall used to lock zoom out
-        // at tens/hundreds of metres and block close inspection.
-        const minDist = MIN_CAMERA_DISTANCE;
-        const maxDist = Math.max(this.sceneExtent * 12, 80);
-        this.camera.distance = Math.max(
-          minDist,
-          Math.min(maxDist, this.camera.distance * (1 + e.deltaY * 0.001)),
-        );
+        if (this.dragMode === 'pan' || this.touchGesture === 'pinchpan') return;
+        this.applyZoomFactor(1 + e.deltaY * 0.001);
       },
       { passive: false },
     );
     this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
+
+  private beginPinchPan(): void {
+    this.touchGesture = 'pinchpan';
+    this.dragMode = null;
+    this.orbitTouchId = null;
+    this.cameraGestureConsumed = true;
+    const c = this.pointerCentroid();
+    this.lastCentroidX = c.x;
+    this.lastCentroidY = c.y;
+    this.pinchStartSpan = this.pointerSpan();
+    this.pinchStartDistance = this.camera.distance;
+  }
+
+  private updatePinchPan(): void {
+    const c = this.pointerCentroid();
+    const dx = c.x - this.lastCentroidX;
+    const dy = c.y - this.lastCentroidY;
+    this.lastCentroidX = c.x;
+    this.lastCentroidY = c.y;
+    this.panOnGround(dx, dy);
+
+    const span = this.pointerSpan();
+    if (this.pinchStartSpan > 4 && span > 4) {
+      // Spread fingers → zoom in (shorter camera distance).
+      const factor = this.pinchStartSpan / span;
+      const minDist = MIN_CAMERA_DISTANCE;
+      const maxDist = Math.max(this.sceneExtent * 12, 80);
+      this.camera.distance = Math.max(
+        minDist,
+        Math.min(maxDist, this.pinchStartDistance * factor),
+      );
+    }
+  }
+
+  private pointerCentroid(): { x: number; y: number } {
+    let x = 0;
+    let y = 0;
+    for (const p of this.pointers.values()) {
+      x += p.x;
+      y += p.y;
+    }
+    const n = Math.max(1, this.pointers.size);
+    return { x: x / n, y: y / n };
+  }
+
+  private pointerSpan(): number {
+    const pts = [...this.pointers.values()];
+    if (pts.length < 2) return 0;
+    return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+  }
+
+  private applyOrbitDelta(dx: number, dy: number): void {
+    this.camera.yaw -= dx * 0.005;
+    this.camera.pitch = Math.max(
+      -PITCH_LIMIT,
+      Math.min(PITCH_LIMIT, this.camera.pitch + dy * 0.005),
+    );
+  }
+
+  private applyZoomFactor(factor: number): void {
+    const minDist = MIN_CAMERA_DISTANCE;
+    const maxDist = Math.max(this.sceneExtent * 12, 80);
+    this.camera.distance = Math.max(
+      minDist,
+      Math.min(maxDist, this.camera.distance * factor),
+    );
   }
 
   private beginDrag(mode: 'pan' | 'orbit', e: PointerEvent): void {

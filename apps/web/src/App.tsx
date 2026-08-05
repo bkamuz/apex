@@ -186,6 +186,7 @@ export default function App() {
     wallStartRef.current = null;
     setPendingStart(null);
     clearPlacementPreview();
+    rendererRef.current?.setTouchOrbitEnabled(true);
   }, [clearPlacementPreview]);
 
   /** Escape: cancel placement, clear selection, switch to Select. */
@@ -343,6 +344,7 @@ export default function App() {
       moved: false,
     };
     suppressClickRef.current = true;
+    rendererRef.current.setTouchOrbitEnabled(false);
     e.currentTarget.setPointerCapture(e.pointerId);
     e.preventDefault();
   };
@@ -411,6 +413,7 @@ export default function App() {
     const drag = handleDragRef.current;
     if (!drag) return;
     handleDragRef.current = null;
+    rendererRef.current?.setTouchOrbitEnabled(!wallStartRef.current);
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId);
     }
@@ -436,6 +439,7 @@ export default function App() {
     if (!ready || !rendererRef.current) return;
     if (e.button !== 0) return;
     if (suppressClickRef.current || handleDragRef.current) return;
+    if (rendererRef.current.consumeCameraGesture()) return;
 
     const renderer = rendererRef.current;
 
@@ -468,6 +472,7 @@ export default function App() {
         wallStartRef.current = point;
         setPendingStart(point);
         renderer.setEditGizmo(null, null);
+        renderer.setTouchOrbitEnabled(false);
         showPlacementPreview(point, point);
         return;
       }
@@ -481,6 +486,7 @@ export default function App() {
 
       wallStartRef.current = null;
       setPendingStart(null);
+      renderer.setTouchOrbitEnabled(true);
       setError(null);
       clearPlacementPreview();
 
@@ -505,6 +511,7 @@ export default function App() {
   const onCanvasDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!ready || !rendererRef.current) return;
     if (e.button !== 0) return;
+    if (rendererRef.current.consumeCameraGesture()) return;
     e.preventDefault();
     const hit = rendererRef.current.hitLevelContour(e.clientX, e.clientY);
     if (!hit) return;
@@ -630,8 +637,8 @@ export default function App() {
           {tool === 'wall'
             ? pendingStart
               ? `Click end on ${activeLevel?.name ?? 'level'} · Shift snap · Esc`
-              : `Wall on ${activeLevel?.name ?? 'level'} · dbl-click contour to switch`
-            : 'Dbl-click level plane/contour to activate · Ctrl+click multi · Esc'}
+              : `Wall on ${activeLevel?.name ?? 'level'} · pinch zoom · 2-finger pan`
+            : '1-finger orbit · 2-finger pan · pinch zoom · dbl-click level'}
         </div>
       </header>
 
