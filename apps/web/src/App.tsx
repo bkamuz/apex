@@ -695,6 +695,7 @@ export default function App() {
             closeMobilePanel();
           }}
           onCreate={onCreateLevel}
+          onClose={closeMobilePanel}
         />
         <div className="panel-title">Elements</div>
         <ElementTree
@@ -726,7 +727,12 @@ export default function App() {
       </div>
 
       <aside className={`inspector ${mobilePanel === 'props' ? 'open' : ''}`}>
-        <div className="panel-title">Properties</div>
+        <div className="panel-title">
+          Properties
+          <button type="button" className="panel-close" onClick={closeMobilePanel} title="Close">
+            Close
+          </button>
+        </div>
         <PropertiesPanel
           selected={selected}
           selectedCount={selectedCount}

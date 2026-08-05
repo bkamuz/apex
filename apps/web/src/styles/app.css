@@ -422,7 +422,7 @@ button:focus-visible {
     z-index: 30;
     top: 0;
     bottom: 0;
-    width: min(320px, 88vw);
+    width: min(300px, 82vw);
     max-height: none;
     border: none;
     box-shadow: 0 0 24px rgba(0, 0, 0, 0.45);
@@ -456,6 +456,17 @@ button:focus-visible {
     left: 8px;
     bottom: 8px;
   }
+
+  .panel-close {
+    display: inline-flex;
+  }
+
+  .panel-title-row,
+  .inspector > .panel-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
 }
 
 @media (max-width: 480px) {
@@ -467,4 +478,11 @@ button:focus-visible {
     padding: 8px 8px;
     font-size: 12px;
   }
+}
+
+.panel-close {
+  display: none;
+  margin-left: auto;
+  padding: 4px 10px;
+  font-size: 12px;
 }
