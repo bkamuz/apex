@@ -1309,6 +1309,7 @@ export class ViewportRenderer {
       this.applyOrbitDelta(dx, dy);
     });
     const endPointer = (e: PointerEvent) => {
+      const endedGesture = this.touchGesture;
       this.pointers.delete(e.pointerId);
       if (this.orbitTouchId === e.pointerId) this.orbitTouchId = null;
 
@@ -1326,6 +1327,18 @@ export class ViewportRenderer {
         this.dragMode = null;
       } else if (e.pointerType === 'mouse' || e.pointerType === 'pen') {
         this.dragMode = null;
+      }
+
+      // Keep the suppress-click flag briefly so the synthetic click (if any) is
+      // ignored, then clear it — some touch paths never emit click.
+      if (
+        (endedGesture === 'orbit' || endedGesture === 'pinchpan') &&
+        this.pointers.size === 0
+      ) {
+        this.cameraGestureConsumed = true;
+        window.setTimeout(() => {
+          this.cameraGestureConsumed = false;
+        }, 50);
       }
     };
     this.canvas.addEventListener('pointerup', endPointer);
