@@ -1054,12 +1054,13 @@ export class ViewportRenderer {
       Math.min(start[2], end[2]),
       Math.max(start[2], end[2]),
     );
+    // Overlay draw already keeps the axis visible — no world-Y lift (avoids float).
     const data = new Float32Array([
       start[0],
-      start[1] + 0.02,
+      start[1],
       start[2],
       end[0],
-      end[1] + 0.02,
+      end[1],
       end[2],
     ]);
     this.previewCount = this.uploadThickLines(this.previewBuf, data);
@@ -1103,23 +1104,23 @@ export class ViewportRenderer {
       Math.min(start[2], end[2]),
       Math.max(start[2], end[2]),
     );
-    const y = 0.03;
+    // Seat on the level plane; overlay + point eye-pull keep gizmo readable.
     const line = new Float32Array([
       start[0],
-      start[1] + y,
+      start[1],
       start[2],
       end[0],
-      end[1] + y,
+      end[1],
       end[2],
     ]);
     this.editLineCount = this.uploadThickLines(this.editLineBuf, line);
 
     const handles = new Float32Array([
       start[0],
-      start[1] + y,
+      start[1],
       start[2],
       end[0],
-      end[1] + y,
+      end[1],
       end[2],
     ]);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.handleBuf);
@@ -1162,12 +1163,12 @@ export class ViewportRenderer {
     if (!this.editHandles) return null;
     const s = this.worldToClient([
       this.editHandles.start[0],
-      this.editHandles.start[1] + 0.03,
+      this.editHandles.start[1],
       this.editHandles.start[2],
     ]);
     const e = this.worldToClient([
       this.editHandles.end[0],
-      this.editHandles.end[1] + 0.03,
+      this.editHandles.end[1],
       this.editHandles.end[2],
     ]);
     if (!s || !e) return null;
@@ -1858,7 +1859,7 @@ export class ViewportRenderer {
     gl.clearColor(0.09, 0.1, 0.12, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     // Active level grid (semi-transparent) — no separate Y=0 ground grid.
-    this.drawLines(this.gridVao, this.gridCount, [0.42, 0.55, 0.68, 0.28], 1.15);
+    this.drawLines(this.gridVao, this.gridCount, [0.42, 0.55, 0.68, 0.35], 0.8);
     this.drawMeshes(false);
     // Outlines at true depth; solids were polygon-offset back.
     this.drawLines(this.edgeVao, this.edgeCount, [0.08, 0.09, 0.1, 1], 2.0);
