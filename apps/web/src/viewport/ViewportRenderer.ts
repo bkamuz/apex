@@ -782,6 +782,9 @@ export class ViewportRenderer {
     gl.clearColor(0.09, 0.1, 0.12, 1);
 
     this.bindEvents();
+    // Harness / debug access (Playwright camera checks).
+    (this.canvas as HTMLCanvasElement & { __apexRenderer?: ViewportRenderer }).__apexRenderer =
+      this;
     this.loop();
   }
 
@@ -813,6 +816,19 @@ export class ViewportRenderer {
 
   getCamera(): CameraState {
     return { ...this.camera, target: [...this.camera.target] as [number, number, number] };
+  }
+
+  /** Replace camera pose fields (tests / view presets). Keeps unspecified fields. */
+  setCamera(state: Partial<CameraState>): void {
+    if (state.target) {
+      this.camera.target = [state.target[0], state.target[1], state.target[2]];
+    }
+    if (state.distance != null) this.camera.distance = state.distance;
+    if (state.yaw != null) this.camera.yaw = state.yaw;
+    if (state.pitch != null) {
+      this.camera.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, state.pitch));
+    }
+    this.frameMats = null;
   }
 
   /** Rolling FPS from the render loop (display-synced via rAF). */
@@ -1207,6 +1223,8 @@ export class ViewportRenderer {
 
   dispose(): void {
     cancelAnimationFrame(this.raf);
+    const c = this.canvas as HTMLCanvasElement & { __apexRenderer?: ViewportRenderer };
+    if (c.__apexRenderer === this) delete c.__apexRenderer;
   }
 
   /**
@@ -1299,6 +1317,8 @@ export class ViewportRenderer {
       }
 
       if (!this.dragMode) return;
+      // Keep browser middle-button autoscroll / page pan from stealing the gesture.
+      e.preventDefault();
       const dx = e.clientX - this.lastX;
       const dy = e.clientY - this.lastY;
       this.lastX = e.clientX;
@@ -1483,30 +1503,49 @@ export class ViewportRenderer {
   }
 
   /**
-   * Screen-space pan (Revit / Blender grab-style): move the look-at along the
-   * camera right + up axes so the scene follows the pointer, including world Y.
+   * Screen-space grab pan (Revit / Blender): the world point under the cursor
+   * stays under the cursor. Uses the same viewProjInv as picking so facade
+   * (pitch≈0) vertical drag and underside views stay consistent with the image.
+   * Caller has already advanced lastX/lastY to the new pointer position.
    */
   private panInView(dx: number, dy: number): void {
-    const right = this.cameraRight();
-    const up = this.cameraUp();
-    const scale = this.camera.distance * 0.0015;
-    // Drag right → scene right → target −right; drag down → scene down → target +up.
-    this.camera.target[0] -= (right[0] * dx - up[0] * dy) * scale;
-    this.camera.target[1] -= (right[1] * dx - up[1] * dy) * scale;
-    this.camera.target[2] -= (right[2] * dx - up[2] * dy) * scale;
+    if (dx === 0 && dy === 0) return;
+    // Matrices must match the pose *before* this delta (not a stale rAF cache).
+    this.frameMats = null;
+    const prev = this.unprojectOnViewPlane(this.lastX - dx, this.lastY - dy);
+    const next = this.unprojectOnViewPlane(this.lastX, this.lastY);
+    if (!prev || !next) return;
+    this.camera.target[0] += prev[0] - next[0];
+    this.camera.target[1] += prev[1] - next[1];
+    this.camera.target[2] += prev[2] - next[2];
+    this.frameMats = null;
   }
 
-  private cameraRight(): [number, number, number] {
-    const { yaw } = this.camera;
-    return [Math.cos(yaw), 0, -Math.sin(yaw)];
-  }
-
-  /** Camera up for the current yaw/pitch (Y-up turntable). */
-  private cameraUp(): [number, number, number] {
-    const { yaw, pitch } = this.camera;
-    const sp = Math.sin(pitch);
-    const cp = Math.cos(pitch);
-    return [-Math.sin(yaw) * sp, cp, -Math.cos(yaw) * sp];
+  /**
+   * World hit of a screen ray on the plane through the look-at, facing the camera
+   * (view plane). Shared path with rendering/picking via viewProjInv.
+   */
+  private unprojectOnViewPlane(
+    clientX: number,
+    clientY: number,
+  ): [number, number, number] | null {
+    const rect = this.canvas.getBoundingClientRect();
+    if (rect.width < 1 || rect.height < 1) return null;
+    const x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    const y = -(((clientY - rect.top) / rect.height) * 2 - 1);
+    const { viewProjInv, eye } = this.buildCameraMatrices();
+    const nearPt = this.unproject(x, y, -1, viewProjInv);
+    const farPt = this.unproject(x, y, 1, viewProjInv);
+    const dir = [farPt[0] - nearPt[0], farPt[1] - nearPt[1], farPt[2] - nearPt[2]];
+    const target = this.camera.target;
+    // Plane through target with normal = eye − target (faces the camera).
+    const nx = eye[0] - target[0];
+    const ny = eye[1] - target[1];
+    const nz = eye[2] - target[2];
+    const denom = dir[0] * nx + dir[1] * ny + dir[2] * nz;
+    if (Math.abs(denom) < 1e-12) return null;
+    const t = ((target[0] - nearPt[0]) * nx + (target[1] - nearPt[1]) * ny + (target[2] - nearPt[2]) * nz) / denom;
+    return [nearPt[0] + dir[0] * t, nearPt[1] + dir[1] * t, nearPt[2] + dir[2] * t];
   }
 
   private eyePosition(): [number, number, number] {
