@@ -10,13 +10,15 @@ permissions:
   pages: write
   id-token: write
 
+# Fresh group name so a stuck/failed prior "pages" concurrency cannot block new runs.
 concurrency:
-  group: pages
-  cancel-in-progress: false
+  group: github-pages-deploy
+  cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -43,6 +45,7 @@ jobs:
   deploy:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
