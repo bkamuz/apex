@@ -38,10 +38,17 @@ export const GRID_MARGIN_CELLS = 4;
 const GRID_DEFAULT_HALF = 20;
 /** World-space chunk length for thick lines (avoids screen-space width blow-ups). */
 const MAX_THICK_SEGMENT_LEN = 48;
-/** Orbit pitch clamp (radians). Symmetric so the camera can go under the model. */
-const PITCH_LIMIT = 1.45; // ~83°, keeps cos(pitch) away from 0
+/**
+ * Orbit pitch clamp (radians). Just shy of ±π/2 so lookAt with Y-up never
+ * gimbal-flips; turntable can still go nearly top-down / under the model.
+ */
+const PITCH_LIMIT = Math.PI / 2 - 0.01;
 /** Closest wheel-zoom distance (metres). Independent of scene size so huge walls still allow mm inspection. */
 const MIN_CAMERA_DISTANCE = 0.001;
+/** Soft zoom-out ceiling — generous vs scene size so large models are not hard-stopped early. */
+function maxCameraDistance(sceneExtent: number): number {
+  return Math.max(sceneExtent * 40, 500);
+}
 
 const VERT = `#version 300 es
 precision highp float;
@@ -1297,8 +1304,7 @@ export class ViewportRenderer {
       this.lastX = e.clientX;
       this.lastY = e.clientY;
       if (this.dragMode === 'pan') {
-        // Ground-plane pan only (world XZ). Never change target Y / distance.
-        this.panOnGround(dx, dy);
+        this.panInView(dx, dy);
         return;
       }
       this.applyOrbitDelta(dx, dy);
@@ -1345,9 +1351,6 @@ export class ViewportRenderer {
       'wheel',
       (e) => {
         e.preventDefault();
-        // Wheel while middle-dragging is often accidental (or feels like zoom
-        // during pan) — ignore until the pan gesture ends.
-        if (this.dragMode === 'pan' || this.touchGesture === 'pinchpan') return;
         this.applyZoomFactor(1 + e.deltaY * 0.001);
       },
       { passive: false },
@@ -1423,14 +1426,14 @@ export class ViewportRenderer {
     const dy = c.y - this.lastCentroidY;
     this.lastCentroidX = c.x;
     this.lastCentroidY = c.y;
-    this.panOnGround(dx, dy);
+    this.panInView(dx, dy);
 
     const span = this.pointerSpan();
     if (this.pinchStartSpan > 4 && span > 4) {
       // Spread fingers → zoom in (shorter camera distance).
       const factor = this.pinchStartSpan / span;
       const minDist = MIN_CAMERA_DISTANCE;
-      const maxDist = Math.max(this.sceneExtent * 12, 80);
+      const maxDist = maxCameraDistance(this.sceneExtent);
       this.camera.distance = Math.max(
         minDist,
         Math.min(maxDist, this.pinchStartDistance * factor),
@@ -1465,7 +1468,7 @@ export class ViewportRenderer {
 
   private applyZoomFactor(factor: number): void {
     const minDist = MIN_CAMERA_DISTANCE;
-    const maxDist = Math.max(this.sceneExtent * 12, 80);
+    const maxDist = maxCameraDistance(this.sceneExtent);
     this.camera.distance = Math.max(
       minDist,
       Math.min(maxDist, this.camera.distance * factor),
@@ -1479,15 +1482,18 @@ export class ViewportRenderer {
     this.canvas.setPointerCapture(e.pointerId);
   }
 
-  /** Translate look-at on the placement plane (X/Z). Screen Y → forward on ground, not world up. */
-  private panOnGround(dx: number, dy: number): void {
+  /**
+   * Screen-space pan (Revit / Blender grab-style): move the look-at along the
+   * camera right + up axes so the scene follows the pointer, including world Y.
+   */
+  private panInView(dx: number, dy: number): void {
     const right = this.cameraRight();
-    const forward = this.cameraForwardXZ();
+    const up = this.cameraUp();
     const scale = this.camera.distance * 0.0015;
-    // Grab-style: drag down (dy > 0) moves the scene down on screen → target toward camera
-    // on the ground (-forward). Same sign convention as horizontal (`-= right * dx`).
-    this.camera.target[0] -= (right[0] * dx - forward[0] * dy) * scale;
-    this.camera.target[2] -= (right[2] * dx - forward[2] * dy) * scale;
+    // Drag right → scene right → target −right; drag down → scene down → target +up.
+    this.camera.target[0] -= (right[0] * dx - up[0] * dy) * scale;
+    this.camera.target[1] -= (right[1] * dx - up[1] * dy) * scale;
+    this.camera.target[2] -= (right[2] * dx - up[2] * dy) * scale;
   }
 
   private cameraRight(): [number, number, number] {
@@ -1495,10 +1501,12 @@ export class ViewportRenderer {
     return [Math.cos(yaw), 0, -Math.sin(yaw)];
   }
 
-  /** Unit look direction projected onto the ground plane (Y-up world). */
-  private cameraForwardXZ(): [number, number, number] {
-    const { yaw } = this.camera;
-    return [-Math.sin(yaw), 0, -Math.cos(yaw)];
+  /** Camera up for the current yaw/pitch (Y-up turntable). */
+  private cameraUp(): [number, number, number] {
+    const { yaw, pitch } = this.camera;
+    const sp = Math.sin(pitch);
+    const cp = Math.cos(pitch);
+    return [-Math.sin(yaw) * sp, cp, -Math.cos(yaw) * sp];
   }
 
   private eyePosition(): [number, number, number] {
