@@ -25,7 +25,9 @@ import { buildWallSolid } from './viewport/wallMesh';
 import type { ElementDto, ElementListDto, LevelDto, SceneDto, ToolMode } from './types';
 import { ElementTree } from './components/ElementTree';
 import { LevelList } from './components/LevelList';
+import { MobileMenuSheet, type MobileMenuTab } from './components/MobileMenuSheet';
 import { PropertiesPanel } from './components/PropertiesPanel';
+import { useMediaQuery } from './hooks/useMediaQuery';
 
 const DEFAULT_HEIGHT = 3;
 const DEFAULT_THICKNESS = 0.2;
@@ -99,7 +101,9 @@ export default function App() {
   const [selectedLevelId, setSelectedLevelId] = useState<string | null>(null);
   const [pendingStart, setPendingStart] = useState<[number, number, number] | null>(null);
   const [fps, setFps] = useState(0);
-  const [mobilePanel, setMobilePanel] = useState<'scene' | 'props' | null>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [mobileMenuTab, setMobileMenuTab] = useState<MobileMenuTab>('levels');
+  const isMobile = useMediaQuery('(max-width: 900px)');
 
   selectedRef.current = selected;
   selectedCountRef.current = scene
@@ -135,6 +139,17 @@ export default function App() {
   const clearPlacementPreview = useCallback(() => {
     rendererRef.current?.setPreviewLine(null, null);
     rendererRef.current?.setGhostWall(null);
+  }, []);
+
+  const clearSnapMarker = useCallback(() => {
+    rendererRef.current?.setSnapMarker(null);
+  }, []);
+
+  const showSnapMarker = useCallback((point: [number, number, number] | null, shiftHeld: boolean) => {
+    const renderer = rendererRef.current;
+    if (!renderer) return;
+    if (shiftHeld && point) renderer.setSnapMarker(point);
+    else renderer.setSnapMarker(null);
   }, []);
 
   const showPlacementPreview = useCallback(
@@ -187,8 +202,9 @@ export default function App() {
     wallStartRef.current = null;
     setPendingStart(null);
     clearPlacementPreview();
+    clearSnapMarker();
     rendererRef.current?.setTouchOrbitEnabled(true);
-  }, [clearPlacementPreview]);
+  }, [clearPlacementPreview, clearSnapMarker]);
 
   /** Escape: cancel placement, clear selection, switch to Select. */
   const onEscape = useCallback(() => {
@@ -212,8 +228,9 @@ export default function App() {
   const goSelect = useCallback(() => {
     cancelWall();
     setTool('select');
+    clearSnapMarker();
     syncEditGizmo(selectedRef.current);
-  }, [cancelWall, syncEditGizmo]);
+  }, [cancelWall, clearSnapMarker, syncEditGizmo]);
 
   useEffect(() => {
     const isEscape = (e: KeyboardEvent) => e.key === 'Escape' || e.code === 'Escape';
@@ -238,7 +255,10 @@ export default function App() {
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
-      if (e.key === 'Shift') shiftHeldRef.current = false;
+      if (e.key === 'Shift') {
+        shiftHeldRef.current = false;
+        clearSnapMarker();
+      }
     };
     // Capture phase so Escape still wins when an input has focus.
     window.addEventListener('keydown', onKeyDown, true);
@@ -247,7 +267,7 @@ export default function App() {
       window.removeEventListener('keydown', onKeyDown, true);
       window.removeEventListener('keyup', onKeyUp, true);
     };
-  }, [applyScene, onEscape]);
+  }, [applyScene, clearSnapMarker, onEscape]);
 
   useEffect(() => {
     let cancelled = false;
@@ -276,10 +296,11 @@ export default function App() {
     };
   }, [applyScene]);
 
-  const closeMobilePanel = useCallback(() => setMobilePanel(null), []);
+  const closeMobileMenu = useCallback(() => setMobileMenuOpen(false), []);
 
-  const openMobilePanel = useCallback((panel: 'scene' | 'props') => {
-    setMobilePanel((prev) => (prev === panel ? null : panel));
+  const openMobileMenu = useCallback((tab?: MobileMenuTab) => {
+    if (tab) setMobileMenuTab(tab);
+    setMobileMenuOpen(true);
   }, []);
 
   useEffect(() => {
@@ -290,16 +311,10 @@ export default function App() {
     return () => window.clearInterval(id);
   }, [ready]);
 
-  // Close drawers when the layout becomes desktop-width again.
+  // Close mobile menu when the layout becomes desktop-width again.
   useEffect(() => {
-    const mq = window.matchMedia('(max-width: 900px)');
-    const onChange = () => {
-      if (!mq.matches) setMobilePanel(null);
-    };
-    onChange();
-    mq.addEventListener('change', onChange);
-    return () => mq.removeEventListener('change', onChange);
-  }, []);
+    if (!isMobile) setMobileMenuOpen(false);
+  }, [isMobile]);
 
   const setProjectionMode = useCallback((mode: ProjectionMode) => {
     setProjection(mode);
@@ -378,7 +393,11 @@ export default function App() {
       const fixed = drag.which === 'start' ? drag.end : drag.start;
       const elev = sel.start?.[1] ?? activeElevationRef.current;
       const point = resolveGroundPoint(renderer, e.clientX, e.clientY, shift, elev, fixed);
-      if (!point) return;
+      if (!point) {
+        clearSnapMarker();
+        return;
+      }
+      showSnapMarker(point, shift);
       drag.moved = true;
       const start = drag.which === 'start' ? point : drag.start;
       const end = drag.which === 'end' ? point : drag.end;
@@ -415,16 +434,40 @@ export default function App() {
       return;
     }
 
-    if (tool !== 'wall' || !wallStartRef.current) return;
-    const end = resolveGroundPoint(
-      renderer,
-      e.clientX,
-      e.clientY,
-      shift,
-      activeElevationRef.current,
-    );
-    if (!end) return;
-    showPlacementPreview(wallStartRef.current, end);
+    if (tool === 'wall') {
+      const anchor = wallStartRef.current;
+      const point = resolveGroundPoint(
+        renderer,
+        e.clientX,
+        e.clientY,
+        shift,
+        activeElevationRef.current,
+        anchor,
+      );
+      if (!point) {
+        clearSnapMarker();
+        return;
+      }
+      showSnapMarker(point, shift);
+      if (anchor) showPlacementPreview(anchor, point);
+      return;
+    }
+
+    if (tool === 'select') {
+      const point = resolveGroundPoint(
+        renderer,
+        e.clientX,
+        e.clientY,
+        shift,
+        activeElevationRef.current,
+        null,
+      );
+      showSnapMarker(point, shift);
+    }
+  };
+
+  const onCanvasPointerLeave = () => {
+    clearSnapMarker();
   };
 
   const onCanvasPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -618,14 +661,6 @@ export default function App() {
         <div className="tools">
           <button
             type="button"
-            className={`mobile-only ${mobilePanel === 'scene' ? 'active' : ''}`}
-            onClick={() => openMobilePanel('scene')}
-            title="Levels and elements"
-          >
-            Scene
-          </button>
-          <button
-            type="button"
             className={tool === 'select' ? 'active' : ''}
             onClick={() => goSelect()}
           >
@@ -636,6 +671,7 @@ export default function App() {
             className={tool === 'wall' ? 'active' : ''}
             onClick={() => {
               cancelWall();
+              clearSnapMarker();
               setTool('wall');
             }}
           >
@@ -658,14 +694,6 @@ export default function App() {
           >
             Persp
           </button>
-          <button
-            type="button"
-            className={`mobile-only ${mobilePanel === 'props' ? 'active' : ''}`}
-            onClick={() => openMobilePanel('props')}
-            title="Properties"
-          >
-            Props
-          </button>
         </div>
         <div className="hint">
           {tool === 'wall'
@@ -676,37 +704,23 @@ export default function App() {
         </div>
       </header>
 
-      {mobilePanel ? (
-        <button
-          type="button"
-          className="panel-backdrop"
-          aria-label="Close panel"
-          onClick={closeMobilePanel}
-        />
+      {!isMobile ? (
+        <aside className="sidebar">
+          <LevelList
+            levels={levels}
+            activeLevelId={scene?.active_level_id ?? null}
+            selectedLevelId={selectedLevel?.id ?? null}
+            onSelect={onSelectLevel}
+            onCreate={onCreateLevel}
+          />
+          <div className="panel-title">Elements</div>
+          <ElementTree
+            elements={elements}
+            selectedIds={selectedIds}
+            onSelect={(id, multi) => onSelectFromTree(id, multi)}
+          />
+        </aside>
       ) : null}
-
-      <aside className={`sidebar ${mobilePanel === 'scene' ? 'open' : ''}`}>
-        <LevelList
-          levels={levels}
-          activeLevelId={scene?.active_level_id ?? null}
-          selectedLevelId={selectedLevel?.id ?? null}
-          onSelect={(id) => {
-            onSelectLevel(id);
-            closeMobilePanel();
-          }}
-          onCreate={onCreateLevel}
-          onClose={closeMobilePanel}
-        />
-        <div className="panel-title">Elements</div>
-        <ElementTree
-          elements={elements}
-          selectedIds={selectedIds}
-          onSelect={(id, multi) => {
-            onSelectFromTree(id, multi);
-            if (!multi) closeMobilePanel();
-          }}
-        />
-      </aside>
 
       <div className="viewport-wrap">
         {!ready && !error && <div className="loading">Loading Apex core…</div>}
@@ -715,33 +729,83 @@ export default function App() {
           ref={canvasRef}
           onClick={onCanvasClick}
           onDoubleClick={onCanvasDoubleClick}
+          onContextMenu={(e) => e.preventDefault()}
           onPointerDown={onCanvasPointerDown}
           onPointerMove={onCanvasPointerMove}
           onPointerUp={onCanvasPointerUp}
           onPointerCancel={onCanvasPointerUp}
+          onPointerLeave={onCanvasPointerLeave}
         />
+        {isMobile ? (
+          <button
+            type="button"
+            className="mobile-menu-fab"
+            onClick={() => openMobileMenu()}
+            title="Open scene menu"
+            aria-label="Open scene menu"
+          >
+            Menu
+          </button>
+        ) : null}
         <div className="viewport-badge">
           WebGL2 · {fps > 0 ? `${fps} fps` : '…'} · {activeLevel?.name ?? '—'} · v
           {scene?.version ?? 0}
         </div>
+        {isMobile ? (
+          <MobileMenuSheet
+            open={mobileMenuOpen}
+            tab={mobileMenuTab}
+            onTabChange={setMobileMenuTab}
+            onClose={closeMobileMenu}
+            levels={
+              <LevelList
+                levels={levels}
+                activeLevelId={scene?.active_level_id ?? null}
+                selectedLevelId={selectedLevel?.id ?? null}
+                onSelect={(id) => {
+                  onSelectLevel(id);
+                  closeMobileMenu();
+                }}
+                onCreate={onCreateLevel}
+              />
+            }
+            elements={
+              <ElementTree
+                elements={elements}
+                selectedIds={selectedIds}
+                onSelect={(id, multi) => {
+                  onSelectFromTree(id, multi);
+                  if (!multi) closeMobileMenu();
+                }}
+              />
+            }
+            properties={
+              <PropertiesPanel
+                selected={selected}
+                selectedCount={selectedCount}
+                selectedLevel={selectedCount === 0 ? selectedLevel : null}
+                onUpdate={onUpdateWall}
+                onUpdateLevelElevation={onUpdateLevelElevation}
+                onDelete={onDelete}
+              />
+            }
+          />
+        ) : null}
       </div>
 
-      <aside className={`inspector ${mobilePanel === 'props' ? 'open' : ''}`}>
-        <div className="panel-title">
-          Properties
-          <button type="button" className="panel-close" onClick={closeMobilePanel} title="Close">
-            Close
-          </button>
-        </div>
-        <PropertiesPanel
-          selected={selected}
-          selectedCount={selectedCount}
-          selectedLevel={selectedCount === 0 ? selectedLevel : null}
-          onUpdate={onUpdateWall}
-          onUpdateLevelElevation={onUpdateLevelElevation}
-          onDelete={onDelete}
-        />
-      </aside>
+      {!isMobile ? (
+        <aside className="inspector">
+          <div className="panel-title">Properties</div>
+          <PropertiesPanel
+            selected={selected}
+            selectedCount={selectedCount}
+            selectedLevel={selectedCount === 0 ? selectedLevel : null}
+            onUpdate={onUpdateWall}
+            onUpdateLevelElevation={onUpdateLevelElevation}
+            onDelete={onDelete}
+          />
+        </aside>
+      ) : null}
     </div>
   );
 }
