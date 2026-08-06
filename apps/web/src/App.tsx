@@ -699,8 +699,8 @@ export default function App() {
           {tool === 'wall'
             ? pendingStart
               ? `Click end on ${activeLevel?.name ?? 'level'} · Shift snap · Esc`
-              : `Wall on ${activeLevel?.name ?? 'level'} · pinch zoom · 2-finger pan`
-            : '3-finger orbit · 2-finger pan · pinch zoom · dbl-click level'}
+              : `Wall on ${activeLevel?.name ?? 'level'} · MMB pan · RMB orbit · wheel zoom`
+            : 'MMB pan · RMB orbit · wheel zoom · 3-finger orbit · dbl-click level'}
         </div>
       </header>
 
