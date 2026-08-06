@@ -608,6 +608,9 @@ export class ViewportRenderer {
   private handleVao: WebGLVertexArrayObject;
   private handleBuf: WebGLBuffer;
   private handleCount = 0;
+  private snapVao: WebGLVertexArrayObject;
+  private snapBuf: WebGLBuffer;
+  private snapCount = 0;
   private editLineVao: WebGLVertexArrayObject;
   private editLineBuf: WebGLBuffer;
   private editLineCount = 0;
@@ -747,6 +750,14 @@ export class ViewportRenderer {
     this.handleBuf = gl.createBuffer()!;
     gl.bindVertexArray(this.handleVao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.handleBuf);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+    gl.bindVertexArray(null);
+
+    this.snapVao = gl.createVertexArray()!;
+    this.snapBuf = gl.createBuffer()!;
+    gl.bindVertexArray(this.snapVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.snapBuf);
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
     gl.bindVertexArray(null);
@@ -1094,6 +1105,18 @@ export class ViewportRenderer {
     this.editHandles = { start: [...start] as [number, number, number], end: [...end] as [number, number, number] };
   }
 
+  /** Small dot at the Shift-snap target (or clear with null). */
+  setSnapMarker(point: [number, number, number] | null): void {
+    if (!point) {
+      this.snapCount = 0;
+      return;
+    }
+    const data = new Float32Array([point[0], point[1] + 0.04, point[2]]);
+    this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.snapBuf);
+    this.gl.bufferData(this.gl.ARRAY_BUFFER, data, this.gl.DYNAMIC_DRAW);
+    this.snapCount = 1;
+  }
+
   /** Project world point to CSS client coordinates (relative to canvas). */
   worldToClient(p: [number, number, number]): [number, number] | null {
     const { viewProj } = this.cameraMatrices();
@@ -1354,6 +1377,7 @@ export class ViewportRenderer {
     this.canvas.addEventListener('gesturestart', blockSafariGesture);
     this.canvas.addEventListener('gesturechange', blockSafariGesture);
     this.canvas.addEventListener('gestureend', blockSafariGesture);
+    this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
   private touchPointerCount(): number {
@@ -1746,6 +1770,28 @@ export class ViewportRenderer {
     gl.enable(gl.DEPTH_TEST);
   }
 
+  private drawSnapMarker(): void {
+    if (this.snapCount === 0) return;
+    const gl = this.gl;
+    const { viewProj, eye } = this.cameraMatrices();
+    const u = this.pointUniforms;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.scratchEye[0] = eye[0];
+    this.scratchEye[1] = eye[1];
+    this.scratchEye[2] = eye[2];
+    gl.disable(gl.BLEND);
+    gl.disable(gl.DEPTH_TEST);
+    gl.useProgram(this.pointProg);
+    gl.uniformMatrix4fv(u.uMVP, false, viewProj);
+    gl.uniform3fv(u.uEye, this.scratchEye);
+    gl.uniform1f(u.uPointSize, 5 * dpr);
+    gl.uniform4f(u.uColor, 0.98, 0.92, 0.78, 1);
+    gl.bindVertexArray(this.snapVao);
+    gl.drawArrays(gl.POINTS, 0, this.snapCount);
+    gl.bindVertexArray(null);
+    gl.enable(gl.DEPTH_TEST);
+  }
+
   private loop = (): void => {
     this.raf = requestAnimationFrame(this.loop);
     const now = performance.now();
@@ -1783,6 +1829,7 @@ export class ViewportRenderer {
     this.drawLines(this.previewVao, this.previewCount, [0.95, 0.7, 0.3, 1], 3.0, true);
     this.drawLines(this.editLineVao, this.editLineCount, [0.95, 0.72, 0.28, 1], 3.0, true);
     this.drawHandles();
+    this.drawSnapMarker();
     this.frameMats = null;
   };
 }

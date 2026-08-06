@@ -263,6 +263,7 @@ button:focus-visible {
   /* Own all touch gestures here so the browser does not pan/zoom the page. */
   touch-action: none;
   overscroll-behavior: none;
+  -webkit-touch-callout: none;
   background:
     radial-gradient(ellipse at 30% 20%, #1a2233 0%, transparent 50%),
     radial-gradient(ellipse at 80% 80%, #1c1814 0%, transparent 45%),
@@ -274,6 +275,7 @@ button:focus-visible {
   height: 100%;
   display: block;
   touch-action: none;
+  -webkit-touch-callout: none;
   -webkit-user-select: none;
   user-select: none;
 }
@@ -362,15 +364,16 @@ button:focus-visible {
   display: none;
 }
 
-.panel-backdrop {
+.mobile-menu-fab {
   display: none;
 }
 
-.panel-close {
+.mobile-menu-backdrop {
   display: none;
-  margin-left: auto;
-  padding: 4px 10px;
-  font-size: 12px;
+}
+
+.mobile-menu-sheet {
+  display: none;
 }
 
 @media (max-width: 900px) {
@@ -380,28 +383,27 @@ button:focus-visible {
   }
 
   .topbar {
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 8px 12px;
-    min-height: 48px;
+    min-height: 44px;
     height: auto;
-    padding: 8px 12px;
+    padding: 6px 12px;
   }
 
   .tools {
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
     gap: 6px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
   }
 
   .tools button {
     padding: 8px 10px;
+    flex-shrink: 0;
   }
 
   .hint {
     display: none;
-  }
-
-  .mobile-only {
-    display: inline-flex;
   }
 
   .viewport-wrap {
@@ -410,11 +412,33 @@ button:focus-visible {
     min-height: 0;
   }
 
-  .panel-backdrop {
+  .viewport-badge {
+    font-size: 10px;
+    padding: 5px 8px;
+    left: 8px;
+    bottom: 8px;
+    max-width: calc(100% - 88px);
+  }
+
+  .mobile-menu-fab {
+    display: inline-flex;
+    position: absolute;
+    right: 12px;
+    bottom: 12px;
+    z-index: 15;
+    padding: 10px 16px;
+    font-weight: 600;
+    background: rgba(26, 29, 38, 0.92);
+    border-color: var(--accent);
+    color: #f3d2a8;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+  }
+
+  .mobile-menu-backdrop {
     display: block;
     position: fixed;
     inset: 0;
-    z-index: 25;
+    z-index: 35;
     border: none;
     border-radius: 0;
     padding: 0;
@@ -423,62 +447,84 @@ button:focus-visible {
     cursor: pointer;
   }
 
-  .sidebar,
-  .inspector {
+  .mobile-menu-sheet {
+    display: flex;
+    flex-direction: column;
     position: fixed;
-    z-index: 30;
-    top: 0;
-    bottom: 0;
-    width: min(300px, 82vw);
-    max-height: none;
-    border: none;
-    box-shadow: 0 0 24px rgba(0, 0, 0, 0.45);
-    transition: transform 0.2s ease;
-  }
-
-  .sidebar {
     left: 0;
-    transform: translateX(-105%);
-    border-right: 1px solid var(--border);
-  }
-
-  .sidebar.open {
-    transform: translateX(0);
-  }
-
-  .inspector {
     right: 0;
-    left: auto;
-    transform: translateX(105%);
-    border-left: 1px solid var(--border);
+    bottom: 0;
+    z-index: 40;
+    max-height: min(75vh, 640px);
+    padding-bottom: env(safe-area-inset-bottom, 0);
+    background: var(--bg-panel);
+    border-top: 1px solid var(--border);
+    border-radius: 12px 12px 0 0;
+    box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.45);
   }
 
-  .inspector.open {
-    transform: translateX(0);
-  }
-
-  .viewport-badge {
-    font-size: 10px;
-    padding: 5px 8px;
-    left: 8px;
-    bottom: 8px;
-  }
-
-  .panel-close {
-    display: inline-flex;
-  }
-
-  .panel-title-row,
-  .inspector > .panel-title {
+  .mobile-menu-header {
     display: flex;
     align-items: center;
     gap: 8px;
+    padding: 10px 12px 0;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .mobile-menu-tabs {
+    display: flex;
+    gap: 4px;
+    flex: 1;
+    overflow-x: auto;
+  }
+
+  .mobile-menu-tabs button {
+    flex: 1;
+    min-width: 0;
+    padding: 8px 6px;
+    font-size: 11px;
+    white-space: nowrap;
+  }
+
+  .mobile-menu-close {
+    flex-shrink: 0;
+    padding: 6px 10px;
+    font-size: 12px;
+  }
+
+  .mobile-menu-content {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    touch-action: pan-y;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .mobile-menu-content .level-panel {
+    max-height: none;
+    flex: 1;
+    border-bottom: none;
+  }
+
+  .mobile-menu-content .level-list {
+    max-height: none;
+  }
+
+  .mobile-menu-content .element-list {
+    flex: 1;
+  }
+
+  .mobile-menu-content .inspector-body {
+    flex: 1;
   }
 }
 
 @media (max-width: 480px) {
   .brand {
     font-size: 14px;
+    flex-shrink: 0;
   }
 
   .tools button {
