@@ -1135,7 +1135,8 @@ export class ViewportRenderer {
       this.snapCount = 0;
       return;
     }
-    const data = new Float32Array([point[0], point[1] + 0.04, point[2]]);
+    // Seat on the work plane — same as the wall axis (overlay + eye-pull keep it visible).
+    const data = new Float32Array([point[0], point[1], point[2]]);
     this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.snapBuf);
     this.gl.bufferData(this.gl.ARRAY_BUFFER, data, this.gl.DYNAMIC_DRAW);
     this.snapCount = 1;
