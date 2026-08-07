@@ -126,6 +126,7 @@ layout(location=3) in float aEnd;
 uniform mat4 uMVP;
 uniform vec2 uResolution;
 uniform float uLineWidthPx;
+out float vDashCoord;
 
 void main() {
   vec4 c0 = uMVP * vec4(aPos0, 1.0);
@@ -151,14 +152,28 @@ void main() {
   vec2 pixelToNdc = 2.0 / max(uResolution, vec2(1.0));
   ndc += perp * aSide * (0.5 * uLineWidthPx) * pixelToNdc;
 
+  // Screen-space arc length along the segment (for dashed occluded pass).
+  vec2 pix0 = (ndc0 * 0.5 + 0.5) * uResolution;
+  vec2 pix1 = (ndc1 * 0.5 + 0.5) * uResolution;
+  vDashCoord = mix(0.0, length(pix1 - pix0), aEnd);
+
   gl_Position = vec4(ndc * clipW, ndcZ * clipW, clipW);
 }`;
 
 const LINE_FRAG = `#version 300 es
 precision highp float;
+in float vDashCoord;
 uniform vec4 uColor;
+uniform float uDashPeriodPx;
 out vec4 outColor;
-void main(){ outColor = uColor; }`;
+void main(){
+  if (uDashPeriodPx > 0.5) {
+    float t = mod(vDashCoord, uDashPeriodPx);
+    // ~50% duty: dash then gap.
+    if (t > uDashPeriodPx * 0.5) discard;
+  }
+  outColor = uColor;
+}`;
 
 const POINT_VERT = `#version 300 es
 precision highp float;
@@ -248,6 +263,7 @@ type LineUniforms = {
   uResolution: WebGLUniformLocation | null;
   uLineWidthPx: WebGLUniformLocation | null;
   uColor: WebGLUniformLocation | null;
+  uDashPeriodPx: WebGLUniformLocation | null;
 };
 
 type PointUniforms = {
@@ -255,6 +271,15 @@ type PointUniforms = {
   uEye: WebGLUniformLocation | null;
   uPointSize: WebGLUniformLocation | null;
   uColor: WebGLUniformLocation | null;
+};
+
+/** Options for thick-line draws (boolean `overlay` still accepted for call-site compat). */
+type LineDrawOpts = {
+  overlay?: boolean;
+  /** Depth compare when depth test is on. Default LEQUAL. */
+  depthFunc?: number;
+  /** Screen-space dash period in CSS pixels; 0 = solid. */
+  dashPeriodPx?: number;
 };
 
 function meshUniforms(gl: WebGL2RenderingContext, prog: WebGLProgram): MeshUniforms {
@@ -280,6 +305,7 @@ function lineUniforms(gl: WebGL2RenderingContext, prog: WebGLProgram): LineUnifo
     uResolution: gl.getUniformLocation(prog, 'uResolution'),
     uLineWidthPx: gl.getUniformLocation(prog, 'uLineWidthPx'),
     uColor: gl.getUniformLocation(prog, 'uColor'),
+    uDashPeriodPx: gl.getUniformLocation(prog, 'uDashPeriodPx'),
   };
 }
 
@@ -1763,20 +1789,25 @@ export class ViewportRenderer {
     count: number,
     color: [number, number, number, number],
     widthPx = 1.5,
-    overlay = false,
+    overlayOrOpts: boolean | LineDrawOpts = false,
   ): void {
     if (count === 0) return;
+    const opts: LineDrawOpts =
+      typeof overlayOrOpts === 'boolean' ? { overlay: overlayOrOpts } : overlayOrOpts;
+    const overlay = opts.overlay === true;
+    const dashPeriodPx = opts.dashPeriodPx ?? 0;
     const gl = this.gl;
     const { viewProj } = this.cameraMatrices();
     const u = this.lineUniforms;
     const dpr = Math.min(window.devicePixelRatio || 1, 2);
-    const useBlend = overlay || color[3] < 0.999;
+    const useBlend = overlay || color[3] < 0.999 || dashPeriodPx > 0;
     if (overlay) {
-      // Axis / preview: same constant px width as handles, independent of zoom.
       gl.disable(gl.DEPTH_TEST);
     } else {
       gl.enable(gl.DEPTH_TEST);
-      gl.depthMask(!useBlend);
+      gl.depthFunc(opts.depthFunc ?? gl.LEQUAL);
+      // Dashed/occluded passes must not clobber solid depth; opaque edges still write.
+      gl.depthMask(dashPeriodPx > 0 ? false : !useBlend);
     }
     if (useBlend) {
       gl.enable(gl.BLEND);
@@ -1789,12 +1820,38 @@ export class ViewportRenderer {
     gl.uniform2f(u.uResolution, this.canvas.width, this.canvas.height);
     gl.uniform1f(u.uLineWidthPx, widthPx * dpr);
     gl.uniform4f(u.uColor, color[0], color[1], color[2], color[3]);
+    gl.uniform1f(u.uDashPeriodPx, dashPeriodPx * dpr);
     gl.bindVertexArray(vao);
     gl.drawArrays(gl.TRIANGLES, 0, count);
     gl.bindVertexArray(null);
     if (useBlend) gl.disable(gl.BLEND);
     if (overlay) gl.enable(gl.DEPTH_TEST);
+    gl.depthFunc(gl.LEQUAL);
     gl.depthMask(true);
+  }
+
+  /**
+   * Construction axis: solid where in front of scene depth, dashed where
+   * occluded by opaque walls (classic CAD hidden-line treatment).
+   */
+  private drawOccludedAxis(
+    vao: WebGLVertexArrayObject,
+    count: number,
+    color: [number, number, number, number],
+    widthPx: number,
+  ): void {
+    if (count === 0) return;
+    const gl = this.gl;
+    // Visible segments (pass depth).
+    this.drawLines(vao, count, color, widthPx, {
+      depthFunc: gl.LEQUAL,
+      dashPeriodPx: 0,
+    });
+    // Hidden segments (fail depth) — screen-space dashes.
+    this.drawLines(vao, count, color, widthPx, {
+      depthFunc: gl.GREATER,
+      dashPeriodPx: 12,
+    });
   }
 
   private drawHandles(): void {
@@ -1874,9 +1931,9 @@ export class ViewportRenderer {
       2.4,
       true,
     );
-    // Axis / preview: screen-space overlays (constant px, like handles).
-    this.drawLines(this.previewVao, this.previewCount, [0.95, 0.7, 0.3, 1], 3.0, true);
-    this.drawLines(this.editLineVao, this.editLineCount, [0.95, 0.72, 0.28, 1], 3.0, true);
+    // Axis / preview: solid where visible, dashed where behind opaque walls.
+    this.drawOccludedAxis(this.previewVao, this.previewCount, [0.95, 0.7, 0.3, 1], 3.0);
+    this.drawOccludedAxis(this.editLineVao, this.editLineCount, [0.95, 0.72, 0.28, 1], 3.0);
     this.drawHandles();
     this.drawSnapMarker();
     this.frameMats = null;
