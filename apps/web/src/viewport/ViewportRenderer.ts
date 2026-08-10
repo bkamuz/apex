@@ -1,5 +1,23 @@
 /** Flat-buffer WebGL2 renderer — solid + CAD edges, pick by triangle id. */
 
+export type Vec3 = [number, number, number];
+
+/** Consecutive point pairs for a polyline through `points`. */
+function segmentsThrough(points: Vec3[]): Float32Array {
+  const data = new Float32Array((points.length - 1) * 6);
+  for (let i = 0; i < points.length - 1; i++) {
+    data.set(points[i], i * 6);
+    data.set(points[i + 1], i * 6 + 3);
+  }
+  return data;
+}
+
+function flatten(points: Vec3[]): Float32Array {
+  const data = new Float32Array(points.length * 3);
+  points.forEach((p, i) => data.set(p, i * 3));
+  return data;
+}
+
 export interface SceneMeshData {
   positions: ArrayLike<number>;
   normals: ArrayLike<number>;
@@ -647,10 +665,7 @@ export class ViewportRenderer {
   private editLineVao: WebGLVertexArrayObject;
   private editLineBuf: WebGLBuffer;
   private editLineCount = 0;
-  private editHandles: {
-    start: [number, number, number];
-    end: [number, number, number];
-  } | null = null;
+  private editHandles: Vec3[] | null = null;
   private indexCount = 0;
   private pickFbo: WebGLFramebuffer | null = null;
   private pickTex: WebGLTexture | null = null;
@@ -1065,35 +1080,27 @@ export class ViewportRenderer {
     return bestId;
   }
 
-  /** Preview wall centerline while placing (or clear with null). */
-  setPreviewLine(
-    start: [number, number, number] | null,
-    end: [number, number, number] | null,
-  ): void {
-    if (!start || !end) {
+  /** Grow the ground grid so every given point stays on it. */
+  private includePoints(points: Vec3[]): void {
+    if (points.length === 0) return;
+    const xs = points.map((p) => p[0]);
+    const zs = points.map((p) => p[2]);
+    this.expandGridToInclude(Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs));
+  }
+
+  /** Construction polyline through the picks made so far (or clear with null). */
+  setPreviewLine(points: Vec3[] | null): void {
+    if (!points || points.length < 2) {
       this.previewCount = 0;
       return;
     }
-    this.expandGridToInclude(
-      Math.min(start[0], end[0]),
-      Math.max(start[0], end[0]),
-      Math.min(start[2], end[2]),
-      Math.max(start[2], end[2]),
-    );
+    this.includePoints(points);
     // Overlay draw already keeps the axis visible — no world-Y lift (avoids float).
-    const data = new Float32Array([
-      start[0],
-      start[1],
-      start[2],
-      end[0],
-      end[1],
-      end[2],
-    ]);
-    this.previewCount = this.uploadThickLines(this.previewBuf, data);
+    this.previewCount = this.uploadThickLines(this.previewBuf, segmentsThrough(points));
   }
 
-  /** Semi-transparent ghost solid while placing a wall. */
-  setGhostWall(
+  /** Semi-transparent ghost solid while placing (or clear with null). */
+  setGhostMesh(
     mesh: { positions: Float32Array; normals: Float32Array; indices: Uint32Array } | null,
   ): void {
     const gl = this.gl;
@@ -1112,47 +1119,32 @@ export class ViewportRenderer {
     this.ghostIndexCount = mesh.indices.length;
   }
 
-  /** Construction line + endpoint handles for the selected wall. */
-  setEditGizmo(
-    start: [number, number, number] | null,
-    end: [number, number, number] | null,
-  ): void {
+  /**
+   * Construction line plus a draggable handle per anchor.
+   *
+   * Takes the element's anchors as-is, so a 1-pick column, a 2-pick wall and a
+   * 3-pick arc all get the right gizmo without the renderer knowing the type.
+   */
+  setEditGizmo(anchors: Vec3[] | null): void {
     const gl = this.gl;
-    if (!start || !end) {
+    if (!anchors || anchors.length === 0) {
       this.editLineCount = 0;
       this.handleCount = 0;
       this.editHandles = null;
       return;
     }
-    this.expandGridToInclude(
-      Math.min(start[0], end[0]),
-      Math.max(start[0], end[0]),
-      Math.min(start[2], end[2]),
-      Math.max(start[2], end[2]),
-    );
-    // Seat on the level plane; overlay + point eye-pull keep gizmo readable.
-    const line = new Float32Array([
-      start[0],
-      start[1],
-      start[2],
-      end[0],
-      end[1],
-      end[2],
-    ]);
-    this.editLineCount = this.uploadThickLines(this.editLineBuf, line);
+    this.includePoints(anchors);
 
-    const handles = new Float32Array([
-      start[0],
-      start[1],
-      start[2],
-      end[0],
-      end[1],
-      end[2],
-    ]);
+    // Seat on the level plane; overlay + point eye-pull keep the gizmo readable.
+    this.editLineCount =
+      anchors.length >= 2
+        ? this.uploadThickLines(this.editLineBuf, segmentsThrough(anchors))
+        : 0;
+
     gl.bindBuffer(gl.ARRAY_BUFFER, this.handleBuf);
-    gl.bufferData(gl.ARRAY_BUFFER, handles, gl.DYNAMIC_DRAW);
-    this.handleCount = 2;
-    this.editHandles = { start: [...start] as [number, number, number], end: [...end] as [number, number, number] };
+    gl.bufferData(gl.ARRAY_BUFFER, flatten(anchors), gl.DYNAMIC_DRAW);
+    this.handleCount = anchors.length;
+    this.editHandles = anchors.map((p) => [...p] as Vec3);
   }
 
   /** Small dot at the Shift-snap target (or clear with null). */
@@ -1181,29 +1173,21 @@ export class ViewportRenderer {
     return [rect.left + ((ndcX + 1) * 0.5) * rect.width, rect.top + ((1 - ndcY) * 0.5) * rect.height];
   }
 
-  /** Hit-test edit handles in screen space. */
-  hitEditHandle(
-    clientX: number,
-    clientY: number,
-    pixelRadius = 12,
-  ): 'start' | 'end' | null {
+  /** Hit-test edit handles in screen space; returns the anchor index. */
+  hitEditHandle(clientX: number, clientY: number, pixelRadius = 12): number | null {
     if (!this.editHandles) return null;
-    const s = this.worldToClient([
-      this.editHandles.start[0],
-      this.editHandles.start[1],
-      this.editHandles.start[2],
-    ]);
-    const e = this.worldToClient([
-      this.editHandles.end[0],
-      this.editHandles.end[1],
-      this.editHandles.end[2],
-    ]);
-    if (!s || !e) return null;
-    const ds = Math.hypot(clientX - s[0], clientY - s[1]);
-    const de = Math.hypot(clientX - e[0], clientY - e[1]);
-    if (ds <= pixelRadius && ds <= de) return 'start';
-    if (de <= pixelRadius) return 'end';
-    return null;
+    let best: number | null = null;
+    let bestDistance = pixelRadius;
+    this.editHandles.forEach((anchor, index) => {
+      const screen = this.worldToClient(anchor);
+      if (!screen) return;
+      const distance = Math.hypot(clientX - screen[0], clientY - screen[1]);
+      if (distance <= bestDistance) {
+        bestDistance = distance;
+        best = index;
+      }
+    });
+    return best;
   }
 
   /** Ray-plane hit on Y=elevation. */

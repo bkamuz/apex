@@ -1,17 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  apexCreateElement,
   apexCreateLevel,
-  apexCreateWall,
   apexDeleteSelected,
   apexGetScene,
   apexGetSelected,
+  apexListComponents,
   apexPickById,
+  apexPreviewElement,
   apexSelectElement,
   apexSetActiveLevel,
+  apexSetElementPlacement,
   apexSetLevelElevation,
-  apexSetWallParams,
   apexTogglePickById,
   apexToggleSelectElement,
+  apexUpdateElement,
   initApex,
 } from './wasm/apex';
 import {
@@ -20,18 +23,26 @@ import {
   snapPointToGrid,
   ViewportRenderer,
   type ProjectionMode,
+  type Vec3,
 } from './viewport/ViewportRenderer';
-import { buildWallSolid } from './viewport/wallMesh';
-import type { ElementDto, ElementListDto, LevelDto, SceneDto, ToolMode } from './types';
-import { ElementTree } from './components/ElementTree';
-import { LevelList } from './components/LevelList';
-import { MobileMenuSheet, type MobileMenuTab } from './components/MobileMenuSheet';
-import { PropertiesPanel } from './components/PropertiesPanel';
+import type {
+  ComponentDto,
+  ElementDto,
+  ElementListDto,
+  LevelDto,
+  ParamValue,
+  PlacementKind,
+  SceneDto,
+} from './types';
+import { ElementTree } from './ui/ElementTree';
+import { LevelList } from './ui/LevelList';
+import { MobileMenuSheet, type MobileMenuTab } from './ui/MobileMenuSheet';
+import { PropertiesPanel } from './ui/PropertiesPanel';
 import { useMediaQuery } from './hooks/useMediaQuery';
+import { ToolRegistry } from './tools/registry';
+import { finishOpenGesture } from './tools/placementTool';
+import { requiredPoints, type PointerInfo, type ToolContext } from './tools/Tool';
 
-const DEFAULT_HEIGHT = 3;
-const DEFAULT_THICKNESS = 0.2;
-const MIN_WALL_LENGTH = 0.1;
 const DEFAULT_LEVEL_RISE = 3;
 
 function toFloatArray(data: ArrayLike<number> | number[]): Float32Array {
@@ -43,76 +54,64 @@ function toUint32Array(data: ArrayLike<number> | number[]): Uint32Array {
 }
 
 function selectedPickIds(scene: SceneDto): number[] {
-  const ids = scene.selected_ids ?? (scene.selected_id ? [scene.selected_id] : []);
   const picks: number[] = [];
-  for (const id of ids) {
+  for (const id of scene.selected_ids ?? []) {
     const hit = scene.elements.find((e) => e.id === id);
     if (hit) picks.push(hit.pick_id);
   }
   return picks;
 }
 
-function selectedIdList(scene: SceneDto): string[] {
-  if (Array.isArray(scene.selected_ids)) return scene.selected_ids;
-  return scene.selected_id ? [scene.selected_id] : [];
-}
-
-function planLength(a: [number, number, number], b: [number, number, number]): number {
-  const dx = b[0] - a[0];
-  const dz = b[2] - a[2];
-  return Math.hypot(dx, dz);
-}
-
 function syncLevelPlanes(renderer: ViewportRenderer, scene: SceneDto): void {
-  const activeId = scene.active_level_id;
   renderer.setLevelPlanes(
     (scene.levels ?? []).map((level) => ({
       id: level.id,
       elevation: level.elevation,
-      active: level.id === activeId,
+      active: level.id === scene.active_level_id,
     })),
   );
 }
 
-type HandleWhich = 'start' | 'end';
+function pointerInfo(e: React.PointerEvent | React.MouseEvent): PointerInfo {
+  return {
+    clientX: e.clientX,
+    clientY: e.clientY,
+    shift: e.shiftKey,
+    multi: e.ctrlKey || e.metaKey,
+  };
+}
 
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<ViewportRenderer | null>(null);
-  const wallStartRef = useRef<[number, number, number] | null>(null);
+  const registryRef = useRef(new ToolRegistry());
   const shiftHeldRef = useRef(false);
   const selectedRef = useRef<ElementDto | null>(null);
   const selectedCountRef = useRef(0);
   const activeElevationRef = useRef(0);
-  const handleDragRef = useRef<{
-    which: HandleWhich;
-    start: [number, number, number];
-    end: [number, number, number];
-    moved: boolean;
-  } | null>(null);
   const suppressClickRef = useRef(false);
+  const draggingRef = useRef(false);
 
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [tool, setTool] = useState<ToolMode>('wall');
+  const [components, setComponents] = useState<ComponentDto[]>([]);
+  const [toolId, setToolId] = useState<string>(ToolRegistry.selectId);
   const [projection, setProjection] = useState<ProjectionMode>('orthographic');
   const [scene, setScene] = useState<SceneDto | null>(null);
   const [selected, setSelected] = useState<ElementDto | null>(null);
   const [selectedLevelId, setSelectedLevelId] = useState<string | null>(null);
-  const [pendingStart, setPendingStart] = useState<[number, number, number] | null>(null);
+  const [pending, setPending] = useState<Vec3[]>([]);
   const [fps, setFps] = useState(0);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mobileMenuTab, setMobileMenuTab] = useState<MobileMenuTab>('levels');
   const isMobile = useMediaQuery('(max-width: 900px)');
 
   selectedRef.current = selected;
-  selectedCountRef.current = scene
-    ? Array.isArray(scene.selected_ids)
-      ? scene.selected_ids.length
-      : scene.selected_id
-        ? 1
-        : 0
-    : 0;
+  selectedCountRef.current = scene?.selected_ids?.length ?? 0;
+
+  const tool = registryRef.current.get(toolId) ?? registryRef.current.get(ToolRegistry.selectId)!;
+  const toolRef = useRef(tool);
+  toolRef.current = tool;
 
   const levels: LevelDto[] = useMemo(() => scene?.levels ?? [], [scene]);
   const activeLevel = useMemo(() => {
@@ -126,50 +125,19 @@ export default function App() {
     return levels.find((l) => l.id === selectedLevelId) ?? activeLevel;
   }, [selectedLevelId, levels, activeLevel]);
 
+  const selectedComponent = useMemo(() => {
+    if (!selected) return null;
+    return components.find((c) => c.id === selected.component_id) ?? null;
+  }, [selected, components]);
+
   const syncEditGizmo = useCallback((el: ElementDto | null) => {
-    const renderer = rendererRef.current;
-    if (!renderer) return;
-    if (el?.category === 'wall' && el.start && el.end) {
-      renderer.setEditGizmo(el.start, el.end);
-    } else {
-      renderer.setEditGizmo(null, null);
-    }
+    rendererRef.current?.setEditGizmo(el?.anchors?.length ? el.anchors : null);
   }, []);
 
-  const clearPlacementPreview = useCallback(() => {
-    rendererRef.current?.setPreviewLine(null, null);
-    rendererRef.current?.setGhostWall(null);
+  const clearPreview = useCallback(() => {
+    rendererRef.current?.setPreviewLine(null);
+    rendererRef.current?.setGhostMesh(null);
   }, []);
-
-  const clearSnapMarker = useCallback(() => {
-    rendererRef.current?.setSnapMarker(null);
-  }, []);
-
-  const showSnapMarker = useCallback((point: [number, number, number] | null, shiftHeld: boolean) => {
-    const renderer = rendererRef.current;
-    if (!renderer) return;
-    if (shiftHeld && point) renderer.setSnapMarker(point);
-    else renderer.setSnapMarker(null);
-  }, []);
-
-  const showPlacementPreview = useCallback(
-    (
-      start: [number, number, number],
-      end: [number, number, number],
-      height = DEFAULT_HEIGHT,
-      thickness = DEFAULT_THICKNESS,
-    ) => {
-      const renderer = rendererRef.current;
-      if (!renderer) return;
-      renderer.setPreviewLine(start, end);
-      if (planLength(start, end) < MIN_WALL_LENGTH) {
-        renderer.setGhostWall(null);
-        return;
-      }
-      renderer.setGhostWall(buildWallSolid(start, end, height, thickness));
-    },
-    [],
-  );
 
   const applyScene = useCallback(
     (next: SceneDto, fitCamera = false) => {
@@ -190,26 +158,140 @@ export default function App() {
       const sel = apexGetSelected();
       setSelected(sel);
       if (sel) setSelectedLevelId(sel.level_id);
-      if (!wallStartRef.current) {
-        clearPlacementPreview();
-        syncEditGizmo(sel);
-      }
+      if (!draggingRef.current) syncEditGizmo(sel);
     },
-    [clearPlacementPreview, syncEditGizmo],
+    [syncEditGizmo],
   );
 
-  const cancelWall = useCallback(() => {
-    wallStartRef.current = null;
-    setPendingStart(null);
-    clearPlacementPreview();
-    clearSnapMarker();
-    rendererRef.current?.setTouchOrbitEnabled(true);
-  }, [clearPlacementPreview, clearSnapMarker]);
+  /** Screen point to a world point on the active work plane, with Shift snapping. */
+  const resolvePoint = useCallback(
+    (clientX: number, clientY: number, shift: boolean, anchor: Vec3 | null): Vec3 | null => {
+      const renderer = rendererRef.current;
+      if (!renderer) return null;
+      const raw = renderer.screenToGround(clientX, clientY, activeElevationRef.current);
+      if (!raw) return null;
+      if (!shift && !shiftHeldRef.current) return raw;
+      let point = snapPointToGrid(raw, GRID_STEP);
+      if (anchor) point = snapPointToGrid(orthoConstrain(anchor, point), GRID_STEP);
+      return point;
+    },
+    [],
+  );
 
-  /** Escape: cancel placement, clear selection, switch to Select. */
+  /** Fresh services for the active tool; nothing is captured across events. */
+  const toolContext = useCallback((): ToolContext => {
+    const renderer = rendererRef.current!;
+    return {
+      resolvePoint: (x, y, shift, anchor) => resolvePoint(x, y, shift, anchor),
+
+      createElement: (componentId, points) => {
+        try {
+          applyScene(apexCreateElement(componentId, points));
+          setError(null);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+        }
+      },
+
+      showPreview: (componentId, points) => {
+        try {
+          const mesh = apexPreviewElement(componentId, points);
+          renderer.setGhostMesh({
+            positions: toFloatArray(mesh.positions),
+            normals: toFloatArray(mesh.normals),
+            indices: toUint32Array(mesh.indices),
+          });
+        } catch {
+          // A not-yet-valid gesture simply has no ghost.
+          renderer.setGhostMesh(null);
+        }
+      },
+
+      clearPreview: () => renderer.setGhostMesh(null),
+      showPreviewLine: (points) => renderer.setPreviewLine(points),
+
+      showSnapMarker: (point, shift) => {
+        renderer.setSnapMarker(shift || shiftHeldRef.current ? point : null);
+      },
+
+      pick: (x, y) => renderer.pick(x, y),
+
+      selectByPick: (pickId, multi) => {
+        if (pickId == null) {
+          if (!multi) applyScene(apexSelectElement(null));
+        } else {
+          applyScene(multi ? apexTogglePickById(pickId) : apexPickById(pickId));
+        }
+      },
+
+      hitEditHandle: (x, y) => renderer.hitEditHandle(x, y),
+      selectedAnchors: () =>
+        selectedCountRef.current === 1 ? (selectedRef.current?.anchors ?? null) : null,
+
+      previewAnchors: (anchors) => {
+        draggingRef.current = true;
+        renderer.setEditGizmo(anchors);
+        const sel = selectedRef.current;
+        if (!sel) return;
+        try {
+          // Live-update through the core so the solid follows the handle.
+          const next = apexSetElementPlacement(sel.id, anchors);
+          renderer.setScene({
+            positions: toFloatArray(next.positions),
+            normals: toFloatArray(next.normals),
+            indices: toUint32Array(next.indices),
+            pickIds: next.pick_ids,
+            edgePositions: next.edge_positions ? toFloatArray(next.edge_positions) : [],
+            selectedPickIds: selectedPickIds(next),
+            fitCamera: false,
+          });
+          setScene(next);
+        } catch {
+          // Keep dragging even if one intermediate placement is invalid.
+        }
+      },
+
+      commitAnchors: (anchors) => {
+        draggingRef.current = false;
+        const sel = selectedRef.current;
+        if (!sel) return;
+        try {
+          applyScene(apexSetElementPlacement(sel.id, anchors));
+          setError(null);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+          syncEditGizmo(sel);
+        }
+      },
+
+      setError,
+      setPending,
+      setTouchOrbitEnabled: (enabled) => renderer.setTouchOrbitEnabled(enabled),
+    };
+  }, [applyScene, resolvePoint, syncEditGizmo]);
+
+  const cancelGesture = useCallback(() => {
+    if (!rendererRef.current) return;
+    toolRef.current.cancel?.(toolContext());
+    setPending([]);
+    clearPreview();
+    rendererRef.current.setSnapMarker(null);
+  }, [clearPreview, toolContext]);
+
+  const activateTool = useCallback(
+    (id: string) => {
+      cancelGesture();
+      setToolId(id);
+      if (id === ToolRegistry.selectId) syncEditGizmo(selectedRef.current);
+      else rendererRef.current?.setEditGizmo(null);
+    },
+    [cancelGesture, syncEditGizmo],
+  );
+
+  /** Escape: abandon the gesture, clear selection, fall back to Select. */
   const onEscape = useCallback(() => {
-    cancelWall();
-    setTool('select');
+    cancelGesture();
+    setToolId(ToolRegistry.selectId);
     const active = document.activeElement;
     if (
       active instanceof HTMLElement &&
@@ -218,24 +300,16 @@ export default function App() {
       active.blur();
     }
     try {
-      applyScene(apexSelectElement(null), false);
+      applyScene(apexSelectElement(null));
     } catch {
-      rendererRef.current?.setEditGizmo(null, null);
+      rendererRef.current?.setEditGizmo(null);
       setSelected(null);
     }
-  }, [applyScene, cancelWall]);
-
-  const goSelect = useCallback(() => {
-    cancelWall();
-    setTool('select');
-    clearSnapMarker();
-    syncEditGizmo(selectedRef.current);
-  }, [cancelWall, clearSnapMarker, syncEditGizmo]);
+  }, [applyScene, cancelGesture]);
 
   useEffect(() => {
-    const isEscape = (e: KeyboardEvent) => e.key === 'Escape' || e.code === 'Escape';
     const onKeyDown = (e: KeyboardEvent) => {
-      if (isEscape(e)) {
+      if (e.key === 'Escape' || e.code === 'Escape') {
         e.preventDefault();
         onEscape();
         return;
@@ -248,7 +322,7 @@ export default function App() {
       if (!typing && (e.key === 'Delete' || e.key === 'Backspace') && selectedCountRef.current > 0) {
         e.preventDefault();
         try {
-          applyScene(apexDeleteSelected(), false);
+          applyScene(apexDeleteSelected());
         } catch {
           /* ignore */
         }
@@ -257,7 +331,7 @@ export default function App() {
     const onKeyUp = (e: KeyboardEvent) => {
       if (e.key === 'Shift') {
         shiftHeldRef.current = false;
-        clearSnapMarker();
+        rendererRef.current?.setSnapMarker(null);
       }
     };
     // Capture phase so Escape still wins when an input has focus.
@@ -267,7 +341,7 @@ export default function App() {
       window.removeEventListener('keydown', onKeyDown, true);
       window.removeEventListener('keyup', onKeyUp, true);
     };
-  }, [applyScene, clearSnapMarker, onEscape]);
+  }, [applyScene, onEscape]);
 
   useEffect(() => {
     let cancelled = false;
@@ -278,6 +352,12 @@ export default function App() {
         const canvas = canvasRef.current;
         if (!canvas) return;
         rendererRef.current = new ViewportRenderer(canvas);
+
+        // The toolbar is generated from whatever the core has installed.
+        const installed = apexListComponents();
+        registryRef.current.syncComponents(installed);
+        setComponents(installed);
+
         const initial = apexGetScene();
         if (!cancelled) {
           applyScene(initial, false);
@@ -297,7 +377,6 @@ export default function App() {
   }, [applyScene]);
 
   const closeMobileMenu = useCallback(() => setMobileMenuOpen(false), []);
-
   const openMobileMenu = useCallback((tab?: MobileMenuTab) => {
     if (tab) setMobileMenuTab(tab);
     setMobileMenuOpen(true);
@@ -305,13 +384,10 @@ export default function App() {
 
   useEffect(() => {
     if (!ready) return;
-    const id = window.setInterval(() => {
-      setFps(rendererRef.current?.getFps() ?? 0);
-    }, 500);
+    const id = window.setInterval(() => setFps(rendererRef.current?.getFps() ?? 0), 500);
     return () => window.clearInterval(id);
   }, [ready]);
 
-  // Close mobile menu when the layout becomes desktop-width again.
   useEffect(() => {
     if (!isMobile) setMobileMenuOpen(false);
   }, [isMobile]);
@@ -323,250 +399,49 @@ export default function App() {
 
   const elements: ElementListDto[] = useMemo(() => scene?.elements ?? [], [scene]);
 
-  const resolveGroundPoint = (
-    renderer: ViewportRenderer,
-    clientX: number,
-    clientY: number,
-    shiftHeld: boolean,
-    elevation: number,
-    anchor: [number, number, number] | null = wallStartRef.current,
-  ): [number, number, number] | null => {
-    const raw = renderer.screenToGround(clientX, clientY, elevation);
-    if (!raw) return null;
-    if (!shiftHeld) return raw;
-    let point = snapPointToGrid(raw, GRID_STEP);
-    if (anchor) {
-      point = snapPointToGrid(orthoConstrain(anchor, point), GRID_STEP);
-    }
-    return point;
-  };
+  const placementKindOf = (componentId: string): PlacementKind =>
+    components.find((c) => c.id === componentId)?.placement ?? 'point';
 
-  const commitWallEndpoints = useCallback(
-    (
-      id: string,
-      height: number,
-      thickness: number,
-      start: [number, number, number],
-      end: [number, number, number],
-    ) => {
-      if (planLength(start, end) < MIN_WALL_LENGTH) return;
-      try {
-        const next = apexSetWallParams(id, height, thickness, start, end);
-        applyScene(next, false);
-        setError(null);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-      }
-    },
-    [applyScene],
-  );
+  // -- canvas events: pure dispatch, no per-tool branching -------------------
 
   const onCanvasPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!ready || !rendererRef.current || e.button !== 0) return;
-    if (tool !== 'select') return;
-    const sel = selectedRef.current;
-    if (!sel?.start || !sel.end || sel.category !== 'wall') return;
-
-    const hit = rendererRef.current.hitEditHandle(e.clientX, e.clientY);
-    if (!hit) return;
-
-    handleDragRef.current = {
-      which: hit,
-      start: [...sel.start] as [number, number, number],
-      end: [...sel.end] as [number, number, number],
-      moved: false,
-    };
+    const claimed = tool.onPointerDown?.(pointerInfo(e), toolContext()) ?? false;
+    if (!claimed) return;
     suppressClickRef.current = true;
-    rendererRef.current.setTouchOrbitEnabled(false);
     e.currentTarget.setPointerCapture(e.pointerId);
     e.preventDefault();
   };
 
   const onCanvasPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!ready || !rendererRef.current) return;
-    const renderer = rendererRef.current;
-    const shift = e.shiftKey || shiftHeldRef.current;
+    tool.onPointerMove?.(pointerInfo(e), toolContext());
+  };
 
-    const drag = handleDragRef.current;
-    if (drag && selectedRef.current) {
-      const sel = selectedRef.current;
-      const fixed = drag.which === 'start' ? drag.end : drag.start;
-      const elev = sel.start?.[1] ?? activeElevationRef.current;
-      const point = resolveGroundPoint(renderer, e.clientX, e.clientY, shift, elev, fixed);
-      if (!point) {
-        clearSnapMarker();
-        return;
-      }
-      showSnapMarker(point, shift);
-      drag.moved = true;
-      const start = drag.which === 'start' ? point : drag.start;
-      const end = drag.which === 'end' ? point : drag.end;
-      drag.start = start;
-      drag.end = end;
-      renderer.setEditGizmo(start, end);
-      // Live-update solid via WASM so the wall follows the handle.
-      if (planLength(start, end) >= MIN_WALL_LENGTH) {
-        try {
-          const next = apexSetWallParams(
-            sel.id,
-            sel.height ?? DEFAULT_HEIGHT,
-            sel.thickness ?? DEFAULT_THICKNESS,
-            start,
-            end,
-          );
-          renderer.setScene({
-            positions: toFloatArray(next.positions),
-            normals: toFloatArray(next.normals),
-            indices: toUint32Array(next.indices),
-            pickIds: next.pick_ids,
-            edgePositions: next.edge_positions ? toFloatArray(next.edge_positions) : [],
-            selectedPickIds: selectedPickIds(next),
-            fitCamera: false,
-          });
-          syncLevelPlanes(renderer, next);
-          setScene(next);
-          const updated = apexGetSelected();
-          setSelected(updated);
-        } catch {
-          /* keep dragging even if a frame fails */
-        }
-      }
-      return;
+  const onCanvasPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!ready || !rendererRef.current) return;
+    tool.onPointerUp?.(pointerInfo(e), toolContext());
+    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+      e.currentTarget.releasePointerCapture(e.pointerId);
     }
-
-    if (tool === 'wall') {
-      const anchor = wallStartRef.current;
-      const point = resolveGroundPoint(
-        renderer,
-        e.clientX,
-        e.clientY,
-        shift,
-        activeElevationRef.current,
-        anchor,
-      );
-      if (!point) {
-        clearSnapMarker();
-        return;
-      }
-      showSnapMarker(point, shift);
-      if (anchor) showPlacementPreview(anchor, point);
-      return;
-    }
-
-    if (tool === 'select') {
-      const point = resolveGroundPoint(
-        renderer,
-        e.clientX,
-        e.clientY,
-        shift,
-        activeElevationRef.current,
-        null,
-      );
-      showSnapMarker(point, shift);
+    if (suppressClickRef.current) {
+      // Avoid the trailing click selecting or deselecting after a drag.
+      window.setTimeout(() => {
+        suppressClickRef.current = false;
+      }, 0);
     }
   };
 
   const onCanvasPointerLeave = () => {
-    clearSnapMarker();
-  };
-
-  const onCanvasPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    const drag = handleDragRef.current;
-    if (!drag) return;
-    handleDragRef.current = null;
-    rendererRef.current?.setTouchOrbitEnabled(!wallStartRef.current);
-    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-      e.currentTarget.releasePointerCapture(e.pointerId);
-    }
-    const sel = selectedRef.current;
-    if (sel && drag.moved) {
-      commitWallEndpoints(
-        sel.id,
-        sel.height ?? DEFAULT_HEIGHT,
-        sel.thickness ?? DEFAULT_THICKNESS,
-        drag.start,
-        drag.end,
-      );
-    } else {
-      syncEditGizmo(sel);
-    }
-    // Avoid the trailing click selecting/deselecting after a handle drag.
-    window.setTimeout(() => {
-      suppressClickRef.current = false;
-    }, 0);
+    rendererRef.current?.setSnapMarker(null);
   };
 
   const onCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!ready || !rendererRef.current) return;
     if (e.button !== 0) return;
-    if (suppressClickRef.current || handleDragRef.current) return;
+    if (suppressClickRef.current) return;
     if (rendererRef.current.consumeCameraGesture()) return;
-
-    const renderer = rendererRef.current;
-
-    if (tool === 'select') {
-      // Prefer handle hit — click on handle alone should not deselect.
-      if (renderer.hitEditHandle(e.clientX, e.clientY)) return;
-      const multi = e.ctrlKey || e.metaKey;
-      const pick = renderer.pick(e.clientX, e.clientY);
-      if (pick == null) {
-        if (!multi) applyScene(apexSelectElement(null), false);
-      } else if (multi) {
-        applyScene(apexTogglePickById(pick), false);
-      } else {
-        applyScene(apexPickById(pick), false);
-      }
-      return;
-    }
-
-    if (tool === 'wall') {
-      const point = resolveGroundPoint(
-        renderer,
-        e.clientX,
-        e.clientY,
-        e.shiftKey || shiftHeldRef.current,
-        activeElevationRef.current,
-      );
-      if (!point) return;
-
-      if (!wallStartRef.current) {
-        wallStartRef.current = point;
-        setPendingStart(point);
-        renderer.setEditGizmo(null, null);
-        renderer.setTouchOrbitEnabled(false);
-        showPlacementPreview(point, point);
-        return;
-      }
-
-      const start = wallStartRef.current;
-      const end = point;
-      if (planLength(start, end) < MIN_WALL_LENGTH) {
-        setError(`Wall too short (min ${MIN_WALL_LENGTH} m). Click farther apart.`);
-        return;
-      }
-
-      wallStartRef.current = null;
-      setPendingStart(null);
-      renderer.setTouchOrbitEnabled(true);
-      setError(null);
-      clearPlacementPreview();
-
-      try {
-        const next = apexCreateWall(
-          start[0],
-          start[1],
-          start[2],
-          end[0],
-          end[1],
-          end[2],
-          DEFAULT_HEIGHT,
-          DEFAULT_THICKNESS,
-        );
-        applyScene(next, false);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-      }
-    }
+    tool.onClick?.(pointerInfo(e), toolContext());
   };
 
   const onCanvasDoubleClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -574,6 +449,15 @@ export default function App() {
     if (e.button !== 0) return;
     if (rendererRef.current.consumeCameraGesture()) return;
     e.preventDefault();
+
+    // A variable-length gesture (polyline) ends on double-click.
+    if (tool.componentId && requiredPoints(placementKindOf(tool.componentId)) === null) {
+      if (finishOpenGesture(tool, pending, toolContext())) {
+        setPending([]);
+        return;
+      }
+    }
+
     const hit = rendererRef.current.hitLevelContour(e.clientX, e.clientY);
     if (!hit) return;
     suppressClickRef.current = true;
@@ -581,35 +465,33 @@ export default function App() {
       suppressClickRef.current = false;
     }, 0);
     try {
-      cancelWall();
-      const next = apexSetActiveLevel(hit);
+      cancelGesture();
+      applyScene(apexSetActiveLevel(hit));
       setSelectedLevelId(hit);
-      applyScene(next, false);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
   };
 
+  // -- sidebar / inspector ---------------------------------------------------
+
   const onSelectFromTree = (id: string, multi: boolean) => {
-    goSelect();
-    applyScene(multi ? apexToggleSelectElement(id) : apexSelectElement(id), false);
+    activateTool(ToolRegistry.selectId);
+    applyScene(multi ? apexToggleSelectElement(id) : apexSelectElement(id));
   };
 
   const onSelectLevel = (id: string) => {
     setSelectedLevelId(id);
     try {
-      applyScene(apexSelectElement(null), false);
+      applyScene(apexSelectElement(null));
     } catch {
       setSelected(null);
     }
   };
 
   const onCreateLevel = () => {
-    const maxElev = levels.reduce(
-      (m, l) => Math.max(m, l.elevation),
-      Number.NEGATIVE_INFINITY,
-    );
+    const maxElev = levels.reduce((m, l) => Math.max(m, l.elevation), Number.NEGATIVE_INFINITY);
     const elevation = levels.length === 0 ? 0 : maxElev + DEFAULT_LEVEL_RISE;
     try {
       const next = apexCreateLevel('', elevation);
@@ -617,9 +499,8 @@ export default function App() {
         next.levels.find((l) => !levels.some((prev) => prev.id === l.id))?.id ??
         next.levels[next.levels.length - 1]?.id ??
         null;
-      // Clear wall selection so applyScene does not overwrite the new level id.
-      const cleared = apexSelectElement(null);
-      applyScene(cleared, false);
+      // Clear the element selection so applyScene does not overwrite the new level id.
+      applyScene(apexSelectElement(null));
       setSelectedLevelId(createdId);
       setError(null);
     } catch (err) {
@@ -629,30 +510,39 @@ export default function App() {
 
   const onUpdateLevelElevation = (id: string, elevation: number) => {
     try {
-      const next = apexSetLevelElevation(id, elevation);
-      applyScene(next, false);
+      applyScene(apexSetLevelElevation(id, elevation));
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
   };
 
-  const selectedIds = scene ? selectedIdList(scene) : [];
-  const selectedCount = selectedIds.length;
-
-  const onUpdateWall = (patch: {
-    height: number;
-    thickness: number;
-    start: [number, number, number];
-    end: [number, number, number];
-  }) => {
+  const onUpdateParams = (params: Record<string, ParamValue>) => {
     if (!selected) return;
-    commitWallEndpoints(selected.id, patch.height, patch.thickness, patch.start, patch.end);
+    try {
+      applyScene(apexUpdateElement(selected.id, params));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   };
 
-  const onDelete = () => {
-    applyScene(apexDeleteSelected(), false);
-  };
+  const onDelete = () => applyScene(apexDeleteSelected());
+
+  const selectedIds = scene?.selected_ids ?? [];
+  const placementTools = registryRef.current.list().filter((t) => t.componentId);
+
+  const inspector = (
+    <PropertiesPanel
+      selected={selected}
+      selectedCount={selectedIds.length}
+      component={selectedComponent}
+      selectedLevel={selectedIds.length === 0 ? selectedLevel : null}
+      onUpdate={onUpdateParams}
+      onUpdateLevelElevation={onUpdateLevelElevation}
+      onDelete={onDelete}
+    />
+  );
 
   return (
     <div className="app">
@@ -661,22 +551,22 @@ export default function App() {
         <div className="tools">
           <button
             type="button"
-            className={tool === 'select' ? 'active' : ''}
-            onClick={() => goSelect()}
+            className={toolId === ToolRegistry.selectId ? 'active' : ''}
+            onClick={() => activateTool(ToolRegistry.selectId)}
           >
             Select
           </button>
-          <button
-            type="button"
-            className={tool === 'wall' ? 'active' : ''}
-            onClick={() => {
-              cancelWall();
-              clearSnapMarker();
-              setTool('wall');
-            }}
-          >
-            Wall
-          </button>
+          <span className="tools-sep" aria-hidden="true" />
+          {placementTools.map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              className={toolId === t.id ? 'active' : ''}
+              onClick={() => activateTool(t.id)}
+            >
+              {t.label}
+            </button>
+          ))}
           <span className="tools-sep" aria-hidden="true" />
           <button
             type="button"
@@ -696,11 +586,8 @@ export default function App() {
           </button>
         </div>
         <div className="hint">
-          {tool === 'wall'
-            ? pendingStart
-              ? `Click end on ${activeLevel?.name ?? 'level'} · Shift snap · Esc`
-              : `Wall on ${activeLevel?.name ?? 'level'} · MMB pan · RMB orbit · wheel zoom`
-            : 'MMB pan · RMB orbit · wheel zoom · 3-finger orbit · dbl-click level'}
+          {tool.hint(pending.length)}
+          {activeLevel ? ` · ${activeLevel.name}` : ''}
         </div>
       </header>
 
@@ -779,16 +666,7 @@ export default function App() {
                 }}
               />
             }
-            properties={
-              <PropertiesPanel
-                selected={selected}
-                selectedCount={selectedCount}
-                selectedLevel={selectedCount === 0 ? selectedLevel : null}
-                onUpdate={onUpdateWall}
-                onUpdateLevelElevation={onUpdateLevelElevation}
-                onDelete={onDelete}
-              />
-            }
+            properties={inspector}
           />
         ) : null}
       </div>
@@ -796,14 +674,7 @@ export default function App() {
       {!isMobile ? (
         <aside className="inspector">
           <div className="panel-title">Properties</div>
-          <PropertiesPanel
-            selected={selected}
-            selectedCount={selectedCount}
-            selectedLevel={selectedCount === 0 ? selectedLevel : null}
-            onUpdate={onUpdateWall}
-            onUpdateLevelElevation={onUpdateLevelElevation}
-            onDelete={onDelete}
-          />
+          {inspector}
         </aside>
       ) : null}
     </div>

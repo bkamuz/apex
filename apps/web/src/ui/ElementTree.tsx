@@ -8,7 +8,7 @@ interface Props {
 
 export function ElementTree({ elements, selectedIds, onSelect }: Props) {
   if (elements.length === 0) {
-    return <div className="empty">No elements yet. Use Wall to place the first one.</div>;
+    return <div className="empty">No elements yet. Pick a tool to place the first one.</div>;
   }
 
   const selected = new Set(selectedIds);
