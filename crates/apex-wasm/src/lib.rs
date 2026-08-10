@@ -28,8 +28,15 @@ fn with_project<R>(f: impl FnOnce(&mut Project) -> Result<R, JsValue>) -> Result
     })
 }
 
+/// Serialize for JS.
+///
+/// Maps must become plain objects, not `Map`s: `ParamMap` is a map, and any
+/// struct using `#[serde(flatten)]` (such as `ParamSpec`) is serialized as one
+/// too. With the default setting those arrive in JS as `Map` instances and
+/// every field reads back `undefined`.
 fn to_js<T: Serialize>(value: &T) -> Result<JsValue, JsValue> {
-    serde_wasm_bindgen::to_value(value).map_err(|e| err(e.to_string()))
+    let serializer = serde_wasm_bindgen::Serializer::new().serialize_maps_as_objects(true);
+    value.serialize(&serializer).map_err(|e| err(e.to_string()))
 }
 
 fn err(message: impl std::fmt::Display) -> JsValue {

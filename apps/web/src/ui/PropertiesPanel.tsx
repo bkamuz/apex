@@ -103,7 +103,8 @@ function ParamField({
 
     default: {
       const exhaustive: never = spec.kind;
-      return exhaustive;
+      void exhaustive;
+      return null;
     }
   }
 }

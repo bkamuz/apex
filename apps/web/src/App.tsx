@@ -42,6 +42,7 @@ import { useMediaQuery } from './hooks/useMediaQuery';
 import { ToolRegistry } from './tools/registry';
 import { finishOpenGesture } from './tools/placementTool';
 import { requiredPoints, type PointerInfo, type ToolContext } from './tools/Tool';
+import { extensions, installGlobalSdk } from './extensions/sdk';
 
 const DEFAULT_LEVEL_RISE = 3;
 
@@ -137,6 +138,14 @@ export default function App() {
   const clearPreview = useCallback(() => {
     rendererRef.current?.setPreviewLine(null);
     rendererRef.current?.setGhostMesh(null);
+  }, []);
+
+  /** Pull the installed components into the toolbar. */
+  const syncTools = useCallback(() => {
+    const installed = apexListComponents();
+    registryRef.current.syncComponents(installed);
+    for (const tool of extensions.customTools()) registryRef.current.register(tool);
+    setComponents(installed);
   }, []);
 
   const applyScene = useCallback(
@@ -354,9 +363,8 @@ export default function App() {
         rendererRef.current = new ViewportRenderer(canvas);
 
         // The toolbar is generated from whatever the core has installed.
-        const installed = apexListComponents();
-        registryRef.current.syncComponents(installed);
-        setComponents(installed);
+        syncTools();
+        installGlobalSdk();
 
         const initial = apexGetScene();
         if (!cancelled) {
@@ -374,7 +382,7 @@ export default function App() {
       rendererRef.current?.dispose();
       rendererRef.current = null;
     };
-  }, [applyScene]);
+  }, [applyScene, syncTools]);
 
   const closeMobileMenu = useCallback(() => setMobileMenuOpen(false), []);
   const openMobileMenu = useCallback((tab?: MobileMenuTab) => {
@@ -396,6 +404,15 @@ export default function App() {
     setProjection(mode);
     rendererRef.current?.setProjection(mode);
   }, []);
+
+  // A module can install a component at any time; the toolbar follows.
+  useEffect(() => {
+    if (!ready) return;
+    return extensions.subscribe(() => {
+      syncTools();
+      applyScene(apexGetScene());
+    });
+  }, [ready, syncTools, applyScene]);
 
   const elements: ElementListDto[] = useMemo(() => scene?.elements ?? [], [scene]);
 
