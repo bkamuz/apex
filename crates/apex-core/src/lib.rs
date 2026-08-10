@@ -3,9 +3,12 @@
 mod document;
 mod element;
 mod level;
-mod mesh;
 
 pub use document::{Document, DocumentChange, DocumentChangeKind, ElementSceneEntry, SceneBuffers};
-pub use element::{Element, ElementCategory, ElementId, WallParams};
+pub use element::{Element, ElementCategory, ElementId};
 pub use level::{Level, LevelId};
-pub use mesh::TriangleMesh;
+
+/// Geometry primitives the document is expressed in, re-exported for convenience.
+pub use apex_geometry::{
+    Curve, Frame, GeometryError, Justification, Profile, TriangleMesh, WallParams,
+};

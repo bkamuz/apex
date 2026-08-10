@@ -3,10 +3,12 @@ name = "apex-geometry"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "Apex geometry generators (wall extrusion; CSG toolkit hook)"
+description = "Apex geometry kernel: frames, curves, profiles, sweeps"
 
 [dependencies]
-apex-core = { workspace = true }
 glam = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }

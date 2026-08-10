@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
+use apex_geometry::TriangleMesh;
 use serde::{Deserialize, Serialize};
 
 use crate::element::{Element, ElementId};
 use crate::level::{Level, LevelId};
-use crate::mesh::TriangleMesh;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -231,8 +231,7 @@ pub struct SceneBuffers {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::element::WallParams;
-    use crate::mesh::TriangleMesh;
+    use apex_geometry::WallParams;
 
     #[test]
     fn new_document_has_level_zero_active() {

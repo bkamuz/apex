@@ -44,16 +44,25 @@ impl TriangleMesh {
         self.edges.extend_from_slice(&b);
     }
 
+    /// Append another mesh, rebasing its indices.
+    pub fn append(&mut self, other: &TriangleMesh) {
+        let base = self.vertex_count() as u32;
+        self.positions.extend_from_slice(&other.positions);
+        self.normals.extend_from_slice(&other.normals);
+        self.indices.extend(other.indices.iter().map(|i| i + base));
+        self.edges.extend_from_slice(&other.edges);
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.indices.is_empty()
+    }
+
     /// Axis-aligned bounding box of positions: (min, max).
     pub fn aabb(&self) -> Option<([f32; 3], [f32; 3])> {
         if self.positions.len() < 3 {
             return None;
         }
-        let mut min = [
-            self.positions[0],
-            self.positions[1],
-            self.positions[2],
-        ];
+        let mut min = [self.positions[0], self.positions[1], self.positions[2]];
         let mut max = min;
         for chunk in self.positions.chunks_exact(3) {
             for i in 0..3 {
@@ -62,5 +71,27 @@ impl TriangleMesh {
             }
         }
         Some((min, max))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn appending_rebases_indices_and_keeps_edges() {
+        let mut a = TriangleMesh::empty();
+        a.push_triangle([0.0; 3], [1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]);
+        a.push_edge([0.0; 3], [1.0, 0.0, 0.0]);
+
+        let mut b = TriangleMesh::empty();
+        b.push_triangle([0.0; 3], [1.0, 0.0, 0.0], [0.0, 0.0, 1.0], [0.0, 1.0, 0.0]);
+
+        a.append(&b);
+
+        assert_eq!(a.triangle_count(), 2);
+        assert_eq!(a.vertex_count(), 6);
+        assert_eq!(a.edge_count(), 1);
+        assert_eq!(&a.indices[3..], &[3, 4, 5], "second mesh must be rebased");
     }
 }

@@ -1,9 +1,23 @@
-//! Geometry generators.
+//! Geometry kernel: the primitives every Apex component is built from.
 //!
-//! Wall solids are built as extruded rectangular profiles (glam).
-//! A full CSG kernel (csgrs) is planned once a stable WASM-friendly release
-//! is available on crates.io; the `generate_wall_mesh` API stays stable.
+//! One convention throughout: a [`Profile`] lives in the local XY plane of a
+//! [`Frame`], and solids are produced by advancing that profile along local Z
+//! ([`extrude`]) or along a [`Curve`] ([`sweep`]).
+//!
+//! This crate knows nothing about walls, levels or documents.
 
+mod curve;
+mod error;
+mod frame;
+mod mesh;
+mod profile;
+mod sweep;
 mod wall;
 
-pub use wall::{generate_wall_mesh, WallMeshError};
+pub use curve::{Curve, MIN_CURVE_LENGTH};
+pub use error::GeometryError;
+pub use frame::Frame;
+pub use mesh::TriangleMesh;
+pub use profile::{Justification, Point2, Profile};
+pub use sweep::{extrude, sweep, SweepOptions};
+pub use wall::{generate_wall_mesh, WallParams};

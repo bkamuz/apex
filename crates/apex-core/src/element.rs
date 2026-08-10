@@ -1,5 +1,6 @@
 //! Parametric wall: centerline from start→end on the XZ plane (Y up).
 
+use apex_geometry::WallParams;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -62,24 +63,6 @@ impl ElementCategory {
             Self::Column => "column",
             Self::Other => "other",
         }
-    }
-}
-
-/// Parametric wall along a centerline. World axes: X right, Y up, Z depth.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct WallParams {
-    pub start: [f32; 3],
-    pub end: [f32; 3],
-    pub height: f32,
-    pub thickness: f32,
-}
-
-impl WallParams {
-    pub fn length(&self) -> f32 {
-        let dx = self.end[0] - self.start[0];
-        let dy = self.end[1] - self.start[1];
-        let dz = self.end[2] - self.start[2];
-        (dx * dx + dy * dy + dz * dz).sqrt()
     }
 }
 

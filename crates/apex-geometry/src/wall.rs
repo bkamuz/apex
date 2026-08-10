@@ -1,117 +1,56 @@
-use apex_core::{TriangleMesh, WallParams};
-use glam::Vec3;
-use thiserror::Error;
+//! Temporary bridge kept only until walls are registered as a component.
+//!
+//! It exists so the document model and the web app keep working while the
+//! kernel underneath is replaced; the component registry deletes it.
 
-#[derive(Debug, Error)]
-pub enum WallMeshError {
-    #[error("wall length is too small ({0})")]
-    DegenerateLength(f32),
-    #[error("wall height must be positive ({0})")]
-    InvalidHeight(f32),
-    #[error("wall thickness must be positive ({0})")]
-    InvalidThickness(f32),
+use glam::Vec3;
+use serde::{Deserialize, Serialize};
+
+use crate::curve::Curve;
+use crate::error::GeometryError;
+use crate::profile::{Justification, Profile};
+use crate::sweep::{sweep, SweepOptions};
+use crate::TriangleMesh;
+
+/// Parametric wall along a centerline. World axes: X right, Y up, Z depth.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct WallParams {
+    pub start: [f32; 3],
+    pub end: [f32; 3],
+    pub height: f32,
+    pub thickness: f32,
 }
 
-/// Build a wall as an oriented box along start→end (Y-up world).
-///
-/// Profile is a rectangle in the wall's local YZ cross-section, extruded along
-/// the centerline in XZ. Includes 12 unique CAD edges for overlay rendering.
-pub fn generate_wall_mesh(params: &WallParams) -> Result<TriangleMesh, WallMeshError> {
-    if params.height <= 0.0 {
-        return Err(WallMeshError::InvalidHeight(params.height));
+impl WallParams {
+    pub fn length(&self) -> f32 {
+        let dx = self.end[0] - self.start[0];
+        let dy = self.end[1] - self.start[1];
+        let dz = self.end[2] - self.start[2];
+        (dx * dx + dy * dy + dz * dz).sqrt()
     }
-    if params.thickness <= 0.0 {
-        return Err(WallMeshError::InvalidThickness(params.thickness));
-    }
+}
 
+/// Build a wall as a rectangular profile swept along its centerline.
+pub fn generate_wall_mesh(params: &WallParams) -> Result<TriangleMesh, GeometryError> {
+    let profile = Profile::rectangle(params.thickness, params.height).map_err(|e| match e {
+        GeometryError::InvalidWidth(w) => GeometryError::InvalidThickness(w),
+        other => other,
+    })?;
+
+    // The centerline is horizontal; both ends seat on the lower elevation.
     let start = Vec3::from_array(params.start);
     let end = Vec3::from_array(params.end);
-    let mut dir = Vec3::new(end.x - start.x, 0.0, end.z - start.z);
-    let length = dir.length();
-    if length < 1e-4 {
-        return Err(WallMeshError::DegenerateLength(length));
-    }
-    dir /= length;
-
-    let up = Vec3::Y;
-    let mut right = up.cross(dir);
-    if right.length_squared() < 1e-8 {
-        right = Vec3::X;
-    } else {
-        right = right.normalize();
-    }
-    // Re-orthogonalize
-    let dir = right.cross(up).normalize();
-    let right = up.cross(dir).normalize();
-
-    let base_y = start.y.min(end.y);
-    let origin = Vec3::new(
-        (start.x + end.x) * 0.5,
-        base_y + params.height * 0.5,
-        (start.z + end.z) * 0.5,
+    let base = start.y.min(end.y);
+    let path = Curve::line(
+        Vec3::new(start.x, base, start.z),
+        Vec3::new(end.x, base, end.z),
     );
 
-    let hx = length * 0.5;
-    let hy = params.height * 0.5;
-    let hz = params.thickness * 0.5;
-
-    // 8 corners in local space, then map to world
-    let local = [
-        Vec3::new(-hx, -hy, -hz),
-        Vec3::new(hx, -hy, -hz),
-        Vec3::new(hx, hy, -hz),
-        Vec3::new(-hx, hy, -hz),
-        Vec3::new(-hx, -hy, hz),
-        Vec3::new(hx, -hy, hz),
-        Vec3::new(hx, hy, hz),
-        Vec3::new(-hx, hy, hz),
-    ];
-
-    let to_world = |p: Vec3| origin + dir * p.x + up * p.y + right * p.z;
-    let corners: [Vec3; 8] = std::array::from_fn(|i| to_world(local[i]));
-    let ca = |i: usize| corners[i].to_array();
-
-    // Faces as quads (ccw outward)
-    let faces: [([usize; 4], Vec3); 6] = [
-        ([0, 3, 2, 1], -right),
-        ([4, 5, 6, 7], right),
-        ([0, 1, 5, 4], -up),
-        ([3, 7, 6, 2], up),
-        ([0, 4, 7, 3], -dir),
-        ([1, 2, 6, 5], dir),
-    ];
-
-    let mut mesh = TriangleMesh::empty();
-    for (idx, normal) in faces {
-        let n = normal.to_array();
-        let a = ca(idx[0]);
-        let b = ca(idx[1]);
-        let c = ca(idx[2]);
-        let d = ca(idx[3]);
-        mesh.push_triangle(a, b, c, n);
-        mesh.push_triangle(a, c, d, n);
-    }
-
-    // 12 unique box edges
-    const EDGE_PAIRS: [[usize; 2]; 12] = [
-        [0, 1],
-        [1, 2],
-        [2, 3],
-        [3, 0],
-        [4, 5],
-        [5, 6],
-        [6, 7],
-        [7, 4],
-        [0, 4],
-        [1, 5],
-        [2, 6],
-        [3, 7],
-    ];
-    for [i, j] in EDGE_PAIRS {
-        mesh.push_edge(ca(i), ca(j));
-    }
-
-    Ok(mesh)
+    sweep(
+        &profile,
+        &path,
+        &SweepOptions::with_justification(Justification::BaseCenter),
+    )
 }
 
 #[cfg(test)]
@@ -189,5 +128,31 @@ mod tests {
             thickness: 0.2,
         };
         assert!(generate_wall_mesh(&params).is_err());
+    }
+
+    #[test]
+    fn wall_rejects_non_positive_height_and_thickness() {
+        let base = WallParams {
+            start: [0.0, 0.0, 0.0],
+            end: [4.0, 0.0, 0.0],
+            height: 3.0,
+            thickness: 0.2,
+        };
+        assert_eq!(
+            generate_wall_mesh(&WallParams {
+                height: 0.0,
+                ..base.clone()
+            })
+            .unwrap_err(),
+            GeometryError::InvalidHeight(0.0)
+        );
+        assert_eq!(
+            generate_wall_mesh(&WallParams {
+                thickness: -0.1,
+                ..base
+            })
+            .unwrap_err(),
+            GeometryError::InvalidThickness(-0.1)
+        );
     }
 }
