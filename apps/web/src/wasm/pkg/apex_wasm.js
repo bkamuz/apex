@@ -1,7 +1,31 @@
 /* @ts-self-types="./apex_wasm.d.ts" */
 
 /**
- * Create a new level. Empty name → auto "Level N". Returns updated scene.
+ * Place a component from the raw picks the user made.
+ *
+ * The component's own `PlacementKind` decides how the points are interpreted,
+ * which is why one call serves every component.
+ * @param {string} component_id
+ * @param {string} points_json
+ * @param {number} rotation
+ * @param {string} params_json
+ * @returns {any}
+ */
+export function createElement(component_id, points_json, rotation, params_json) {
+    const ptr0 = passStringToWasm0(component_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(points_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passStringToWasm0(params_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ret = wasm.createElement(ptr0, len0, ptr1, len1, rotation, ptr2, len2);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * @param {string} name
  * @param {number} elevation
  * @returns {any}
@@ -17,27 +41,7 @@ export function createLevel(name, elevation) {
 }
 
 /**
- * Create a wall from two points on the active level. Returns updated scene JSON.
- * @param {number} x0
- * @param {number} y0
- * @param {number} z0
- * @param {number} x1
- * @param {number} y1
- * @param {number} z1
- * @param {number} height
- * @param {number} thickness
- * @returns {any}
- */
-export function createWall(x0, y0, z0, x1, y1, z1, height, thickness) {
-    const ret = wasm.createWall(x0, y0, z0, x1, y1, z1, height, thickness);
-    if (ret[2]) {
-        throw takeFromExternrefTable0(ret[1]);
-    }
-    return takeFromExternrefTable0(ret[0]);
-}
-
-/**
- * Delete all selected elements.
+ * Delete every selected element.
  * @returns {any}
  */
 export function deleteSelected() {
@@ -49,7 +53,6 @@ export function deleteSelected() {
 }
 
 /**
- * Full scene buffers for the viewport.
  * @returns {any}
  */
 export function getScene() {
@@ -61,7 +64,7 @@ export function getScene() {
 }
 
 /**
- * Selected element details when exactly one is selected (otherwise null).
+ * Details of the single selected element, or null.
  * @returns {any}
  */
 export function getSelected() {
@@ -73,7 +76,7 @@ export function getSelected() {
 }
 
 /**
- * Initialize panic hook and empty document with Level 0.
+ * Initialize the panic hook and an empty project with Level 0.
  */
 export function initApp() {
     const ret = wasm.initApp();
@@ -83,7 +86,19 @@ export function initApp() {
 }
 
 /**
- * List all elements.
+ * Every installed component. The UI builds its toolbar and inspector from this.
+ * @returns {any}
+ */
+export function listComponents() {
+    const ret = wasm.listComponents();
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Every element in the document.
  * @returns {any}
  */
 export function listElements() {
@@ -95,7 +110,7 @@ export function listElements() {
 }
 
 /**
- * Pick by GPU pick id (1-based sequential). Replaces selection.
+ * Resolve a GPU pick id to an element and replace the selection.
  * @param {number} pick_id
  * @returns {any}
  */
@@ -108,7 +123,46 @@ export function pickById(pick_id) {
 }
 
 /**
- * Replace selection with one element (or clear with empty string).
+ * Geometry for a placement that has not been committed yet.
+ *
+ * The preview and the real element come from the same recipe, so a ghost can
+ * never drift from what actually gets placed.
+ * @param {string} component_id
+ * @param {string} points_json
+ * @param {number} rotation
+ * @param {string} params_json
+ * @returns {any}
+ */
+export function previewElement(component_id, points_json, rotation, params_json) {
+    const ptr0 = passStringToWasm0(component_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(points_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passStringToWasm0(params_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ret = wasm.previewElement(ptr0, len0, ptr1, len1, rotation, ptr2, len2);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Install a component at runtime, from a module or the visual editor.
+ * @param {string} definition_json
+ * @returns {any}
+ */
+export function registerComponent(definition_json) {
+    const ptr0 = passStringToWasm0(definition_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.registerComponent(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * @param {string} id
  * @returns {any}
  */
@@ -123,7 +177,6 @@ export function selectElement(id) {
 }
 
 /**
- * Activate a level as the current work plane.
  * @param {string} id
  * @returns {any}
  */
@@ -138,7 +191,25 @@ export function setActiveLevel(id) {
 }
 
 /**
- * Change a level's elevation; walls on that level move with it.
+ * Re-place an existing element from a fresh set of picks.
+ * @param {string} id
+ * @param {string} points_json
+ * @param {number} rotation
+ * @returns {any}
+ */
+export function setElementPlacement(id, points_json, rotation) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(points_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.setElementPlacement(ptr0, len0, ptr1, len1, rotation);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * @param {string} id
  * @param {number} elevation
  * @returns {any}
@@ -154,30 +225,6 @@ export function setLevelElevation(id, elevation) {
 }
 
 /**
- * Update wall parameters by element id. Returns updated scene.
- * @param {string} id
- * @param {number} height
- * @param {number} thickness
- * @param {number} x0
- * @param {number} y0
- * @param {number} z0
- * @param {number} x1
- * @param {number} y1
- * @param {number} z1
- * @returns {any}
- */
-export function setWallParams(id, height, thickness, x0, y0, z0, x1, y1, z1) {
-    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-    const len0 = WASM_VECTOR_LEN;
-    const ret = wasm.setWallParams(ptr0, len0, height, thickness, x0, y0, z0, x1, y1, z1);
-    if (ret[2]) {
-        throw takeFromExternrefTable0(ret[1]);
-    }
-    return takeFromExternrefTable0(ret[0]);
-}
-
-/**
- * Toggle selection by GPU pick id (Ctrl/Cmd+click).
  * @param {number} pick_id
  * @returns {any}
  */
@@ -190,7 +237,6 @@ export function togglePickById(pick_id) {
 }
 
 /**
- * Toggle one element in/out of the selection (Ctrl/Cmd multi-select).
  * @param {string} id
  * @returns {any}
  */
@@ -198,6 +244,24 @@ export function toggleSelectElement(id) {
     const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
     const ret = wasm.toggleSelectElement(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Patch an element's parameters. Omitted parameters keep their current value.
+ * @param {string} id
+ * @param {string} params_json
+ * @returns {any}
+ */
+export function updateElement(id, params_json) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(params_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.updateElement(ptr0, len0, ptr1, len1);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -216,6 +280,10 @@ function __wbg_get_imports() {
             const len1 = WASM_VECTOR_LEN;
             getDataViewMemory0().setInt32(arg0 + 4 * 1, len1, true);
             getDataViewMemory0().setInt32(arg0 + 4 * 0, ptr1, true);
+        },
+        __wbg___wbindgen_is_string_ea5e6cc2e4141dfe: function(arg0) {
+            const ret = typeof(arg0) === 'string';
+            return ret;
         },
         __wbg___wbindgen_throw_344f42d3211c4765: function(arg0, arg1) {
             throw new Error(getStringFromWasm0(arg0, arg1));
@@ -242,8 +310,16 @@ function __wbg_get_imports() {
             const ret = new Array();
             return ret;
         },
+        __wbg_new_7796ffc7ed656783: function() {
+            const ret = new Map();
+            return ret;
+        },
         __wbg_new_da52cf8fe3429cb2: function() {
             const ret = new Object();
+            return ret;
+        },
+        __wbg_set_575dd786d51585f8: function(arg0, arg1, arg2) {
+            const ret = arg0.set(arg1, arg2);
             return ret;
         },
         __wbg_set_6be42768c690e380: function(arg0, arg1, arg2) {

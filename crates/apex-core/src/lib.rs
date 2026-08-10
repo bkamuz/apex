@@ -7,6 +7,7 @@ mod expr;
 mod level;
 mod param;
 mod placement;
+mod project;
 mod registry;
 
 pub use component::{
@@ -20,6 +21,7 @@ pub use expr::{Expr, ExprError};
 pub use level::{Level, LevelId};
 pub use param::{ParamError, ParamId, ParamKind, ParamMap, ParamSpec, ParamValue};
 pub use placement::{Placement, PlacementError, PlacementKind};
+pub use project::Project;
 pub use registry::{builtin_components, ComponentRegistry, RegistryError};
 
 /// Geometry primitives the document is expressed in, re-exported for convenience.

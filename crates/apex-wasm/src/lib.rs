@@ -1,36 +1,123 @@
-//! WASM façade over apex-core + apex-geometry.
+//! WASM façade over apex-core.
+//!
+//! Deliberately thin: it parses JSON, calls a `Project` method, and serializes
+//! the scene back. There is no per-component function here, so adding a
+//! component never touches this file.
 
 use std::cell::RefCell;
 use std::str::FromStr;
 
-use apex_core::{Document, Element, ElementId, LevelId, SceneBuffers, WallParams};
-use apex_geometry::generate_wall_mesh;
-use serde::Serialize;
+use apex_core::{
+    ComponentDefinition, Element, ElementId, LevelId, ParamMap, Project, SceneBuffers,
+};
+use glam::Vec3;
+use serde::{Deserialize, Serialize};
 use wasm_bindgen::prelude::*;
 
 thread_local! {
-    static APP: RefCell<Option<ApexApp>> = const { RefCell::new(None) };
+    static PROJECT: RefCell<Option<Project>> = const { RefCell::new(None) };
 }
 
-struct ApexApp {
-    document: Document,
-    wall_counter: u32,
-    level_counter: u32,
-    /// Selection order; empty = nothing selected.
-    selected: Vec<ElementId>,
+fn with_project<R>(f: impl FnOnce(&mut Project) -> Result<R, JsValue>) -> Result<R, JsValue> {
+    PROJECT.with(|cell| {
+        let mut borrow = cell.borrow_mut();
+        let project = borrow
+            .as_mut()
+            .ok_or_else(|| JsValue::from_str("Apex not initialized. Call initApp() first."))?;
+        f(project)
+    })
+}
+
+fn to_js<T: Serialize>(value: &T) -> Result<JsValue, JsValue> {
+    serde_wasm_bindgen::to_value(value).map_err(|e| err(e.to_string()))
+}
+
+fn err(message: impl std::fmt::Display) -> JsValue {
+    JsValue::from_str(&message.to_string())
+}
+
+fn parse_json<T: for<'de> Deserialize<'de>>(label: &str, json: &str) -> Result<T, JsValue> {
+    serde_json::from_str(json).map_err(|e| err(format!("invalid {label} JSON: {e}")))
+}
+
+/// Parameters are optional everywhere; an empty string means "no overrides".
+fn parse_params(json: &str) -> Result<ParamMap, JsValue> {
+    if json.trim().is_empty() {
+        return Ok(ParamMap::new());
+    }
+    parse_json("params", json)
+}
+
+fn element_id(id: &str) -> Result<ElementId, JsValue> {
+    ElementId::from_str(id).map_err(|e| err(format!("bad element id: {e}")))
+}
+
+fn level_id(id: &str) -> Result<LevelId, JsValue> {
+    LevelId::from_str(id).map_err(|e| err(format!("bad level id: {e}")))
+}
+
+// ---------------------------------------------------------------------------
+// DTOs
+// ---------------------------------------------------------------------------
+
+/// Selection lives in the façade: it is view state, not part of the document.
+#[derive(Default)]
+struct Selection(Vec<ElementId>);
+
+impl Selection {
+    fn set(&mut self, id: Option<ElementId>) {
+        self.0.clear();
+        if let Some(id) = id {
+            self.0.push(id);
+        }
+    }
+
+    fn toggle(&mut self, id: ElementId) {
+        match self.0.iter().position(|x| *x == id) {
+            Some(i) => {
+                self.0.remove(i);
+            }
+            None => self.0.push(id),
+        }
+    }
+
+    fn retain_existing(&mut self, project: &Project) {
+        self.0
+            .retain(|id| project.document().get_element(*id).is_some());
+    }
+}
+
+thread_local! {
+    static SELECTION: RefCell<Selection> = RefCell::new(Selection::default());
+}
+
+fn with_selection<R>(f: impl FnOnce(&mut Selection) -> R) -> R {
+    SELECTION.with(|cell| f(&mut cell.borrow_mut()))
 }
 
 #[derive(Serialize)]
 struct ElementDto {
     id: String,
     name: String,
+    component_id: String,
     category: String,
     level_id: String,
+    /// The picks that defined this element, so the UI can draw handles.
+    anchors: Vec<[f32; 3]>,
+    /// Length along the placement, when it has one.
     length: Option<f32>,
-    height: Option<f32>,
-    thickness: Option<f32>,
-    start: Option<[f32; 3]>,
-    end: Option<[f32; 3]>,
+    /// Resolved parameter values, keyed by parameter id.
+    params: ParamMap,
+}
+
+#[derive(Serialize)]
+struct ElementListDto {
+    id: String,
+    name: String,
+    component_id: String,
+    category: String,
+    pick_id: f64,
+    level_id: String,
 }
 
 #[derive(Serialize)]
@@ -41,73 +128,57 @@ struct LevelDto {
 }
 
 #[derive(Serialize)]
+struct MeshDto {
+    positions: Vec<f32>,
+    normals: Vec<f32>,
+    indices: Vec<u32>,
+    edge_positions: Vec<f32>,
+}
+
+#[derive(Serialize)]
 struct SceneDto {
     positions: Vec<f32>,
     normals: Vec<f32>,
     indices: Vec<u32>,
     /// Pick id per triangle.
     pick_ids: Vec<f64>,
-    /// CAD edge segments: consecutive xyz pairs.
     edge_positions: Vec<f32>,
     elements: Vec<ElementListDto>,
     levels: Vec<LevelDto>,
     active_level_id: Option<String>,
     version: u64,
-    /// All selected element ids (selection order).
     selected_ids: Vec<String>,
-    /// First selected id (compat / primary); null when empty.
     selected_id: Option<String>,
 }
 
-#[derive(Serialize)]
-struct ElementListDto {
-    id: String,
-    name: String,
-    category: String,
-    pick_id: f64,
-    level_id: String,
-}
+fn element_dto(project: &Project, element: &Element) -> ElementDto {
+    let category = project
+        .registry()
+        .get(&element.component_id)
+        .map(|c| c.category.clone())
+        .unwrap_or_default();
+    // Show resolved values so the inspector never renders a blank field.
+    let params = project
+        .registry()
+        .get(&element.component_id)
+        .and_then(|c| c.resolve_params(&element.params).ok())
+        .unwrap_or_else(|| element.params.clone());
 
-fn with_app<R>(f: impl FnOnce(&mut ApexApp) -> Result<R, JsValue>) -> Result<R, JsValue> {
-    APP.with(|cell| {
-        let mut borrow = cell.borrow_mut();
-        let app = borrow
-            .as_mut()
-            .ok_or_else(|| JsValue::from_str("Apex not initialized. Call init() first."))?;
-        f(app)
-    })
-}
-
-fn to_js<T: Serialize>(value: &T) -> Result<JsValue, JsValue> {
-    serde_wasm_bindgen::to_value(value).map_err(|e| JsValue::from_str(&e.to_string()))
-}
-
-fn element_dto(el: &Element) -> ElementDto {
-    let (length, height, thickness, start, end) = match &el.wall {
-        Some(w) => (
-            Some(w.length()),
-            Some(w.height),
-            Some(w.thickness),
-            Some(w.start),
-            Some(w.end),
-        ),
-        None => (None, None, None, None, None),
-    };
     ElementDto {
-        id: el.id.to_string(),
-        name: el.name.clone(),
-        category: el.category.as_str().to_string(),
-        level_id: el.level_id.to_string(),
-        length,
-        height,
-        thickness,
-        start,
-        end,
+        id: element.id.to_string(),
+        name: element.name.clone(),
+        component_id: element.component_id.clone(),
+        category,
+        level_id: element.level_id.to_string(),
+        anchors: element.placement.anchors().iter().map(|p| p.to_array()).collect(),
+        length: element.placement.length(),
+        params,
     }
 }
 
-fn sorted_levels(doc: &Document) -> Vec<LevelDto> {
-    let mut levels: Vec<_> = doc
+fn sorted_levels(project: &Project) -> Vec<LevelDto> {
+    let mut levels: Vec<_> = project
+        .document()
         .levels()
         .map(|l| LevelDto {
             id: l.id.to_string(),
@@ -124,18 +195,11 @@ fn sorted_levels(doc: &Document) -> Vec<LevelDto> {
     levels
 }
 
-fn scene_dto(doc: &Document, selected: &[ElementId]) -> SceneDto {
-    let buffers: SceneBuffers = doc.build_scene_buffers();
-    let selected_ids: Vec<String> = selected.iter().map(|id| id.to_string()).collect();
-    let selected_id = selected_ids.first().cloned();
-    let level_by_id: std::collections::HashMap<_, _> = buffers
-        .elements
-        .iter()
-        .filter_map(|e| {
-            doc.get_element(e.id)
-                .map(|el| (e.id, el.level_id.to_string()))
-        })
-        .collect();
+fn scene_dto(project: &Project) -> SceneDto {
+    let buffers: SceneBuffers = project.document().build_scene_buffers();
+    let selected_ids =
+        with_selection(|s| s.0.iter().map(|id| id.to_string()).collect::<Vec<_>>());
+
     SceneDto {
         positions: buffers.positions,
         normals: buffers.normals,
@@ -148,307 +212,305 @@ fn scene_dto(doc: &Document, selected: &[ElementId]) -> SceneDto {
             .map(|e| ElementListDto {
                 id: e.id.to_string(),
                 name: e.name.clone(),
-                category: e.category.clone(),
-                pick_id: e.pick_id as f64,
-                level_id: level_by_id
-                    .get(&e.id)
-                    .cloned()
+                component_id: e.component_id.clone(),
+                category: project
+                    .registry()
+                    .get(&e.component_id)
+                    .map(|c| c.category.clone())
                     .unwrap_or_default(),
+                pick_id: e.pick_id as f64,
+                level_id: e.level_id.to_string(),
             })
             .collect(),
-        levels: sorted_levels(doc),
-        active_level_id: doc.active_level_id().map(|id| id.to_string()),
+        levels: sorted_levels(project),
+        active_level_id: project.document().active_level_id().map(|id| id.to_string()),
         version: buffers.version,
+        selected_id: selected_ids.first().cloned(),
         selected_ids,
-        selected_id,
     }
 }
 
-fn set_selection(app: &mut ApexApp, id: Option<ElementId>) {
-    app.selected.clear();
-    if let Some(id) = id {
-        app.selected.push(id);
-    }
+fn scene(project: &Project) -> Result<JsValue, JsValue> {
+    to_js(&scene_dto(project))
 }
 
-fn toggle_selection(app: &mut ApexApp, id: ElementId) {
-    if let Some(i) = app.selected.iter().position(|x| *x == id) {
-        app.selected.remove(i);
-    } else {
-        app.selected.push(id);
-    }
+fn points_from_json(json: &str) -> Result<Vec<Vec3>, JsValue> {
+    let raw: Vec<[f32; 3]> = parse_json("points", json)?;
+    Ok(raw.into_iter().map(Vec3::from_array).collect())
 }
 
-fn remesh_wall(app: &mut ApexApp, element_id: ElementId) -> Result<(), JsValue> {
-    let mut element = app
-        .document
-        .get_element(element_id)
-        .cloned()
-        .ok_or_else(|| JsValue::from_str("Element not found"))?;
-    let wall = element
-        .wall
-        .clone()
-        .ok_or_else(|| JsValue::from_str("Element is not a wall"))?;
-    let mesh = generate_wall_mesh(&wall).map_err(|e| JsValue::from_str(&e.to_string()))?;
-    element.wall = Some(wall);
-    app.document.update_element(element, mesh);
-    Ok(())
-}
+// ---------------------------------------------------------------------------
+// Lifecycle
+// ---------------------------------------------------------------------------
 
-/// Initialize panic hook and empty document with Level 0.
+/// Initialize the panic hook and an empty project with Level 0.
 #[wasm_bindgen(js_name = initApp)]
 pub fn init_app() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    APP.with(|cell| {
-        *cell.borrow_mut() = Some(ApexApp {
-            document: Document::new(),
-            wall_counter: 0,
-            level_counter: 0,
-            selected: Vec::new(),
-        });
-    });
+    PROJECT.with(|cell| *cell.borrow_mut() = Some(Project::new()));
+    with_selection(|s| s.set(None));
     Ok(())
 }
 
-/// Create a wall from two points on the active level. Returns updated scene JSON.
-#[wasm_bindgen(js_name = createWall)]
-pub fn create_wall(
-    x0: f32,
-    y0: f32,
-    z0: f32,
-    x1: f32,
-    y1: f32,
-    z1: f32,
-    height: f32,
-    thickness: f32,
+// ---------------------------------------------------------------------------
+// Components
+// ---------------------------------------------------------------------------
+
+/// Every installed component. The UI builds its toolbar and inspector from this.
+#[wasm_bindgen(js_name = listComponents)]
+pub fn list_components() -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let list: Vec<_> = project.registry().components().cloned().collect();
+        to_js(&list)
+    })
+}
+
+/// Install a component at runtime, from a module or the visual editor.
+#[wasm_bindgen(js_name = registerComponent)]
+pub fn register_component(definition_json: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let definition: ComponentDefinition = parse_json("component", definition_json)?;
+        project.register_component(definition).map_err(err)?;
+        scene(project)
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Elements
+// ---------------------------------------------------------------------------
+
+/// Place a component from the raw picks the user made.
+///
+/// The component's own `PlacementKind` decides how the points are interpreted,
+/// which is why one call serves every component.
+#[wasm_bindgen(js_name = createElement)]
+pub fn create_element(
+    component_id: &str,
+    points_json: &str,
+    rotation: f32,
+    params_json: &str,
 ) -> Result<JsValue, JsValue> {
-    with_app(|app| {
-        let level_id = app
-            .document
-            .active_level_id()
-            .ok_or_else(|| JsValue::from_str("No active level"))?;
-        let elevation = app
-            .document
-            .get_level(level_id)
-            .map(|l| l.elevation)
-            .unwrap_or(0.0);
-        let _ = (y0, y1);
-
-        let wall = WallParams {
-            start: [x0, elevation, z0],
-            end: [x1, elevation, z1],
-            height,
-            thickness,
-        };
-
-        let mesh = generate_wall_mesh(&wall).map_err(|e| JsValue::from_str(&e.to_string()))?;
-
-        app.wall_counter += 1;
-        let name = format!("Wall {}", app.wall_counter);
-        let element = Element::wall(name, level_id, wall);
-        let id = element.id;
-        app.document.upsert_element(element, mesh);
-        set_selection(app, Some(id));
-
-        to_js(&scene_dto(&app.document, &app.selected))
+    with_project(|project| {
+        let points = points_from_json(points_json)?;
+        let params = parse_params(params_json)?;
+        let placement = project
+            .placement_from_points(component_id, &points, rotation)
+            .map_err(err)?;
+        let id = project
+            .create_element(component_id, placement, params)
+            .map_err(err)?;
+        with_selection(|s| s.set(Some(id)));
+        scene(project)
     })
 }
 
-/// Update wall parameters by element id. Returns updated scene.
-#[wasm_bindgen(js_name = setWallParams)]
-pub fn set_wall_params(
-    id: &str,
-    height: f32,
-    thickness: f32,
-    x0: f32,
-    y0: f32,
-    z0: f32,
-    x1: f32,
-    y1: f32,
-    z1: f32,
+/// Patch an element's parameters. Omitted parameters keep their current value.
+#[wasm_bindgen(js_name = updateElement)]
+pub fn update_element(id: &str, params_json: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let element = element_id(id)?;
+        let params = parse_params(params_json)?;
+        project
+            .update_element(element, Some(params), None)
+            .map_err(err)?;
+        scene(project)
+    })
+}
+
+/// Re-place an existing element from a fresh set of picks.
+#[wasm_bindgen(js_name = setElementPlacement)]
+pub fn set_element_placement(id: &str, points_json: &str, rotation: f32) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let element = element_id(id)?;
+        let component_id = project
+            .document()
+            .get_element(element)
+            .map(|e| e.component_id.clone())
+            .ok_or_else(|| err("Element not found"))?;
+
+        let points = points_from_json(points_json)?;
+        let placement = project
+            .placement_from_points(&component_id, &points, rotation)
+            .map_err(err)?;
+        project
+            .update_element(element, None, Some(placement))
+            .map_err(err)?;
+        scene(project)
+    })
+}
+
+/// Geometry for a placement that has not been committed yet.
+///
+/// The preview and the real element come from the same recipe, so a ghost can
+/// never drift from what actually gets placed.
+#[wasm_bindgen(js_name = previewElement)]
+pub fn preview_element(
+    component_id: &str,
+    points_json: &str,
+    rotation: f32,
+    params_json: &str,
 ) -> Result<JsValue, JsValue> {
-    with_app(|app| {
-        let element_id = ElementId::from_str(id).map_err(|e| JsValue::from_str(&e.to_string()))?;
-        let mut element = app
-            .document
-            .get_element(element_id)
-            .cloned()
-            .ok_or_else(|| JsValue::from_str("Element not found"))?;
+    with_project(|project| {
+        let points = points_from_json(points_json)?;
+        let params = parse_params(params_json)?;
+        let placement = project
+            .placement_from_points(component_id, &points, rotation)
+            .map_err(err)?;
+        // Previews follow the active work plane, like a real placement would.
+        let elevation = project.active_work_plane().origin.y;
+        let placement = placement.with_elevation(elevation);
 
-        let elevation = app
-            .document
-            .get_level(element.level_id)
-            .map(|l| l.elevation)
-            .unwrap_or(y0.min(y1));
+        let mesh = project.preview(component_id, &placement, &params).map_err(err)?;
+        to_js(&MeshDto {
+            positions: mesh.positions,
+            normals: mesh.normals,
+            indices: mesh.indices,
+            edge_positions: mesh.edges,
+        })
+    })
+}
 
-        let wall = WallParams {
-            start: [x0, elevation, z0],
-            end: [x1, elevation, z1],
-            height,
-            thickness,
-        };
-        let mesh = generate_wall_mesh(&wall).map_err(|e| JsValue::from_str(&e.to_string()))?;
-        element.wall = Some(wall);
-        app.document.update_element(element, mesh);
-        // Keep multi-selection if this wall was already selected; otherwise select only it.
-        if !app.selected.iter().any(|x| *x == element_id) {
-            set_selection(app, Some(element_id));
+/// Delete every selected element.
+#[wasm_bindgen(js_name = deleteSelected)]
+pub fn delete_selected() -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let ids = with_selection(|s| std::mem::take(&mut s.0));
+        for id in ids {
+            project.delete_element(id);
         }
-        to_js(&scene_dto(&app.document, &app.selected))
+        scene(project)
     })
 }
 
-/// Create a new level. Empty name → auto "Level N". Returns updated scene.
-#[wasm_bindgen(js_name = createLevel)]
-pub fn create_level(name: &str, elevation: f32) -> Result<JsValue, JsValue> {
-    with_app(|app| {
-        app.level_counter += 1;
-        let label = if name.trim().is_empty() {
-            format!("Level {}", app.level_counter)
-        } else {
-            name.trim().to_string()
-        };
-        let (_id, _) = app.document.add_level(label, elevation);
-        // Activation is explicit (double-click contour / setActiveLevel).
-        to_js(&scene_dto(&app.document, &app.selected))
-    })
-}
-
-/// Activate a level as the current work plane.
-#[wasm_bindgen(js_name = setActiveLevel)]
-pub fn set_active_level(id: &str) -> Result<JsValue, JsValue> {
-    with_app(|app| {
-        let level_id = LevelId::from_str(id).map_err(|e| JsValue::from_str(&e.to_string()))?;
-        app.document
-            .set_active_level(level_id)
-            .map_err(|e| JsValue::from_str(&e))?;
-        to_js(&scene_dto(&app.document, &app.selected))
-    })
-}
-
-/// Change a level's elevation; walls on that level move with it.
-#[wasm_bindgen(js_name = setLevelElevation)]
-pub fn set_level_elevation(id: &str, elevation: f32) -> Result<JsValue, JsValue> {
-    with_app(|app| {
-        let level_id = LevelId::from_str(id).map_err(|e| JsValue::from_str(&e.to_string()))?;
-        let (_change, moved) = app
-            .document
-            .set_level_elevation(level_id, elevation)
-            .map_err(|e| JsValue::from_str(&e))?;
-        for element_id in moved {
-            remesh_wall(app, element_id)?;
-        }
-        to_js(&scene_dto(&app.document, &app.selected))
-    })
-}
-
-/// Replace selection with one element (or clear with empty string).
-#[wasm_bindgen(js_name = selectElement)]
-pub fn select_element(id: &str) -> Result<JsValue, JsValue> {
-    with_app(|app| {
-        if id.is_empty() {
-            app.selected.clear();
-        } else {
-            let element_id =
-                ElementId::from_str(id).map_err(|e| JsValue::from_str(&e.to_string()))?;
-            if app.document.get_element(element_id).is_none() {
-                return Err(JsValue::from_str("Element not found"));
-            }
-            set_selection(app, Some(element_id));
-        }
-        to_js(&scene_dto(&app.document, &app.selected))
-    })
-}
-
-/// Toggle one element in/out of the selection (Ctrl/Cmd multi-select).
-#[wasm_bindgen(js_name = toggleSelectElement)]
-pub fn toggle_select_element(id: &str) -> Result<JsValue, JsValue> {
-    with_app(|app| {
-        let element_id = ElementId::from_str(id).map_err(|e| JsValue::from_str(&e.to_string()))?;
-        if app.document.get_element(element_id).is_none() {
-            return Err(JsValue::from_str("Element not found"));
-        }
-        toggle_selection(app, element_id);
-        to_js(&scene_dto(&app.document, &app.selected))
-    })
-}
-
-/// Pick by GPU pick id (1-based sequential). Replaces selection.
-#[wasm_bindgen(js_name = pickById)]
-pub fn pick_by_id(pick_id: f64) -> Result<JsValue, JsValue> {
-    with_app(|app| {
-        let target = pick_id as u64;
-        let buffers = app.document.build_scene_buffers();
-        let found = buffers
-            .elements
-            .iter()
-            .find(|e| e.pick_id == target)
-            .map(|e| e.id);
-
-        set_selection(app, found);
-        to_js(&scene_dto(&app.document, &app.selected))
-    })
-}
-
-/// Toggle selection by GPU pick id (Ctrl/Cmd+click).
-#[wasm_bindgen(js_name = togglePickById)]
-pub fn toggle_pick_by_id(pick_id: f64) -> Result<JsValue, JsValue> {
-    with_app(|app| {
-        let target = pick_id as u64;
-        let buffers = app.document.build_scene_buffers();
-        let found = buffers
-            .elements
-            .iter()
-            .find(|e| e.pick_id == target)
-            .map(|e| e.id);
-
-        if let Some(id) = found {
-            toggle_selection(app, id);
-        }
-        to_js(&scene_dto(&app.document, &app.selected))
-    })
-}
-
-/// Full scene buffers for the viewport.
-#[wasm_bindgen(js_name = getScene)]
-pub fn get_scene() -> Result<JsValue, JsValue> {
-    with_app(|app| to_js(&scene_dto(&app.document, &app.selected)))
-}
-
-/// Selected element details when exactly one is selected (otherwise null).
+/// Details of the single selected element, or null.
 #[wasm_bindgen(js_name = getSelected)]
 pub fn get_selected() -> Result<JsValue, JsValue> {
-    with_app(|app| {
-        if app.selected.len() != 1 {
+    with_project(|project| {
+        let selected = with_selection(|s| s.0.clone());
+        if selected.len() != 1 {
             return Ok(JsValue::NULL);
         }
-        let id = app.selected[0];
-        let el = app
-            .document
-            .get_element(id)
-            .ok_or_else(|| JsValue::from_str("Selected element missing"))?;
-        to_js(&element_dto(el))
+        match project.document().get_element(selected[0]) {
+            Some(element) => to_js(&element_dto(project, element)),
+            None => Ok(JsValue::NULL),
+        }
     })
 }
 
-/// List all elements.
+/// Every element in the document.
 #[wasm_bindgen(js_name = listElements)]
 pub fn list_elements() -> Result<JsValue, JsValue> {
-    with_app(|app| {
-        let mut list: Vec<_> = app.document.elements().map(element_dto).collect();
+    with_project(|project| {
+        let mut list: Vec<_> = project
+            .document()
+            .elements()
+            .map(|e| element_dto(project, e))
+            .collect();
         list.sort_by(|a, b| a.name.cmp(&b.name));
         to_js(&list)
     })
 }
 
-/// Delete all selected elements.
-#[wasm_bindgen(js_name = deleteSelected)]
-pub fn delete_selected() -> Result<JsValue, JsValue> {
-    with_app(|app| {
-        let ids: Vec<ElementId> = app.selected.drain(..).collect();
-        for id in ids {
-            app.document.remove_element(id);
+// ---------------------------------------------------------------------------
+// Selection
+// ---------------------------------------------------------------------------
+
+#[wasm_bindgen(js_name = selectElement)]
+pub fn select_element(id: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        if id.is_empty() {
+            with_selection(|s| s.set(None));
+        } else {
+            let element = element_id(id)?;
+            if project.document().get_element(element).is_none() {
+                return Err(err("Element not found"));
+            }
+            with_selection(|s| s.set(Some(element)));
         }
-        to_js(&scene_dto(&app.document, &app.selected))
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = toggleSelectElement)]
+pub fn toggle_select_element(id: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let element = element_id(id)?;
+        if project.document().get_element(element).is_none() {
+            return Err(err("Element not found"));
+        }
+        with_selection(|s| s.toggle(element));
+        scene(project)
+    })
+}
+
+/// Resolve a GPU pick id to an element and replace the selection.
+#[wasm_bindgen(js_name = pickById)]
+pub fn pick_by_id(pick_id: f64) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let found = find_by_pick_id(project, pick_id);
+        with_selection(|s| s.set(found));
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = togglePickById)]
+pub fn toggle_pick_by_id(pick_id: f64) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        if let Some(id) = find_by_pick_id(project, pick_id) {
+            with_selection(|s| s.toggle(id));
+        }
+        scene(project)
+    })
+}
+
+fn find_by_pick_id(project: &Project, pick_id: f64) -> Option<ElementId> {
+    let target = pick_id as u64;
+    project
+        .document()
+        .build_scene_buffers()
+        .elements
+        .iter()
+        .find(|e| e.pick_id == target)
+        .map(|e| e.id)
+}
+
+// ---------------------------------------------------------------------------
+// Scene and levels
+// ---------------------------------------------------------------------------
+
+#[wasm_bindgen(js_name = getScene)]
+pub fn get_scene() -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        with_selection(|s| s.retain_existing(project));
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = createLevel)]
+pub fn create_level(name: &str, elevation: f32) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        project.add_level(name, elevation);
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = setActiveLevel)]
+pub fn set_active_level(id: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let level = level_id(id)?;
+        project
+            .document_mut()
+            .set_active_level(level)
+            .map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = setLevelElevation)]
+pub fn set_level_elevation(id: &str, elevation: f32) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let level = level_id(id)?;
+        project.set_level_elevation(level, elevation).map_err(err)?;
+        scene(project)
     })
 }
