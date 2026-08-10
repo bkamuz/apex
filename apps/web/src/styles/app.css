@@ -108,6 +108,15 @@ button:focus-visible {
   display: flex;
   gap: 8px;
   align-items: center;
+  /* One button per component, so the toolbar grows with the registry. */
+  overflow-x: auto;
+  scrollbar-width: thin;
+}
+
+/* Multi-word component names must not wrap and stagger the row. */
+.tools button {
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .tools-sep {
