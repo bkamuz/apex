@@ -78,11 +78,7 @@ pub fn extrude(
 }
 
 /// Shared ring-and-cap builder for every swept solid.
-fn build(
-    profile: &Profile,
-    frames: &[Frame],
-    closed: bool,
-) -> Result<TriangleMesh, GeometryError> {
+fn build(profile: &Profile, frames: &[Frame], closed: bool) -> Result<TriangleMesh, GeometryError> {
     if profile.has_holes() {
         return Err(GeometryError::HolesUnsupported);
     }
@@ -155,10 +151,10 @@ fn push_edges(
             }
         }
     }
-    for j in 0..corners {
-        for i in 0..spans {
-            let next = (i + 1) % stations;
-            mesh.push_edge(rings[i][j].to_array(), rings[next][j].to_array());
+    for i in 0..spans {
+        let next = (i + 1) % stations;
+        for (from, to) in rings[i].iter().zip(rings[next].iter()) {
+            mesh.push_edge(from.to_array(), to.to_array());
         }
     }
 }

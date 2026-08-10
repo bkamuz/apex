@@ -60,19 +60,16 @@ impl From<GeometryError> for RecipeError {
 /// How a component came to exist. Authoring is a property, not a separate kind
 /// of thing: a visually built component can later gain a `Custom` recipe step
 /// from a module without changing what it is.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ComponentSource {
     BuiltIn,
     /// Assembled by the user in the editor, no code involved.
+    #[default]
     Visual,
-    Module { id: ModuleId },
-}
-
-impl Default for ComponentSource {
-    fn default() -> Self {
-        Self::Visual
-    }
+    Module {
+        id: ModuleId,
+    },
 }
 
 /// Which coordinate system a recipe step builds in.
@@ -159,9 +156,10 @@ impl ProfileSpec {
         depth: usize,
     ) -> Result<Profile, RecipeError> {
         match self {
-            Self::Rectangle { width, height } => {
-                Ok(Profile::rectangle(width.eval_f32(params)?, height.eval_f32(params)?)?)
-            }
+            Self::Rectangle { width, height } => Ok(Profile::rectangle(
+                width.eval_f32(params)?,
+                height.eval_f32(params)?,
+            )?),
             Self::Circle { radius, segments } => {
                 Ok(Profile::circle(radius.eval_f32(params)?, *segments)?)
             }
@@ -355,9 +353,15 @@ pub fn evaluate_recipe(
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 pub enum DefinitionError {
     #[error("component '{component}' declares parameter '{param}' twice")]
-    DuplicateParam { component: ComponentId, param: ParamId },
+    DuplicateParam {
+        component: ComponentId,
+        param: ParamId,
+    },
     #[error("component '{component}' recipe uses undeclared parameter '{param}'")]
-    UndeclaredParam { component: ComponentId, param: ParamId },
+    UndeclaredParam {
+        component: ComponentId,
+        param: ParamId,
+    },
     #[error("component id must not be empty")]
     EmptyId,
 }
@@ -458,8 +462,12 @@ mod tests {
             .with("thickness", ParamValue::Length(0.2));
         let profiles = ProfileLibrary::new();
 
-        let mesh = evaluate_recipe(&recipe, &ctx(&placement, &params, &profiles), &no_builders())
-            .expect("mesh");
+        let mesh = evaluate_recipe(
+            &recipe,
+            &ctx(&placement, &params, &profiles),
+            &no_builders(),
+        )
+        .expect("mesh");
         let size = size_of(&mesh);
         assert!((size[0] - 5.0).abs() < EPS);
         assert!((size[1] - 3.0).abs() < EPS);
@@ -513,8 +521,12 @@ mod tests {
             .with("thickness", ParamValue::Length(0.4));
         let profiles = ProfileLibrary::new();
 
-        let mesh = evaluate_recipe(&recipe, &ctx(&placement, &params, &profiles), &no_builders())
-            .expect("mesh");
+        let mesh = evaluate_recipe(
+            &recipe,
+            &ctx(&placement, &params, &profiles),
+            &no_builders(),
+        )
+        .expect("mesh");
         assert!((size_of(&mesh)[2] - 0.2).abs() < EPS, "half of 0.4");
     }
 
@@ -534,8 +546,12 @@ mod tests {
         let profiles = ProfileLibrary::new();
 
         assert_eq!(
-            evaluate_recipe(&recipe, &ctx(&placement, &params, &profiles), &no_builders())
-                .unwrap_err(),
+            evaluate_recipe(
+                &recipe,
+                &ctx(&placement, &params, &profiles),
+                &no_builders()
+            )
+            .unwrap_err(),
             RecipeError::NeedsCurve
         );
     }
@@ -557,8 +573,12 @@ mod tests {
             .with("height", ParamValue::Length(3.0));
         let profiles = ProfileLibrary::new();
 
-        let mesh = evaluate_recipe(&recipe, &ctx(&placement, &params, &profiles), &no_builders())
-            .expect("mesh");
+        let mesh = evaluate_recipe(
+            &recipe,
+            &ctx(&placement, &params, &profiles),
+            &no_builders(),
+        )
+        .expect("mesh");
         let size = size_of(&mesh);
         assert!((size[0] - 0.4).abs() < EPS, "width {}", size[0]);
         assert!((size[1] - 3.0).abs() < EPS, "height {}", size[1]);
@@ -589,7 +609,10 @@ mod tests {
         let aligned = evaluate_recipe(&recipe(FrameSource::WorkPlane), &c, &no_builders()).unwrap();
         let turned = evaluate_recipe(&recipe(FrameSource::default()), &c, &no_builders()).unwrap();
 
-        assert!((size_of(&aligned)[0] - 2.0).abs() < EPS, "stays level-aligned");
+        assert!(
+            (size_of(&aligned)[0] - 2.0).abs() < EPS,
+            "stays level-aligned"
+        );
         assert!(
             (size_of(&turned)[2] - 2.0).abs() < EPS,
             "follows the placement rotation"
@@ -701,8 +724,12 @@ mod tests {
         let placement = Placement::line(Vec3::ZERO, Vec3::new(4.0, 0.0, 0.0));
         let params = ParamMap::new();
 
-        let mesh = evaluate_recipe(&recipe, &ctx(&placement, &params, &profiles), &no_builders())
-            .expect("mesh");
+        let mesh = evaluate_recipe(
+            &recipe,
+            &ctx(&placement, &params, &profiles),
+            &no_builders(),
+        )
+        .expect("mesh");
         assert!((size_of(&mesh)[2] - 0.1).abs() < EPS);
         assert!((size_of(&mesh)[1] - 2.0).abs() < EPS);
     }
@@ -761,8 +788,12 @@ mod tests {
             end_offset: Expr::zero(),
         };
         assert_eq!(
-            evaluate_recipe(&recipe, &ctx(&placement, &params, &profiles), &no_builders())
-                .unwrap_err(),
+            evaluate_recipe(
+                &recipe,
+                &ctx(&placement, &params, &profiles),
+                &no_builders()
+            )
+            .unwrap_err(),
             RecipeError::UnknownProfile("missing".into())
         );
     }

@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rust:
+    name: Rust tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy
+          rustup default stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Test
+        run: cargo test -p apex-core -p apex-geometry
+
+      - name: Clippy
+        run: cargo clippy -p apex-core -p apex-geometry -- -D warnings
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+  web:
+    name: Web typecheck and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      # tsc runs as part of the build, which also catches bundling errors.
+      - name: Build
+        working-directory: apps/web
+        run: npm run build
+
+  smoke:
+    name: Browser smoke test
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - name: Install dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Install Chromium
+        working-directory: apps/web
+        run: npx playwright install --with-deps chromium
+
+      # The committed wasm package is what the smoke test exercises, so a stale
+      # one is itself a failure worth catching.
+      - name: Start dev server
+        working-directory: apps/web
+        run: |
+          npm run dev -- --host 127.0.0.1 &
+          for i in $(seq 1 60); do
+            curl -sf http://127.0.0.1:5173/ >/dev/null && exit 0
+            sleep 1
+          done
+          echo "dev server did not come up" >&2
+          exit 1
+
+      - name: Smoke test
+        working-directory: apps/web
+        env:
+          APEX_SMOKE_URL: http://127.0.0.1:5173/
+          APEX_SMOKE_OUT: ${{ github.workspace }}/smoke-screenshots
+        run: node scripts/smoke.mjs
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: smoke-screenshots
+          path: smoke-screenshots
+          if-no-files-found: ignore

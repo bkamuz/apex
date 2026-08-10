@@ -118,7 +118,11 @@ mod tests {
     fn from_direction_keeps_y_up_for_horizontal_paths() {
         let f = Frame::from_direction(Vec3::ZERO, Vec3::X).expect("frame");
         assert_eq!(f.z, Vec3::X);
-        assert!((f.y - Vec3::Y).length() < 1e-5, "y should be world up, got {}", f.y);
+        assert!(
+            (f.y - Vec3::Y).length() < 1e-5,
+            "y should be world up, got {}",
+            f.y
+        );
         assert_right_handed(&f);
     }
 
@@ -138,7 +142,10 @@ mod tests {
     fn plane_basis_is_right_handed_for_every_axis() {
         for n in [Vec3::X, Vec3::Y, Vec3::Z, -Vec3::X, -Vec3::Y, -Vec3::Z] {
             let (u, v) = plane_basis(n);
-            assert!((u.cross(v) - n).length() < 1e-5, "basis not right-handed for {n}");
+            assert!(
+                (u.cross(v) - n).length() < 1e-5,
+                "basis not right-handed for {n}"
+            );
             assert!(u.dot(n).abs() < 1e-5);
             assert!(v.dot(n).abs() < 1e-5);
         }

@@ -65,7 +65,11 @@ impl Document {
         self.levels.get(&id)
     }
 
-    pub fn add_level(&mut self, name: impl Into<String>, elevation: f32) -> (LevelId, DocumentChange) {
+    pub fn add_level(
+        &mut self,
+        name: impl Into<String>,
+        elevation: f32,
+    ) -> (LevelId, DocumentChange) {
         let level = Level::new(name, elevation);
         let id = level.id;
         self.levels.insert(id, level);

@@ -193,10 +193,10 @@ impl Project {
         rotation: f32,
     ) -> Result<Placement, RegistryError> {
         let definition = self.registry.require(component_id)?;
-        Ok(definition
+        definition
             .placement
             .build(points, rotation, &self.active_work_plane())
-            .map_err(|e| RegistryError::Recipe(e.into()))?)
+            .map_err(|e| RegistryError::Recipe(e.into()))
     }
 
     fn next_name(&mut self, component_id: &str, display_name: &str) -> String {
@@ -379,7 +379,10 @@ mod tests {
     fn elements_are_created_on_the_active_level_plane() {
         let mut project = Project::new();
         let upper = project.add_level("", 4.0);
-        project.document_mut().set_active_level(upper).expect("activate");
+        project
+            .document_mut()
+            .set_active_level(upper)
+            .expect("activate");
 
         let id = project
             .create_element(
@@ -443,7 +446,10 @@ mod tests {
 
         let mesh = project.document().get_mesh(id).expect("mesh");
         assert!((size_of(mesh)[1] - 1.0).abs() < EPS);
-        assert_eq!(project.document().get_element(id).unwrap().name, "Bollard 1");
+        assert_eq!(
+            project.document().get_element(id).unwrap().name,
+            "Bollard 1"
+        );
     }
 
     #[test]

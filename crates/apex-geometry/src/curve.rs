@@ -53,8 +53,9 @@ impl Curve {
             return None;
         }
 
-        let center = a + (ac.length_squared() * n.cross(ab) + ab.length_squared() * ac.cross(n))
-            / (2.0 * n_len_sq);
+        let center = a
+            + (ac.length_squared() * n.cross(ab) + ab.length_squared() * ac.cross(n))
+                / (2.0 * n_len_sq);
         let radius = (a - center).length();
         if radius < MIN_CURVE_LENGTH {
             return None;
@@ -481,7 +482,10 @@ mod tests {
         .expect("arc");
         let before = arc.length();
         let after = arc.extended(0.5, 0.25).expect("extended").length();
-        assert!((after - (before + 0.75)).abs() < 1e-3, "{before} -> {after}");
+        assert!(
+            (after - (before + 0.75)).abs() < 1e-3,
+            "{before} -> {after}"
+        );
     }
 
     #[test]

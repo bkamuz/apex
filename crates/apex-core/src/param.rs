@@ -32,7 +32,9 @@ pub enum ParamKind {
     Number,
     Bool,
     Text,
-    Choice { options: Vec<String> },
+    Choice {
+        options: Vec<String>,
+    },
     /// Reference to a named profile, which is what makes profiles swappable.
     Profile,
 }
@@ -98,9 +100,15 @@ impl ParamValue {
             expected: kind.describe(),
         };
         match kind {
-            ParamKind::Length => self.as_number().map(ParamValue::Length).ok_or_else(mismatch),
+            ParamKind::Length => self
+                .as_number()
+                .map(ParamValue::Length)
+                .ok_or_else(mismatch),
             ParamKind::Angle => self.as_number().map(ParamValue::Angle).ok_or_else(mismatch),
-            ParamKind::Number => self.as_number().map(ParamValue::Number).ok_or_else(mismatch),
+            ParamKind::Number => self
+                .as_number()
+                .map(ParamValue::Number)
+                .ok_or_else(mismatch),
             ParamKind::Bool => self.as_bool().map(ParamValue::Bool).ok_or_else(mismatch),
             ParamKind::Text => self
                 .as_text()
@@ -268,7 +276,9 @@ impl ParamSpec {
         let below = self.min.is_some_and(|min| n < min);
         let above = self.max.is_some_and(|max| n > max);
         if below || above {
-            return Err(ParamError::OutOfRange { id: self.id.clone() });
+            return Err(ParamError::OutOfRange {
+                id: self.id.clone(),
+            });
         }
         Ok(())
     }
@@ -527,7 +537,8 @@ mod tests {
 
     #[test]
     fn a_choice_spec_parses_its_options_and_default() {
-        let json = r#"{"id":"align","label":"Align","kind":"choice","options":["a","b"],"default":"b"}"#;
+        let json =
+            r#"{"id":"align","label":"Align","kind":"choice","options":["a","b"],"default":"b"}"#;
         let spec: ParamSpec = serde_json::from_str(json).expect("deserialize");
         assert_eq!(spec.default, ParamValue::Choice("b".into()));
         assert_eq!(

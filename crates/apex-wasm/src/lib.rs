@@ -177,7 +177,12 @@ fn element_dto(project: &Project, element: &Element) -> ElementDto {
         component_id: element.component_id.clone(),
         category,
         level_id: element.level_id.to_string(),
-        anchors: element.placement.anchors().iter().map(|p| p.to_array()).collect(),
+        anchors: element
+            .placement
+            .anchors()
+            .iter()
+            .map(|p| p.to_array())
+            .collect(),
         length: element.placement.length(),
         params,
     }
@@ -204,8 +209,7 @@ fn sorted_levels(project: &Project) -> Vec<LevelDto> {
 
 fn scene_dto(project: &Project) -> SceneDto {
     let buffers: SceneBuffers = project.document().build_scene_buffers();
-    let selected_ids =
-        with_selection(|s| s.0.iter().map(|id| id.to_string()).collect::<Vec<_>>());
+    let selected_ids = with_selection(|s| s.0.iter().map(|id| id.to_string()).collect::<Vec<_>>());
 
     SceneDto {
         positions: buffers.positions,
@@ -230,7 +234,10 @@ fn scene_dto(project: &Project) -> SceneDto {
             })
             .collect(),
         levels: sorted_levels(project),
-        active_level_id: project.document().active_level_id().map(|id| id.to_string()),
+        active_level_id: project
+            .document()
+            .active_level_id()
+            .map(|id| id.to_string()),
         version: buffers.version,
         selected_id: selected_ids.first().cloned(),
         selected_ids,
@@ -326,7 +333,11 @@ pub fn update_element(id: &str, params_json: &str) -> Result<JsValue, JsValue> {
 
 /// Re-place an existing element from a fresh set of picks.
 #[wasm_bindgen(js_name = setElementPlacement)]
-pub fn set_element_placement(id: &str, points_json: &str, rotation: f32) -> Result<JsValue, JsValue> {
+pub fn set_element_placement(
+    id: &str,
+    points_json: &str,
+    rotation: f32,
+) -> Result<JsValue, JsValue> {
     with_project(|project| {
         let element = element_id(id)?;
         let component_id = project
@@ -367,7 +378,9 @@ pub fn preview_element(
         let elevation = project.active_work_plane().origin.y;
         let placement = placement.with_elevation(elevation);
 
-        let mesh = project.preview(component_id, &placement, &params).map_err(err)?;
+        let mesh = project
+            .preview(component_id, &placement, &params)
+            .map_err(err)?;
         to_js(&MeshDto {
             positions: mesh.positions,
             normals: mesh.normals,

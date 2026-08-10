@@ -11,7 +11,8 @@ use thiserror::Error;
 
 use crate::component::{
     evaluate_recipe, ComponentDefinition, ComponentSource, DefinitionError, FrameSource,
-    GeometryRecipe, MeshBuilder, ProfileId, ProfileLibrary, ProfileSpec, RecipeContext, RecipeError,
+    GeometryRecipe, MeshBuilder, ProfileId, ProfileLibrary, ProfileSpec, RecipeContext,
+    RecipeError,
 };
 use crate::element::{ComponentId, Element};
 use crate::expr::Expr;
@@ -491,7 +492,10 @@ mod tests {
             RegistryError::Duplicate("apex.wall".into())
         );
         registry.upsert(def).expect("upsert");
-        assert_eq!(registry.get("apex.wall").unwrap().display_name, "Custom wall");
+        assert_eq!(
+            registry.get("apex.wall").unwrap().display_name,
+            "Custom wall"
+        );
     }
 
     #[test]
@@ -611,7 +615,12 @@ mod tests {
             Box::new(|ctx: &RecipeContext| {
                 let o = ctx.placement.origin().to_array();
                 let mut mesh = TriangleMesh::empty();
-                mesh.push_triangle(o, [o[0] + 1.0, o[1], o[2]], [o[0], o[1] + 1.0, o[2]], [0.0, 0.0, 1.0]);
+                mesh.push_triangle(
+                    o,
+                    [o[0] + 1.0, o[1], o[2]],
+                    [o[0], o[1] + 1.0, o[2]],
+                    [0.0, 0.0, 1.0],
+                );
                 Ok(mesh)
             }),
         );

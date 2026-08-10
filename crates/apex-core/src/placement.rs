@@ -77,14 +77,18 @@ impl PlacementKind {
 
         match self {
             Self::Point => {
-                let [origin] = points else { return Err(wrong("1")) };
+                let [origin] = points else {
+                    return Err(wrong("1"));
+                };
                 Ok(Placement::Point {
                     origin: *origin,
                     rotation,
                 })
             }
             Self::TwoPoint => {
-                let [a, b] = points else { return Err(wrong("2")) };
+                let [a, b] = points else {
+                    return Err(wrong("2"));
+                };
                 if (*b - *a).length() < MIN_CURVE_LENGTH {
                     return Err(PlacementError::Degenerate(self.as_str()));
                 }
@@ -93,7 +97,9 @@ impl PlacementKind {
                 })
             }
             Self::ThreePointArc => {
-                let [a, b, c] = points else { return Err(wrong("3")) };
+                let [a, b, c] = points else {
+                    return Err(wrong("3"));
+                };
                 let curve = Curve::arc_from_three_points(*a, *b, *c)
                     .ok_or(PlacementError::Degenerate(self.as_str()))?;
                 Ok(Placement::Curve { curve })
@@ -326,7 +332,11 @@ mod tests {
         assert_eq!(
             PlacementKind::ThreePointArc
                 .build(
-                    &[Vec3::ZERO, Vec3::new(1.0, 0.0, 0.0), Vec3::new(2.0, 0.0, 0.0)],
+                    &[
+                        Vec3::ZERO,
+                        Vec3::new(1.0, 0.0, 0.0),
+                        Vec3::new(2.0, 0.0, 0.0)
+                    ],
                     0.0,
                     &ground()
                 )
