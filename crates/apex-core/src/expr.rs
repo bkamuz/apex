@@ -41,6 +41,10 @@ impl Expr {
         Self::Const { value }
     }
 
+    pub fn zero() -> Self {
+        Self::Const { value: 0.0 }
+    }
+
     pub fn param(id: impl Into<ParamId>) -> Self {
         Self::Param { id: id.into() }
     }

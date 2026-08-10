@@ -12,7 +12,6 @@ mod frame;
 mod mesh;
 mod profile;
 mod sweep;
-mod wall;
 
 pub use curve::{Curve, MIN_CURVE_LENGTH};
 pub use error::GeometryError;
@@ -20,4 +19,3 @@ pub use frame::Frame;
 pub use mesh::TriangleMesh;
 pub use profile::{Justification, Point2, Profile};
 pub use sweep::{extrude, sweep, SweepOptions};
-pub use wall::{generate_wall_mesh, WallParams};
