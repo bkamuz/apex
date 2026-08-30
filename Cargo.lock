@@ -6,8 +6,10 @@ version = 4
 name = "apex-core"
 version = "0.1.0"
 dependencies = [
+ "apex-geometry",
  "glam",
  "serde",
+ "serde_json",
  "thiserror",
  "uuid",
 ]
@@ -16,9 +18,9 @@ dependencies = [
 name = "apex-geometry"
 version = "0.1.0"
 dependencies = [
- "apex-core",
  "glam",
  "serde",
+ "serde_json",
  "thiserror",
 ]
 

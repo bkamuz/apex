@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
+use apex_geometry::TriangleMesh;
 use serde::{Deserialize, Serialize};
 
-use crate::element::{Element, ElementId};
+use crate::element::{ComponentId, Element, ElementId};
 use crate::level::{Level, LevelId};
-use crate::mesh::TriangleMesh;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -65,7 +65,11 @@ impl Document {
         self.levels.get(&id)
     }
 
-    pub fn add_level(&mut self, name: impl Into<String>, elevation: f32) -> (LevelId, DocumentChange) {
+    pub fn add_level(
+        &mut self,
+        name: impl Into<String>,
+        elevation: f32,
+    ) -> (LevelId, DocumentChange) {
         let level = Level::new(name, elevation);
         let id = level.id;
         self.levels.insert(id, level);
@@ -80,8 +84,9 @@ impl Document {
         Ok(self.bump(DocumentChangeKind::LevelChanged, vec![]))
     }
 
-    /// Set level elevation and move wall feet on that level to the new Y.
-    /// Returns element ids whose wall params changed (meshes must be regenerated).
+    /// Set level elevation and carry every element on that level with it.
+    ///
+    /// Returns the ids whose placement moved; their meshes must be rebuilt.
     pub fn set_level_elevation(
         &mut self,
         id: LevelId,
@@ -98,14 +103,14 @@ impl Document {
             if element.level_id != id {
                 continue;
             }
-            if let Some(wall) = element.wall.as_mut() {
-                wall.start[1] = elevation;
-                wall.end[1] = elevation;
-                moved.push(element.id);
-            }
+            element.placement = element.placement.with_elevation(elevation);
+            moved.push(element.id);
         }
 
-        Ok((self.bump(DocumentChangeKind::LevelChanged, moved.clone()), moved))
+        Ok((
+            self.bump(DocumentChangeKind::LevelChanged, moved.clone()),
+            moved,
+        ))
     }
 
     pub fn elements(&self) -> impl Iterator<Item = &Element> {
@@ -169,7 +174,7 @@ impl Document {
             normals.extend_from_slice(&mesh.normals);
             edge_positions.extend_from_slice(&mesh.edges);
 
-            for tri in mesh.indices.chunks_exact(3) {
+            for tri in mesh.indices.as_chunks::<3>().0 {
                 indices.push(base + tri[0]);
                 indices.push(base + tri[1]);
                 indices.push(base + tri[2]);
@@ -179,7 +184,8 @@ impl Document {
             element_index.push(ElementSceneEntry {
                 id: element.id,
                 name: element.name.clone(),
-                category: element.category.as_str().to_string(),
+                component_id: element.component_id.clone(),
+                level_id: element.level_id,
                 pick_id: pick,
                 list_index: ei as u32,
             });
@@ -210,7 +216,9 @@ impl Document {
 pub struct ElementSceneEntry {
     pub id: ElementId,
     pub name: String,
-    pub category: String,
+    /// Display name and category are resolved from the component registry.
+    pub component_id: ComponentId,
+    pub level_id: LevelId,
     pub pick_id: u64,
     pub list_index: u32,
 }
@@ -231,8 +239,19 @@ pub struct SceneBuffers {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::element::WallParams;
-    use crate::mesh::TriangleMesh;
+    use crate::param::{ParamMap, ParamValue};
+    use crate::placement::Placement;
+    use glam::Vec3;
+
+    fn wall_on(level: LevelId, a: Vec3, b: Vec3) -> Element {
+        Element::new(
+            "Wall 1",
+            "apex.wall",
+            level,
+            Placement::line(a, b),
+            ParamMap::new().with("height", ParamValue::Length(3.0)),
+        )
+    }
 
     #[test]
     fn new_document_has_level_zero_active() {
@@ -255,25 +274,81 @@ mod tests {
     }
 
     #[test]
-    fn set_elevation_moves_wall_feet() {
+    fn set_elevation_carries_every_element_on_the_level() {
         let mut doc = Document::new();
         let level0 = doc.active_level_id().unwrap();
-        let wall = WallParams {
-            start: [0.0, 0.0, 0.0],
-            end: [4.0, 0.0, 0.0],
-            height: 3.0,
-            thickness: 0.2,
-        };
-        let element = Element::wall("Wall 1", level0, wall);
+        let element = wall_on(level0, Vec3::ZERO, Vec3::new(4.0, 0.0, 0.0));
         let id = element.id;
         doc.upsert_element(element, TriangleMesh::empty());
 
         let (_change, moved) = doc.set_level_elevation(level0, 2.5).unwrap();
         assert_eq!(moved, vec![id]);
-        let el = doc.get_element(id).unwrap();
-        let w = el.wall.as_ref().unwrap();
-        assert_eq!(w.start[1], 2.5);
-        assert_eq!(w.end[1], 2.5);
+
+        let placement = &doc.get_element(id).unwrap().placement;
+        for anchor in placement.anchors() {
+            assert_eq!(anchor.y, 2.5, "anchor {anchor} should follow the level");
+        }
         assert_eq!(doc.get_level(level0).unwrap().elevation, 2.5);
+    }
+
+    #[test]
+    fn moving_one_level_leaves_the_others_alone() {
+        let mut doc = Document::new();
+        let level0 = doc.active_level_id().unwrap();
+        let (level1, _) = doc.add_level("Level 1", 3.0);
+
+        let stays = wall_on(level0, Vec3::ZERO, Vec3::new(4.0, 0.0, 0.0));
+        let stays_id = stays.id;
+        doc.upsert_element(stays, TriangleMesh::empty());
+        let moves = wall_on(level1, Vec3::ZERO, Vec3::new(4.0, 3.0, 0.0));
+        let moves_id = moves.id;
+        doc.upsert_element(moves, TriangleMesh::empty());
+
+        let (_, moved) = doc.set_level_elevation(level1, 6.0).unwrap();
+        assert_eq!(moved, vec![moves_id]);
+        assert_eq!(doc.get_element(stays_id).unwrap().placement.origin().y, 0.0);
+        assert_eq!(doc.get_element(moves_id).unwrap().placement.origin().y, 6.0);
+    }
+
+    #[test]
+    fn scene_entries_expose_the_component_id_for_the_ui_to_resolve() {
+        let mut doc = Document::new();
+        let level0 = doc.active_level_id().unwrap();
+        doc.upsert_element(
+            wall_on(level0, Vec3::ZERO, Vec3::new(4.0, 0.0, 0.0)),
+            TriangleMesh::empty(),
+        );
+
+        let buffers = doc.build_scene_buffers();
+        assert_eq!(buffers.elements.len(), 1);
+        assert_eq!(buffers.elements[0].component_id, "apex.wall");
+        assert_eq!(buffers.elements[0].level_id, level0);
+        assert_eq!(buffers.elements[0].pick_id, 1, "pick ids are 1-based");
+    }
+
+    #[test]
+    fn the_document_holds_any_component_type_without_knowing_it() {
+        let mut doc = Document::new();
+        let level = doc.active_level_id().unwrap();
+        for component in ["apex.wall", "apex.column", "acme.customThing"] {
+            doc.upsert_element(
+                Element::new(
+                    component,
+                    component,
+                    level,
+                    Placement::point(Vec3::ZERO),
+                    ParamMap::new(),
+                ),
+                TriangleMesh::empty(),
+            );
+        }
+
+        let ids: std::collections::BTreeSet<_> = doc
+            .build_scene_buffers()
+            .elements
+            .iter()
+            .map(|e| e.component_id.clone())
+            .collect();
+        assert_eq!(ids.len(), 3, "no component type is privileged");
     }
 }

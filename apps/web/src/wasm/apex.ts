@@ -1,20 +1,31 @@
 import initWasm, {
-  initApp,
-  createWall,
-  setWallParams,
+  createElement,
   createLevel,
-  setActiveLevel,
-  setLevelElevation,
-  selectElement,
-  toggleSelectElement,
-  pickById,
-  togglePickById,
+  deleteSelected,
   getScene,
   getSelected,
+  initApp,
+  listComponents,
   listElements,
-  deleteSelected,
+  pickById,
+  previewElement,
+  registerComponent,
+  selectElement,
+  setActiveLevel,
+  setElementPlacement,
+  setLevelElevation,
+  togglePickById,
+  toggleSelectElement,
+  updateElement,
 } from './pkg/apex_wasm.js';
-import type { ElementDto, SceneDto } from '../types';
+import type {
+  ComponentDto,
+  ElementDto,
+  MeshDto,
+  ParamValue,
+  SceneDto,
+  Vec3,
+} from '../types';
 
 let ready = false;
 
@@ -26,43 +37,60 @@ export async function initApex(): Promise<void> {
 }
 
 function asScene(value: unknown): SceneDto {
-  const scene = value as SceneDto;
-  // Be defensive if an older pkg is present briefly during rebuild.
-  if (!Array.isArray(scene.selected_ids)) {
-    scene.selected_ids = scene.selected_id ? [scene.selected_id] : [];
-  }
-  if (!Array.isArray(scene.levels)) {
-    scene.levels = [];
-  }
-  if (scene.active_level_id === undefined) {
-    scene.active_level_id = null;
-  }
-  return scene;
+  return value as SceneDto;
 }
 
-export function apexCreateWall(
-  x0: number,
-  y0: number,
-  z0: number,
-  x1: number,
-  y1: number,
-  z1: number,
-  height: number,
-  thickness: number,
-): SceneDto {
-  return asScene(createWall(x0, y0, z0, x1, y1, z1, height, thickness));
+/** Points and params cross the boundary as JSON, so any component shape fits. */
+function encodePoints(points: Vec3[]): string {
+  return JSON.stringify(points);
 }
 
-export function apexSetWallParams(
-  id: string,
-  height: number,
-  thickness: number,
-  start: [number, number, number],
-  end: [number, number, number],
+function encodeParams(params: Record<string, ParamValue> | undefined): string {
+  return params && Object.keys(params).length > 0 ? JSON.stringify(params) : '';
+}
+
+export function apexListComponents(): ComponentDto[] {
+  return listComponents() as ComponentDto[];
+}
+
+export function apexRegisterComponent(definition: unknown): SceneDto {
+  return asScene(registerComponent(JSON.stringify(definition)));
+}
+
+export function apexCreateElement(
+  componentId: string,
+  points: Vec3[],
+  params?: Record<string, ParamValue>,
+  rotation = 0,
 ): SceneDto {
   return asScene(
-    setWallParams(id, height, thickness, start[0], start[1], start[2], end[0], end[1], end[2]),
+    createElement(componentId, encodePoints(points), rotation, encodeParams(params)),
   );
+}
+
+export function apexUpdateElement(
+  id: string,
+  params: Record<string, ParamValue>,
+): SceneDto {
+  return asScene(updateElement(id, encodeParams(params)));
+}
+
+export function apexSetElementPlacement(id: string, points: Vec3[], rotation = 0): SceneDto {
+  return asScene(setElementPlacement(id, encodePoints(points), rotation));
+}
+
+export function apexPreviewElement(
+  componentId: string,
+  points: Vec3[],
+  params?: Record<string, ParamValue>,
+  rotation = 0,
+): MeshDto {
+  return previewElement(
+    componentId,
+    encodePoints(points),
+    rotation,
+    encodeParams(params),
+  ) as MeshDto;
 }
 
 export function apexCreateLevel(name: string, elevation: number): SceneDto {

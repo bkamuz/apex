@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc -b && vite build",
+    "typecheck": "tsc -b",
+    "test:smoke": "node scripts/smoke.mjs",
     "preview": "vite preview",
     "wasm:build": "wasm-pack build ../../crates/apex-wasm --target web --out-dir ../../apps/web/src/wasm/pkg --release"
   },

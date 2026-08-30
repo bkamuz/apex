@@ -6,6 +6,8 @@
     "dev": "npm run dev --prefix apps/web",
     "build": "npm run build --prefix apps/web",
     "wasm:build": "npm run wasm:build --prefix apps/web",
-    "test:rust": "cargo test -p apex-core -p apex-geometry"
+    "typecheck": "npm run typecheck --prefix apps/web",
+    "test:rust": "cargo test -p apex-core -p apex-geometry",
+    "test:smoke": "npm run test:smoke --prefix apps/web"
   }
 }
