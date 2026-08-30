@@ -17,12 +17,22 @@ export function createLevel(name: string, elevation: number): any;
  */
 export function deleteSelected(): any;
 
+/**
+ * JSON snapshot of the document, profiles, and extra components.
+ */
+export function exportProject(): string;
+
 export function getScene(): any;
 
 /**
  * Details of the single selected element, or null.
  */
 export function getSelected(): any;
+
+/**
+ * Replace the current project from a JSON snapshot.
+ */
+export function importProject(json: string): any;
 
 /**
  * Initialize the panic hook and an empty project with Level 0.
@@ -43,6 +53,11 @@ export function listElements(): any;
  * Installed profile types. Empty `category` returns the whole library.
  */
 export function listProfiles(category: string): any;
+
+/**
+ * Discard the current project and start a blank one with the built-in types.
+ */
+export function newProject(): any;
 
 /**
  * Resolve a GPU pick id to an element and replace the selection.
@@ -108,12 +123,15 @@ export interface InitOutput {
     readonly createElement: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
     readonly createLevel: (a: number, b: number, c: number) => [number, number, number];
     readonly deleteSelected: () => [number, number, number];
+    readonly exportProject: () => [number, number, number, number];
     readonly getScene: () => [number, number, number];
     readonly getSelected: () => [number, number, number];
+    readonly importProject: (a: number, b: number) => [number, number, number];
     readonly initApp: () => [number, number];
     readonly listComponents: () => [number, number, number];
     readonly listElements: () => [number, number, number];
     readonly listProfiles: (a: number, b: number) => [number, number, number];
+    readonly newProject: () => [number, number, number];
     readonly pickById: (a: number) => [number, number, number];
     readonly previewElement: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
     readonly previewProfile: (a: number, b: number, c: number, d: number) => [number, number, number];

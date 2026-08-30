@@ -9,7 +9,7 @@ use std::str::FromStr;
 
 use apex_core::{
     ComponentDefinition, Element, ElementId, LevelId, ParamKind, ParamMap, PlacementKind,
-    ProfileSpec, ProfileType, Project, SceneBuffers,
+    ProfileSpec, ProfileType, Project, ProjectSnapshot, SceneBuffers,
 };
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
@@ -131,6 +131,7 @@ struct ElementListDto {
     category: String,
     pick_id: f64,
     level_id: String,
+    profile_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -253,17 +254,24 @@ fn scene_dto(project: &Project) -> SceneDto {
         elements: buffers
             .elements
             .iter()
-            .map(|e| ElementListDto {
-                id: e.id.to_string(),
-                name: e.name.clone(),
-                component_id: e.component_id.clone(),
-                category: project
-                    .registry()
-                    .get(&e.component_id)
-                    .map(|c| c.category.clone())
-                    .unwrap_or_default(),
-                pick_id: e.pick_id as f64,
-                level_id: e.level_id.to_string(),
+            .map(|e| {
+                let profile_id = project
+                    .document()
+                    .get_element(e.id)
+                    .and_then(|element| project.registry().element_profile_id(element));
+                ElementListDto {
+                    id: e.id.to_string(),
+                    name: e.name.clone(),
+                    component_id: e.component_id.clone(),
+                    category: project
+                        .registry()
+                        .get(&e.component_id)
+                        .map(|c| c.category.clone())
+                        .unwrap_or_default(),
+                    pick_id: e.pick_id as f64,
+                    level_id: e.level_id.to_string(),
+                    profile_id,
+                }
             })
             .collect(),
         levels: sorted_levels(project),
@@ -376,7 +384,8 @@ struct ProfilePreviewDto {
 pub fn preview_profile(profile_json: &str, params_json: &str) -> Result<JsValue, JsValue> {
     with_project(|project| {
         let overrides = parse_params(params_json)?;
-        let geom = if let Ok(profile) = serde_json::from_str::<ProfileType>(profile_json) {
+        let geom = if let Ok(mut profile) = serde_json::from_str::<ProfileType>(profile_json) {
+            profile.compile_sketch().map_err(err)?;
             let params = profile.merge_eval_params(&overrides).map_err(err)?;
             profile
                 .spec
@@ -664,4 +673,31 @@ pub fn set_level_elevation(id: &str, elevation: f32) -> Result<JsValue, JsValue>
         project.set_level_elevation(level, elevation).map_err(err)?;
         scene(project)
     })
+}
+
+/// JSON snapshot of the document, profiles, and extra components.
+#[wasm_bindgen(js_name = exportProject)]
+pub fn export_project() -> Result<String, JsValue> {
+    with_project(|project| {
+        serde_json::to_string(&project.export_snapshot()).map_err(|e| err(e.to_string()))
+    })
+}
+
+/// Replace the current project from a JSON snapshot.
+#[wasm_bindgen(js_name = importProject)]
+pub fn import_project(json: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let snap: ProjectSnapshot = parse_json("project", json)?;
+        project.import_snapshot(snap).map_err(err)?;
+        with_selection(|s| s.set(None));
+        scene(project)
+    })
+}
+
+/// Discard the current project and start a blank one with the built-in types.
+#[wasm_bindgen(js_name = newProject)]
+pub fn new_project() -> Result<JsValue, JsValue> {
+    PROJECT.with(|cell| *cell.borrow_mut() = Some(Project::new()));
+    with_selection(|s| s.set(None));
+    with_project(|project| scene(project))
 }
