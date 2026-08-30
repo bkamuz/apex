@@ -8,8 +8,8 @@ use std::cell::RefCell;
 use std::str::FromStr;
 
 use apex_core::{
-    ComponentDefinition, Element, ElementId, LevelId, ParamMap, PlacementKind, Project,
-    SceneBuffers,
+    ComponentDefinition, Element, ElementId, LevelId, ParamKind, ParamMap, PlacementKind,
+    ProfileSpec, ProfileType, Project, SceneBuffers,
 };
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
@@ -114,8 +114,13 @@ struct ElementDto {
     anchors: Vec<[f32; 3]>,
     /// Length along the placement, when it has one.
     length: Option<f32>,
-    /// Resolved parameter values, keyed by parameter id.
+    /// Resolved instance values (component + profile instance), keyed by id.
     params: ParamMap,
+    /// Selected profile type, when this component has a profile parameter.
+    profile_id: Option<String>,
+    /// Resolved type-level values of that profile. Inspector must not write these
+    /// through `updateElement`.
+    type_values: ParamMap,
 }
 
 #[derive(Serialize)]
@@ -165,12 +170,17 @@ fn element_dto(project: &Project, element: &Element) -> ElementDto {
         .get(&element.component_id)
         .map(|c| c.category.clone())
         .unwrap_or_default();
-    // Show resolved values so the inspector never renders a blank field.
+    // Instance values only, with defaults filled so the inspector is never blank.
     let params = project
         .registry()
-        .get(&element.component_id)
-        .and_then(|c| c.resolve_params(&element.params).ok())
-        .unwrap_or_else(|| element.params.clone());
+        .persistable_params(&element.component_id, &element.params)
+        .unwrap_or_else(|_| element.params.clone());
+    let profile_id = project.registry().element_profile_id(element);
+    let type_values = profile_id
+        .as_ref()
+        .and_then(|id| project.registry().profile(id))
+        .and_then(|profile| profile.resolve_type_values().ok())
+        .unwrap_or_default();
 
     ElementDto {
         id: element.id.to_string(),
@@ -186,7 +196,29 @@ fn element_dto(project: &Project, element: &Element) -> ElementDto {
             .collect(),
         length: element.placement.length(),
         params,
+        profile_id,
+        type_values,
     }
+}
+
+/// Fill empty `profile` option lists from the library, filtered by category.
+fn with_profile_options(
+    project: &Project,
+    mut definition: ComponentDefinition,
+) -> ComponentDefinition {
+    let category = definition.category.clone();
+    for spec in &mut definition.params {
+        if let ParamKind::Profile { options } = &mut spec.kind {
+            if options.is_empty() {
+                *options = project
+                    .registry()
+                    .profiles_in_category(&category)
+                    .map(|profile| profile.id.clone())
+                    .collect();
+            }
+        }
+    }
+    definition
 }
 
 fn sorted_levels(project: &Project) -> Vec<LevelDto> {
@@ -285,8 +317,82 @@ pub fn init_app() -> Result<(), JsValue> {
 #[wasm_bindgen(js_name = listComponents)]
 pub fn list_components() -> Result<JsValue, JsValue> {
     with_project(|project| {
-        let list: Vec<_> = project.registry().components().cloned().collect();
+        let list: Vec<_> = project
+            .registry()
+            .components()
+            .cloned()
+            .map(|definition| with_profile_options(project, definition))
+            .collect();
         to_js(&list)
+    })
+}
+
+/// Installed profile types. Empty `category` returns the whole library.
+#[wasm_bindgen(js_name = listProfiles)]
+pub fn list_profiles(category: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let mut list: Vec<ProfileType> = if category.trim().is_empty() {
+            project.registry().profiles().values().cloned().collect()
+        } else {
+            project
+                .registry()
+                .profiles_in_category(category)
+                .cloned()
+                .collect()
+        };
+        list.sort_by(|a, b| a.id.cmp(&b.id));
+        to_js(&list)
+    })
+}
+
+/// Install or replace a profile type. Dependent elements are rebuilt.
+#[wasm_bindgen(js_name = registerProfile)]
+pub fn register_profile(definition_json: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let profile: ProfileType = parse_json("profile", definition_json)?;
+        project.register_profile(profile).map_err(err)?;
+        scene(project)
+    })
+}
+
+/// Patch type-level values on a profile and rebuild every element that uses it.
+#[wasm_bindgen(js_name = updateProfileType)]
+pub fn update_profile_type(id: &str, params_json: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let params = parse_params(params_json)?;
+        project.update_profile_type(id, params).map_err(err)?;
+        scene(project)
+    })
+}
+
+#[derive(Serialize)]
+struct ProfilePreviewDto {
+    outer: Vec<[f32; 2]>,
+    holes: Vec<Vec<[f32; 2]>>,
+}
+
+/// Evaluate a profile spec (or a full `ProfileType`) to a 2D outline for the editor.
+#[wasm_bindgen(js_name = previewProfile)]
+pub fn preview_profile(profile_json: &str, params_json: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let overrides = parse_params(params_json)?;
+        let geom = if let Ok(profile) = serde_json::from_str::<ProfileType>(profile_json) {
+            let params = profile.merge_eval_params(&overrides).map_err(err)?;
+            profile
+                .spec
+                .evaluate(&params, project.registry().profiles())
+                .map_err(err)?
+        } else {
+            let spec: ProfileSpec = parse_json("profile spec", profile_json)?;
+            project
+                .registry()
+                .preview_profile(&spec, &overrides)
+                .map_err(err)?
+        };
+        to_js(&ProfilePreviewDto {
+            outer: geom.outer().to_vec(),
+            holes: geom.holes().to_vec(),
+        })
     })
 }
 

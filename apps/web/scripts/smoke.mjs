@@ -138,6 +138,12 @@ console.log('  fields:', labels.join(' | '));
 check('height field rendered from the schema', labels.some((l) => l.startsWith('Height')));
 check('thickness field rendered from the schema', labels.some((l) => l.startsWith('Thickness')));
 check('wall profile control is present', labels.some((l) => l.startsWith('Profile')));
+check('instance block is present', (await page.locator('[data-section="instance"]').count()) === 1);
+check('type block is present', (await page.locator('[data-section="type"]').count()) === 1);
+check(
+  'type thickness is read-only',
+  await page.locator('[data-section="type"] input[type="number"]').first().isDisabled(),
+);
 
 const wallProfile = page.locator('.inspector-body select').first();
 check('default wall profile is rectangle', (await wallProfile.inputValue()) === 'apex.wall.rect');
@@ -150,7 +156,7 @@ check(
 await wallProfile.selectOption('apex.wall.rect');
 await page.waitForTimeout(200);
 
-const heightInput = page.locator('.inspector-body input[type="number"]').first();
+const heightInput = page.locator('[data-section="instance"] input[type="number"]').first();
 await heightInput.fill('5.0');
 await page.getByRole('button', { name: 'Apply', exact: true }).click();
 await page.waitForTimeout(400);
@@ -248,6 +254,71 @@ check(
 );
 
 await page.screenshot({ path: `${OUT}/apex-04-user-component.png`, fullPage: true });
+
+// --- 7. Profile type vs instance, and the parametric editor ----------------
+console.log('\n[7] profile type edit and new profile from the editor');
+await useTool('Select');
+const wallItems = page.locator('.element-list li').filter({ hasText: /^Wall \d+/ });
+await wallItems.first().click();
+await page.waitForTimeout(200);
+await page.getByRole('button', { name: 'Edit type', exact: true }).click();
+await page.waitForSelector('[data-testid="profile-editor"]');
+const typeDefault = page.locator('[data-testid="profile-editor"] input[type="number"]').first();
+await typeDefault.fill('0.45');
+await page.getByRole('button', { name: 'Save', exact: true }).click();
+await page.waitForTimeout(400);
+check(
+  'editor closed after save',
+  (await page.locator('[data-testid="profile-editor"]').count()) === 0,
+);
+const thicknessAfterType = await page
+  .locator('[data-section="type"] input[type="number"]')
+  .first()
+  .inputValue();
+check(
+  'type thickness updated on the selected wall',
+  Number(thicknessAfterType) === 0.45,
+  `got ${thicknessAfterType}`,
+);
+await wallItems.nth(1).click();
+await page.waitForTimeout(200);
+const thicknessOnOther = await page
+  .locator('[data-section="type"] input[type="number"]')
+  .first()
+  .inputValue();
+check(
+  'the same profile type changed the other wall too',
+  Number(thicknessOnOther) === 0.45,
+  `got ${thicknessOnOther}`,
+);
+
+await useTool('Wall');
+await page.getByRole('button', { name: 'New profile', exact: true }).click();
+await page.waitForSelector('[data-testid="profile-editor"]');
+const idField = page.locator('[data-testid="profile-editor"] input[type="text"]').first();
+await idField.fill('user.wall.smoke');
+const nameField = page.locator('[data-testid="profile-editor"] input[type="text"]').nth(1);
+await nameField.fill('Smoke rect');
+await page.getByRole('button', { name: 'Save', exact: true }).click();
+await page.waitForTimeout(400);
+const placementProfiles = await page
+  .locator('[data-section="instance"] select')
+  .first()
+  .locator('option')
+  .evaluateAll((els) => els.map((e) => e.value));
+check(
+  'new profile appears in the wall list',
+  placementProfiles.includes('user.wall.smoke'),
+  `options: ${placementProfiles.join(', ')}`,
+);
+const toolHeight = page.locator('[data-section="instance"] input[type="number"]').first();
+await toolHeight.fill('4.2');
+check(
+  'instance height is editable on the Wall tool',
+  Number(await toolHeight.inputValue()) === 4.2,
+  `got ${await toolHeight.inputValue()}`,
+);
+await page.screenshot({ path: `${OUT}/apex-06-profile-editor.png`, fullPage: true });
 
 const badge = await page.locator('.viewport-badge').textContent();
 console.log('\nbadge:', badge);

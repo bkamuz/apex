@@ -6,7 +6,7 @@
 use apex_geometry::{Frame, TriangleMesh};
 use glam::Vec3;
 
-use crate::component::ComponentDefinition;
+use crate::component::{ComponentDefinition, ProfileType};
 use crate::document::Document;
 use crate::element::{Element, ElementId};
 use crate::level::LevelId;
@@ -100,13 +100,13 @@ impl Project {
         let elevation = self.work_plane(level_id).origin.y;
         let placement = placement.with_elevation(elevation);
 
+        let params = self.registry.persistable_params(component_id, &params)?;
         let mesh = self.registry.build_mesh(
             component_id,
             &placement,
             &params,
             self.work_plane(level_id),
         )?;
-
         let element = Element::new(name, component_id, level_id, placement, params);
         let id = element.id;
         self.document.upsert_element(element, mesh);
@@ -133,6 +133,9 @@ impl Project {
             let elevation = self.work_plane(element.level_id).origin.y;
             element.placement = placement.with_elevation(elevation);
         }
+        element.params = self
+            .registry
+            .persistable_params(&element.component_id, &element.params)?;
 
         let mesh = self
             .registry
@@ -183,6 +186,34 @@ impl Project {
         definition: ComponentDefinition,
     ) -> Result<(), RegistryError> {
         self.registry.upsert(definition)
+    }
+
+    /// Install or replace a profile type, then rebuild every element that uses it.
+    pub fn register_profile(&mut self, profile: ProfileType) -> Result<(), RegistryError> {
+        let id = profile.id.clone();
+        self.registry.upsert_profile(profile)?;
+        self.rebuild_profile_dependents(&id)
+    }
+
+    /// Patch type-level values on a profile and rebuild every dependent element.
+    pub fn update_profile_type(&mut self, id: &str, patch: ParamMap) -> Result<(), RegistryError> {
+        self.registry.update_profile_type_values(id, &patch)?;
+        self.rebuild_profile_dependents(id)
+    }
+
+    fn rebuild_profile_dependents(&mut self, profile_id: &str) -> Result<(), RegistryError> {
+        let ids: Vec<_> = self
+            .document
+            .elements()
+            .filter(|element| {
+                self.registry.element_profile_id(element).as_deref() == Some(profile_id)
+            })
+            .map(|element| element.id)
+            .collect();
+        for id in ids {
+            self.rebuild_element(id)?;
+        }
+        Ok(())
     }
 
     /// Turn raw picks into a placement using the component's own gesture.
@@ -578,5 +609,87 @@ mod tests {
         assert!(project
             .placement_from_points("apex.column", &[Vec3::ZERO], 0.0)
             .is_ok());
+    }
+
+    #[test]
+    fn a_type_edit_rebuilds_every_element_of_that_profile() {
+        let mut project = Project::new();
+        let a = project
+            .create_element(
+                "apex.wall",
+                Placement::line(Vec3::ZERO, Vec3::new(5.0, 0.0, 0.0)),
+                ParamMap::new(),
+            )
+            .expect("a");
+        let b = project
+            .create_element(
+                "apex.wall",
+                Placement::line(Vec3::new(0.0, 0.0, 2.0), Vec3::new(5.0, 0.0, 2.0)),
+                ParamMap::new(),
+            )
+            .expect("b");
+
+        project
+            .update_profile_type(
+                "apex.wall.rect",
+                ParamMap::new().with("thickness", ParamValue::Number(0.5)),
+            )
+            .expect("type");
+
+        assert!((size_of(project.document().get_mesh(a).unwrap())[2] - 0.5).abs() < EPS);
+        assert!((size_of(project.document().get_mesh(b).unwrap())[2] - 0.5).abs() < EPS);
+
+        project
+            .update_element(
+                a,
+                Some(ParamMap::new().with("height", ParamValue::Number(6.0))),
+                None,
+            )
+            .expect("instance");
+        assert!((size_of(project.document().get_mesh(a).unwrap())[1] - 6.0).abs() < EPS);
+        assert!(
+            (size_of(project.document().get_mesh(b).unwrap())[1] - 3.0).abs() < EPS,
+            "instance height must not leak to the other wall"
+        );
+        assert!((size_of(project.document().get_mesh(b).unwrap())[2] - 0.5).abs() < EPS);
+    }
+
+    #[test]
+    fn switching_profile_drops_instance_keys_the_new_type_does_not_have() {
+        let mut project = Project::new();
+        let id = project
+            .create_element(
+                "apex.wall",
+                Placement::line(Vec3::ZERO, Vec3::new(4.0, 0.0, 0.0)),
+                ParamMap::new().with("height", ParamValue::Number(5.0)),
+            )
+            .expect("create");
+        assert_eq!(
+            project
+                .document()
+                .get_element(id)
+                .unwrap()
+                .params
+                .number("height"),
+            Some(5.0)
+        );
+
+        project
+            .update_element(
+                id,
+                Some(
+                    ParamMap::new()
+                        .with("profile", ParamValue::ProfileRef("apex.wall.round".into())),
+                ),
+                None,
+            )
+            .expect("switch");
+
+        let params = &project.document().get_element(id).unwrap().params;
+        assert_eq!(params.text("profile"), Some("apex.wall.round"));
+        assert!(
+            params.get("height").is_none(),
+            "round walls have no instance height"
+        );
     }
 }

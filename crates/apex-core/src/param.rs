@@ -20,6 +20,33 @@ pub enum ParamError {
     BadChoice { id: ParamId },
 }
 
+/// Whether a parameter belongs to a profile/component type or to one element.
+///
+/// Type values are shared: editing them rebuilds every element that uses the
+/// type. Instance values live on the element. Missing `binding` in authored
+/// JSON means instance, so older definitions keep working.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ParamBinding {
+    Type,
+    #[default]
+    Instance,
+}
+
+impl ParamBinding {
+    pub fn is_type(self) -> bool {
+        matches!(self, Self::Type)
+    }
+
+    pub fn is_instance(self) -> bool {
+        matches!(self, Self::Instance)
+    }
+}
+
+fn binding_is_instance(binding: &ParamBinding) -> bool {
+    binding.is_instance()
+}
+
 /// What a parameter accepts. Drives both validation and the generated UI control.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -184,6 +211,8 @@ pub struct ParamSpec {
     pub max: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub unit: Option<String>,
+    #[serde(default, skip_serializing_if = "binding_is_instance")]
+    pub binding: ParamBinding,
 }
 
 /// Wire shape of a [`ParamSpec`], before the default is typed against `kind`.
@@ -200,6 +229,8 @@ struct ParamSpecRaw {
     max: Option<f64>,
     #[serde(default)]
     unit: Option<String>,
+    #[serde(default)]
+    binding: ParamBinding,
 }
 
 impl TryFrom<ParamSpecRaw> for ParamSpec {
@@ -215,6 +246,7 @@ impl TryFrom<ParamSpecRaw> for ParamSpec {
             min: raw.min,
             max: raw.max,
             unit: raw.unit,
+            binding: raw.binding,
         })
     }
 }
@@ -229,6 +261,7 @@ impl ParamSpec {
             min: Some(f64::MIN_POSITIVE),
             max: None,
             unit: Some("m".to_string()),
+            binding: ParamBinding::Instance,
         }
     }
 
@@ -241,6 +274,7 @@ impl ParamSpec {
             min: None,
             max: None,
             unit: None,
+            binding: ParamBinding::Instance,
         }
     }
 
@@ -253,6 +287,7 @@ impl ParamSpec {
             min: None,
             max: None,
             unit: Some("rad".to_string()),
+            binding: ParamBinding::Instance,
         }
     }
 
@@ -267,6 +302,7 @@ impl ParamSpec {
             min: None,
             max: None,
             unit: None,
+            binding: ParamBinding::Instance,
         }
     }
 
@@ -281,7 +317,13 @@ impl ParamSpec {
             min: None,
             max: None,
             unit: None,
+            binding: ParamBinding::Instance,
         }
+    }
+
+    pub fn as_type(mut self) -> Self {
+        self.binding = ParamBinding::Type;
+        self
     }
 
     pub fn with_range(mut self, min: Option<f64>, max: Option<f64>) -> Self {
@@ -290,7 +332,7 @@ impl ParamSpec {
         self
     }
 
-    fn check_range(&self, value: &ParamValue) -> Result<(), ParamError> {
+    pub(crate) fn check_range(&self, value: &ParamValue) -> Result<(), ParamError> {
         let Some(n) = value.as_number() else {
             return Ok(());
         };
