@@ -3,10 +3,13 @@ import {
   apexCreateElement,
   apexCreateLevel,
   apexDeleteSelected,
+  apexExportProject,
   apexGetScene,
   apexGetSelected,
+  apexImportProject,
   apexListComponents,
   apexListProfiles,
+  apexNewProject,
   apexPickById,
   apexPreviewElement,
   apexRegisterProfile,
@@ -37,12 +40,13 @@ import type {
   ProfileTypeDto,
   SceneDto,
 } from './types';
-import { ElementTree } from './ui/ElementTree';
 import { LevelList } from './ui/LevelList';
 import { MobileMenuSheet, type MobileMenuTab } from './ui/MobileMenuSheet';
 import { ProfileEditor } from './ui/ProfileEditor';
+import { ProjectBrowser } from './ui/ProjectBrowser';
 import { PropertiesPanel } from './ui/PropertiesPanel';
 import { defaultNewProfile, defaultPlacementParams, nextProfileId } from './ui/profileModel';
+import { clearStoredProject, downloadText, loadStoredProject, storeProject } from './persist';
 import { useMediaQuery } from './hooks/useMediaQuery';
 import { ToolRegistry } from './tools/registry';
 import { finishOpenGesture } from './tools/placementTool';
@@ -127,6 +131,7 @@ export default function App() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mobileMenuTab, setMobileMenuTab] = useState<MobileMenuTab>('levels');
   const isMobile = useMediaQuery('(max-width: 900px)');
+  const fileRef = useRef<HTMLInputElement>(null);
 
   selectedRef.current = selected;
   selectedCountRef.current = scene?.selected_ids?.length ?? 0;
@@ -433,6 +438,15 @@ export default function App() {
         if (!canvas) return;
         rendererRef.current = new ViewportRenderer(canvas);
 
+        const stored = loadStoredProject();
+        if (stored) {
+          try {
+            apexImportProject(stored);
+          } catch (restoreError) {
+            console.warn('could not restore saved project', restoreError);
+          }
+        }
+
         // The toolbar is generated from whatever the core has installed.
         syncCatalog();
         installGlobalSdk();
@@ -460,6 +474,15 @@ export default function App() {
     if (tab) setMobileMenuTab(tab);
     setMobileMenuOpen(true);
   }, []);
+
+  useEffect(() => {
+    if (!ready || !scene) return;
+    try {
+      storeProject(apexExportProject());
+    } catch {
+      /* ignore */
+    }
+  }, [ready, scene?.version]);
 
   useEffect(() => {
     if (!ready) return;
@@ -655,6 +678,51 @@ export default function App() {
 
   const onDelete = () => applyScene(apexDeleteSelected());
 
+  const onSaveProject = () => {
+    try {
+      const json = apexExportProject();
+      storeProject(json);
+      downloadText('apex-project.json', json);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const onOpenProjectFile = (file: File) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const text = String(reader.result ?? '');
+        const next = apexImportProject(text);
+        storeProject(text);
+        applyScene(next, true);
+        syncCatalog();
+        setError(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const onNewProject = () => {
+    try {
+      const next = apexNewProject();
+      clearStoredProject();
+      applyScene(next, true);
+      syncCatalog();
+      setPlacementDraft({});
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const onSelectType = (profileId: string) => {
+    onEditType(profileId);
+  };
+
   const selectedIds = scene?.selected_ids ?? [];
   const tools = useMemo(() => registryRef.current.list(), [components]);
   const placementComponent = tool.componentId
@@ -686,6 +754,33 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <div className="brand">APEX</div>
+        <div className="file-actions">
+          <button type="button" onClick={onSaveProject} data-testid="save-project">
+            Save
+          </button>
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            data-testid="open-project"
+          >
+            Open
+          </button>
+          <button type="button" onClick={onNewProject} data-testid="new-project">
+            New
+          </button>
+          <input
+            ref={fileRef}
+            type="file"
+            accept="application/json,.json"
+            hidden
+            aria-label="Open project file"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              e.target.value = '';
+              if (file) onOpenProjectFile(file);
+            }}
+          />
+        </div>
         <div className="tools">
           {tools.map((t, i) => {
             const prev = tools[i - 1];
@@ -751,11 +846,15 @@ export default function App() {
             onSelect={onSelectLevel}
             onCreate={onCreateLevel}
           />
-          <div className="panel-title">Elements</div>
-          <ElementTree
+          <ProjectBrowser
             elements={elements}
+            profiles={profiles}
+            levels={levels}
             selectedIds={selectedIds}
-            onSelect={(id, multi) => onSelectFromTree(id, multi)}
+            selectedProfileId={profileEditor?.originalId ?? profileEditor?.profile.id ?? null}
+            onSelectInstance={(id, multi) => onSelectFromTree(id, multi)}
+            onSelectType={onSelectType}
+            onNewProfile={() => onNewProfile('wall')}
           />
         </aside>
       ) : null}
@@ -808,13 +907,21 @@ export default function App() {
               />
             }
             elements={
-              <ElementTree
+              <ProjectBrowser
                 elements={elements}
+                profiles={profiles}
+                levels={levels}
                 selectedIds={selectedIds}
-                onSelect={(id, multi) => {
+                selectedProfileId={profileEditor?.originalId ?? profileEditor?.profile.id ?? null}
+                onSelectInstance={(id, multi) => {
                   onSelectFromTree(id, multi);
                   if (!multi) closeMobileMenu();
                 }}
+                onSelectType={(profileId) => {
+                  onSelectType(profileId);
+                  closeMobileMenu();
+                }}
+                onNewProfile={() => onNewProfile('wall')}
               />
             }
             properties={inspector}

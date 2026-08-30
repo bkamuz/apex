@@ -87,7 +87,7 @@ button:focus-visible {
 
 .app {
   display: grid;
-  grid-template-columns: 220px 1fr 280px;
+  grid-template-columns: 260px 1fr 280px;
   grid-template-rows: 48px 1fr;
   width: 100%;
   height: 100%;
@@ -109,6 +109,17 @@ button:focus-visible {
   font-weight: 600;
   letter-spacing: 0.04em;
   font-size: 15px;
+}
+
+.file-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.file-actions button {
+  padding: 6px 10px;
+  font-size: 12px;
 }
 
 .tools {
@@ -279,6 +290,74 @@ button:focus-visible {
   color: var(--text-muted);
   font-family: var(--mono);
   font-size: 11px;
+}
+
+.project-browser {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+.browser-toolbar {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.browser-toolbar label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-muted);
+}
+
+.browser-filter {
+  display: flex;
+  gap: 4px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.browser-filter button {
+  flex: 1;
+  padding: 4px 6px;
+  font-size: 11px;
+}
+
+.browser-group {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.browser-group-title {
+  padding: 8px 12px 0;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
+.kind-badge {
+  margin-left: 6px;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-family: var(--mono);
+}
+
+.kind-badge.kind-type {
+  color: #f3d2a8;
+}
+
+.kind-badge.kind-instance {
+  color: #9ec5ff;
 }
 
 .viewport-wrap {
@@ -583,7 +662,8 @@ button:focus-visible {
 }
 
 .profile-editor {
-  width: min(980px, 100%);
+  width: min(1180px, 100%);
+  height: min(860px, 100%);
   max-height: min(860px, 100%);
   background: var(--bg-panel);
   border: 1px solid var(--border);
@@ -611,19 +691,64 @@ button:focus-visible {
   margin-left: auto;
 }
 
+.profile-editor-hint {
+  color: var(--text-muted);
+  font-size: 12px;
+  flex: 1;
+  min-width: 0;
+}
+
 .profile-editor-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(220px, 0.8fr);
-  gap: 16px;
-  padding: 16px;
-  overflow: auto;
+  grid-template-columns: minmax(0, 1.7fr) 280px;
+  gap: 12px;
+  padding: 12px 16px;
+  overflow: hidden;
   min-height: 0;
+  flex: 1;
+}
+
+.profile-editor-canvas {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+}
+
+.profile-editor-modes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.profile-editor-modes button {
+  font-size: 12px;
+  padding: 4px 10px;
+}
+
+.profile-sketch {
+  width: 100%;
+  flex: 1;
+  min-height: 360px;
+  background: #10131a;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: crosshair;
+  touch-action: none;
+}
+
+.profile-dim-row {
+  display: grid;
+  grid-template-columns: 1fr 0.7fr 1fr auto;
+  gap: 6px;
+  align-items: center;
 }
 
 .profile-editor-form {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  overflow: auto;
 }
 
 .profile-param-row {
@@ -653,6 +778,10 @@ button:focus-visible {
   height: 240px;
   background: #10131a;
   border-radius: 4px;
+}
+
+.sidebar .element-list {
+  max-height: none;
 }
 
 .profile-preview-error,

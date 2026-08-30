@@ -32,6 +32,15 @@ page.on('console', (msg) => {
 });
 page.on('pageerror', (err) => console.log('PAGEERROR', err.message));
 
+await page.addInitScript(() => {
+  // Clear leftover documents once per tab; keep them across reload so save/load can be checked.
+  if (!sessionStorage.getItem('apex.smoke')) {
+    localStorage.removeItem('apex.project');
+    localStorage.removeItem('apex.browser');
+    sessionStorage.setItem('apex.smoke', '1');
+  }
+});
+
 await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.waitForSelector('canvas');
 await page.waitForTimeout(1200);
@@ -51,7 +60,7 @@ async function useTool(name) {
   await page.waitForTimeout(120);
 }
 
-const elementCount = () => page.locator('.element-list li').count();
+const elementCount = () => page.locator('[data-kind="instance"]').count();
 const toolbarNames = () =>
   page.locator('.tools button').evaluateAll((els) => els.map((e) => e.textContent.trim()));
 
@@ -110,7 +119,7 @@ await clickCanvas(0.66, 0.66);
 check('arc wall placed on the same Wall tool', (await elementCount()) === 7);
 check(
   'arc is still a Wall, not a second type',
-  (await page.locator('.element-list li').filter({ hasText: /^Wall \d+/ }).count()) === 5,
+  (await page.locator('[data-kind="instance"]').filter({ hasText: /^Wall \d+/ }).count()) === 5,
 );
 
 await useTool('Wall');
@@ -128,7 +137,7 @@ await page.screenshot({ path: `${OUT}/apex-02-all-components.png`, fullPage: tru
 console.log('\n[4] inspector generated from the parameter schema');
 await useTool('Select');
 // Elements are listed by id, so pick the wall by name rather than by position.
-await page.locator('.element-list li').filter({ hasText: /^Wall \d+/ }).first().click();
+await page.locator('[data-kind="instance"]').filter({ hasText: /^Wall \d+/ }).first().click();
 await page.waitForTimeout(300);
 
 const labels = await page
@@ -166,7 +175,7 @@ await page.screenshot({ path: `${OUT}/apex-03-inspector-edit.png`, fullPage: tru
 
 // --- 5. Column profile is a parameter, not a second tool -------------------
 console.log('\n[5] column profile switches on the same tool');
-await page.locator('.element-list li').filter({ hasText: /^Column \d+/ }).first().click();
+await page.locator('[data-kind="instance"]').filter({ hasText: /^Column \d+/ }).first().click();
 await page.waitForTimeout(300);
 const profileSelect = page.locator('.inspector-body select').first();
 check('profile control is present', (await profileSelect.count()) === 1);
@@ -216,7 +225,7 @@ const afterPlanter = await elementCount();
 check('user component placed like a built-in', afterPlanter === 9, `got ${afterPlanter}`);
 
 await useTool('Select');
-await page.locator('.element-list li', { hasText: 'Planter' }).first().click();
+await page.locator('[data-kind="instance"]', { hasText: 'Planter' }).first().click();
 await page.waitForTimeout(300);
 const planterLabels = await page
   .locator('.inspector-body .field label')
@@ -255,17 +264,22 @@ check(
 
 await page.screenshot({ path: `${OUT}/apex-04-user-component.png`, fullPage: true });
 
-// --- 7. Profile type vs instance, and the parametric editor ----------------
-console.log('\n[7] profile type edit and new profile from the editor');
+// --- 7. Shared type vs this element, sketch editor on an existing profile --
+console.log('\n[7] sketch editor edits a shared type dimension');
 await useTool('Select');
-const wallItems = page.locator('.element-list li').filter({ hasText: /^Wall \d+/ });
+const wallItems = page.locator('[data-kind="instance"]').filter({ hasText: /^Wall \d+/ });
 await wallItems.first().click();
 await page.waitForTimeout(200);
-await page.getByRole('button', { name: 'Edit type', exact: true }).click();
+await page.getByRole('button', { name: 'Edit profile', exact: true }).click();
 await page.waitForSelector('[data-testid="profile-editor"]');
-const typeDefault = page.locator('[data-testid="profile-editor"] input[type="number"]').first();
+check(
+  'sketch canvas is the editor',
+  (await page.locator('[data-testid="profile-sketch"]').count()) === 1,
+);
+const typeDefault = page.locator('[data-testid="param-default-thickness"]');
+check('inferred thickness dimension is present', (await typeDefault.count()) === 1);
 await typeDefault.fill('0.45');
-await page.getByRole('button', { name: 'Save', exact: true }).click();
+await page.getByTestId('save-profile').click();
 await page.waitForTimeout(400);
 check(
   'editor closed after save',
@@ -292,15 +306,36 @@ check(
   `got ${thicknessOnOther}`,
 );
 
+// --- 8. Draw a new profile with the mouse ---------------------------------
+console.log('\n[8] mouse-drawn profile');
 await useTool('Wall');
-await page.getByRole('button', { name: 'New profile', exact: true }).click();
-await page.waitForSelector('[data-testid="profile-editor"]');
+await page.getByRole('button', { name: 'Draw new profile', exact: true }).click();
+await page.waitForSelector('[data-testid="profile-sketch"]');
+const sketch = page.locator('[data-testid="profile-sketch"]');
+const sketchBox = await sketch.boundingBox();
+if (!sketchBox) throw new Error('no sketch canvas');
+async function clickSketch(nx, ny) {
+  await page.mouse.click(sketchBox.x + sketchBox.width * nx, sketchBox.y + sketchBox.height * ny);
+  await page.waitForTimeout(140);
+}
+await clickSketch(0.32, 0.68);
+await clickSketch(0.68, 0.68);
+await clickSketch(0.68, 0.32);
+await clickSketch(0.32, 0.32);
+await page.getByTestId('close-outline').click();
+await page.waitForTimeout(200);
+await page.getByTestId('dimension-all').click();
+await page.waitForTimeout(200);
 const idField = page.locator('[data-testid="profile-editor"] input[type="text"]').first();
 await idField.fill('user.wall.smoke');
 const nameField = page.locator('[data-testid="profile-editor"] input[type="text"]').nth(1);
 await nameField.fill('Smoke rect');
-await page.getByRole('button', { name: 'Save', exact: true }).click();
+await page.getByTestId('save-profile').click();
 await page.waitForTimeout(400);
+check(
+  'drawn profile editor closed',
+  (await page.locator('[data-testid="profile-editor"]').count()) === 0,
+);
 const placementProfiles = await page
   .locator('[data-section="instance"] select')
   .first()
@@ -312,13 +347,50 @@ check(
   `options: ${placementProfiles.join(', ')}`,
 );
 const toolHeight = page.locator('[data-section="instance"] input[type="number"]').first();
-await toolHeight.fill('4.2');
-check(
-  'instance height is editable on the Wall tool',
-  Number(await toolHeight.inputValue()) === 4.2,
-  `got ${await toolHeight.inputValue()}`,
-);
+if ((await toolHeight.count()) > 0) {
+  await toolHeight.fill('4.2');
+  check(
+    'instance height is editable on the Wall tool',
+    Number(await toolHeight.inputValue()) === 4.2,
+    `got ${await toolHeight.inputValue()}`,
+  );
+} else {
+  check('instance height is editable on the Wall tool', false, 'no instance number field');
+}
 await page.screenshot({ path: `${OUT}/apex-06-profile-editor.png`, fullPage: true });
+
+// --- 9. Project browser grouping and save/load ----------------------------
+console.log('\n[9] project browser and persistence');
+check(
+  'browser is present',
+  (await page.locator('[data-testid="project-browser"]').count()) >= 1,
+);
+await page.getByTestId('browser-filter-types').click();
+const typeCount = await page.locator('[data-kind="type"]').count();
+check('type browser lists profiles', typeCount >= 5, `got ${typeCount}`);
+await page.getByTestId('browser-filter-instances').click();
+const instCount = await page.locator('[data-kind="instance"]').count();
+check('instance browser lists elements', instCount >= 8, `got ${instCount}`);
+await page.getByTestId('browser-filter-all').click();
+await page.getByTestId('browser-group').selectOption('category');
+check(
+  'grouping by category still lists instances',
+  (await page.locator('[data-kind="instance"]').count()) === instCount,
+);
+
+const beforeReload = await elementCount();
+await page.getByTestId('save-project').click();
+await page.waitForTimeout(200);
+await page.reload({ waitUntil: 'networkidle' });
+await page.waitForSelector('canvas');
+await page.waitForTimeout(1500);
+const afterReload = await elementCount();
+check(
+  'project survived reload',
+  afterReload === beforeReload,
+  `before ${beforeReload} after ${afterReload}`,
+);
+await page.screenshot({ path: `${OUT}/apex-07-browser-save.png`, fullPage: true });
 
 const badge = await page.locator('.viewport-badge').textContent();
 console.log('\nbadge:', badge);

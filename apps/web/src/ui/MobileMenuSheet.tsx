@@ -14,7 +14,7 @@ interface Props {
 
 const TABS: { id: MobileMenuTab; label: string }[] = [
   { id: 'levels', label: 'Levels' },
-  { id: 'elements', label: 'Elements' },
+  { id: 'elements', label: 'Project' },
   { id: 'properties', label: 'Properties' },
 ];
 

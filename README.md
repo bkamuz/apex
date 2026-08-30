@@ -48,7 +48,14 @@ The shipped types use exactly this structure and no bespoke geometry code:
 | `apex.column` | one point | profile extruded up; rectangle vs round is a `profile` parameter |
 | `apex.beam` | two points | rectangle swept, hung below the line |
 
-A **profile type** is the catalog object behind that `profile` parameter: a parametric 2D section with type-level values (shared, e.g. wall thickness) and instance-level values (per element, e.g. wall height). The inspector splits those into Instance and Type; **Edit type** opens a 2D parametric editor (shape, parameters, formulas, SVG preview). Justification is not in this slice.
+A **profile type** is the catalog object behind that `profile` parameter: a 2D
+section you **draw with the mouse** (click to place an outline, then assign
+dimensions to edges). Type-level values are shared (e.g. wall thickness);
+instance-level values vary per element (e.g. wall height). **Edit profile**
+opens the sketch editor. The project browser lists both **types** (shared
+profiles) and **instances** (placed 3D elements), with configurable grouping
+and sorting. **Save** / **Open** persist the document (also auto-saved in the
+browser). Justification is not in this slice.
 
 Each **tool** is a plugin (`apps/web/src/plugins/`). A plugin decides what the
 toolbar shows; registering a component does not automatically add a button.
@@ -104,8 +111,9 @@ Each push to `main` redeploys automatically via `.github/workflows/deploy-pages.
 
 1. Pick a tool: **Wall**, **Column** or **Beam**. With Wall active, switch **Line** / **Arc** / **Polyline**.
 2. Click the number of points that mode needs (1, 2, 3, or double-click to finish a polyline); a ghost previews the result.
-3. Select the element and edit its **instance** parameters; **Edit type** opens the profile editor for shared type values (thickness, column width). With Wall/Column/Beam active, the inspector shows the same instance fields used for the next placement.
-4. Orbit: right-drag · Pan: middle-drag · Zoom: wheel · Shift: snap to grid.
+3. Select the element. **This element** fields apply only to that instance; **Shared type** fields are the same for every element of that profile. **Edit profile** opens a 2D sketch: click to draw the outline, close it, then click edges (or **Dimension all edges**) to assign sizes as shared type or this-element parameters.
+4. The left **Project** browser lists types and instances. Change **Group** / **Sort** / **Types** vs **Instances** to rearrange it. **Save** downloads the project (it is also stored in the browser); **Open** loads a file; **New** starts over.
+5. Orbit: right-drag · Pan: middle-drag · Zoom: wheel · Shift: snap to grid.
 
 ## Tests
 
@@ -120,7 +128,8 @@ npm run test:smoke                         # Playwright end-to-end
 
 - Reference points and planes as first-class objects (`FrameSource::Ref` is the reserved seam)
 - A visual component editor, so components can be built without JSON
-- Undo/redo and document serialization
+- Undo/redo
+- A full CAD constraint solver (the sketch editor is polyline + labeled edge lengths)
 - csgrs / full CSG booleans (blocked on crates.io WASM packaging)
 - IFC import, Views / Sheets
 - Desktop via Tauri
