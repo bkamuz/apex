@@ -1,24 +1,22 @@
-import type { ComponentDto } from '../types';
-import { createPlacementTool } from './placementTool';
-import { createSelectTool, SELECT_TOOL_ID } from './selectTool';
 import type { Tool } from './Tool';
+import { SELECT_TOOL_ID } from './selectTool';
 
 /**
  * Holds the tools the toolbar offers.
  *
- * Placement tools are generated from the installed components, so registering
- * a component is all it takes to get a working tool. `register` exists for the
- * rarer case where a module needs a genuinely new gesture.
+ * Tools come from plugins, not from a 1:1 walk of the component list. A
+ * component variant (round vs rectangular column) must not become a second
+ * button; a plugin decides what it contributes.
  */
 export class ToolRegistry {
   private tools = new Map<string, Tool>();
 
-  constructor() {
-    this.register(createSelectTool());
-  }
-
   register(tool: Tool): void {
     this.tools.set(tool.id, tool);
+  }
+
+  reset(): void {
+    this.tools.clear();
   }
 
   get(id: string): Tool | undefined {
@@ -27,16 +25,6 @@ export class ToolRegistry {
 
   list(): Tool[] {
     return [...this.tools.values()];
-  }
-
-  /** Rebuild the generated placement tools from the current component list. */
-  syncComponents(components: ComponentDto[]): void {
-    for (const tool of this.tools.values()) {
-      if (tool.componentId) this.tools.delete(tool.id);
-    }
-    for (const component of components) {
-      this.register(createPlacementTool(component));
-    }
   }
 
   static readonly selectId = SELECT_TOOL_ID;

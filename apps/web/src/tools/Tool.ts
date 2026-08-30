@@ -33,6 +33,8 @@ export interface ToolContext {
   setTouchOrbitEnabled(enabled: boolean): void;
 }
 
+export type ToolGroup = 'select' | 'create';
+
 export interface PointerInfo {
   clientX: number;
   clientY: number;
@@ -43,6 +45,8 @@ export interface PointerInfo {
 export interface Tool {
   readonly id: string;
   readonly label: string;
+  /** Toolbar cluster. Select sits apart from the create tools. */
+  readonly group?: ToolGroup;
   /** Component this tool places, for placement tools. */
   readonly componentId?: string;
   /** Status line shown while the tool is active. */

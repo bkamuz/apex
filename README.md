@@ -40,19 +40,23 @@ placed, what parameters it takes, and how to build its geometry:
 }
 ```
 
-The shipped components use exactly this structure and no bespoke geometry code:
+The shipped types use exactly this structure and no bespoke geometry code:
 
 | Component | Placement | Recipe |
 | --- | --- | --- |
 | `apex.wall` | two points | rectangle swept along the line, seated on the level |
 | `apex.arc_wall` | three points | the same recipe, arc gesture |
-| `apex.column` | one point | rectangle extruded up |
-| `apex.round_column` | one point | circle extruded up |
+| `apex.column` | one point | profile extruded up; rectangle vs round is a `profile` parameter |
 | `apex.beam` | two points | rectangle swept, hung below the line |
 
-Because the placement gesture comes from the definition, the toolbar and the
-property inspector are generated. Registering a component is all it takes to
-get a working tool.
+Each **tool** is a plugin (`apps/web/src/plugins/`). A plugin decides what the
+toolbar shows; registering a component does not automatically add a button.
+That is why Column is one tool: the section is a parameter, not a second
+plugin. A user module that calls `defineComponent` is itself a plugin and
+gets a default placement tool.
+
+Because the placement gesture comes from the definition, the property
+inspector is generated from the schema.
 
 ### Extending a running app
 
@@ -96,9 +100,9 @@ Each push to `main` redeploys automatically via `.github/workflows/deploy-pages.
 
 ### Demo
 
-1. Pick a tool: **Wall**, **Arc wall**, **Column**, **Round column** or **Beam**.
+1. Pick a tool: **Wall**, **Arc wall**, **Column** or **Beam**.
 2. Click the number of points that tool needs (1, 2 or 3); a ghost previews the result.
-3. Select the element and edit its parameters; the fields come from its schema.
+3. Select the element and edit its parameters; the fields come from its schema. A column's profile (rectangle / round) is one of those parameters.
 4. Orbit: right-drag · Pan: middle-drag · Zoom: wheel · Shift: snap to grid.
 
 ## Tests

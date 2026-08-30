@@ -17,6 +17,20 @@ function stepFor(spec: ParamSpecDto): number {
   return spec.kind === 'angle' ? 0.05 : 0.05;
 }
 
+function optionLabel(kind: ParamSpecDto['kind'], option: string): string {
+  if (kind !== 'profile') return option;
+  switch (option) {
+    case 'apex.rect':
+      return 'Rectangle';
+    case 'apex.round':
+      return 'Round';
+    default: {
+      const leaf = option.includes('.') ? option.slice(option.lastIndexOf('.') + 1) : option;
+      return leaf.charAt(0).toUpperCase() + leaf.slice(1);
+    }
+  }
+}
+
 /** One control per parameter, chosen from the declared kind. */
 function ParamField({
   spec,
@@ -61,7 +75,7 @@ function ParamField({
           >
             {(spec.options ?? []).map((option) => (
               <option key={option} value={option}>
-                {option}
+                {optionLabel(spec.kind, option)}
               </option>
             ))}
           </select>

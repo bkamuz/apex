@@ -22,8 +22,11 @@ wrong — fix the abstraction instead. See `crates/apex-core/src/registry.rs`
 for how the built-ins are declared, and `README.md` for the JSON shape.
 
 Two consequences worth remembering:
-- Placement tools and inspector fields are generated from the definition, so
-  the UI needs no work when a component is added.
+- First-party tools are plugins (`apps/web/src/plugins/`). Each plugin
+  contributes one toolbar button. A component variant (round vs rectangular
+  column) is a parameter, not a second plugin. A user `defineComponent` call
+  is itself a plugin and gets a default placement tool.
+- The inspector fields are generated from the definition's `ParamSpec` list.
 - `to_js` in `apex-wasm` must keep `serialize_maps_as_objects(true)`. Any
   struct using `#[serde(flatten)]` (such as `ParamSpec`) or a map type (such
   as `ParamMap`) otherwise arrives in JS as a `Map` and every field reads
