@@ -114,6 +114,21 @@ export function listElements() {
 }
 
 /**
+ * Installed profile types. Empty `category` returns the whole library.
+ * @param {string} category
+ * @returns {any}
+ */
+export function listProfiles(category) {
+    const ptr0 = passStringToWasm0(category, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.listProfiles(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * Resolve a GPU pick id to an element and replace the selection.
  * @param {number} pick_id
  * @returns {any}
@@ -156,6 +171,24 @@ export function previewElement(component_id, points_json, rotation, params_json,
 }
 
 /**
+ * Evaluate a profile spec (or a full `ProfileType`) to a 2D outline for the editor.
+ * @param {string} profile_json
+ * @param {string} params_json
+ * @returns {any}
+ */
+export function previewProfile(profile_json, params_json) {
+    const ptr0 = passStringToWasm0(profile_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(params_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.previewProfile(ptr0, len0, ptr1, len1);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * Install a component at runtime, from a module or the visual editor.
  * @param {string} definition_json
  * @returns {any}
@@ -164,6 +197,21 @@ export function registerComponent(definition_json) {
     const ptr0 = passStringToWasm0(definition_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
     const ret = wasm.registerComponent(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Install or replace a profile type. Dependent elements are rebuilt.
+ * @param {string} definition_json
+ * @returns {any}
+ */
+export function registerProfile(definition_json) {
+    const ptr0 = passStringToWasm0(definition_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.registerProfile(ptr0, len0);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -273,6 +321,24 @@ export function updateElement(id, params_json) {
     const ptr1 = passStringToWasm0(params_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len1 = WASM_VECTOR_LEN;
     const ret = wasm.updateElement(ptr0, len0, ptr1, len1);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Patch type-level values on a profile and rebuild every element that uses it.
+ * @param {string} id
+ * @param {string} params_json
+ * @returns {any}
+ */
+export function updateProfileType(id, params_json) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(params_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.updateProfileType(ptr0, len0, ptr1, len1);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }

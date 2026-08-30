@@ -40,6 +40,11 @@ export function listComponents(): any;
 export function listElements(): any;
 
 /**
+ * Installed profile types. Empty `category` returns the whole library.
+ */
+export function listProfiles(category: string): any;
+
+/**
  * Resolve a GPU pick id to an element and replace the selection.
  */
 export function pickById(pick_id: number): any;
@@ -54,9 +59,19 @@ export function pickById(pick_id: number): any;
 export function previewElement(component_id: string, points_json: string, rotation: number, params_json: string, placement_kind: string): any;
 
 /**
+ * Evaluate a profile spec (or a full `ProfileType`) to a 2D outline for the editor.
+ */
+export function previewProfile(profile_json: string, params_json: string): any;
+
+/**
  * Install a component at runtime, from a module or the visual editor.
  */
 export function registerComponent(definition_json: string): any;
+
+/**
+ * Install or replace a profile type. Dependent elements are rebuilt.
+ */
+export function registerProfile(definition_json: string): any;
 
 export function selectElement(id: string): any;
 
@@ -81,6 +96,11 @@ export function toggleSelectElement(id: string): any;
  */
 export function updateElement(id: string, params_json: string): any;
 
+/**
+ * Patch type-level values on a profile and rebuild every element that uses it.
+ */
+export function updateProfileType(id: string, params_json: string): any;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
@@ -93,9 +113,12 @@ export interface InitOutput {
     readonly initApp: () => [number, number];
     readonly listComponents: () => [number, number, number];
     readonly listElements: () => [number, number, number];
+    readonly listProfiles: (a: number, b: number) => [number, number, number];
     readonly pickById: (a: number) => [number, number, number];
     readonly previewElement: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
+    readonly previewProfile: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly registerComponent: (a: number, b: number) => [number, number, number];
+    readonly registerProfile: (a: number, b: number) => [number, number, number];
     readonly selectElement: (a: number, b: number) => [number, number, number];
     readonly setActiveLevel: (a: number, b: number) => [number, number, number];
     readonly setElementPlacement: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
@@ -103,6 +126,7 @@ export interface InitOutput {
     readonly togglePickById: (a: number) => [number, number, number];
     readonly toggleSelectElement: (a: number, b: number) => [number, number, number];
     readonly updateElement: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly updateProfileType: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;

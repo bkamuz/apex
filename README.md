@@ -48,6 +48,8 @@ The shipped types use exactly this structure and no bespoke geometry code:
 | `apex.column` | one point | profile extruded up; rectangle vs round is a `profile` parameter |
 | `apex.beam` | two points | rectangle swept, hung below the line |
 
+A **profile type** is the catalog object behind that `profile` parameter: a parametric 2D section with type-level values (shared, e.g. wall thickness) and instance-level values (per element, e.g. wall height). The inspector splits those into Instance and Type; **Edit type** opens a 2D parametric editor (shape, parameters, formulas, SVG preview). Justification is not in this slice.
+
 Each **tool** is a plugin (`apps/web/src/plugins/`). A plugin decides what the
 toolbar shows; registering a component does not automatically add a button.
 That is why Wall and Column are one tool each: the draw mode (line / arc /
@@ -102,7 +104,7 @@ Each push to `main` redeploys automatically via `.github/workflows/deploy-pages.
 
 1. Pick a tool: **Wall**, **Column** or **Beam**. With Wall active, switch **Line** / **Arc** / **Polyline**.
 2. Click the number of points that mode needs (1, 2, 3, or double-click to finish a polyline); a ghost previews the result.
-3. Select the element and edit its parameters; the fields come from its schema. A wall or column's profile (rectangle / round) is one of those parameters.
+3. Select the element and edit its **instance** parameters; **Edit type** opens the profile editor for shared type values (thickness, column width). With Wall/Column/Beam active, the inspector shows the same instance fields used for the next placement.
 4. Orbit: right-drag · Pan: middle-drag · Zoom: wheel · Shift: snap to grid.
 
 ## Tests

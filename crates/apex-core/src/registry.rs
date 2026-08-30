@@ -11,7 +11,7 @@ use thiserror::Error;
 
 use crate::component::{
     evaluate_recipe, ComponentDefinition, ComponentSource, DefinitionError, FrameSource,
-    GeometryRecipe, MeshBuilder, ProfileId, ProfileLibrary, ProfileSpec, RecipeContext,
+    GeometryRecipe, MeshBuilder, ProfileLibrary, ProfileSpec, ProfileType, RecipeContext,
     RecipeError,
 };
 use crate::element::{ComponentId, Element};
@@ -55,8 +55,10 @@ impl ComponentRegistry {
     /// A registry preloaded with the shipped components.
     pub fn with_builtins() -> Self {
         let mut registry = Self::new();
-        for (id, spec) in builtin_profiles() {
-            registry.register_profile(id, spec);
+        for profile in builtin_profiles() {
+            registry
+                .upsert_profile(profile)
+                .expect("built-in profiles must be valid");
         }
         for definition in builtin_components() {
             registry
@@ -84,8 +86,10 @@ impl ComponentRegistry {
         Ok(())
     }
 
-    pub fn register_profile(&mut self, id: impl Into<ProfileId>, spec: ProfileSpec) {
-        self.profiles.insert(id.into(), spec);
+    pub fn upsert_profile(&mut self, profile: ProfileType) -> Result<(), RegistryError> {
+        profile.validate()?;
+        self.profiles.insert(profile.id.clone(), profile);
+        Ok(())
     }
 
     pub fn register_builder(&mut self, id: impl Into<String>, builder: Box<dyn MeshBuilder>) {
@@ -101,6 +105,15 @@ impl ComponentRegistry {
             .ok_or_else(|| RegistryError::Unknown(id.to_string()))
     }
 
+    pub fn profile(&self, id: &str) -> Option<&ProfileType> {
+        self.profiles.get(id)
+    }
+
+    pub fn require_profile(&self, id: &str) -> Result<&ProfileType, RegistryError> {
+        self.profile(id)
+            .ok_or_else(|| RegistryError::Recipe(RecipeError::UnknownProfile(id.to_string())))
+    }
+
     pub fn components(&self) -> impl Iterator<Item = &ComponentDefinition> {
         self.components.values()
     }
@@ -109,12 +122,94 @@ impl ComponentRegistry {
         &self.profiles
     }
 
+    pub fn profiles_in_category<'a>(
+        &'a self,
+        category: &'a str,
+    ) -> impl Iterator<Item = &'a ProfileType> + 'a {
+        self.profiles
+            .values()
+            .filter(move |profile| profile.category == category || profile.category.is_empty())
+    }
+
     pub fn len(&self) -> usize {
         self.components.len()
     }
 
     pub fn is_empty(&self) -> bool {
         self.components.is_empty()
+    }
+
+    /// Profile id stored on this element, after applying component defaults.
+    pub fn element_profile_id(&self, element: &Element) -> Option<String> {
+        let definition = self.get(&element.component_id)?;
+        let resolved = definition.resolve_params(&element.params).ok()?;
+        definition
+            .profile_param_id()
+            .and_then(|id| resolved.text(id).map(|text| text.to_string()))
+    }
+
+    /// Parameters that belong on the element: component fields plus instance profile fields.
+    pub fn persistable_params(
+        &self,
+        component_id: &str,
+        raw: &ParamMap,
+    ) -> Result<ParamMap, RegistryError> {
+        let definition = self.require(component_id)?;
+        let component_params = definition.resolve_params(raw)?;
+        let mut specs = definition.params.clone();
+        if let Some(profile_id) = definition
+            .profile_param_id()
+            .and_then(|id| component_params.text(id).map(|text| text.to_string()))
+        {
+            if let Some(profile) = self.profiles.get(&profile_id) {
+                specs.extend(profile.instance_params().cloned());
+            }
+        }
+        Ok(raw.resolve(&specs)?)
+    }
+
+    /// Merge component params, profile type values, and profile instance values.
+    pub fn eval_params(
+        &self,
+        component_id: &str,
+        raw: &ParamMap,
+    ) -> Result<ParamMap, RegistryError> {
+        let definition = self.require(component_id)?;
+        let component_params = definition.resolve_params(raw)?;
+        let Some(param_id) = definition.profile_param_id() else {
+            return Ok(component_params);
+        };
+        let Some(profile_id) = component_params.text(param_id) else {
+            return Ok(component_params);
+        };
+        let profile = self.require_profile(profile_id)?;
+        let merged = profile.merge_eval_params(raw)?;
+        Ok(merged.merged(&component_params))
+    }
+
+    /// Evaluate a profile spec to a 2D outline, for the profile editor preview.
+    pub fn preview_profile(
+        &self,
+        spec: &ProfileSpec,
+        params: &ParamMap,
+    ) -> Result<apex_geometry::Profile, RegistryError> {
+        Ok(spec.evaluate(params, &self.profiles)?)
+    }
+
+    /// Patch type-level values on a profile. Callers must rebuild dependents.
+    pub fn update_profile_type_values(
+        &mut self,
+        id: &str,
+        patch: &ParamMap,
+    ) -> Result<(), RegistryError> {
+        let profile = self
+            .profiles
+            .get_mut(id)
+            .ok_or_else(|| RegistryError::Recipe(RecipeError::UnknownProfile(id.to_string())))?;
+        let type_specs: Vec<_> = profile.type_params().cloned().collect();
+        let merged = profile.type_values.merged(patch);
+        profile.type_values = merged.resolve(&type_specs)?;
+        Ok(())
     }
 
     /// Build the mesh for a placement plus a raw parameter set.
@@ -134,7 +229,7 @@ impl ComponentRegistry {
             });
         }
 
-        let params = definition.resolve_params(raw_params)?;
+        let params = self.eval_params(component_id, raw_params)?;
         let ctx = RecipeContext {
             placement,
             params: &params,
@@ -159,37 +254,78 @@ impl ComponentRegistry {
     }
 }
 
-/// Profiles every project starts with.
-fn builtin_profiles() -> Vec<(ProfileId, ProfileSpec)> {
+/// Profiles every project starts with. Type vs instance lives here, not on the component.
+fn builtin_profiles() -> Vec<ProfileType> {
     vec![
-        (
-            "apex.rect".to_string(),
-            ProfileSpec::Rectangle {
+        ProfileType {
+            id: "apex.rect".into(),
+            display_name: "Rectangle".into(),
+            category: "column".into(),
+            params: vec![
+                ParamSpec::length("width", "Width", 0.4).as_type(),
+                ParamSpec::length("depth", "Depth", 0.4).as_type(),
+            ],
+            spec: ProfileSpec::Rectangle {
                 width: Expr::param("width"),
                 height: Expr::param("depth"),
             },
-        ),
-        (
-            "apex.round".to_string(),
-            ProfileSpec::Circle {
+            type_values: ParamMap::new(),
+            formulas: Default::default(),
+        },
+        ProfileType {
+            id: "apex.round".into(),
+            display_name: "Round".into(),
+            category: "column".into(),
+            params: vec![ParamSpec::length("width", "Width", 0.4).as_type()],
+            spec: ProfileSpec::Circle {
                 radius: Expr::param("width") / Expr::constant(2.0),
                 segments: 24,
             },
-        ),
-        (
-            "apex.wall.rect".to_string(),
-            ProfileSpec::Rectangle {
+            type_values: ParamMap::new(),
+            formulas: Default::default(),
+        },
+        ProfileType {
+            id: "apex.wall.rect".into(),
+            display_name: "Rectangle".into(),
+            category: "wall".into(),
+            params: vec![
+                ParamSpec::length("thickness", "Thickness", 0.2).as_type(),
+                ParamSpec::length("height", "Height", 3.0),
+            ],
+            spec: ProfileSpec::Rectangle {
                 width: Expr::param("thickness"),
                 height: Expr::param("height"),
             },
-        ),
-        (
-            "apex.wall.round".to_string(),
-            ProfileSpec::Circle {
+            type_values: ParamMap::new(),
+            formulas: Default::default(),
+        },
+        ProfileType {
+            id: "apex.wall.round".into(),
+            display_name: "Round".into(),
+            category: "wall".into(),
+            params: vec![ParamSpec::length("thickness", "Thickness", 0.2).as_type()],
+            spec: ProfileSpec::Circle {
                 radius: Expr::param("thickness") / Expr::constant(2.0),
                 segments: 24,
             },
-        ),
+            type_values: ParamMap::new(),
+            formulas: Default::default(),
+        },
+        ProfileType {
+            id: "apex.beam.rect".into(),
+            display_name: "Rectangle".into(),
+            category: "beam".into(),
+            params: vec![
+                ParamSpec::length("width", "Width", 0.2).as_type(),
+                ParamSpec::length("depth", "Depth", 0.4).as_type(),
+            ],
+            spec: ProfileSpec::Rectangle {
+                width: Expr::param("width"),
+                height: Expr::param("depth"),
+            },
+            type_values: ParamMap::new(),
+            formulas: Default::default(),
+        },
     ]
 }
 
@@ -214,16 +350,12 @@ fn wall() -> ComponentDefinition {
         category: "wall".to_string(),
         source: ComponentSource::BuiltIn,
         placement: PlacementKind::Path,
-        params: vec![
-            ParamSpec::profile(
-                "profile",
-                "Profile",
-                "apex.wall.rect",
-                &["apex.wall.rect", "apex.wall.round"],
-            ),
-            ParamSpec::length("height", "Height", 3.0),
-            ParamSpec::length("thickness", "Thickness", 0.2),
-        ],
+        params: vec![ParamSpec::profile(
+            "profile",
+            "Profile",
+            "apex.wall.rect",
+            &[],
+        )],
         recipe: GeometryRecipe::Sweep {
             profile: ProfileSpec::FromParam {
                 param: "profile".into(),
@@ -245,15 +377,8 @@ fn column() -> ComponentDefinition {
         source: ComponentSource::BuiltIn,
         placement: PlacementKind::Point,
         params: vec![
-            ParamSpec::profile(
-                "profile",
-                "Profile",
-                "apex.rect",
-                &["apex.rect", "apex.round"],
-            ),
+            ParamSpec::profile("profile", "Profile", "apex.rect", &[]),
             ParamSpec::length("height", "Height", 3.0),
-            ParamSpec::length("width", "Width", 0.4),
-            ParamSpec::length("depth", "Depth", 0.4),
         ],
         recipe: GeometryRecipe::Extrude {
             profile: ProfileSpec::FromParam {
@@ -273,14 +398,15 @@ fn beam() -> ComponentDefinition {
         category: "beam".to_string(),
         source: ComponentSource::BuiltIn,
         placement: PlacementKind::TwoPoint,
-        params: vec![
-            ParamSpec::length("width", "Width", 0.2),
-            ParamSpec::length("depth", "Depth", 0.4),
-        ],
+        params: vec![ParamSpec::profile(
+            "profile",
+            "Profile",
+            "apex.beam.rect",
+            &[],
+        )],
         recipe: GeometryRecipe::Sweep {
-            profile: ProfileSpec::Rectangle {
-                width: Expr::param("width"),
-                height: Expr::param("depth"),
+            profile: ProfileSpec::FromParam {
+                param: "profile".into(),
             },
             justification: Justification::TopCenter,
             start_offset: Expr::zero(),
@@ -416,11 +542,17 @@ mod tests {
 
     #[test]
     fn switching_a_wall_profile_needs_no_new_type() {
-        let registry = ComponentRegistry::with_builtins();
+        let mut registry = ComponentRegistry::with_builtins();
+        let thick = ParamMap::new().with("thickness", ParamValue::Length(0.4));
+        registry
+            .update_profile_type_values("apex.wall.rect", &thick)
+            .expect("rect type");
+        registry
+            .update_profile_type_values("apex.wall.round", &thick)
+            .expect("round type");
+
         let placement = Placement::line(Vec3::ZERO, Vec3::new(5.0, 0.0, 0.0));
-        let rect = ParamMap::new()
-            .with("height", ParamValue::Length(3.0))
-            .with("thickness", ParamValue::Length(0.4));
+        let rect = ParamMap::new().with("height", ParamValue::Length(3.0));
         let round = rect
             .clone()
             .with("profile", ParamValue::ProfileRef("apex.wall.round".into()));
@@ -454,12 +586,17 @@ mod tests {
 
     #[test]
     fn a_column_is_added_with_data_alone() {
-        let registry = ComponentRegistry::with_builtins();
+        let mut registry = ComponentRegistry::with_builtins();
+        registry
+            .update_profile_type_values(
+                "apex.rect",
+                &ParamMap::new()
+                    .with("width", ParamValue::Length(0.5))
+                    .with("depth", ParamValue::Length(0.3)),
+            )
+            .expect("type");
         let placement = Placement::point(Vec3::new(2.0, 0.0, 3.0));
-        let params = ParamMap::new()
-            .with("height", ParamValue::Length(4.0))
-            .with("width", ParamValue::Length(0.5))
-            .with("depth", ParamValue::Length(0.3));
+        let params = ParamMap::new().with("height", ParamValue::Length(4.0));
 
         let mesh = registry
             .build_mesh("apex.column", &placement, &params, ground())
@@ -473,12 +610,23 @@ mod tests {
 
     #[test]
     fn switching_a_column_profile_needs_no_new_type() {
-        let registry = ComponentRegistry::with_builtins();
+        let mut registry = ComponentRegistry::with_builtins();
+        registry
+            .update_profile_type_values(
+                "apex.rect",
+                &ParamMap::new()
+                    .with("width", ParamValue::Length(0.6))
+                    .with("depth", ParamValue::Length(0.3)),
+            )
+            .expect("rect type");
+        registry
+            .update_profile_type_values(
+                "apex.round",
+                &ParamMap::new().with("width", ParamValue::Length(0.6)),
+            )
+            .expect("round type");
         let placement = Placement::point(Vec3::ZERO);
-        let rect = ParamMap::new()
-            .with("height", ParamValue::Length(3.0))
-            .with("width", ParamValue::Length(0.6))
-            .with("depth", ParamValue::Length(0.3));
+        let rect = ParamMap::new().with("height", ParamValue::Length(3.0));
         let round = rect
             .clone()
             .with("profile", ParamValue::ProfileRef("apex.round".into()));
@@ -756,5 +904,81 @@ mod tests {
         let mut sorted = ids.clone();
         sorted.sort();
         assert_eq!(ids, sorted, "listing drives the toolbar, so keep it stable");
+    }
+
+    #[test]
+    fn wall_section_dimensions_live_on_the_profile_type() {
+        let registry = ComponentRegistry::with_builtins();
+        let wall = registry.get("apex.wall").unwrap();
+        let ids: Vec<_> = wall.params.iter().map(|p| p.id.as_str()).collect();
+        assert_eq!(ids, ["profile"]);
+        let profile = registry.profile("apex.wall.rect").expect("rect");
+        assert!(profile
+            .params
+            .iter()
+            .any(|p| p.id == "height" && p.binding.is_instance()));
+        assert!(profile
+            .params
+            .iter()
+            .any(|p| p.id == "thickness" && p.binding.is_type()));
+    }
+
+    #[test]
+    fn persistable_params_keep_instance_keys_and_drop_type_keys() {
+        let registry = ComponentRegistry::with_builtins();
+        let raw = ParamMap::new()
+            .with("height", ParamValue::Length(4.0))
+            .with("thickness", ParamValue::Length(0.9));
+        let stored = registry
+            .persistable_params("apex.wall", &raw)
+            .expect("persist");
+        assert_eq!(stored.number("height"), Some(4.0));
+        assert!(stored.get("thickness").is_none());
+        assert_eq!(stored.text("profile"), Some("apex.wall.rect"));
+    }
+
+    #[test]
+    fn a_type_formula_may_not_read_an_instance_parameter() {
+        let mut registry = ComponentRegistry::new();
+        let mut formulas = BTreeMap::new();
+        formulas.insert(
+            "thickness".into(),
+            Expr::param("height") / Expr::constant(2.0),
+        );
+        let profile = ProfileType {
+            id: "acme.bad".into(),
+            display_name: "Bad".into(),
+            category: "wall".into(),
+            params: vec![
+                ParamSpec::length("thickness", "Thickness", 0.2).as_type(),
+                ParamSpec::length("height", "Height", 3.0),
+            ],
+            spec: ProfileSpec::Rectangle {
+                width: Expr::param("thickness"),
+                height: Expr::param("height"),
+            },
+            type_values: ParamMap::new(),
+            formulas,
+        };
+        assert!(matches!(
+            registry.upsert_profile(profile).unwrap_err(),
+            RegistryError::Definition(DefinitionError::TypeDependsOnInstance { .. })
+        ));
+    }
+
+    #[test]
+    fn preview_profile_evaluates_the_spec_to_an_outline() {
+        let registry = ComponentRegistry::with_builtins();
+        let spec = ProfileSpec::Rectangle {
+            width: Expr::param("thickness"),
+            height: Expr::param("height"),
+        };
+        let params = ParamMap::new()
+            .with("thickness", ParamValue::Length(0.2))
+            .with("height", ParamValue::Length(3.0));
+        let profile = registry.preview_profile(&spec, &params).expect("preview");
+        let (min, max) = profile.bounds();
+        assert!((max[0] - min[0] - 0.2).abs() < EPS);
+        assert!((max[1] - min[1] - 3.0).abs() < EPS);
     }
 }

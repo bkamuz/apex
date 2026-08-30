@@ -7,9 +7,12 @@ import initWasm, {
   initApp,
   listComponents,
   listElements,
+  listProfiles,
   pickById,
   previewElement,
+  previewProfile,
   registerComponent,
+  registerProfile,
   selectElement,
   setActiveLevel,
   setElementPlacement,
@@ -17,6 +20,7 @@ import initWasm, {
   togglePickById,
   toggleSelectElement,
   updateElement,
+  updateProfileType,
 } from './pkg/apex_wasm.js';
 import type {
   ComponentDto,
@@ -24,6 +28,8 @@ import type {
   MeshDto,
   ParamValue,
   PlacementKind,
+  ProfilePreviewDto,
+  ProfileTypeDto,
   SceneDto,
   Vec3,
 } from '../types';
@@ -56,6 +62,28 @@ export function apexListComponents(): ComponentDto[] {
 
 export function apexRegisterComponent(definition: unknown): SceneDto {
   return asScene(registerComponent(JSON.stringify(definition)));
+}
+
+export function apexListProfiles(category = ''): ProfileTypeDto[] {
+  return listProfiles(category) as ProfileTypeDto[];
+}
+
+export function apexRegisterProfile(definition: ProfileTypeDto): SceneDto {
+  return asScene(registerProfile(JSON.stringify(definition)));
+}
+
+export function apexUpdateProfileType(
+  id: string,
+  params: Record<string, ParamValue>,
+): SceneDto {
+  return asScene(updateProfileType(id, encodeParams(params)));
+}
+
+export function apexPreviewProfile(
+  profile: ProfileTypeDto | unknown,
+  params?: Record<string, ParamValue>,
+): ProfilePreviewDto {
+  return previewProfile(JSON.stringify(profile), encodeParams(params)) as ProfilePreviewDto;
 }
 
 export function apexCreateElement(

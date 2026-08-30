@@ -16,14 +16,14 @@ use thiserror::Error;
 
 use crate::element::ComponentId;
 use crate::expr::{Expr, ExprError};
-use crate::param::{ParamId, ParamMap, ParamSpec};
+use crate::param::{ParamBinding, ParamError, ParamId, ParamMap, ParamSpec};
 use crate::placement::{Placement, PlacementError, PlacementKind};
 
 pub type ModuleId = String;
 pub type ProfileId = String;
 
-/// Named, reusable profiles a component can point at.
-pub type ProfileLibrary = BTreeMap<ProfileId, ProfileSpec>;
+/// Named, reusable profile types a component can point at.
+pub type ProfileLibrary = BTreeMap<ProfileId, ProfileType>;
 
 /// Guards against a named profile that eventually references itself.
 const MAX_PROFILE_DEPTH: usize = 8;
@@ -177,6 +177,7 @@ impl ProfileSpec {
                 library
                     .get(id)
                     .ok_or_else(|| RecipeError::UnknownProfile(id.clone()))?
+                    .spec
                     .evaluate_at(params, library, depth + 1)
             }
             Self::FromParam { param } => {
@@ -204,6 +205,15 @@ impl ProfileSpec {
             Self::Named { .. } => {}
             Self::FromParam { param } => out.push(param.clone()),
         }
+    }
+
+    /// Every parameter this spec reads, for validating a profile type.
+    pub fn referenced_params(&self) -> Vec<ParamId> {
+        let mut out = Vec::new();
+        self.collect_params(&mut out);
+        out.sort();
+        out.dedup();
+        out
     }
 }
 
@@ -364,6 +374,14 @@ pub enum DefinitionError {
     },
     #[error("component id must not be empty")]
     EmptyId,
+    #[error(
+        "profile '{profile}' type parameter '{param}' depends on instance parameter '{referenced}'"
+    )]
+    TypeDependsOnInstance {
+        profile: ProfileId,
+        param: ParamId,
+        referenced: ParamId,
+    },
 }
 
 /// The complete description of an object type.
@@ -412,6 +430,188 @@ impl ComponentDefinition {
     /// Fill in defaults and type-check raw values against this component's schema.
     pub fn resolve_params(&self, raw: &ParamMap) -> Result<ParamMap, crate::param::ParamError> {
         raw.resolve(&self.params)
+    }
+
+    /// The first profile-valued parameter, if this component picks a section.
+    pub fn profile_param_id(&self) -> Option<&str> {
+        self.params.iter().find_map(|spec| match spec.kind {
+            crate::param::ParamKind::Profile { .. } => Some(spec.id.as_str()),
+            _ => None,
+        })
+    }
+}
+
+/// A reusable section: shape plus type/instance parameters.
+///
+/// For a wall, the profile type *is* the wall type: thickness is typically a
+/// type parameter, height an instance parameter. Column height stays on the
+/// component because it is an extrude, not part of the section.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ProfileType {
+    pub id: ProfileId,
+    pub display_name: String,
+    /// `wall`, `column`, `beam`, or a user category. Filters the tool picker.
+    #[serde(default)]
+    pub category: String,
+    #[serde(default)]
+    pub params: Vec<ParamSpec>,
+    pub spec: ProfileSpec,
+    /// Current values of type-bound parameters.
+    #[serde(default)]
+    pub type_values: ParamMap,
+    /// Derived parameters, keyed by param id. Type formulas may not read instance ids.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub formulas: BTreeMap<ParamId, Expr>,
+}
+
+impl ProfileType {
+    /// A nameless shape with no parameters, for tests and nested aliases.
+    pub fn shape(id: impl Into<ProfileId>, spec: ProfileSpec) -> Self {
+        let id = id.into();
+        Self {
+            display_name: id.clone(),
+            id,
+            category: String::new(),
+            params: vec![],
+            spec,
+            type_values: ParamMap::new(),
+            formulas: BTreeMap::new(),
+        }
+    }
+
+    pub fn type_params(&self) -> impl Iterator<Item = &ParamSpec> {
+        self.params.iter().filter(|spec| spec.binding.is_type())
+    }
+
+    pub fn instance_params(&self) -> impl Iterator<Item = &ParamSpec> {
+        self.params.iter().filter(|spec| spec.binding.is_instance())
+    }
+
+    pub fn validate(&self) -> Result<(), DefinitionError> {
+        if self.id.trim().is_empty() {
+            return Err(DefinitionError::EmptyId);
+        }
+
+        let mut seen = std::collections::BTreeSet::new();
+        for spec in &self.params {
+            if !seen.insert(spec.id.as_str()) {
+                return Err(DefinitionError::DuplicateParam {
+                    component: self.id.clone(),
+                    param: spec.id.clone(),
+                });
+            }
+        }
+
+        for param in self.spec.referenced_params() {
+            if matches!(
+                self.spec,
+                ProfileSpec::Named { .. } | ProfileSpec::FromParam { .. }
+            ) {
+                break;
+            }
+            if !seen.contains(param.as_str()) {
+                return Err(DefinitionError::UndeclaredParam {
+                    component: self.id.clone(),
+                    param,
+                });
+            }
+        }
+
+        for (id, expr) in &self.formulas {
+            if !seen.contains(id.as_str()) {
+                return Err(DefinitionError::UndeclaredParam {
+                    component: self.id.clone(),
+                    param: id.clone(),
+                });
+            }
+            self.reject_type_depends_on_instance(id, expr, &seen)?;
+        }
+        Ok(())
+    }
+
+    /// A type-bound expression (formula, or a spec treated as type-level) may
+    /// not read an instance parameter. Instance expressions may read type ids.
+    fn reject_type_depends_on_instance(
+        &self,
+        owner: &ParamId,
+        expr: &Expr,
+        declared: &std::collections::BTreeSet<&str>,
+    ) -> Result<(), DefinitionError> {
+        let owner_is_type = self
+            .params
+            .iter()
+            .find(|spec| spec.id == *owner)
+            .is_some_and(|spec| spec.binding.is_type());
+        if !owner_is_type {
+            return Ok(());
+        }
+        for referenced in expr.referenced_params() {
+            if !declared.contains(referenced.as_str()) {
+                return Err(DefinitionError::UndeclaredParam {
+                    component: self.id.clone(),
+                    param: referenced,
+                });
+            }
+            let referenced_is_instance = self
+                .params
+                .iter()
+                .find(|spec| spec.id == referenced)
+                .is_some_and(|spec| spec.binding.is_instance());
+            if referenced_is_instance {
+                return Err(DefinitionError::TypeDependsOnInstance {
+                    profile: self.id.clone(),
+                    param: owner.clone(),
+                    referenced,
+                });
+            }
+        }
+        Ok(())
+    }
+
+    pub fn resolve_type_values(&self) -> Result<ParamMap, ParamError> {
+        let specs: Vec<_> = self.type_params().cloned().collect();
+        let mut map = self.type_values.resolve(&specs)?;
+        self.apply_formulas(&mut map, ParamBinding::Type)?;
+        Ok(map)
+    }
+
+    fn apply_formulas(&self, map: &mut ParamMap, binding: ParamBinding) -> Result<(), ParamError> {
+        for spec in &self.params {
+            if spec.binding != binding {
+                continue;
+            }
+            let Some(expr) = self.formulas.get(&spec.id) else {
+                continue;
+            };
+            let number = expr.eval(map).map_err(formula_param_error)?;
+            let value = crate::param::ParamValue::Number(number).coerce(&spec.id, &spec.kind)?;
+            spec.check_range(&value)?;
+            map.set(spec.id.clone(), value);
+        }
+        Ok(())
+    }
+
+    /// Overlay instance values (and instance formulas) on resolved type values.
+    pub fn merge_eval_params(&self, raw_instance: &ParamMap) -> Result<ParamMap, ParamError> {
+        let mut map = self.resolve_type_values()?;
+        let instance_specs: Vec<_> = self.instance_params().cloned().collect();
+        let instance = raw_instance.resolve(&instance_specs)?;
+        map = map.merged(&instance);
+        self.apply_formulas(&mut map, ParamBinding::Instance)?;
+        Ok(map)
+    }
+}
+
+fn formula_param_error(err: ExprError) -> ParamError {
+    match err {
+        ExprError::UnknownParam(id) => ParamError::Missing { id },
+        ExprError::NotNumeric(id) => ParamError::TypeMismatch {
+            id,
+            expected: "a number",
+        },
+        ExprError::DivisionByZero => ParamError::OutOfRange {
+            id: "formula".into(),
+        },
     }
 }
 
@@ -707,10 +907,13 @@ mod tests {
         let mut profiles = ProfileLibrary::new();
         profiles.insert(
             "acme.slim".into(),
-            ProfileSpec::Rectangle {
-                width: Expr::constant(0.1),
-                height: Expr::constant(2.0),
-            },
+            ProfileType::shape(
+                "acme.slim",
+                ProfileSpec::Rectangle {
+                    width: Expr::constant(0.1),
+                    height: Expr::constant(2.0),
+                },
+            ),
         );
 
         let recipe = GeometryRecipe::Sweep {
@@ -739,17 +942,23 @@ mod tests {
         let mut profiles = ProfileLibrary::new();
         profiles.insert(
             "acme.thin".into(),
-            ProfileSpec::Rectangle {
-                width: Expr::constant(0.1),
-                height: Expr::constant(1.0),
-            },
+            ProfileType::shape(
+                "acme.thin",
+                ProfileSpec::Rectangle {
+                    width: Expr::constant(0.1),
+                    height: Expr::constant(1.0),
+                },
+            ),
         );
         profiles.insert(
             "acme.fat".into(),
-            ProfileSpec::Rectangle {
-                width: Expr::constant(0.9),
-                height: Expr::constant(1.0),
-            },
+            ProfileType::shape(
+                "acme.fat",
+                ProfileSpec::Rectangle {
+                    width: Expr::constant(0.9),
+                    height: Expr::constant(1.0),
+                },
+            ),
         );
 
         let recipe = GeometryRecipe::Sweep {
@@ -803,9 +1012,12 @@ mod tests {
         let mut profiles = ProfileLibrary::new();
         profiles.insert(
             "loop".into(),
-            ProfileSpec::Named {
-                id: "loop".to_string(),
-            },
+            ProfileType::shape(
+                "loop",
+                ProfileSpec::Named {
+                    id: "loop".to_string(),
+                },
+            ),
         );
         let params = ParamMap::new();
         assert_eq!(
@@ -971,6 +1183,7 @@ mod tests {
                 min: None,
                 max: None,
                 unit: None,
+                binding: crate::param::ParamBinding::Instance,
             }],
             recipe: GeometryRecipe::Custom {
                 builder_id: "x".into(),

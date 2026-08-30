@@ -6,8 +6,10 @@ import {
   apexGetScene,
   apexGetSelected,
   apexListComponents,
+  apexListProfiles,
   apexPickById,
   apexPreviewElement,
+  apexRegisterProfile,
   apexSelectElement,
   apexSetActiveLevel,
   apexSetElementPlacement,
@@ -32,12 +34,15 @@ import type {
   LevelDto,
   ParamValue,
   PlacementKind,
+  ProfileTypeDto,
   SceneDto,
 } from './types';
 import { ElementTree } from './ui/ElementTree';
 import { LevelList } from './ui/LevelList';
 import { MobileMenuSheet, type MobileMenuTab } from './ui/MobileMenuSheet';
+import { ProfileEditor } from './ui/ProfileEditor';
 import { PropertiesPanel } from './ui/PropertiesPanel';
+import { defaultNewProfile, defaultPlacementParams, nextProfileId } from './ui/profileModel';
 import { useMediaQuery } from './hooks/useMediaQuery';
 import { ToolRegistry } from './tools/registry';
 import { finishOpenGesture } from './tools/placementTool';
@@ -99,11 +104,19 @@ export default function App() {
   const activeElevationRef = useRef(0);
   const suppressClickRef = useRef(false);
   const draggingRef = useRef(false);
+  const placementParamsRef = useRef<Record<string, ParamValue>>({});
 
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [components, setComponents] = useState<ComponentDto[]>([]);
+  const [profiles, setProfiles] = useState<ProfileTypeDto[]>([]);
+  const [placementDraft, setPlacementDraft] = useState<Record<string, ParamValue>>({});
+  const [profileEditor, setProfileEditor] = useState<{
+    profile: ProfileTypeDto;
+    originalId: string | null;
+  } | null>(null);
   const [toolId, setToolId] = useState<string>(ToolRegistry.selectId);
+  const placementToolIdRef = useRef(toolId);
   const [drawMode, setDrawMode] = useState<string | null>(null);
   const [projection, setProjection] = useState<ProjectionMode>('orthographic');
   const [scene, setScene] = useState<SceneDto | null>(null);
@@ -117,6 +130,7 @@ export default function App() {
 
   selectedRef.current = selected;
   selectedCountRef.current = scene?.selected_ids?.length ?? 0;
+  placementParamsRef.current = placementDraft;
 
   const tool = registryRef.current.get(toolId) ?? registryRef.current.get(ToolRegistry.selectId)!;
   const toolRef = useRef(tool);
@@ -148,11 +162,12 @@ export default function App() {
     rendererRef.current?.setGhostMesh(null);
   }, []);
 
-  /** Pull installed components and let each plugin contribute its tool. */
-  const syncTools = useCallback(() => {
+  /** Pull installed components/profiles and let each plugin contribute its tool. */
+  const syncCatalog = useCallback(() => {
     const installed = apexListComponents();
     installPlugins(registryRef.current, installed);
     setComponents(installed);
+    setProfiles(apexListProfiles());
   }, []);
 
   const applyScene = useCallback(
@@ -202,7 +217,9 @@ export default function App() {
 
       createElement: (componentId, points, placementKind) => {
         try {
-          applyScene(apexCreateElement(componentId, points, undefined, 0, placementKind));
+          applyScene(
+            apexCreateElement(componentId, points, placementParamsRef.current, 0, placementKind),
+          );
           setError(null);
         } catch (e) {
           setError(e instanceof Error ? e.message : String(e));
@@ -211,7 +228,13 @@ export default function App() {
 
       showPreview: (componentId, points, placementKind) => {
         try {
-          const mesh = apexPreviewElement(componentId, points, undefined, 0, placementKind);
+          const mesh = apexPreviewElement(
+            componentId,
+            points,
+            placementParamsRef.current,
+            0,
+            placementKind,
+          );
           renderer.setGhostMesh({
             positions: toFloatArray(mesh.positions),
             normals: toFloatArray(mesh.normals),
@@ -302,8 +325,19 @@ export default function App() {
       setDrawMode(next?.getMode?.() ?? null);
       if (id === ToolRegistry.selectId) syncEditGizmo(selectedRef.current);
       else rendererRef.current?.setEditGizmo(null);
+      const component = components.find((item) => item.id === next?.componentId);
+      if (component) {
+        const draft = defaultPlacementParams(component, profiles);
+        placementParamsRef.current = draft;
+        placementToolIdRef.current = id;
+        setPlacementDraft(draft);
+      } else {
+        placementParamsRef.current = {};
+        placementToolIdRef.current = id;
+        setPlacementDraft({});
+      }
     },
-    [cancelGesture, syncEditGizmo],
+    [cancelGesture, components, profiles, syncEditGizmo],
   );
 
   const activateDrawMode = useCallback(
@@ -314,6 +348,21 @@ export default function App() {
     },
     [cancelGesture],
   );
+
+  useEffect(() => {
+    const switched = placementToolIdRef.current !== toolId;
+    placementToolIdRef.current = toolId;
+    const component = components.find((item) => item.id === tool.componentId);
+    if (!component) {
+      placementParamsRef.current = {};
+      setPlacementDraft({});
+      return;
+    }
+    if (!switched && Object.keys(placementParamsRef.current).length > 0) return;
+    const next = defaultPlacementParams(component, profiles);
+    placementParamsRef.current = next;
+    setPlacementDraft(next);
+  }, [toolId, tool.componentId, components, profiles]);
 
   /** Escape: abandon the gesture, clear selection, fall back to Select. */
   const onEscape = useCallback(() => {
@@ -338,6 +387,10 @@ export default function App() {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' || e.code === 'Escape') {
         e.preventDefault();
+        if (profileEditor) {
+          setProfileEditor(null);
+          return;
+        }
         onEscape();
         return;
       }
@@ -368,7 +421,7 @@ export default function App() {
       window.removeEventListener('keydown', onKeyDown, true);
       window.removeEventListener('keyup', onKeyUp, true);
     };
-  }, [applyScene, onEscape]);
+  }, [applyScene, onEscape, profileEditor]);
 
   useEffect(() => {
     let cancelled = false;
@@ -381,7 +434,7 @@ export default function App() {
         rendererRef.current = new ViewportRenderer(canvas);
 
         // The toolbar is generated from whatever the core has installed.
-        syncTools();
+        syncCatalog();
         installGlobalSdk();
 
         const initial = apexGetScene();
@@ -400,7 +453,7 @@ export default function App() {
       rendererRef.current?.dispose();
       rendererRef.current = null;
     };
-  }, [applyScene, syncTools]);
+  }, [applyScene, syncCatalog]);
 
   const closeMobileMenu = useCallback(() => setMobileMenuOpen(false), []);
   const openMobileMenu = useCallback((tab?: MobileMenuTab) => {
@@ -427,10 +480,10 @@ export default function App() {
   useEffect(() => {
     if (!ready) return;
     return extensions.subscribe(() => {
-      syncTools();
+      syncCatalog();
       applyScene(apexGetScene());
     });
-  }, [ready, syncTools, applyScene]);
+  }, [ready, syncCatalog, applyScene]);
 
   const elements: ElementListDto[] = useMemo(() => scene?.elements ?? [], [scene]);
 
@@ -565,18 +618,65 @@ export default function App() {
     }
   };
 
+  const onPlacementChange = (params: Record<string, ParamValue>) => {
+    placementParamsRef.current = params;
+    setPlacementDraft(params);
+  };
+
+  const onEditType = (profileId: string) => {
+    const profile = profiles.find((item) => item.id === profileId);
+    if (!profile) return;
+    setProfileEditor({ profile, originalId: profile.id });
+  };
+
+  const onNewProfile = (category: string) => {
+    const id = nextProfileId(profiles, category);
+    setProfileEditor({ profile: defaultNewProfile(category, id), originalId: null });
+  };
+
+  const onSaveProfile = (profile: ProfileTypeDto) => {
+    const next = apexRegisterProfile(profile);
+    applyScene(next);
+    syncCatalog();
+    if (tool.componentId) {
+      const host = components.find((item) => item.id === tool.componentId);
+      if (host && host.category === profile.category) {
+        const draft = {
+          ...placementParamsRef.current,
+          profile: profile.id,
+        };
+        placementParamsRef.current = draft;
+        setPlacementDraft(draft);
+      }
+    }
+    setProfileEditor(null);
+    setError(null);
+  };
+
   const onDelete = () => applyScene(apexDeleteSelected());
 
   const selectedIds = scene?.selected_ids ?? [];
   const tools = useMemo(() => registryRef.current.list(), [components]);
+  const placementComponent = tool.componentId
+    ? (components.find((item) => item.id === tool.componentId) ?? null)
+    : null;
 
   const inspector = (
     <PropertiesPanel
       selected={selected}
       selectedCount={selectedIds.length}
       component={selectedComponent}
-      selectedLevel={selectedIds.length === 0 ? selectedLevel : null}
+      profiles={profiles}
+      selectedLevel={selectedIds.length === 0 && !placementComponent ? selectedLevel : null}
+      placement={
+        placementComponent
+          ? { component: placementComponent, params: placementDraft }
+          : null
+      }
       onUpdate={onUpdateParams}
+      onPlacementChange={onPlacementChange}
+      onEditType={onEditType}
+      onNewProfile={onNewProfile}
       onUpdateLevelElevation={onUpdateLevelElevation}
       onDelete={onDelete}
     />
@@ -727,6 +827,15 @@ export default function App() {
           <div className="panel-title">Properties</div>
           {inspector}
         </aside>
+      ) : null}
+
+      {profileEditor ? (
+        <ProfileEditor
+          initial={profileEditor.profile}
+          originalId={profileEditor.originalId}
+          onSave={onSaveProfile}
+          onClose={() => setProfileEditor(null)}
+        />
       ) : null}
     </div>
   );
