@@ -1,7 +1,13 @@
 export type Vec3 = [number, number, number];
 
 /** Mirrors `PlacementKind` in apex-core. */
-export type PlacementKind = 'point' | 'two_point' | 'three_point_arc' | 'polyline' | 'free';
+export type PlacementKind =
+  | 'point'
+  | 'two_point'
+  | 'three_point_arc'
+  | 'polyline'
+  | 'path'
+  | 'free';
 
 /** Mirrors `ParamKind` in apex-core. */
 export type ParamKind = 'length' | 'angle' | 'number' | 'bool' | 'text' | 'choice' | 'profile';

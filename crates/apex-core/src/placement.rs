@@ -36,6 +36,12 @@ pub enum PlacementKind {
     ThreePointArc,
     /// Any number of picks forming a chain.
     Polyline,
+    /// Any curve. The tool chooses line, arc, or polyline per placement.
+    ///
+    /// `build` infers line from two picks and polyline from three or more; it
+    /// never infers an arc, because three picks are also a polyline in progress.
+    /// Pass [`ThreePointArc`] explicitly when the user asked for an arc.
+    Path,
     /// No picking; the frame is supplied directly.
     Free,
 }
@@ -47,7 +53,21 @@ impl PlacementKind {
             Self::TwoPoint => "two_point",
             Self::ThreePointArc => "three_point_arc",
             Self::Polyline => "polyline",
+            Self::Path => "path",
             Self::Free => "free",
+        }
+    }
+
+    /// Parse the snake_case name used on the wire and in authored JSON.
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "point" => Some(Self::Point),
+            "two_point" => Some(Self::TwoPoint),
+            "three_point_arc" => Some(Self::ThreePointArc),
+            "polyline" => Some(Self::Polyline),
+            "path" => Some(Self::Path),
+            "free" => Some(Self::Free),
+            _ => None,
         }
     }
 
@@ -57,7 +77,7 @@ impl PlacementKind {
             Self::Point => Some(1),
             Self::TwoPoint => Some(2),
             Self::ThreePointArc => Some(3),
-            Self::Polyline => None,
+            Self::Polyline | Self::Path => None,
             Self::Free => Some(0),
         }
     }
@@ -116,6 +136,11 @@ impl PlacementKind {
                 }
                 Ok(Placement::Curve { curve })
             }
+            Self::Path => match points.len() {
+                0 | 1 => Err(wrong("at least 2")),
+                2 => Self::TwoPoint.build(points, rotation, work_plane),
+                _ => Self::Polyline.build(points, rotation, work_plane),
+            },
             Self::Free => Ok(Placement::Free { frame: *work_plane }),
         }
     }
@@ -130,6 +155,7 @@ impl PlacementKind {
                 matches!(curve, Curve::Arc { .. } | Curve::Circle { .. })
             }
             (Self::Polyline, Placement::Curve { curve }) => matches!(curve, Curve::Polyline { .. }),
+            (Self::Path, Placement::Curve { .. }) => true,
             _ => false,
         }
     }
@@ -196,6 +222,32 @@ impl Placement {
     /// Length along the placement, or `None` for point-like placements.
     pub fn length(&self) -> Option<f32> {
         self.curve().map(|c| c.length())
+    }
+
+    /// Coarse family used in mismatch errors: point, curve, or free.
+    pub fn family(&self) -> &'static str {
+        match self {
+            Self::Point { .. } => "point",
+            Self::Curve { .. } => "curve",
+            Self::Free { .. } => "free",
+        }
+    }
+
+    /// The concrete gesture that produced this placement.
+    ///
+    /// Used when re-placing an existing element so a path component keeps its
+    /// line as a line and its arc as an arc, instead of re-inferring from
+    /// [`PlacementKind::Path`]'s default `build`.
+    pub fn source_kind(&self) -> PlacementKind {
+        match self {
+            Self::Point { .. } => PlacementKind::Point,
+            Self::Free { .. } => PlacementKind::Free,
+            Self::Curve { curve } => match curve {
+                Curve::Line { .. } => PlacementKind::TwoPoint,
+                Curve::Arc { .. } | Curve::Circle { .. } => PlacementKind::ThreePointArc,
+                Curve::Polyline { .. } => PlacementKind::Polyline,
+            },
+        }
     }
 
     /// The picked anchors, for round-tripping to the UI.
@@ -442,6 +494,45 @@ mod tests {
         assert!(PlacementKind::TwoPoint.accepts(&line));
         assert!(!PlacementKind::Point.accepts(&line));
         assert!(!PlacementKind::ThreePointArc.accepts(&line));
+        assert!(PlacementKind::Path.accepts(&line));
+        assert!(!PlacementKind::Path.accepts(&Placement::point(Vec3::ZERO)));
+    }
+
+    #[test]
+    fn path_infers_a_line_from_two_picks_and_a_polyline_from_more() {
+        let a = Vec3::ZERO;
+        let b = Vec3::new(4.0, 0.0, 0.0);
+        let c = Vec3::new(4.0, 0.0, 3.0);
+        let line = PlacementKind::Path
+            .build(&[a, b], 0.0, &ground())
+            .expect("line");
+        assert!(matches!(line.curve(), Some(Curve::Line { .. })));
+        assert_eq!(line.source_kind(), PlacementKind::TwoPoint);
+
+        let poly = PlacementKind::Path
+            .build(&[a, b, c], 0.0, &ground())
+            .expect("polyline");
+        assert!(
+            matches!(poly.curve(), Some(Curve::Polyline { .. })),
+            "three picks must not become an arc; that gesture is explicit"
+        );
+        assert_eq!(poly.source_kind(), PlacementKind::Polyline);
+        assert_eq!(PlacementKind::Path.required_points(), None);
+    }
+
+    #[test]
+    fn from_name_round_trips_every_kind() {
+        for kind in [
+            PlacementKind::Point,
+            PlacementKind::TwoPoint,
+            PlacementKind::ThreePointArc,
+            PlacementKind::Polyline,
+            PlacementKind::Path,
+            PlacementKind::Free,
+        ] {
+            assert_eq!(PlacementKind::from_name(kind.as_str()), Some(kind));
+        }
+        assert_eq!(PlacementKind::from_name("nope"), None);
     }
 
     #[test]

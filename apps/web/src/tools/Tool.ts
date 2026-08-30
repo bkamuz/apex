@@ -9,9 +9,9 @@ export interface ToolContext {
   /** Screen point to a world point on the active work plane, with Shift snapping. */
   resolvePoint(clientX: number, clientY: number, shift: boolean, anchor: Vec3 | null): Vec3 | null;
   /** Commit picks as a new element of `componentId`. */
-  createElement(componentId: string, points: Vec3[]): void;
+  createElement(componentId: string, points: Vec3[], placementKind?: PlacementKind): void;
   /** Ghost geometry, built by the same recipe the committed element will use. */
-  showPreview(componentId: string, points: Vec3[]): void;
+  showPreview(componentId: string, points: Vec3[], placementKind?: PlacementKind): void;
   clearPreview(): void;
   /** Construction line through the picks made so far. */
   showPreviewLine(points: Vec3[] | null): void;
@@ -35,6 +35,13 @@ export interface ToolContext {
 
 export type ToolGroup = 'select' | 'create';
 
+/** A drawable sub-mode of a create tool (e.g. wall line / arc / polyline). */
+export interface ToolMode {
+  id: string;
+  label: string;
+  placement: PlacementKind;
+}
+
 export interface PointerInfo {
   clientX: number;
   clientY: number;
@@ -49,6 +56,12 @@ export interface Tool {
   readonly group?: ToolGroup;
   /** Component this tool places, for placement tools. */
   readonly componentId?: string;
+  /** Sub-modes of this tool (e.g. wall line / arc / polyline). */
+  readonly modes?: readonly ToolMode[];
+  getMode?(): string;
+  setMode?(id: string): void;
+  /** Gesture currently used to interpret picks. */
+  placementKind?(): PlacementKind;
   /** Status line shown while the tool is active. */
   hint(pendingCount: number): string;
   onClick?(e: PointerInfo, ctx: ToolContext): void;
@@ -70,6 +83,7 @@ export function requiredPoints(kind: PlacementKind): number | null {
     case 'three_point_arc':
       return 3;
     case 'polyline':
+    case 'path':
       return null;
     case 'free':
       return 0;

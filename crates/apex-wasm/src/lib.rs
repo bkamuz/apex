@@ -8,7 +8,8 @@ use std::cell::RefCell;
 use std::str::FromStr;
 
 use apex_core::{
-    ComponentDefinition, Element, ElementId, LevelId, ParamMap, Project, SceneBuffers,
+    ComponentDefinition, Element, ElementId, LevelId, ParamMap, PlacementKind, Project,
+    SceneBuffers,
 };
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
@@ -253,6 +254,16 @@ fn points_from_json(json: &str) -> Result<Vec<Vec3>, JsValue> {
     Ok(raw.into_iter().map(Vec3::from_array).collect())
 }
 
+fn parse_placement_kind(name: &str) -> Result<Option<PlacementKind>, JsValue> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Ok(None);
+    }
+    PlacementKind::from_name(name)
+        .map(Some)
+        .ok_or_else(|| err(format!("unknown placement kind '{name}'")))
+}
+
 // ---------------------------------------------------------------------------
 // Lifecycle
 // ---------------------------------------------------------------------------
@@ -295,20 +306,23 @@ pub fn register_component(definition_json: &str) -> Result<JsValue, JsValue> {
 
 /// Place a component from the raw picks the user made.
 ///
-/// The component's own `PlacementKind` decides how the points are interpreted,
-/// which is why one call serves every component.
+/// The component's own `PlacementKind` decides how the points are interpreted
+/// unless `placement_kind` names a more specific gesture. A path component
+/// (wall) uses that override so line, arc and polyline share one type.
 #[wasm_bindgen(js_name = createElement)]
 pub fn create_element(
     component_id: &str,
     points_json: &str,
     rotation: f32,
     params_json: &str,
+    placement_kind: &str,
 ) -> Result<JsValue, JsValue> {
     with_project(|project| {
         let points = points_from_json(points_json)?;
         let params = parse_params(params_json)?;
+        let kind = parse_placement_kind(placement_kind)?;
         let placement = project
-            .placement_from_points(component_id, &points, rotation)
+            .placement_from_gesture(component_id, kind, &points, rotation)
             .map_err(err)?;
         let id = project
             .create_element(component_id, placement, params)
@@ -332,6 +346,9 @@ pub fn update_element(id: &str, params_json: &str) -> Result<JsValue, JsValue> {
 }
 
 /// Re-place an existing element from a fresh set of picks.
+///
+/// The existing curve type is kept, so dragging an arc wall's handles does
+/// not turn it into a polyline.
 #[wasm_bindgen(js_name = setElementPlacement)]
 pub fn set_element_placement(
     id: &str,
@@ -340,15 +357,20 @@ pub fn set_element_placement(
 ) -> Result<JsValue, JsValue> {
     with_project(|project| {
         let element = element_id(id)?;
-        let component_id = project
-            .document()
-            .get_element(element)
-            .map(|e| e.component_id.clone())
-            .ok_or_else(|| err("Element not found"))?;
+        let (component_id, kind) = {
+            let existing = project
+                .document()
+                .get_element(element)
+                .ok_or_else(|| err("Element not found"))?;
+            (
+                existing.component_id.clone(),
+                existing.placement.source_kind(),
+            )
+        };
 
         let points = points_from_json(points_json)?;
         let placement = project
-            .placement_from_points(&component_id, &points, rotation)
+            .placement_from_gesture(&component_id, Some(kind), &points, rotation)
             .map_err(err)?;
         project
             .update_element(element, None, Some(placement))
@@ -360,19 +382,22 @@ pub fn set_element_placement(
 /// Geometry for a placement that has not been committed yet.
 ///
 /// The preview and the real element come from the same recipe, so a ghost can
-/// never drift from what actually gets placed.
+/// never drift from what actually gets placed. `placement_kind` is the same
+/// optional override `createElement` takes.
 #[wasm_bindgen(js_name = previewElement)]
 pub fn preview_element(
     component_id: &str,
     points_json: &str,
     rotation: f32,
     params_json: &str,
+    placement_kind: &str,
 ) -> Result<JsValue, JsValue> {
     with_project(|project| {
         let points = points_from_json(points_json)?;
         let params = parse_params(params_json)?;
+        let kind = parse_placement_kind(placement_kind)?;
         let placement = project
-            .placement_from_points(component_id, &points, rotation)
+            .placement_from_gesture(component_id, kind, &points, rotation)
             .map_err(err)?;
         // Previews follow the active work plane, like a real placement would.
         let elevation = project.active_work_plane().origin.y;

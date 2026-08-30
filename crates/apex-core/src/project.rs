@@ -11,7 +11,7 @@ use crate::document::Document;
 use crate::element::{Element, ElementId};
 use crate::level::LevelId;
 use crate::param::ParamMap;
-use crate::placement::Placement;
+use crate::placement::{Placement, PlacementKind};
 use crate::registry::{ComponentRegistry, RegistryError};
 
 pub struct Project {
@@ -192,11 +192,34 @@ impl Project {
         points: &[Vec3],
         rotation: f32,
     ) -> Result<Placement, RegistryError> {
+        self.placement_from_gesture(component_id, None, points, rotation)
+    }
+
+    /// Turn raw picks into a placement, optionally overriding the gesture.
+    ///
+    /// A path component (wall) accepts line, arc, or polyline. The override is
+    /// how the tool says which of those the user picked. Without an override,
+    /// [`PlacementKind::Path`] infers line vs polyline and never infers an arc.
+    pub fn placement_from_gesture(
+        &self,
+        component_id: &str,
+        kind: Option<PlacementKind>,
+        points: &[Vec3],
+        rotation: f32,
+    ) -> Result<Placement, RegistryError> {
         let definition = self.registry.require(component_id)?;
-        definition
-            .placement
+        let gesture = kind.unwrap_or(definition.placement);
+        let placement = gesture
             .build(points, rotation, &self.active_work_plane())
-            .map_err(|e| RegistryError::Recipe(e.into()))
+            .map_err(|e| RegistryError::Recipe(e.into()))?;
+        if !definition.placement.accepts(&placement) {
+            return Err(RegistryError::PlacementMismatch {
+                component: definition.id.clone(),
+                expected: definition.placement.as_str(),
+                actual: placement.family(),
+            });
+        }
+        Ok(placement)
     }
 
     fn next_name(&mut self, component_id: &str, display_name: &str) -> String {
@@ -221,7 +244,7 @@ mod tests {
     #[test]
     fn a_new_project_ships_with_the_builtin_components() {
         let project = Project::new();
-        assert_eq!(project.registry().len(), 4);
+        assert_eq!(project.registry().len(), 3);
         assert!(project.document().active_level_id().is_some());
     }
 
@@ -271,16 +294,10 @@ mod tests {
     fn every_builtin_can_be_placed_end_to_end() {
         let mut project = Project::new();
         let line = [Vec3::ZERO, Vec3::new(5.0, 0.0, 0.0)];
-        let arc = [
-            Vec3::new(5.0, 0.0, 0.0),
-            Vec3::new(0.0, 0.0, 5.0),
-            Vec3::new(-5.0, 0.0, 0.0),
-        ];
         let point = [Vec3::new(1.0, 0.0, 1.0)];
 
         for (component, picks) in [
             ("apex.wall", &line[..]),
-            ("apex.arc_wall", &arc[..]),
             ("apex.column", &point[..]),
             ("apex.beam", &line[..]),
         ] {
@@ -296,7 +313,76 @@ mod tests {
                 "{component} produced no geometry"
             );
         }
-        assert_eq!(project.document().elements().count(), 4);
+        assert_eq!(project.document().elements().count(), 3);
+    }
+
+    #[test]
+    fn a_wall_is_placed_as_line_arc_or_polyline_through_the_same_type() {
+        let mut project = Project::new();
+        let line = [Vec3::ZERO, Vec3::new(5.0, 0.0, 0.0)];
+        let arc = [
+            Vec3::new(5.0, 0.0, 0.0),
+            Vec3::new(0.0, 0.0, 5.0),
+            Vec3::new(-5.0, 0.0, 0.0),
+        ];
+        let poly = [
+            Vec3::ZERO,
+            Vec3::new(4.0, 0.0, 0.0),
+            Vec3::new(4.0, 0.0, 3.0),
+        ];
+
+        let line_p = project
+            .placement_from_gesture("apex.wall", Some(PlacementKind::TwoPoint), &line, 0.0)
+            .expect("line");
+        let arc_p = project
+            .placement_from_gesture("apex.wall", Some(PlacementKind::ThreePointArc), &arc, 0.0)
+            .expect("arc");
+        let poly_p = project
+            .placement_from_gesture("apex.wall", Some(PlacementKind::Polyline), &poly, 0.0)
+            .expect("poly");
+
+        assert_eq!(line_p.source_kind(), PlacementKind::TwoPoint);
+        assert_eq!(arc_p.source_kind(), PlacementKind::ThreePointArc);
+        assert_eq!(poly_p.source_kind(), PlacementKind::Polyline);
+
+        let line_id = project
+            .create_element("apex.wall", line_p, ParamMap::new())
+            .expect("create line");
+        let arc_id = project
+            .create_element("apex.wall", arc_p, ParamMap::new())
+            .expect("create arc");
+        let poly_id = project
+            .create_element("apex.wall", poly_p, ParamMap::new())
+            .expect("create poly");
+        assert_eq!(project.document().elements().count(), 3);
+        assert_eq!(
+            project.document().get_element(line_id).unwrap().name,
+            "Wall 1"
+        );
+        assert_eq!(
+            project.document().get_element(arc_id).unwrap().name,
+            "Wall 2"
+        );
+        assert_eq!(
+            project.document().get_element(poly_id).unwrap().name,
+            "Wall 3"
+        );
+
+        // Re-placing an arc must keep it an arc: Path::build would turn three
+        // picks into a polyline.
+        let wall = project.document().get_element(arc_id).unwrap();
+        let kind = wall.placement.source_kind();
+        let rebuilt = project
+            .placement_from_gesture("apex.wall", Some(kind), &wall.placement.anchors(), 0.0)
+            .expect("rebuild");
+        assert_eq!(rebuilt.source_kind(), PlacementKind::ThreePointArc);
+
+        assert!(
+            project
+                .placement_from_gesture("apex.wall", Some(PlacementKind::Point), &[Vec3::ZERO], 0.0)
+                .is_err(),
+            "a wall still rejects a point gesture"
+        );
     }
 
     #[test]

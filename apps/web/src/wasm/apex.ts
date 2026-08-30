@@ -23,6 +23,7 @@ import type {
   ElementDto,
   MeshDto,
   ParamValue,
+  PlacementKind,
   SceneDto,
   Vec3,
 } from '../types';
@@ -62,9 +63,16 @@ export function apexCreateElement(
   points: Vec3[],
   params?: Record<string, ParamValue>,
   rotation = 0,
+  placementKind?: PlacementKind,
 ): SceneDto {
   return asScene(
-    createElement(componentId, encodePoints(points), rotation, encodeParams(params)),
+    createElement(
+      componentId,
+      encodePoints(points),
+      rotation,
+      encodeParams(params),
+      placementKind ?? '',
+    ),
   );
 }
 
@@ -84,12 +92,14 @@ export function apexPreviewElement(
   points: Vec3[],
   params?: Record<string, ParamValue>,
   rotation = 0,
+  placementKind?: PlacementKind,
 ): MeshDto {
   return previewElement(
     componentId,
     encodePoints(points),
     rotation,
     encodeParams(params),
+    placementKind ?? '',
   ) as MeshDto;
 }
 

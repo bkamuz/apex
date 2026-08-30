@@ -130,7 +130,7 @@ impl ComponentRegistry {
             return Err(RegistryError::PlacementMismatch {
                 component: definition.id.clone(),
                 expected: definition.placement.as_str(),
-                actual: placement_name(placement),
+                actual: placement.family(),
             });
         }
 
@@ -159,14 +159,6 @@ impl ComponentRegistry {
     }
 }
 
-fn placement_name(placement: &Placement) -> &'static str {
-    match placement {
-        Placement::Point { .. } => "point",
-        Placement::Curve { .. } => "curve",
-        Placement::Free { .. } => "free",
-    }
-}
-
 /// Profiles every project starts with.
 fn builtin_profiles() -> Vec<(ProfileId, ProfileSpec)> {
     vec![
@@ -184,6 +176,20 @@ fn builtin_profiles() -> Vec<(ProfileId, ProfileSpec)> {
                 segments: 24,
             },
         ),
+        (
+            "apex.wall.rect".to_string(),
+            ProfileSpec::Rectangle {
+                width: Expr::param("thickness"),
+                height: Expr::param("height"),
+            },
+        ),
+        (
+            "apex.wall.round".to_string(),
+            ProfileSpec::Circle {
+                radius: Expr::param("thickness") / Expr::constant(2.0),
+                segments: 24,
+            },
+        ),
     ]
 }
 
@@ -191,34 +197,36 @@ fn builtin_profiles() -> Vec<(ProfileId, ProfileSpec)> {
 ///
 /// There is no wall-specific, column-specific or beam-specific geometry code
 /// anywhere: each is a profile plus a sweep or an extrude. Variants of a type
-/// (rectangular vs round column) are a profile parameter, not a second type.
+/// (rectangular vs round column, straight vs arc wall) are a parameter or a
+/// draw mode, not a second type.
 pub fn builtin_components() -> Vec<ComponentDefinition> {
-    vec![
-        wall("apex.wall", "Wall", PlacementKind::TwoPoint),
-        wall("apex.arc_wall", "Arc wall", PlacementKind::ThreePointArc),
-        column(),
-        beam(),
-    ]
+    vec![wall(), column(), beam()]
 }
 
-/// A wall is a rectangle swept along its centerline, seated on the level.
+/// A wall is a profile swept along a path, seated on the level.
 ///
-/// Straight and arc walls differ only in how the user picks them.
-fn wall(id: &str, display_name: &str, placement: PlacementKind) -> ComponentDefinition {
+/// Line, arc and polyline are draw modes of one tool; rectangle vs round is
+/// the `profile` parameter, the same pattern as column.
+fn wall() -> ComponentDefinition {
     ComponentDefinition {
-        id: id.to_string(),
-        display_name: display_name.to_string(),
+        id: "apex.wall".to_string(),
+        display_name: "Wall".to_string(),
         category: "wall".to_string(),
         source: ComponentSource::BuiltIn,
-        placement,
+        placement: PlacementKind::Path,
         params: vec![
+            ParamSpec::profile(
+                "profile",
+                "Profile",
+                "apex.wall.rect",
+                &["apex.wall.rect", "apex.wall.round"],
+            ),
             ParamSpec::length("height", "Height", 3.0),
             ParamSpec::length("thickness", "Thickness", 0.2),
         ],
         recipe: GeometryRecipe::Sweep {
-            profile: ProfileSpec::Rectangle {
-                width: Expr::param("thickness"),
-                height: Expr::param("height"),
+            profile: ProfileSpec::FromParam {
+                param: "profile".into(),
             },
             justification: Justification::BaseCenter,
             start_offset: Expr::zero(),
@@ -301,12 +309,16 @@ mod tests {
     #[test]
     fn every_builtin_validates_and_registers() {
         let registry = ComponentRegistry::with_builtins();
-        assert_eq!(registry.len(), 4);
-        for id in ["apex.wall", "apex.arc_wall", "apex.column", "apex.beam"] {
+        assert_eq!(registry.len(), 3);
+        for id in ["apex.wall", "apex.column", "apex.beam"] {
             let def = registry.get(id).unwrap_or_else(|| panic!("missing {id}"));
             assert_eq!(def.source, ComponentSource::BuiltIn);
             assert!(def.validate().is_ok());
         }
+        assert!(
+            registry.get("apex.arc_wall").is_none(),
+            "arc is a wall draw mode, not a second component"
+        );
         assert!(
             registry.get("apex.round_column").is_none(),
             "round is a column profile, not a second component"
@@ -349,19 +361,17 @@ mod tests {
     }
 
     #[test]
-    fn an_arc_wall_reuses_the_wall_recipe_with_a_different_gesture() {
+    fn a_wall_accepts_line_arc_and_polyline_on_the_same_type() {
         let registry = ComponentRegistry::with_builtins();
-        let straight = registry.get("apex.wall").unwrap();
-        let arc = registry.get("apex.arc_wall").unwrap();
-
-        assert_eq!(
-            straight.recipe, arc.recipe,
-            "only the gesture should differ between a straight and an arc wall"
+        let wall = registry.get("apex.wall").unwrap();
+        assert_eq!(wall.placement, PlacementKind::Path);
+        assert!(
+            registry.get("apex.arc_wall").is_none(),
+            "arc wall must not be a second component"
         );
-        assert_eq!(straight.params, arc.params);
-        assert_ne!(straight.placement, arc.placement);
 
-        let placement = PlacementKind::ThreePointArc
+        let line = Placement::line(Vec3::ZERO, Vec3::new(5.0, 0.0, 0.0));
+        let arc = PlacementKind::ThreePointArc
             .build(
                 &[
                     Vec3::new(5.0, 0.0, 0.0),
@@ -372,13 +382,74 @@ mod tests {
                 &ground(),
             )
             .expect("arc placement");
+        let poly = PlacementKind::Polyline
+            .build(
+                &[
+                    Vec3::ZERO,
+                    Vec3::new(4.0, 0.0, 0.0),
+                    Vec3::new(4.0, 0.0, 3.0),
+                ],
+                0.0,
+                &ground(),
+            )
+            .expect("polyline");
 
-        let mesh = registry
-            .build_mesh("apex.arc_wall", &placement, &ParamMap::new(), ground())
-            .expect("mesh");
-        assert!(mesh.triangle_count() > 12, "a curved wall has more faces");
-        let (min, max) = mesh.aabb().unwrap();
+        let line_mesh = registry
+            .build_mesh("apex.wall", &line, &ParamMap::new(), ground())
+            .expect("line");
+        let arc_mesh = registry
+            .build_mesh("apex.wall", &arc, &ParamMap::new(), ground())
+            .expect("arc");
+        let poly_mesh = registry
+            .build_mesh("apex.wall", &poly, &ParamMap::new(), ground())
+            .expect("poly");
+
+        assert_eq!(line_mesh.triangle_count(), 12);
+        assert!(
+            arc_mesh.triangle_count() > 12,
+            "a curved wall has more faces"
+        );
+        assert!(poly_mesh.triangle_count() > 12, "a polyline has more faces");
+        let (min, max) = arc_mesh.aabb().unwrap();
         assert!(min[1].abs() < EPS && (max[1] - 3.0).abs() < EPS);
+    }
+
+    #[test]
+    fn switching_a_wall_profile_needs_no_new_type() {
+        let registry = ComponentRegistry::with_builtins();
+        let placement = Placement::line(Vec3::ZERO, Vec3::new(5.0, 0.0, 0.0));
+        let rect = ParamMap::new()
+            .with("height", ParamValue::Length(3.0))
+            .with("thickness", ParamValue::Length(0.4));
+        let round = rect
+            .clone()
+            .with("profile", ParamValue::ProfileRef("apex.wall.round".into()));
+
+        let rect_mesh = registry
+            .build_mesh("apex.wall", &placement, &rect, ground())
+            .expect("rect");
+        let round_mesh = registry
+            .build_mesh("apex.wall", &placement, &round, ground())
+            .expect("round");
+
+        let rect_size = size_of(&rect_mesh);
+        let round_size = size_of(&round_mesh);
+        assert!((rect_size[1] - 3.0).abs() < EPS, "rect height");
+        assert!((rect_size[2] - 0.4).abs() < EPS, "rect thickness");
+        assert!(
+            (round_size[1] - 0.4).abs() < 1e-2,
+            "round diameter follows thickness, got {}",
+            round_size[1]
+        );
+        assert!(
+            (round_size[2] - 0.4).abs() < 1e-2,
+            "round in the thickness axis, got {}",
+            round_size[2]
+        );
+        assert!(
+            round_mesh.triangle_count() > rect_mesh.triangle_count(),
+            "a circular section has more faces"
+        );
     }
 
     #[test]
@@ -470,7 +541,7 @@ mod tests {
             err,
             RegistryError::PlacementMismatch {
                 component: "apex.wall".into(),
-                expected: "two_point",
+                expected: "path",
                 actual: "point"
             }
         );
@@ -575,7 +646,7 @@ mod tests {
         let size = size_of(&mesh);
         assert!((size[0] - 1.2).abs() < 1e-2, "diameter {}", size[0]);
         assert!((size[1] - 0.05).abs() < EPS);
-        assert_eq!(registry.len(), 5);
+        assert_eq!(registry.len(), 4);
     }
 
     #[test]

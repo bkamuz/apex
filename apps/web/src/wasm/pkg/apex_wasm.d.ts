@@ -4,10 +4,11 @@
 /**
  * Place a component from the raw picks the user made.
  *
- * The component's own `PlacementKind` decides how the points are interpreted,
- * which is why one call serves every component.
+ * The component's own `PlacementKind` decides how the points are interpreted
+ * unless `placement_kind` names a more specific gesture. A path component
+ * (wall) uses that override so line, arc and polyline share one type.
  */
-export function createElement(component_id: string, points_json: string, rotation: number, params_json: string): any;
+export function createElement(component_id: string, points_json: string, rotation: number, params_json: string, placement_kind: string): any;
 
 export function createLevel(name: string, elevation: number): any;
 
@@ -47,9 +48,10 @@ export function pickById(pick_id: number): any;
  * Geometry for a placement that has not been committed yet.
  *
  * The preview and the real element come from the same recipe, so a ghost can
- * never drift from what actually gets placed.
+ * never drift from what actually gets placed. `placement_kind` is the same
+ * optional override `createElement` takes.
  */
-export function previewElement(component_id: string, points_json: string, rotation: number, params_json: string): any;
+export function previewElement(component_id: string, points_json: string, rotation: number, params_json: string, placement_kind: string): any;
 
 /**
  * Install a component at runtime, from a module or the visual editor.
@@ -62,6 +64,9 @@ export function setActiveLevel(id: string): any;
 
 /**
  * Re-place an existing element from a fresh set of picks.
+ *
+ * The existing curve type is kept, so dragging an arc wall's handles does
+ * not turn it into a polyline.
  */
 export function setElementPlacement(id: string, points_json: string, rotation: number): any;
 
@@ -80,7 +85,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
-    readonly createElement: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
+    readonly createElement: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
     readonly createLevel: (a: number, b: number, c: number) => [number, number, number];
     readonly deleteSelected: () => [number, number, number];
     readonly getScene: () => [number, number, number];
@@ -89,7 +94,7 @@ export interface InitOutput {
     readonly listComponents: () => [number, number, number];
     readonly listElements: () => [number, number, number];
     readonly pickById: (a: number) => [number, number, number];
-    readonly previewElement: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
+    readonly previewElement: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
     readonly registerComponent: (a: number, b: number) => [number, number, number];
     readonly selectElement: (a: number, b: number) => [number, number, number];
     readonly setActiveLevel: (a: number, b: number) => [number, number, number];
