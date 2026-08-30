@@ -64,7 +64,7 @@ impl TriangleMesh {
         }
         let mut min = [self.positions[0], self.positions[1], self.positions[2]];
         let mut max = min;
-        for chunk in self.positions.chunks_exact(3) {
+        for chunk in self.positions.as_chunks::<3>().0 {
             for i in 0..3 {
                 min[i] = min[i].min(chunk[i]);
                 max[i] = max[i].max(chunk[i]);

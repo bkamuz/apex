@@ -194,7 +194,7 @@ mod tests {
     }
 
     fn assert_unit_normals(mesh: &TriangleMesh) {
-        for n in mesh.normals.chunks_exact(3) {
+        for n in mesh.normals.as_chunks::<3>().0 {
             let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
             assert!((len - 1.0).abs() < EPS, "normal length {len}");
         }

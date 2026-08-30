@@ -174,7 +174,7 @@ impl Document {
             normals.extend_from_slice(&mesh.normals);
             edge_positions.extend_from_slice(&mesh.edges);
 
-            for tri in mesh.indices.chunks_exact(3) {
+            for tri in mesh.indices.as_chunks::<3>().0 {
                 indices.push(base + tri[0]);
                 indices.push(base + tri[1]);
                 indices.push(base + tri[2]);
