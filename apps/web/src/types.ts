@@ -12,6 +12,9 @@ export type PlacementKind =
 /** Mirrors `ParamKind` in apex-core. */
 export type ParamKind = 'length' | 'angle' | 'number' | 'bool' | 'text' | 'choice' | 'profile';
 
+/** Whether a parameter lives on the profile/component type or on one element. */
+export type ParamBinding = 'type' | 'instance';
+
 /** Values are bare scalars; the spec says how to interpret them. */
 export type ParamValue = number | boolean | string;
 
@@ -19,12 +22,45 @@ export interface ParamSpecDto {
   id: string;
   label: string;
   kind: ParamKind;
-  /** Present when `kind` is `choice`. */
+  /** Present when `kind` is `choice` or `profile`. */
   options?: string[];
   default: ParamValue;
   min?: number;
   max?: number;
   unit?: string;
+  /** Omitted in JSON means instance, matching the core default. */
+  binding?: ParamBinding;
+}
+
+/** Mirrors `Expr` in apex-core. */
+export type ExprDto =
+  | { op: 'const'; value: number }
+  | { op: 'param'; id: string }
+  | { op: 'add' | 'sub' | 'mul' | 'div' | 'min' | 'max'; lhs: ExprDto; rhs: ExprDto }
+  | { op: 'neg'; value: ExprDto };
+
+/** Mirrors `ProfileSpec` in apex-core. */
+export type ProfileSpecDto =
+  | { shape: 'rectangle'; width: ExprDto; height: ExprDto }
+  | { shape: 'circle'; radius: ExprDto; segments?: number }
+  | { shape: 'polygon'; points: [ExprDto, ExprDto][] }
+  | { shape: 'named'; id: string }
+  | { shape: 'from_param'; param: string };
+
+/** A reusable section: shape plus type/instance parameters. */
+export interface ProfileTypeDto {
+  id: string;
+  display_name: string;
+  category: string;
+  params: ParamSpecDto[];
+  spec: ProfileSpecDto;
+  type_values: Record<string, ParamValue>;
+  formulas?: Record<string, ExprDto>;
+}
+
+export interface ProfilePreviewDto {
+  outer: [number, number][];
+  holes: [number, number][][];
 }
 
 /** A component definition as published by the core. Drives toolbar and inspector. */
@@ -49,6 +85,8 @@ export interface ElementDto {
   anchors: Vec3[];
   length?: number | null;
   params: Record<string, ParamValue>;
+  profile_id?: string | null;
+  type_values?: Record<string, ParamValue>;
 }
 
 export interface ElementListDto {

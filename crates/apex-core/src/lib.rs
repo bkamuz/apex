@@ -12,14 +12,14 @@ mod registry;
 
 pub use component::{
     evaluate_recipe, ComponentDefinition, ComponentSource, DefinitionError, FrameSource,
-    GeometryRecipe, MeshBuilder, ModuleId, ProfileId, ProfileLibrary, ProfileSpec, RecipeContext,
-    RecipeError,
+    GeometryRecipe, MeshBuilder, ModuleId, ProfileId, ProfileLibrary, ProfileSpec, ProfileType,
+    RecipeContext, RecipeError,
 };
 pub use document::{Document, DocumentChange, DocumentChangeKind, ElementSceneEntry, SceneBuffers};
 pub use element::{ComponentId, Element, ElementId};
 pub use expr::{Expr, ExprError};
 pub use level::{Level, LevelId};
-pub use param::{ParamError, ParamId, ParamKind, ParamMap, ParamSpec, ParamValue};
+pub use param::{ParamBinding, ParamError, ParamId, ParamKind, ParamMap, ParamSpec, ParamValue};
 pub use placement::{Placement, PlacementError, PlacementKind};
 pub use project::Project;
 pub use registry::{builtin_components, ComponentRegistry, RegistryError};

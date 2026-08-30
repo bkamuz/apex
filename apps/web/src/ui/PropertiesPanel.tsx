@@ -1,5 +1,20 @@
 import { useEffect, useState } from 'react';
-import type { ComponentDto, ElementDto, LevelDto, ParamSpecDto, ParamValue } from '../types';
+import type {
+  ComponentDto,
+  ElementDto,
+  LevelDto,
+  ParamSpecDto,
+  ParamValue,
+  ProfileTypeDto,
+} from '../types';
+import {
+  applyProfileChange,
+  instanceSpecs,
+  profileLabel,
+  profilesForCategory,
+  typeSpecs,
+  typeValueMap,
+} from './profileModel';
 
 interface Props {
   selected: ElementDto | null;
@@ -7,8 +22,14 @@ interface Props {
   selectedCount: number;
   /** Definition of the selected element's component, which supplies the schema. */
   component: ComponentDto | null;
+  profiles: ProfileTypeDto[];
   selectedLevel: LevelDto | null;
+  /** Create-tool draft: profile + instance fields used for preview and place. */
+  placement: { component: ComponentDto; params: Record<string, ParamValue> } | null;
   onUpdate: (params: Record<string, ParamValue>) => void;
+  onPlacementChange: (params: Record<string, ParamValue>) => void;
+  onEditType: (profileId: string) => void;
+  onNewProfile: (category: string) => void;
   onUpdateLevelElevation: (id: string, elevation: number) => void;
   onDelete: () => void;
 }
@@ -17,31 +38,24 @@ function stepFor(spec: ParamSpecDto): number {
   return spec.kind === 'angle' ? 0.05 : 0.05;
 }
 
-function optionLabel(kind: ParamSpecDto['kind'], option: string): string {
+function optionLabel(kind: ParamSpecDto['kind'], option: string, profiles: ProfileTypeDto[]): string {
   if (kind !== 'profile') return option;
-  switch (option) {
-    case 'apex.rect':
-    case 'apex.wall.rect':
-      return 'Rectangle';
-    case 'apex.round':
-    case 'apex.wall.round':
-      return 'Round';
-    default: {
-      const leaf = option.includes('.') ? option.slice(option.lastIndexOf('.') + 1) : option;
-      return leaf.charAt(0).toUpperCase() + leaf.slice(1);
-    }
-  }
+  return profileLabel(profiles, option);
 }
 
 /** One control per parameter, chosen from the declared kind. */
 function ParamField({
   spec,
   value,
+  profiles,
+  readOnly,
   onChange,
   onCommit,
 }: {
   spec: ParamSpecDto;
   value: ParamValue;
+  profiles: ProfileTypeDto[];
+  readOnly?: boolean;
   onChange: (value: ParamValue) => void;
   /** Immediate commit, used when the new value is known in this event (select/checkbox). */
   onCommit: (value?: ParamValue) => void;
@@ -56,6 +70,7 @@ function ParamField({
           <input
             type="checkbox"
             checked={Boolean(value)}
+            disabled={readOnly}
             onChange={(e) => onCommit(e.target.checked)}
           />
         </div>
@@ -66,10 +81,14 @@ function ParamField({
       return (
         <div className="field">
           <label>{label}</label>
-          <select value={String(value ?? '')} onChange={(e) => onCommit(e.target.value)}>
+          <select
+            value={String(value ?? '')}
+            disabled={readOnly}
+            onChange={(e) => onCommit(e.target.value)}
+          >
             {(spec.options ?? []).map((option) => (
               <option key={option} value={option}>
-                {optionLabel(spec.kind, option)}
+                {optionLabel(spec.kind, option, profiles)}
               </option>
             ))}
           </select>
@@ -83,6 +102,7 @@ function ParamField({
           <input
             type="text"
             value={String(value ?? '')}
+            disabled={readOnly}
             onChange={(e) => onChange(e.target.value)}
             onBlur={() => onCommit()}
             onKeyDown={(e) => e.key === 'Enter' && onCommit()}
@@ -102,6 +122,7 @@ function ParamField({
             max={spec.max}
             step={stepFor(spec)}
             value={Number(Number(value ?? 0).toFixed(4))}
+            disabled={readOnly}
             onChange={(e) => onChange(Number(e.target.value))}
             onBlur={() => onCommit()}
             onKeyDown={(e) => e.key === 'Enter' && onCommit()}
@@ -117,19 +138,133 @@ function ParamField({
   }
 }
 
+function withProfileOptions(
+  spec: ParamSpecDto,
+  component: ComponentDto,
+  profiles: ProfileTypeDto[],
+  current: string,
+): ParamSpecDto {
+  if (spec.kind !== 'profile') return spec;
+  const ids = profilesForCategory(profiles, component.category).map((profile) => profile.id);
+  if (current && !ids.includes(current)) ids.push(current);
+  return { ...spec, options: ids };
+}
+
+function SchemaFields({
+  specs,
+  values,
+  profiles,
+  readOnly,
+  live,
+  onDraft,
+  onCommit,
+}: {
+  specs: ParamSpecDto[];
+  values: Record<string, ParamValue>;
+  profiles: ProfileTypeDto[];
+  readOnly?: boolean;
+  /** Commit on every change, so a placement ghost tracks the inspector. */
+  live?: boolean;
+  onDraft: (id: string, value: ParamValue) => void;
+  onCommit: (patch: Record<string, ParamValue>) => void;
+}) {
+  return (
+    <>
+      {specs.map((spec) => (
+        <ParamField
+          key={spec.id}
+          spec={spec}
+          profiles={profiles}
+          readOnly={readOnly}
+          value={values[spec.id] ?? spec.default}
+          onChange={(value) => {
+            onDraft(spec.id, value);
+            if (live) onCommit({ [spec.id]: value });
+          }}
+          onCommit={(value) => onCommit(value === undefined ? {} : { [spec.id]: value })}
+        />
+      ))}
+    </>
+  );
+}
+
+function TypeBlock({
+  profile,
+  values,
+  profiles,
+  onEditType,
+  onNewProfile,
+}: {
+  profile: ProfileTypeDto | undefined;
+  values: Record<string, ParamValue>;
+  profiles: ProfileTypeDto[];
+  onEditType: (profileId: string) => void;
+  onNewProfile?: () => void;
+}) {
+  const specs = typeSpecs(profile);
+  return (
+    <div className="inspector-section" data-section="type">
+      <div className="section-title">Type</div>
+      {specs.length === 0 ? (
+        <div className="empty" style={{ padding: 0 }}>
+          {profile ? 'No type parameters' : 'Pick a profile'}
+        </div>
+      ) : (
+        specs.map((spec) => (
+          <ParamField
+            key={spec.id}
+            spec={spec}
+            profiles={profiles}
+            readOnly
+            value={values[spec.id] ?? spec.default}
+            onChange={() => undefined}
+            onCommit={() => undefined}
+          />
+        ))
+      )}
+      {profile ? (
+        <button type="button" data-testid="edit-type" onClick={() => onEditType(profile.id)}>
+          Edit type
+        </button>
+      ) : null}
+      {onNewProfile ? (
+        <button type="button" data-testid="new-profile" onClick={onNewProfile}>
+          New profile
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+function emptyComponent(): ComponentDto {
+  return {
+    id: '',
+    display_name: '',
+    category: '',
+    source: 'visual',
+    placement: 'point',
+    params: [],
+    recipe: null,
+  };
+}
+
 export function PropertiesPanel({
   selected,
   selectedCount,
   component,
+  profiles,
   selectedLevel,
+  placement,
   onUpdate,
+  onPlacementChange,
+  onEditType,
+  onNewProfile,
   onUpdateLevelElevation,
   onDelete,
 }: Props) {
   const [draft, setDraft] = useState<Record<string, ParamValue>>({});
   const [elevation, setElevation] = useState(0);
 
-  // Reset the draft whenever a different element (or version) arrives.
   useEffect(() => {
     setDraft(selected ? { ...selected.params } : {});
   }, [selected]);
@@ -138,6 +273,47 @@ export function PropertiesPanel({
     if (!selectedLevel) return;
     setElevation(selectedLevel.elevation);
   }, [selectedLevel]);
+
+  if (placement) {
+    const profileId = String(placement.params.profile ?? '');
+    const profile = profiles.find((item) => item.id === profileId);
+    const specs = instanceSpecs(placement.component, profile).map((spec) =>
+      withProfileOptions(spec, placement.component, profiles, profileId),
+    );
+    const apply = (patch: Record<string, ParamValue>) => {
+      let next = { ...placement.params, ...patch };
+      if (typeof patch.profile === 'string') {
+        next = applyProfileChange(placement.component, profiles, placement.params, patch.profile);
+      }
+      onPlacementChange(next);
+    };
+    return (
+      <div className="inspector-body">
+        <div className="field">
+          <label>Tool</label>
+          <div>{placement.component.display_name}</div>
+        </div>
+        <div className="inspector-section" data-section="instance">
+          <div className="section-title">Instance</div>
+          <SchemaFields
+            specs={specs}
+            values={placement.params}
+            profiles={profiles}
+            live
+            onDraft={() => undefined}
+            onCommit={apply}
+          />
+        </div>
+        <TypeBlock
+          profile={profile}
+          values={typeValueMap(profile)}
+          profiles={profiles}
+          onEditType={onEditType}
+          onNewProfile={() => onNewProfile(placement.component.category)}
+        />
+      </div>
+    );
+  }
 
   if (selectedCount > 1) {
     return (
@@ -151,9 +327,17 @@ export function PropertiesPanel({
   }
 
   if (selectedCount === 1 && selected) {
-    const specs = component?.params ?? [];
+    const profileId = selected.profile_id ?? String(selected.params.profile ?? '');
+    const host = component ?? emptyComponent();
+    const profile = profiles.find((item) => item.id === profileId);
+    const specs = instanceSpecs(host, profile).map((spec) =>
+      component ? withProfileOptions(spec, component, profiles, profileId) : spec,
+    );
     const apply = (patch: Record<string, ParamValue> = {}) => {
-      const next = { ...draft, ...patch };
+      let next = { ...draft, ...patch };
+      if (typeof patch.profile === 'string' && component) {
+        next = applyProfileChange(component, profiles, draft, patch.profile);
+      }
       setDraft(next);
       onUpdate(next);
     };
@@ -175,21 +359,29 @@ export function PropertiesPanel({
           </div>
         ) : null}
 
-        {specs.map((spec) => (
-          <ParamField
-            key={spec.id}
-            spec={spec}
-            value={draft[spec.id] ?? spec.default}
-            onChange={(value) => setDraft((prev) => ({ ...prev, [spec.id]: value }))}
-            onCommit={(value) => apply(value === undefined ? {} : { [spec.id]: value })}
+        <div className="inspector-section" data-section="instance">
+          <div className="section-title">Instance</div>
+          <SchemaFields
+            specs={specs}
+            values={draft}
+            profiles={profiles}
+            onDraft={(id, value) => setDraft((prev) => ({ ...prev, [id]: value }))}
+            onCommit={(patch) => apply(patch)}
           />
-        ))}
+          {specs.length > 0 ? (
+            <button type="button" onClick={() => apply()}>
+              Apply
+            </button>
+          ) : null}
+        </div>
 
-        {specs.length > 0 ? (
-          <button type="button" onClick={() => apply()}>
-            Apply
-          </button>
-        ) : null}
+        <TypeBlock
+          profile={profile}
+          values={selected.type_values ?? typeValueMap(profile)}
+          profiles={profiles}
+          onEditType={onEditType}
+        />
+
         <button type="button" className="danger" onClick={onDelete}>
           Delete
         </button>
