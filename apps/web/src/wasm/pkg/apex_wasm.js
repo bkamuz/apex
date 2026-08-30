@@ -3,22 +3,26 @@
 /**
  * Place a component from the raw picks the user made.
  *
- * The component's own `PlacementKind` decides how the points are interpreted,
- * which is why one call serves every component.
+ * The component's own `PlacementKind` decides how the points are interpreted
+ * unless `placement_kind` names a more specific gesture. A path component
+ * (wall) uses that override so line, arc and polyline share one type.
  * @param {string} component_id
  * @param {string} points_json
  * @param {number} rotation
  * @param {string} params_json
+ * @param {string} placement_kind
  * @returns {any}
  */
-export function createElement(component_id, points_json, rotation, params_json) {
+export function createElement(component_id, points_json, rotation, params_json, placement_kind) {
     const ptr0 = passStringToWasm0(component_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
     const ptr1 = passStringToWasm0(points_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len1 = WASM_VECTOR_LEN;
     const ptr2 = passStringToWasm0(params_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len2 = WASM_VECTOR_LEN;
-    const ret = wasm.createElement(ptr0, len0, ptr1, len1, rotation, ptr2, len2);
+    const ptr3 = passStringToWasm0(placement_kind, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len3 = WASM_VECTOR_LEN;
+    const ret = wasm.createElement(ptr0, len0, ptr1, len1, rotation, ptr2, len2, ptr3, len3);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -126,21 +130,25 @@ export function pickById(pick_id) {
  * Geometry for a placement that has not been committed yet.
  *
  * The preview and the real element come from the same recipe, so a ghost can
- * never drift from what actually gets placed.
+ * never drift from what actually gets placed. `placement_kind` is the same
+ * optional override `createElement` takes.
  * @param {string} component_id
  * @param {string} points_json
  * @param {number} rotation
  * @param {string} params_json
+ * @param {string} placement_kind
  * @returns {any}
  */
-export function previewElement(component_id, points_json, rotation, params_json) {
+export function previewElement(component_id, points_json, rotation, params_json, placement_kind) {
     const ptr0 = passStringToWasm0(component_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
     const ptr1 = passStringToWasm0(points_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len1 = WASM_VECTOR_LEN;
     const ptr2 = passStringToWasm0(params_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len2 = WASM_VECTOR_LEN;
-    const ret = wasm.previewElement(ptr0, len0, ptr1, len1, rotation, ptr2, len2);
+    const ptr3 = passStringToWasm0(placement_kind, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len3 = WASM_VECTOR_LEN;
+    const ret = wasm.previewElement(ptr0, len0, ptr1, len1, rotation, ptr2, len2, ptr3, len3);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -192,6 +200,9 @@ export function setActiveLevel(id) {
 
 /**
  * Re-place an existing element from a fresh set of picks.
+ *
+ * The existing curve type is kept, so dragging an arc wall's handles does
+ * not turn it into a polyline.
  * @param {string} id
  * @param {string} points_json
  * @param {number} rotation

@@ -126,6 +126,15 @@ button:focus-visible {
   background: var(--border);
 }
 
+.tools button.mode {
+  font-size: 12px;
+  opacity: 0.8;
+}
+
+.tools button.mode.active {
+  opacity: 1;
+}
+
 .hint {
   margin-left: auto;
   color: var(--text-muted);

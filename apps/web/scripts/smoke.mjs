@@ -55,18 +55,26 @@ const elementCount = () => page.locator('.element-list li').count();
 const toolbarNames = () =>
   page.locator('.tools button').evaluateAll((els) => els.map((e) => e.textContent.trim()));
 
-// --- 1. Each first-party tool is a plugin; column is one tool --------------
+// --- 1. Each first-party tool is a plugin; wall and column are one tool -----
 console.log('\n[1] toolbar from plugins, one tool per type');
 const tools = await toolbarNames();
 console.log('  toolbar:', tools.join(' | '));
-for (const expected of ['Select', 'Wall', 'Arc wall', 'Column', 'Beam']) {
+for (const expected of ['Select', 'Wall', 'Column', 'Beam']) {
   check(`"${expected}" button exists`, tools.includes(expected));
 }
+check('arc wall is not a second tool', !tools.includes('Arc wall'));
 check('round is not a second column tool', !tools.includes('Round column'));
+check('draw modes hide until Wall is active', !tools.includes('Line') && !tools.includes('Arc'));
 
-// --- 2. Place a room with the two-point Wall gesture -----------------------
-console.log('\n[2] wall placement (two-point gesture)');
+// --- 2. Place a room with the two-point Wall / Line gesture ----------------
+console.log('\n[2] wall placement (line mode)');
 await useTool('Wall');
+const wallModes = await toolbarNames();
+console.log('  wall toolbar:', wallModes.join(' | '));
+check('Line mode is available', wallModes.includes('Line'));
+check('Arc mode is available', wallModes.includes('Arc'));
+check('Polyline mode is available', wallModes.includes('Polyline'));
+await page.getByRole('button', { name: 'Line', exact: true }).click();
 const corners = [
   [0.32, 0.5],
   [0.58, 0.5],
@@ -94,11 +102,25 @@ await clickCanvas(0.32, 0.5);
 await clickCanvas(0.58, 0.5);
 check('beam placed with two picks', (await elementCount()) === 6);
 
-await useTool('Arc wall');
+await useTool('Wall');
+await page.getByRole('button', { name: 'Arc', exact: true }).click();
 await clickCanvas(0.66, 0.5);
 await clickCanvas(0.74, 0.58);
 await clickCanvas(0.66, 0.66);
-check('arc wall placed with three picks', (await elementCount()) === 7);
+check('arc wall placed on the same Wall tool', (await elementCount()) === 7);
+check(
+  'arc is still a Wall, not a second type',
+  (await page.locator('.element-list li').filter({ hasText: /^Wall \d+/ }).count()) === 5,
+);
+
+await useTool('Wall');
+await page.getByRole('button', { name: 'Polyline', exact: true }).click();
+await clickCanvas(0.28, 0.42);
+await clickCanvas(0.40, 0.42);
+await clickCanvas(0.40, 0.52);
+await canvas.dblclick({ position: { x: box.width * 0.28, y: box.height * 0.52 } });
+await page.waitForTimeout(300);
+check('polyline wall placed on the same Wall tool', (await elementCount()) === 8);
 
 await page.screenshot({ path: `${OUT}/apex-02-all-components.png`, fullPage: true });
 
@@ -115,6 +137,18 @@ const labels = await page
 console.log('  fields:', labels.join(' | '));
 check('height field rendered from the schema', labels.some((l) => l.startsWith('Height')));
 check('thickness field rendered from the schema', labels.some((l) => l.startsWith('Thickness')));
+check('wall profile control is present', labels.some((l) => l.startsWith('Profile')));
+
+const wallProfile = page.locator('.inspector-body select').first();
+check('default wall profile is rectangle', (await wallProfile.inputValue()) === 'apex.wall.rect');
+await wallProfile.selectOption('apex.wall.round');
+await page.waitForTimeout(400);
+check(
+  'wall profile switched to round without a second tool',
+  (await wallProfile.inputValue()) === 'apex.wall.round',
+);
+await wallProfile.selectOption('apex.wall.rect');
+await page.waitForTimeout(200);
 
 const heightInput = page.locator('.inspector-body input[type="number"]').first();
 await heightInput.fill('5.0');
@@ -136,7 +170,7 @@ await profileSelect.selectOption('apex.round');
 await page.waitForTimeout(400);
 const profileAfter = await profileSelect.inputValue();
 check('profile switched to round without a second tool', profileAfter === 'apex.round', `got ${profileAfter}`);
-check('still a single column element', (await elementCount()) === 7);
+check('still a single column element', (await elementCount()) === 8);
 await page.screenshot({ path: `${OUT}/apex-05-column-profile.png`, fullPage: true });
 
 // --- 6. A user component installed at runtime ------------------------------
@@ -173,7 +207,7 @@ check('a tool appeared for it with no app code', toolsAfter.includes('Planter'))
 await useTool('Planter');
 await clickCanvas(0.45, 0.58);
 const afterPlanter = await elementCount();
-check('user component placed like a built-in', afterPlanter === 8, `got ${afterPlanter}`);
+check('user component placed like a built-in', afterPlanter === 9, `got ${afterPlanter}`);
 
 await useTool('Select');
 await page.locator('.element-list li', { hasText: 'Planter' }).first().click();

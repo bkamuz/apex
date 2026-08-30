@@ -104,6 +104,7 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [components, setComponents] = useState<ComponentDto[]>([]);
   const [toolId, setToolId] = useState<string>(ToolRegistry.selectId);
+  const [drawMode, setDrawMode] = useState<string | null>(null);
   const [projection, setProjection] = useState<ProjectionMode>('orthographic');
   const [scene, setScene] = useState<SceneDto | null>(null);
   const [selected, setSelected] = useState<ElementDto | null>(null);
@@ -199,18 +200,18 @@ export default function App() {
     return {
       resolvePoint: (x, y, shift, anchor) => resolvePoint(x, y, shift, anchor),
 
-      createElement: (componentId, points) => {
+      createElement: (componentId, points, placementKind) => {
         try {
-          applyScene(apexCreateElement(componentId, points));
+          applyScene(apexCreateElement(componentId, points, undefined, 0, placementKind));
           setError(null);
         } catch (e) {
           setError(e instanceof Error ? e.message : String(e));
         }
       },
 
-      showPreview: (componentId, points) => {
+      showPreview: (componentId, points, placementKind) => {
         try {
-          const mesh = apexPreviewElement(componentId, points);
+          const mesh = apexPreviewElement(componentId, points, undefined, 0, placementKind);
           renderer.setGhostMesh({
             positions: toFloatArray(mesh.positions),
             normals: toFloatArray(mesh.normals),
@@ -297,10 +298,21 @@ export default function App() {
     (id: string) => {
       cancelGesture();
       setToolId(id);
+      const next = registryRef.current.get(id);
+      setDrawMode(next?.getMode?.() ?? null);
       if (id === ToolRegistry.selectId) syncEditGizmo(selectedRef.current);
       else rendererRef.current?.setEditGizmo(null);
     },
     [cancelGesture, syncEditGizmo],
+  );
+
+  const activateDrawMode = useCallback(
+    (id: string) => {
+      cancelGesture();
+      toolRef.current.setMode?.(id);
+      setDrawMode(toolRef.current.getMode?.() ?? id);
+    },
+    [cancelGesture],
   );
 
   /** Escape: abandon the gesture, clear selection, fall back to Select. */
@@ -474,7 +486,10 @@ export default function App() {
     e.preventDefault();
 
     // A variable-length gesture (polyline) ends on double-click.
-    if (tool.componentId && requiredPoints(placementKindOf(tool.componentId)) === null) {
+    const kind =
+      tool.placementKind?.() ??
+      (tool.componentId ? placementKindOf(tool.componentId) : 'point');
+    if (tool.componentId && requiredPoints(kind) === null) {
       if (finishOpenGesture(tool, pending, toolContext())) {
         setPending([]);
         return;
@@ -588,6 +603,21 @@ export default function App() {
               </Fragment>
             );
           })}
+          {tool.modes && tool.modes.length > 0 ? (
+            <>
+              <span className="tools-sep" aria-hidden="true" />
+              {tool.modes.map((mode) => (
+                <button
+                  key={mode.id}
+                  type="button"
+                  className={`mode${drawMode === mode.id ? ' active' : ''}`}
+                  onClick={() => activateDrawMode(mode.id)}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </>
+          ) : null}
           <span className="tools-sep" aria-hidden="true" />
           <button
             type="button"

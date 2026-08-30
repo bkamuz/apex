@@ -21,8 +21,10 @@ function optionLabel(kind: ParamSpecDto['kind'], option: string): string {
   if (kind !== 'profile') return option;
   switch (option) {
     case 'apex.rect':
+    case 'apex.wall.rect':
       return 'Rectangle';
     case 'apex.round':
+    case 'apex.wall.round':
       return 'Round';
     default: {
       const leaf = option.includes('.') ? option.slice(option.lastIndexOf('.') + 1) : option;
