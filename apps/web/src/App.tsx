@@ -325,8 +325,19 @@ export default function App() {
       setDrawMode(next?.getMode?.() ?? null);
       if (id === ToolRegistry.selectId) syncEditGizmo(selectedRef.current);
       else rendererRef.current?.setEditGizmo(null);
+      const component = components.find((item) => item.id === next?.componentId);
+      if (component) {
+        const draft = defaultPlacementParams(component, profiles);
+        placementParamsRef.current = draft;
+        placementToolIdRef.current = id;
+        setPlacementDraft(draft);
+      } else {
+        placementParamsRef.current = {};
+        placementToolIdRef.current = id;
+        setPlacementDraft({});
+      }
     },
-    [cancelGesture, syncEditGizmo],
+    [cancelGesture, components, profiles, syncEditGizmo],
   );
 
   const activateDrawMode = useCallback(

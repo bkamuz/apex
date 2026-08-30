@@ -20,7 +20,8 @@ export function instanceSpecs(
   profile: ProfileTypeDto | undefined,
 ): ParamSpecDto[] {
   const fromProfile = profile?.params.filter(isInstanceBound) ?? [];
-  return [...component.params, ...fromProfile];
+  const claimed = new Set(component.params.map((spec) => spec.id));
+  return [...component.params, ...fromProfile.filter((spec) => !claimed.has(spec.id))];
 }
 
 export function typeSpecs(profile: ProfileTypeDto | undefined): ParamSpecDto[] {
