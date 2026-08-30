@@ -135,7 +135,7 @@ check('default column profile is rectangle', profileBefore === 'apex.rect');
 await profileSelect.selectOption('apex.round');
 await page.waitForTimeout(400);
 const profileAfter = await profileSelect.inputValue();
-check('profile switched to round without a second tool', profileAfter === 'apex.round');
+check('profile switched to round without a second tool', profileAfter === 'apex.round', `got ${profileAfter}`);
 check('still a single column element', (await elementCount()) === 7);
 await page.screenshot({ path: `${OUT}/apex-05-column-profile.png`, fullPage: true });
 
