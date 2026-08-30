@@ -33,12 +33,13 @@ function clientToWorld(
   clientX: number,
   clientY: number,
 ): [number, number] | null {
-  const rect = svg.getBoundingClientRect();
-  if (rect.width < 1 || rect.height < 1) return null;
-  const vb = svg.viewBox.baseVal;
-  const sx = vb.x + ((clientX - rect.left) / rect.width) * vb.width;
-  const sy = vb.y + ((clientY - rect.top) / rect.height) * vb.height;
-  return [sx, -sy];
+  const ctm = svg.getScreenCTM();
+  if (!ctm) return null;
+  const pt = svg.createSVGPoint();
+  pt.x = clientX;
+  pt.y = clientY;
+  const mapped = pt.matrixTransform(ctm.inverse());
+  return [mapped.x, -mapped.y];
 }
 
 function polyline(points: [number, number][]): string {

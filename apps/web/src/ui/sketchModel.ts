@@ -37,11 +37,11 @@ export function distToSegment(
 }
 
 export function isHorizontal(a: [number, number], b: [number, number]): boolean {
-  return Math.abs(b[1] - a[1]) <= Math.abs(b[0] - a[0]) * 0.25;
+  return Math.abs(b[0] - a[0]) >= Math.abs(b[1] - a[1]);
 }
 
 export function isVertical(a: [number, number], b: [number, number]): boolean {
-  return Math.abs(b[0] - a[0]) <= Math.abs(b[1] - a[1]) * 0.25;
+  return Math.abs(b[1] - a[1]) > Math.abs(b[0] - a[0]);
 }
 
 /** Edges whose direction is parallel (or anti-parallel) to `edge`. */
