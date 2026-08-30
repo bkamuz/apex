@@ -17,6 +17,20 @@ function stepFor(spec: ParamSpecDto): number {
   return spec.kind === 'angle' ? 0.05 : 0.05;
 }
 
+function optionLabel(kind: ParamSpecDto['kind'], option: string): string {
+  if (kind !== 'profile') return option;
+  switch (option) {
+    case 'apex.rect':
+      return 'Rectangle';
+    case 'apex.round':
+      return 'Round';
+    default: {
+      const leaf = option.includes('.') ? option.slice(option.lastIndexOf('.') + 1) : option;
+      return leaf.charAt(0).toUpperCase() + leaf.slice(1);
+    }
+  }
+}
+
 /** One control per parameter, chosen from the declared kind. */
 function ParamField({
   spec,
@@ -27,7 +41,8 @@ function ParamField({
   spec: ParamSpecDto;
   value: ParamValue;
   onChange: (value: ParamValue) => void;
-  onCommit: () => void;
+  /** Immediate commit, used when the new value is known in this event (select/checkbox). */
+  onCommit: (value?: ParamValue) => void;
 }) {
   const label = spec.unit ? `${spec.label} (${spec.unit})` : spec.label;
 
@@ -39,10 +54,7 @@ function ParamField({
           <input
             type="checkbox"
             checked={Boolean(value)}
-            onChange={(e) => {
-              onChange(e.target.checked);
-              onCommit();
-            }}
+            onChange={(e) => onCommit(e.target.checked)}
           />
         </div>
       );
@@ -52,16 +64,10 @@ function ParamField({
       return (
         <div className="field">
           <label>{label}</label>
-          <select
-            value={String(value ?? '')}
-            onChange={(e) => {
-              onChange(e.target.value);
-              onCommit();
-            }}
-          >
+          <select value={String(value ?? '')} onChange={(e) => onCommit(e.target.value)}>
             {(spec.options ?? []).map((option) => (
               <option key={option} value={option}>
-                {option}
+                {optionLabel(spec.kind, option)}
               </option>
             ))}
           </select>
@@ -76,7 +82,7 @@ function ParamField({
             type="text"
             value={String(value ?? '')}
             onChange={(e) => onChange(e.target.value)}
-            onBlur={onCommit}
+            onBlur={() => onCommit()}
             onKeyDown={(e) => e.key === 'Enter' && onCommit()}
           />
         </div>
@@ -95,7 +101,7 @@ function ParamField({
             step={stepFor(spec)}
             value={Number(Number(value ?? 0).toFixed(4))}
             onChange={(e) => onChange(Number(e.target.value))}
-            onBlur={onCommit}
+            onBlur={() => onCommit()}
             onKeyDown={(e) => e.key === 'Enter' && onCommit()}
           />
         </div>
@@ -144,7 +150,11 @@ export function PropertiesPanel({
 
   if (selectedCount === 1 && selected) {
     const specs = component?.params ?? [];
-    const apply = () => onUpdate(draft);
+    const apply = (patch: Record<string, ParamValue> = {}) => {
+      const next = { ...draft, ...patch };
+      setDraft(next);
+      onUpdate(next);
+    };
 
     return (
       <div className="inspector-body">
@@ -169,12 +179,12 @@ export function PropertiesPanel({
             spec={spec}
             value={draft[spec.id] ?? spec.default}
             onChange={(value) => setDraft((prev) => ({ ...prev, [spec.id]: value }))}
-            onCommit={apply}
+            onCommit={(value) => apply(value === undefined ? {} : { [spec.id]: value })}
           />
         ))}
 
         {specs.length > 0 ? (
-          <button type="button" onClick={apply}>
+          <button type="button" onClick={() => apply()}>
             Apply
           </button>
         ) : null}

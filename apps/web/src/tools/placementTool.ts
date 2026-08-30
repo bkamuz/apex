@@ -31,6 +31,7 @@ export function createPlacementTool(component: ComponentDto): Tool {
   return {
     id: toolIdForComponent(component),
     label: component.display_name,
+    group: 'create',
     componentId: component.id,
 
     hint(pendingCount) {

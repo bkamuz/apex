@@ -190,20 +190,13 @@ fn builtin_profiles() -> Vec<(ProfileId, ProfileSpec)> {
 /// The shipped components, expressed purely as data.
 ///
 /// There is no wall-specific, column-specific or beam-specific geometry code
-/// anywhere: all five are a profile plus a sweep or an extrude.
+/// anywhere: each is a profile plus a sweep or an extrude. Variants of a type
+/// (rectangular vs round column) are a profile parameter, not a second type.
 pub fn builtin_components() -> Vec<ComponentDefinition> {
     vec![
         wall("apex.wall", "Wall", PlacementKind::TwoPoint),
         wall("apex.arc_wall", "Arc wall", PlacementKind::ThreePointArc),
-        column("apex.column", "Column", rect_profile()),
-        column(
-            "apex.round_column",
-            "Round column",
-            ProfileSpec::Circle {
-                radius: Expr::param("width") / Expr::constant(2.0),
-                segments: 24,
-            },
-        ),
+        column(),
         beam(),
     ]
 }
@@ -234,28 +227,30 @@ fn wall(id: &str, display_name: &str, placement: PlacementKind) -> ComponentDefi
     }
 }
 
-fn rect_profile() -> ProfileSpec {
-    ProfileSpec::Rectangle {
-        width: Expr::param("width"),
-        height: Expr::param("depth"),
-    }
-}
-
-/// A column is a profile extruded up from a single pick.
-fn column(id: &str, display_name: &str, profile: ProfileSpec) -> ComponentDefinition {
+/// A column is one type. Rectangle vs round is the `profile` parameter, which
+/// is what `ProfileSpec::FromParam` is for: one tool, swappable section.
+fn column() -> ComponentDefinition {
     ComponentDefinition {
-        id: id.to_string(),
-        display_name: display_name.to_string(),
+        id: "apex.column".to_string(),
+        display_name: "Column".to_string(),
         category: "column".to_string(),
         source: ComponentSource::BuiltIn,
         placement: PlacementKind::Point,
         params: vec![
+            ParamSpec::profile(
+                "profile",
+                "Profile",
+                "apex.rect",
+                &["apex.rect", "apex.round"],
+            ),
             ParamSpec::length("height", "Height", 3.0),
             ParamSpec::length("width", "Width", 0.4),
             ParamSpec::length("depth", "Depth", 0.4),
         ],
         recipe: GeometryRecipe::Extrude {
-            profile,
+            profile: ProfileSpec::FromParam {
+                param: "profile".into(),
+            },
             frame: FrameSource::PlacementCurve { t: Expr::zero() },
             height: Expr::param("height"),
         },
@@ -306,18 +301,16 @@ mod tests {
     #[test]
     fn every_builtin_validates_and_registers() {
         let registry = ComponentRegistry::with_builtins();
-        assert_eq!(registry.len(), 5);
-        for id in [
-            "apex.wall",
-            "apex.arc_wall",
-            "apex.column",
-            "apex.round_column",
-            "apex.beam",
-        ] {
+        assert_eq!(registry.len(), 4);
+        for id in ["apex.wall", "apex.arc_wall", "apex.column", "apex.beam"] {
             let def = registry.get(id).unwrap_or_else(|| panic!("missing {id}"));
             assert_eq!(def.source, ComponentSource::BuiltIn);
             assert!(def.validate().is_ok());
         }
+        assert!(
+            registry.get("apex.round_column").is_none(),
+            "round is a column profile, not a second component"
+        );
     }
 
     #[test]
@@ -408,21 +401,39 @@ mod tests {
     }
 
     #[test]
-    fn a_round_column_needs_no_new_geometry_code() {
+    fn switching_a_column_profile_needs_no_new_type() {
         let registry = ComponentRegistry::with_builtins();
         let placement = Placement::point(Vec3::ZERO);
-        let params = ParamMap::new()
+        let rect = ParamMap::new()
+            .with("height", ParamValue::Length(3.0))
             .with("width", ParamValue::Length(0.6))
-            .with("height", ParamValue::Length(3.0));
+            .with("depth", ParamValue::Length(0.3));
+        let round = rect
+            .clone()
+            .with("profile", ParamValue::ProfileRef("apex.round".into()));
 
-        let mesh = registry
-            .build_mesh("apex.round_column", &placement, &params, ground())
-            .expect("mesh");
+        let rect_mesh = registry
+            .build_mesh("apex.column", &placement, &rect, ground())
+            .expect("rect");
+        let round_mesh = registry
+            .build_mesh("apex.column", &placement, &round, ground())
+            .expect("round");
 
-        let size = size_of(&mesh);
-        assert!((size[0] - 0.6).abs() < 1e-2, "diameter {}", size[0]);
-        assert!((size[2] - 0.6).abs() < 1e-2, "round in both axes");
-        assert!((size[1] - 3.0).abs() < EPS);
+        let rect_size = size_of(&rect_mesh);
+        let round_size = size_of(&round_mesh);
+        assert!((rect_size[0] - 0.6).abs() < EPS, "width {}", rect_size[0]);
+        assert!((rect_size[2] - 0.3).abs() < EPS, "depth {}", rect_size[2]);
+        assert!(
+            (round_size[0] - 0.6).abs() < 1e-2,
+            "diameter {}",
+            round_size[0]
+        );
+        assert!(
+            (round_size[2] - 0.6).abs() < 1e-2,
+            "round in both axes, got {}",
+            round_size[2]
+        );
+        assert!((round_size[1] - 3.0).abs() < EPS);
     }
 
     #[test]
@@ -564,7 +575,7 @@ mod tests {
         let size = size_of(&mesh);
         assert!((size[0] - 1.2).abs() < 1e-2, "diameter {}", size[0]);
         assert!((size[1] - 0.05).abs() < EPS);
-        assert_eq!(registry.len(), 6);
+        assert_eq!(registry.len(), 5);
     }
 
     #[test]

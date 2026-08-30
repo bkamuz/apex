@@ -1,4 +1,5 @@
-import { apexRegisterComponent } from '../wasm/apex';
+import { apexListComponents, apexRegisterComponent } from '../wasm/apex';
+import { createPlacementTool } from '../tools/placementTool';
 import type { Tool } from '../tools/Tool';
 
 type Listener = () => void;
@@ -6,18 +7,24 @@ type Listener = () => void;
 /**
  * Runtime extension surface for modules.
  *
- * A module contributes data (a component definition, which the core validates
- * and stores) or, more rarely, a genuinely new input gesture. Everything a
- * module can do here is something the visual editor will do too, which is why
- * a visually built component and a module-shipped one are the same thing.
+ * A module is a plugin: it installs a component (data the core validates) and
+ * a default placement tool. `registerTool` is for a genuinely new gesture.
  */
 class ExtensionHost {
   private listeners = new Set<Listener>();
   private tools: Tool[] = [];
 
-  /** Install a component. Throws if the core rejects the definition. */
+  /** Install a component and give it a placement tool, like a first-party plugin. */
   defineComponent(definition: unknown): void {
     apexRegisterComponent(definition);
+    const id = componentIdOf(definition);
+    const installed = id
+      ? apexListComponents().find((component) => component.id === id)
+      : undefined;
+    if (installed) {
+      this.registerTool(createPlacementTool(installed));
+      return;
+    }
     this.emit();
   }
 
@@ -39,6 +46,12 @@ class ExtensionHost {
   private emit(): void {
     for (const listener of this.listeners) listener();
   }
+}
+
+function componentIdOf(definition: unknown): string | null {
+  if (!definition || typeof definition !== 'object' || !('id' in definition)) return null;
+  const id = (definition as { id: unknown }).id;
+  return typeof id === 'string' && id.length > 0 ? id : null;
 }
 
 export const extensions = new ExtensionHost();

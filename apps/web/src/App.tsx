@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   apexCreateElement,
   apexCreateLevel,
@@ -43,8 +43,15 @@ import { ToolRegistry } from './tools/registry';
 import { finishOpenGesture } from './tools/placementTool';
 import { requiredPoints, type PointerInfo, type ToolContext } from './tools/Tool';
 import { extensions, installGlobalSdk } from './extensions/sdk';
+import { installPlugins } from './plugins';
 
 const DEFAULT_LEVEL_RISE = 3;
+
+function makeToolRegistry(): ToolRegistry {
+  const registry = new ToolRegistry();
+  installPlugins(registry, []);
+  return registry;
+}
 
 function toFloatArray(data: ArrayLike<number> | number[]): Float32Array {
   return data instanceof Float32Array ? data : new Float32Array(data);
@@ -85,7 +92,7 @@ function pointerInfo(e: React.PointerEvent | React.MouseEvent): PointerInfo {
 export default function App() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<ViewportRenderer | null>(null);
-  const registryRef = useRef(new ToolRegistry());
+  const registryRef = useRef<ToolRegistry>(makeToolRegistry());
   const shiftHeldRef = useRef(false);
   const selectedRef = useRef<ElementDto | null>(null);
   const selectedCountRef = useRef(0);
@@ -140,11 +147,10 @@ export default function App() {
     rendererRef.current?.setGhostMesh(null);
   }, []);
 
-  /** Pull the installed components into the toolbar. */
+  /** Pull installed components and let each plugin contribute its tool. */
   const syncTools = useCallback(() => {
     const installed = apexListComponents();
-    registryRef.current.syncComponents(installed);
-    for (const tool of extensions.customTools()) registryRef.current.register(tool);
+    installPlugins(registryRef.current, installed);
     setComponents(installed);
   }, []);
 
@@ -547,7 +553,7 @@ export default function App() {
   const onDelete = () => applyScene(apexDeleteSelected());
 
   const selectedIds = scene?.selected_ids ?? [];
-  const placementTools = registryRef.current.list().filter((t) => t.componentId);
+  const tools = useMemo(() => registryRef.current.list(), [components]);
 
   const inspector = (
     <PropertiesPanel
@@ -566,24 +572,22 @@ export default function App() {
       <header className="topbar">
         <div className="brand">APEX</div>
         <div className="tools">
-          <button
-            type="button"
-            className={toolId === ToolRegistry.selectId ? 'active' : ''}
-            onClick={() => activateTool(ToolRegistry.selectId)}
-          >
-            Select
-          </button>
-          <span className="tools-sep" aria-hidden="true" />
-          {placementTools.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              className={toolId === t.id ? 'active' : ''}
-              onClick={() => activateTool(t.id)}
-            >
-              {t.label}
-            </button>
-          ))}
+          {tools.map((t, i) => {
+            const prev = tools[i - 1];
+            const sep = prev && (prev.group ?? 'create') !== (t.group ?? 'create');
+            return (
+              <Fragment key={t.id}>
+                {sep ? <span className="tools-sep" aria-hidden="true" /> : null}
+                <button
+                  type="button"
+                  className={toolId === t.id ? 'active' : ''}
+                  onClick={() => activateTool(t.id)}
+                >
+                  {t.label}
+                </button>
+              </Fragment>
+            );
+          })}
           <span className="tools-sep" aria-hidden="true" />
           <button
             type="button"

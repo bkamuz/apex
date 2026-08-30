@@ -1,9 +1,10 @@
 /**
  * End-to-end check of the Rust -> WASM -> WebGL2 flow.
  *
- * Exercises every built-in component through its generated tool, edits one
- * through the schema-driven inspector, and installs a user component at
- * runtime to prove the extension path works in a real browser.
+ * Exercises every first-party plugin tool, edits one through the
+ * schema-driven inspector (including switching a column's profile), and
+ * installs a user component at runtime to prove the extension path works
+ * in a real browser.
  */
 import { chromium } from 'playwright';
 import { mkdirSync } from 'fs';
@@ -54,13 +55,14 @@ const elementCount = () => page.locator('.element-list li').count();
 const toolbarNames = () =>
   page.locator('.tools button').evaluateAll((els) => els.map((e) => e.textContent.trim()));
 
-// --- 1. The toolbar is generated from the component registry ---------------
-console.log('\n[1] toolbar generated from installed components');
+// --- 1. Each first-party tool is a plugin; column is one tool --------------
+console.log('\n[1] toolbar from plugins, one tool per type');
 const tools = await toolbarNames();
 console.log('  toolbar:', tools.join(' | '));
-for (const expected of ['Wall', 'Arc wall', 'Column', 'Round column', 'Beam']) {
+for (const expected of ['Select', 'Wall', 'Arc wall', 'Column', 'Beam']) {
   check(`"${expected}" button exists`, tools.includes(expected));
 }
+check('round is not a second column tool', !tools.includes('Round column'));
 
 // --- 2. Place a room with the two-point Wall gesture -----------------------
 console.log('\n[2] wall placement (two-point gesture)');
@@ -87,20 +89,16 @@ await useTool('Column');
 await clickCanvas(0.32, 0.5);
 check('column placed with one pick', (await elementCount()) === 5);
 
-await useTool('Round column');
-await clickCanvas(0.58, 0.68);
-check('round column placed with one pick', (await elementCount()) === 6);
-
 await useTool('Beam');
 await clickCanvas(0.32, 0.5);
 await clickCanvas(0.58, 0.5);
-check('beam placed with two picks', (await elementCount()) === 7);
+check('beam placed with two picks', (await elementCount()) === 6);
 
 await useTool('Arc wall');
 await clickCanvas(0.66, 0.5);
 await clickCanvas(0.74, 0.58);
 await clickCanvas(0.66, 0.66);
-check('arc wall placed with three picks', (await elementCount()) === 8);
+check('arc wall placed with three picks', (await elementCount()) === 7);
 
 await page.screenshot({ path: `${OUT}/apex-02-all-components.png`, fullPage: true });
 
@@ -126,8 +124,23 @@ const heightAfter = await heightInput.inputValue();
 check('height edit applied', Number(heightAfter) === 5, `input reads ${heightAfter}`);
 await page.screenshot({ path: `${OUT}/apex-03-inspector-edit.png`, fullPage: true });
 
-// --- 5. A user component installed at runtime ------------------------------
-console.log('\n[5] user component installed through the module SDK');
+// --- 5. Column profile is a parameter, not a second tool -------------------
+console.log('\n[5] column profile switches on the same tool');
+await page.locator('.element-list li').filter({ hasText: /^Column \d+/ }).first().click();
+await page.waitForTimeout(300);
+const profileSelect = page.locator('.inspector-body select').first();
+check('profile control is present', (await profileSelect.count()) === 1);
+const profileBefore = await profileSelect.inputValue();
+check('default column profile is rectangle', profileBefore === 'apex.rect');
+await profileSelect.selectOption('apex.round');
+await page.waitForTimeout(400);
+const profileAfter = await profileSelect.inputValue();
+check('profile switched to round without a second tool', profileAfter === 'apex.round', `got ${profileAfter}`);
+check('still a single column element', (await elementCount()) === 7);
+await page.screenshot({ path: `${OUT}/apex-05-column-profile.png`, fullPage: true });
+
+// --- 6. A user component installed at runtime ------------------------------
+console.log('\n[6] user component installed through the module SDK');
 const sdkError = await page.evaluate(() => {
   try {
     window.apex.defineComponent({
@@ -160,7 +173,7 @@ check('a tool appeared for it with no app code', toolsAfter.includes('Planter'))
 await useTool('Planter');
 await clickCanvas(0.45, 0.58);
 const afterPlanter = await elementCount();
-check('user component placed like a built-in', afterPlanter === 9, `got ${afterPlanter}`);
+check('user component placed like a built-in', afterPlanter === 8, `got ${afterPlanter}`);
 
 await useTool('Select');
 await page.locator('.element-list li', { hasText: 'Planter' }).first().click();

@@ -35,8 +35,12 @@ pub enum ParamKind {
     Choice {
         options: Vec<String>,
     },
-    /// Reference to a named profile, which is what makes profiles swappable.
-    Profile,
+    /// Reference to a named profile, which is what makes profiles swappable
+    /// per element rather than per component (one Column tool, many sections).
+    Profile {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        options: Vec<String>,
+    },
 }
 
 impl ParamKind {
@@ -52,7 +56,7 @@ impl ParamKind {
             Self::Bool => "a boolean",
             Self::Text => "text",
             Self::Choice { .. } => "one of the allowed options",
-            Self::Profile => "a profile id",
+            Self::Profile { .. } => "a profile id",
         }
     }
 }
@@ -122,10 +126,13 @@ impl ParamValue {
                     Err(ParamError::BadChoice { id: id.to_string() })
                 }
             }
-            ParamKind::Profile => self
-                .as_text()
-                .map(|s| ParamValue::ProfileRef(s.to_string()))
-                .ok_or_else(mismatch),
+            ParamKind::Profile { options } => {
+                let text = self.as_text().ok_or_else(mismatch)?;
+                if !options.is_empty() && !options.iter().any(|o| o == text) {
+                    return Err(ParamError::BadChoice { id: id.to_string() });
+                }
+                Ok(ParamValue::ProfileRef(text.to_string()))
+            }
         }
     }
 }
@@ -257,6 +264,20 @@ impl ParamSpec {
                 options: options.iter().map(|s| s.to_string()).collect(),
             },
             default: ParamValue::Choice(default.to_string()),
+            min: None,
+            max: None,
+            unit: None,
+        }
+    }
+
+    pub fn profile(id: &str, label: &str, default: &str, options: &[&str]) -> Self {
+        Self {
+            id: id.to_string(),
+            label: label.to_string(),
+            kind: ParamKind::Profile {
+                options: options.iter().map(|s| s.to_string()).collect(),
+            },
+            default: ParamValue::ProfileRef(default.to_string()),
             min: None,
             max: None,
             unit: None,
@@ -545,6 +566,28 @@ mod tests {
             spec.kind,
             ParamKind::Choice {
                 options: vec!["a".into(), "b".into()]
+            }
+        );
+    }
+
+    #[test]
+    fn a_profile_spec_carries_its_allowed_ids() {
+        let spec = ParamSpec::profile(
+            "profile",
+            "Profile",
+            "apex.rect",
+            &["apex.rect", "apex.round"],
+        );
+        let json = serde_json::to_string(&spec).expect("serialize");
+        assert!(json.contains(r#""kind":"profile""#), "json was {json}");
+        assert!(json.contains("apex.round"), "json was {json}");
+
+        let back: ParamSpec = serde_json::from_str(&json).expect("deserialize");
+        assert_eq!(back.default, ParamValue::ProfileRef("apex.rect".into()));
+        assert_eq!(
+            back.kind,
+            ParamKind::Profile {
+                options: vec!["apex.rect".into(), "apex.round".into()]
             }
         );
     }

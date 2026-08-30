@@ -21,6 +21,7 @@ export function createSelectTool(): Tool {
   return {
     id: SELECT_TOOL_ID,
     label: 'Select',
+    group: 'select',
 
     hint() {
       return 'MMB pan · RMB orbit · wheel zoom · dbl-click a level to activate it';
