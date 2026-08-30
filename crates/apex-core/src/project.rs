@@ -221,7 +221,7 @@ mod tests {
     #[test]
     fn a_new_project_ships_with_the_builtin_components() {
         let project = Project::new();
-        assert_eq!(project.registry().len(), 5);
+        assert_eq!(project.registry().len(), 4);
         assert!(project.document().active_level_id().is_some());
     }
 
@@ -282,7 +282,6 @@ mod tests {
             ("apex.wall", &line[..]),
             ("apex.arc_wall", &arc[..]),
             ("apex.column", &point[..]),
-            ("apex.round_column", &point[..]),
             ("apex.beam", &line[..]),
         ] {
             let placement = project
@@ -297,7 +296,7 @@ mod tests {
                 "{component} produced no geometry"
             );
         }
-        assert_eq!(project.document().elements().count(), 5);
+        assert_eq!(project.document().elements().count(), 4);
     }
 
     #[test]
