@@ -49,13 +49,25 @@ export type ProfileSpecDto =
 
 /** A reusable section: shape plus type/instance parameters. */
 export interface ProfileTypeDto {
-  id: string;
-  display_name: string;
-  category: string;
-  params: ParamSpecDto[];
-  spec: ProfileSpecDto;
-  type_values: Record<string, ParamValue>;
-  formulas?: Record<string, ExprDto>;
+    id: string;
+    display_name: string;
+    category: string;
+    params: ParamSpecDto[];
+    spec: ProfileSpecDto;
+    type_values: Record<string, ParamValue>;
+    formulas?: Record<string, ExprDto>;
+    /** Mouse-drawn outline. When present the core compiles it into `spec`. */
+    sketch?: ProfileSketchDto;
+}
+
+export interface SketchDimensionDto {
+    edge: number;
+    param: string;
+}
+
+export interface ProfileSketchDto {
+    vertices: [number, number][];
+    dimensions?: SketchDimensionDto[];
 }
 
 export interface ProfilePreviewDto {
@@ -96,6 +108,7 @@ export interface ElementListDto {
   category: string;
   pick_id: number;
   level_id: string;
+  profile_id?: string | null;
 }
 
 export interface LevelDto {

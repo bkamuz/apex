@@ -3,13 +3,16 @@
 //! Keeping this in the core means the WASM façade stays a thin translation
 //! layer, and any other host gets the same behaviour for free.
 
+use std::collections::BTreeMap;
+
 use apex_geometry::{Frame, TriangleMesh};
 use glam::Vec3;
+use serde::{Deserialize, Serialize};
 
-use crate::component::{ComponentDefinition, ProfileType};
+use crate::component::{ComponentDefinition, ComponentSource, ProfileType};
 use crate::document::Document;
 use crate::element::{Element, ElementId};
-use crate::level::LevelId;
+use crate::level::{Level, LevelId};
 use crate::param::ParamMap;
 use crate::placement::{Placement, PlacementKind};
 use crate::registry::{ComponentRegistry, RegistryError};
@@ -18,7 +21,7 @@ pub struct Project {
     document: Document,
     registry: ComponentRegistry,
     /// Per-component instance counters, so names read "Wall 1", "Wall 2".
-    counters: std::collections::BTreeMap<String, u32>,
+    counters: BTreeMap<String, u32>,
     level_counter: u32,
 }
 
@@ -258,6 +261,93 @@ impl Project {
         *counter += 1;
         format!("{display_name} {counter}")
     }
+
+    /// Serializable project: levels, elements, profiles, and extra components.
+    /// Meshes are rebuilt on load.
+    pub fn export_snapshot(&self) -> ProjectSnapshot {
+        let mut levels: Vec<Level> = self.document.levels().cloned().collect();
+        levels.sort_by(|a, b| {
+            a.elevation
+                .partial_cmp(&b.elevation)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.name.cmp(&b.name))
+        });
+
+        let mut elements: Vec<Element> = self.document.elements().cloned().collect();
+        elements.sort_by_key(|element| element.id.to_string());
+
+        let mut profiles: Vec<ProfileType> = self.registry.profiles().values().cloned().collect();
+        profiles.sort_by(|a, b| a.id.cmp(&b.id));
+
+        let mut components: Vec<ComponentDefinition> = self
+            .registry
+            .components()
+            .filter(|definition| !matches!(definition.source, ComponentSource::BuiltIn))
+            .cloned()
+            .collect();
+        components.sort_by(|a, b| a.id.cmp(&b.id));
+
+        ProjectSnapshot {
+            format: PROJECT_FORMAT,
+            levels,
+            active_level: self.document.active_level_id(),
+            elements,
+            profiles,
+            components,
+            counters: self.counters.clone(),
+            level_counter: self.level_counter,
+        }
+    }
+
+    /// Replace this project from a snapshot. On failure, `self` is left unchanged.
+    pub fn import_snapshot(&mut self, snap: ProjectSnapshot) -> Result<(), RegistryError> {
+        if snap.format != PROJECT_FORMAT {
+            return Err(RegistryError::Unknown(format!(
+                "unsupported project format {}",
+                snap.format
+            )));
+        }
+
+        let mut next = Project::new();
+        next.counters = snap.counters;
+        next.level_counter = snap.level_counter;
+
+        for profile in snap.profiles {
+            next.registry.upsert_profile(profile)?;
+        }
+        for definition in snap.components {
+            next.registry.upsert(definition)?;
+        }
+
+        next.document
+            .load_contents(snap.levels, snap.active_level, snap.elements);
+
+        let ids: Vec<ElementId> = next.document.elements().map(|element| element.id).collect();
+        for id in ids {
+            next.rebuild_element(id)?;
+        }
+
+        *self = next;
+        Ok(())
+    }
+}
+
+/// On-disk / download format. Bump [`PROJECT_FORMAT`] when the shape changes.
+pub const PROJECT_FORMAT: u32 = 1;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectSnapshot {
+    pub format: u32,
+    pub levels: Vec<Level>,
+    pub active_level: Option<LevelId>,
+    pub elements: Vec<Element>,
+    pub profiles: Vec<ProfileType>,
+    #[serde(default)]
+    pub components: Vec<ComponentDefinition>,
+    #[serde(default)]
+    pub counters: BTreeMap<String, u32>,
+    #[serde(default)]
+    pub level_counter: u32,
 }
 
 #[cfg(test)]
@@ -691,5 +781,128 @@ mod tests {
             params.get("height").is_none(),
             "round walls have no instance height"
         );
+    }
+
+    #[test]
+    fn a_sketched_profile_drives_the_wall_thickness() {
+        use crate::param::ParamSpec;
+        use crate::sketch::{ProfileSketch, SketchDimension};
+        use crate::{Expr, ProfileSpec, ProfileType};
+
+        let mut project = Project::new();
+        let profile = ProfileType {
+            id: "user.wall.drawn".into(),
+            display_name: "Drawn".into(),
+            category: "wall".into(),
+            params: vec![
+                ParamSpec::length("thickness", "Thickness", 0.3).as_type(),
+                ParamSpec::length("height", "Height", 3.0),
+            ],
+            spec: ProfileSpec::Rectangle {
+                width: Expr::param("thickness"),
+                height: Expr::param("height"),
+            },
+            type_values: ParamMap::new(),
+            formulas: Default::default(),
+            sketch: Some(ProfileSketch {
+                vertices: vec![[-0.15, -1.5], [0.15, -1.5], [0.15, 1.5], [-0.15, 1.5]],
+                dimensions: vec![
+                    SketchDimension {
+                        edge: 0,
+                        param: "thickness".into(),
+                    },
+                    SketchDimension {
+                        edge: 1,
+                        param: "height".into(),
+                    },
+                    SketchDimension {
+                        edge: 2,
+                        param: "thickness".into(),
+                    },
+                ],
+            }),
+        };
+        project.register_profile(profile).expect("register");
+
+        let id = project
+            .create_element(
+                "apex.wall",
+                Placement::line(Vec3::ZERO, Vec3::new(4.0, 0.0, 0.0)),
+                ParamMap::new().with(
+                    "profile",
+                    crate::param::ParamValue::ProfileRef("user.wall.drawn".into()),
+                ),
+            )
+            .expect("create");
+        assert!((size_of(project.document().get_mesh(id).unwrap())[2] - 0.3).abs() < EPS);
+
+        project
+            .update_profile_type(
+                "user.wall.drawn",
+                ParamMap::new().with("thickness", crate::param::ParamValue::Number(0.6)),
+            )
+            .expect("type");
+        assert!((size_of(project.document().get_mesh(id).unwrap())[2] - 0.6).abs() < EPS);
+    }
+
+    #[test]
+    fn a_project_snapshot_round_trips_elements_and_type_values() {
+        let mut project = Project::new();
+        let id = project
+            .create_element(
+                "apex.wall",
+                Placement::line(Vec3::ZERO, Vec3::new(5.0, 0.0, 0.0)),
+                ParamMap::new().with("height", crate::param::ParamValue::Number(4.0)),
+            )
+            .expect("create");
+        project
+            .update_profile_type(
+                "apex.wall.rect",
+                ParamMap::new().with("thickness", crate::param::ParamValue::Number(0.35)),
+            )
+            .expect("type");
+
+        let json = serde_json::to_string(&project.export_snapshot()).expect("json");
+        let snap: ProjectSnapshot = serde_json::from_str(&json).expect("parse");
+
+        let mut restored = Project::new();
+        restored.import_snapshot(snap).expect("import");
+
+        let element = restored.document().get_element(id).expect("element");
+        assert_eq!(element.name, "Wall 1");
+        assert_eq!(element.params.number("height"), Some(4.0));
+        assert!(
+            (size_of(restored.document().get_mesh(id).unwrap())[1] - 4.0).abs() < EPS,
+            "instance height survived"
+        );
+        assert!(
+            (size_of(restored.document().get_mesh(id).unwrap())[2] - 0.35).abs() < EPS,
+            "shared type thickness survived"
+        );
+
+        let next = restored
+            .create_element(
+                "apex.wall",
+                Placement::line(Vec3::ZERO, Vec3::new(2.0, 0.0, 0.0)),
+                ParamMap::new(),
+            )
+            .expect("next");
+        assert_eq!(
+            restored.document().get_element(next).unwrap().name,
+            "Wall 2",
+            "name counters must resume"
+        );
+    }
+
+    #[test]
+    fn import_rejects_an_unknown_format_and_leaves_the_project() {
+        let mut project = Project::new();
+        project
+            .create_element("apex.column", Placement::point(Vec3::ZERO), ParamMap::new())
+            .expect("create");
+        let mut snap = project.export_snapshot();
+        snap.format = 99;
+        assert!(project.import_snapshot(snap).is_err());
+        assert_eq!(project.document().elements().count(), 1);
     }
 }

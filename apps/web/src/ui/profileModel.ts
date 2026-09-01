@@ -1,4 +1,5 @@
 import type { ComponentDto, ParamSpecDto, ParamValue, ProfileTypeDto } from '../types';
+import { placeholderPolygon } from './sketchModel';
 
 export function isTypeBound(spec: ParamSpecDto): boolean {
   return spec.binding === 'type';
@@ -75,56 +76,14 @@ export function nextProfileId(profiles: ProfileTypeDto[], category: string): str
 }
 
 export function defaultNewProfile(category: string, id: string): ProfileTypeDto {
-  if (category === 'column' || category === 'beam') {
-    const width = category === 'beam' ? 0.2 : 0.4;
-    const depth = category === 'beam' ? 0.4 : 0.4;
-    return {
-      id,
-      display_name: 'Custom',
-      category,
-      params: [
-        lengthParam('width', 'Width', width, 'type'),
-        lengthParam('depth', 'Depth', depth, 'type'),
-      ],
-      spec: {
-        shape: 'rectangle',
-        width: { op: 'param', id: 'width' },
-        height: { op: 'param', id: 'depth' },
-      },
-      type_values: {},
-    };
-  }
   return {
     id,
     display_name: 'Custom',
     category: category || 'wall',
-    params: [
-      lengthParam('thickness', 'Thickness', 0.2, 'type'),
-      lengthParam('height', 'Height', 3, 'instance'),
-    ],
-    spec: {
-      shape: 'rectangle',
-      width: { op: 'param', id: 'thickness' },
-      height: { op: 'param', id: 'height' },
-    },
+    params: [],
+    spec: placeholderPolygon([]),
     type_values: {},
-  };
-}
-
-function lengthParam(
-  id: string,
-  label: string,
-  value: number,
-  binding: 'type' | 'instance',
-): ParamSpecDto {
-  return {
-    id,
-    label,
-    kind: 'length',
-    default: value,
-    min: Number.MIN_VALUE,
-    unit: 'm',
-    binding,
+    sketch: { vertices: [], dimensions: [] },
   };
 }
 

@@ -57,6 +57,29 @@ export function deleteSelected() {
 }
 
 /**
+ * JSON snapshot of the document, profiles, and extra components.
+ * @returns {string}
+ */
+export function exportProject() {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ret = wasm.exportProject();
+        var ptr1 = ret[0];
+        var len1 = ret[1];
+        if (ret[3]) {
+            ptr1 = 0; len1 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred2_0 = ptr1;
+        deferred2_1 = len1;
+        return getStringFromWasm0(ptr1, len1);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+    }
+}
+
+/**
  * @returns {any}
  */
 export function getScene() {
@@ -73,6 +96,21 @@ export function getScene() {
  */
 export function getSelected() {
     const ret = wasm.getSelected();
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Replace the current project from a JSON snapshot.
+ * @param {string} json
+ * @returns {any}
+ */
+export function importProject(json) {
+    const ptr0 = passStringToWasm0(json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.importProject(ptr0, len0);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -122,6 +160,18 @@ export function listProfiles(category) {
     const ptr0 = passStringToWasm0(category, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
     const ret = wasm.listProfiles(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Discard the current project and start a blank one with the built-in types.
+ * @returns {any}
+ */
+export function newProject() {
+    const ret = wasm.newProject();
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }

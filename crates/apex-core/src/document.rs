@@ -150,6 +150,38 @@ impl Document {
         self.bump(DocumentChangeKind::Clear, ids)
     }
 
+    /// Replace levels and elements. Meshes must be rebuilt by the caller.
+    pub fn load_contents(
+        &mut self,
+        mut levels: Vec<Level>,
+        active_level: Option<LevelId>,
+        elements: Vec<Element>,
+    ) {
+        if levels.is_empty() {
+            levels.push(Level::new("Level 0", 0.0));
+        }
+        self.levels = levels.into_iter().map(|level| (level.id, level)).collect();
+        self.elements = elements
+            .into_iter()
+            .map(|element| (element.id, element))
+            .collect();
+        self.meshes.clear();
+        self.active_level = active_level.filter(|id| self.levels.contains_key(id));
+        if self.active_level.is_none() {
+            self.active_level = self
+                .levels
+                .values()
+                .min_by(|a, b| {
+                    a.elevation
+                        .partial_cmp(&b.elevation)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                        .then_with(|| a.name.cmp(&b.name))
+                })
+                .map(|level| level.id);
+        }
+        self.version = self.version.saturating_add(1);
+    }
+
     /// Build a single scene mesh with per-triangle element pick ids and CAD edges.
     pub fn build_scene_buffers(&self) -> SceneBuffers {
         let mut positions = Vec::new();

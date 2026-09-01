@@ -204,7 +204,10 @@ function TypeBlock({
   const specs = typeSpecs(profile);
   return (
     <div className="inspector-section" data-section="type">
-      <div className="section-title">Type</div>
+      <div className="section-title">Shared type</div>
+      <div className="empty" style={{ padding: 0, marginBottom: 4 }}>
+        Same for every element of this profile
+      </div>
       {specs.length === 0 ? (
         <div className="empty" style={{ padding: 0 }}>
           {profile ? 'No type parameters' : 'Pick a profile'}
@@ -224,12 +227,12 @@ function TypeBlock({
       )}
       {profile ? (
         <button type="button" data-testid="edit-type" onClick={() => onEditType(profile.id)}>
-          Edit type
+          Edit profile
         </button>
       ) : null}
       {onNewProfile ? (
         <button type="button" data-testid="new-profile" onClick={onNewProfile}>
-          New profile
+          Draw new profile
         </button>
       ) : null}
     </div>
@@ -294,7 +297,7 @@ export function PropertiesPanel({
           <div>{placement.component.display_name}</div>
         </div>
         <div className="inspector-section" data-section="instance">
-          <div className="section-title">Instance</div>
+          <div className="section-title">This element</div>
           <SchemaFields
             specs={specs}
             values={placement.params}
@@ -360,7 +363,7 @@ export function PropertiesPanel({
         ) : null}
 
         <div className="inspector-section" data-section="instance">
-          <div className="section-title">Instance</div>
+          <div className="section-title">This element</div>
           <SchemaFields
             specs={specs}
             values={draft}

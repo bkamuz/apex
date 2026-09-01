@@ -9,6 +9,7 @@ mod param;
 mod placement;
 mod project;
 mod registry;
+mod sketch;
 
 pub use component::{
     evaluate_recipe, ComponentDefinition, ComponentSource, DefinitionError, FrameSource,
@@ -22,7 +23,9 @@ pub use level::{Level, LevelId};
 pub use param::{ParamBinding, ParamError, ParamId, ParamKind, ParamMap, ParamSpec, ParamValue};
 pub use placement::{Placement, PlacementError, PlacementKind};
 pub use project::Project;
+pub use project::ProjectSnapshot;
 pub use registry::{builtin_components, ComponentRegistry, RegistryError};
+pub use sketch::{ProfileSketch, SketchDimension, SketchError};
 
 /// Geometry primitives the document is expressed in, re-exported for convenience.
 pub use apex_geometry::{Curve, Frame, GeometryError, Justification, Profile, TriangleMesh};

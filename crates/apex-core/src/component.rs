@@ -18,6 +18,7 @@ use crate::element::ComponentId;
 use crate::expr::{Expr, ExprError};
 use crate::param::{ParamBinding, ParamError, ParamId, ParamMap, ParamSpec};
 use crate::placement::{Placement, PlacementError, PlacementKind};
+use crate::sketch::{ProfileSketch, SketchError};
 
 pub type ModuleId = String;
 pub type ProfileId = String;
@@ -382,6 +383,8 @@ pub enum DefinitionError {
         param: ParamId,
         referenced: ParamId,
     },
+    #[error("profile '{profile}' sketch needs at least 3 vertices, got {count}")]
+    SketchTooSmall { profile: ProfileId, count: usize },
 }
 
 /// The complete description of an object type.
@@ -462,6 +465,10 @@ pub struct ProfileType {
     /// Derived parameters, keyed by param id. Type formulas may not read instance ids.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub formulas: BTreeMap<ParamId, Expr>,
+    /// Mouse-drawn outline. When present, [`ProfileType::compile_sketch`]
+    /// overwrites `spec` with a parametric polygon.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sketch: Option<ProfileSketch>,
 }
 
 impl ProfileType {
@@ -476,6 +483,24 @@ impl ProfileType {
             spec,
             type_values: ParamMap::new(),
             formulas: BTreeMap::new(),
+            sketch: None,
+        }
+    }
+
+    /// Turn a drawn sketch into a parametric [`ProfileSpec::Polygon`].
+    pub fn compile_sketch(&mut self) -> Result<(), DefinitionError> {
+        let Some(sketch) = &self.sketch else {
+            return Ok(());
+        };
+        match sketch.to_profile_spec() {
+            Ok(spec) => {
+                self.spec = spec;
+                Ok(())
+            }
+            Err(SketchError::TooSmall(count)) => Err(DefinitionError::SketchTooSmall {
+                profile: self.id.clone(),
+                count,
+            }),
         }
     }
 
@@ -1195,5 +1220,51 @@ mod tests {
         assert!(def
             .resolve_params(&ParamMap::new().with("style", ParamValue::Text("z".into())))
             .is_err());
+    }
+
+    #[test]
+    fn compile_sketch_replaces_the_spec_with_a_driven_polygon() {
+        use crate::sketch::{ProfileSketch, SketchDimension};
+
+        let mut profile = ProfileType {
+            id: "user.drawn".into(),
+            display_name: "Drawn".into(),
+            category: "wall".into(),
+            params: vec![
+                ParamSpec::length("thickness", "Thickness", 0.2).as_type(),
+                ParamSpec::length("height", "Height", 3.0),
+            ],
+            spec: ProfileSpec::Circle {
+                radius: Expr::constant(1.0),
+                segments: 8,
+            },
+            type_values: ParamMap::new(),
+            formulas: Default::default(),
+            sketch: Some(ProfileSketch {
+                vertices: vec![[0.0, 0.0], [0.2, 0.0], [0.2, 3.0], [0.0, 3.0]],
+                dimensions: vec![
+                    SketchDimension {
+                        edge: 0,
+                        param: "thickness".into(),
+                    },
+                    SketchDimension {
+                        edge: 1,
+                        param: "height".into(),
+                    },
+                ],
+            }),
+        };
+        profile.compile_sketch().expect("compile");
+        assert!(matches!(profile.spec, ProfileSpec::Polygon { .. }));
+        profile.validate().expect("valid");
+
+        let params = profile.merge_eval_params(&ParamMap::new()).expect("merge");
+        let geom = profile
+            .spec
+            .evaluate(&params, &ProfileLibrary::new())
+            .expect("geom");
+        let (min, max) = geom.bounds();
+        assert!((max[0] - min[0] - 0.2).abs() < EPS);
+        assert!((max[1] - min[1] - 3.0).abs() < EPS);
     }
 }

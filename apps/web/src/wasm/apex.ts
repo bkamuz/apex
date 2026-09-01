@@ -21,6 +21,9 @@ import initWasm, {
   toggleSelectElement,
   updateElement,
   updateProfileType,
+  exportProject,
+  importProject,
+  newProject,
 } from './pkg/apex_wasm.js';
 import type {
   ComponentDto,
@@ -175,4 +178,16 @@ export function apexListElements(): ElementDto[] {
 
 export function apexDeleteSelected(): SceneDto {
   return asScene(deleteSelected());
+}
+
+export function apexExportProject(): string {
+  return exportProject();
+}
+
+export function apexImportProject(json: string): SceneDto {
+  return asScene(importProject(json));
+}
+
+export function apexNewProject(): SceneDto {
+  return asScene(newProject());
 }

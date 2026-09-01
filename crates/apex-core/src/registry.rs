@@ -86,7 +86,8 @@ impl ComponentRegistry {
         Ok(())
     }
 
-    pub fn upsert_profile(&mut self, profile: ProfileType) -> Result<(), RegistryError> {
+    pub fn upsert_profile(&mut self, mut profile: ProfileType) -> Result<(), RegistryError> {
+        profile.compile_sketch()?;
         profile.validate()?;
         self.profiles.insert(profile.id.clone(), profile);
         Ok(())
@@ -271,6 +272,7 @@ fn builtin_profiles() -> Vec<ProfileType> {
             },
             type_values: ParamMap::new(),
             formulas: Default::default(),
+            sketch: None,
         },
         ProfileType {
             id: "apex.round".into(),
@@ -283,6 +285,7 @@ fn builtin_profiles() -> Vec<ProfileType> {
             },
             type_values: ParamMap::new(),
             formulas: Default::default(),
+            sketch: None,
         },
         ProfileType {
             id: "apex.wall.rect".into(),
@@ -298,6 +301,7 @@ fn builtin_profiles() -> Vec<ProfileType> {
             },
             type_values: ParamMap::new(),
             formulas: Default::default(),
+            sketch: None,
         },
         ProfileType {
             id: "apex.wall.round".into(),
@@ -310,6 +314,7 @@ fn builtin_profiles() -> Vec<ProfileType> {
             },
             type_values: ParamMap::new(),
             formulas: Default::default(),
+            sketch: None,
         },
         ProfileType {
             id: "apex.beam.rect".into(),
@@ -325,6 +330,7 @@ fn builtin_profiles() -> Vec<ProfileType> {
             },
             type_values: ParamMap::new(),
             formulas: Default::default(),
+            sketch: None,
         },
     ]
 }
@@ -959,6 +965,7 @@ mod tests {
             },
             type_values: ParamMap::new(),
             formulas,
+            sketch: None,
         };
         assert!(matches!(
             registry.upsert_profile(profile).unwrap_err(),
@@ -980,5 +987,42 @@ mod tests {
         let (min, max) = profile.bounds();
         assert!((max[0] - min[0] - 0.2).abs() < EPS);
         assert!((max[1] - min[1] - 3.0).abs() < EPS);
+    }
+
+    #[test]
+    fn upsert_compiles_a_sketch_before_storing_the_profile() {
+        use crate::sketch::{ProfileSketch, SketchDimension};
+
+        let mut registry = ComponentRegistry::new();
+        registry
+            .upsert_profile(ProfileType {
+                id: "user.l".into(),
+                display_name: "L".into(),
+                category: "wall".into(),
+                params: vec![ParamSpec::length("thickness", "Thickness", 0.2).as_type()],
+                spec: ProfileSpec::Rectangle {
+                    width: Expr::constant(1.0),
+                    height: Expr::constant(1.0),
+                },
+                type_values: ParamMap::new(),
+                formulas: Default::default(),
+                sketch: Some(ProfileSketch {
+                    vertices: vec![
+                        [0.0, 0.0],
+                        [1.0, 0.0],
+                        [1.0, 0.2],
+                        [0.2, 0.2],
+                        [0.2, 1.0],
+                        [0.0, 1.0],
+                    ],
+                    dimensions: vec![SketchDimension {
+                        edge: 1,
+                        param: "thickness".into(),
+                    }],
+                }),
+            })
+            .expect("upsert");
+        let stored = registry.profile("user.l").expect("stored");
+        assert!(matches!(stored.spec, ProfileSpec::Polygon { .. }));
     }
 }
