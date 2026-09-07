@@ -14,4 +14,5 @@ export const firstPartyPlugins: Plugin[] = [
   wallPlugin,
   componentPlugin('apex.column'),
   componentPlugin('apex.beam'),
+  componentPlugin('apex.slab'),
 ];

@@ -365,7 +365,7 @@ mod tests {
     #[test]
     fn a_new_project_ships_with_the_builtin_components() {
         let project = Project::new();
-        assert_eq!(project.registry().len(), 3);
+        assert_eq!(project.registry().len(), 4);
         assert!(project.document().active_level_id().is_some());
     }
 
@@ -417,10 +417,18 @@ mod tests {
         let line = [Vec3::ZERO, Vec3::new(5.0, 0.0, 0.0)];
         let point = [Vec3::new(1.0, 0.0, 1.0)];
 
+        let slab = [
+            Vec3::ZERO,
+            Vec3::new(4.0, 0.0, 0.0),
+            Vec3::new(4.0, 0.0, 3.0),
+            Vec3::new(0.0, 0.0, 3.0),
+        ];
+
         for (component, picks) in [
             ("apex.wall", &line[..]),
             ("apex.column", &point[..]),
             ("apex.beam", &line[..]),
+            ("apex.slab", &slab[..]),
         ] {
             let placement = project
                 .placement_from_points(component, picks, 0.0)
@@ -434,7 +442,7 @@ mod tests {
                 "{component} produced no geometry"
             );
         }
-        assert_eq!(project.document().elements().count(), 3);
+        assert_eq!(project.document().elements().count(), 4);
     }
 
     #[test]
