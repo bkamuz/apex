@@ -9,8 +9,8 @@
 use std::collections::BTreeMap;
 
 use apex_geometry::{
-    extrude, sweep, Curve, Frame, GeometryError, Justification, MIN_CURVE_LENGTH, Profile,
-    SweepOptions, TriangleMesh,
+    extrude, sweep, Curve, Frame, GeometryError, Justification, Profile, SweepOptions,
+    TriangleMesh, MIN_CURVE_LENGTH,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

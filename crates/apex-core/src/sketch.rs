@@ -28,18 +28,11 @@ pub struct SketchDimension {
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum SketchConstraint {
     /// Two or more edges share one length parameter.
-    EqualLength {
-        edges: Vec<u32>,
-        param: ParamId,
-    },
+    EqualLength { edges: Vec<u32>, param: ParamId },
     /// Edge direction is locked to ±X; length still driven by a dimension when present.
-    Horizontal {
-        edge: u32,
-    },
+    Horizontal { edge: u32 },
     /// Edge direction is locked to ±Y; length still driven by a dimension when present.
-    Vertical {
-        edge: u32,
-    },
+    Vertical { edge: u32 },
 }
 
 /// Authoring source for a mouse-drawn profile.
@@ -131,12 +124,7 @@ impl ProfileSketch {
         for i in 0..n - 1 {
             let a = self.vertices[i];
             let b = self.vertices[i + 1];
-            let [ox, oy] = edge_offset(
-                a,
-                b,
-                self.param_for_edge(i),
-                self.orientation_for_edge(i),
-            );
+            let [ox, oy] = edge_offset(a, b, self.param_for_edge(i), self.orientation_for_edge(i));
             let x = points[i][0].clone() + ox;
             let y = points[i][1].clone() + oy;
             points.push([x, y]);
@@ -173,20 +161,18 @@ fn edge_offset(
         EdgeOrientation::Horizontal => {
             let sign = if dx >= 0.0 { 1.0 } else { -1.0 };
             match param {
-                Some(id) if len > 1e-9 => [
-                    Expr::param(id) * Expr::constant(sign),
-                    Expr::constant(0.0),
-                ],
+                Some(id) if len > 1e-9 => {
+                    [Expr::param(id) * Expr::constant(sign), Expr::constant(0.0)]
+                }
                 _ => [Expr::constant(dx), Expr::constant(0.0)],
             }
         }
         EdgeOrientation::Vertical => {
             let sign = if dy >= 0.0 { 1.0 } else { -1.0 };
             match param {
-                Some(id) if len > 1e-9 => [
-                    Expr::constant(0.0),
-                    Expr::param(id) * Expr::constant(sign),
-                ],
+                Some(id) if len > 1e-9 => {
+                    [Expr::constant(0.0), Expr::param(id) * Expr::constant(sign)]
+                }
                 _ => [Expr::constant(0.0), Expr::constant(dy)],
             }
         }
@@ -328,10 +314,15 @@ mod tests {
         };
         let spec = sketch.to_profile_spec().expect("spec");
         let params = ParamMap::new().with("rise", ParamValue::Length(3.5));
-        let profile = spec.evaluate(&params, &Default::default()).expect("profile");
+        let profile = spec
+            .evaluate(&params, &Default::default())
+            .expect("profile");
         let pts = profile.outer();
         assert!((pts[2][0] - pts[1][0]).abs() < EPS, "vertical edge keeps x");
-        assert!((pts[2][1] - pts[1][1] - 3.5).abs() < EPS, "param drives length");
+        assert!(
+            (pts[2][1] - pts[1][1] - 3.5).abs() < EPS,
+            "param drives length"
+        );
     }
 
     #[test]
@@ -346,7 +337,9 @@ mod tests {
         };
         let spec = sketch.to_profile_spec().expect("spec");
         let params = ParamMap::new().with("side", ParamValue::Length(2.0));
-        let profile = spec.evaluate(&params, &Default::default()).expect("profile");
+        let profile = spec
+            .evaluate(&params, &Default::default())
+            .expect("profile");
         let pts = profile.outer();
         let len0 = ((pts[1][0] - pts[0][0]).powi(2) + (pts[1][1] - pts[0][1]).powi(2)).sqrt();
         let len2 = ((pts[3][0] - pts[2][0]).powi(2) + (pts[3][1] - pts[2][1]).powi(2)).sqrt();
@@ -372,7 +365,9 @@ mod tests {
         };
         let spec = sketch.to_profile_spec().expect("spec");
         let params = ParamMap::new().with("width", ParamValue::Length(0.6));
-        let profile = spec.evaluate(&params, &Default::default()).expect("profile");
+        let profile = spec
+            .evaluate(&params, &Default::default())
+            .expect("profile");
         let (min, max) = profile.bounds();
         assert!((max[0] - min[0] - 0.6).abs() < EPS);
     }

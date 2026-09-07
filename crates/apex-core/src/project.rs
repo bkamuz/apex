@@ -1073,11 +1073,7 @@ mod tests {
     fn import_and_new_clear_history() {
         let mut project = Project::new();
         project
-            .create_element(
-                "apex.column",
-                Placement::point(Vec3::ZERO),
-                ParamMap::new(),
-            )
+            .create_element("apex.column", Placement::point(Vec3::ZERO), ParamMap::new())
             .expect("create");
         assert!(project.can_undo());
 
