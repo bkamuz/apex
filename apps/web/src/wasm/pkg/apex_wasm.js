@@ -1,6 +1,38 @@
 /* @ts-self-types="./apex_wasm.d.ts" */
 
 /**
+ * Open a coalesced undo group (e.g. at the start of an anchor drag).
+ */
+export function beginUndoGroup() {
+    const ret = wasm.beginUndoGroup();
+    if (ret[1]) {
+        throw takeFromExternrefTable0(ret[0]);
+    }
+}
+
+/**
+ * @returns {boolean}
+ */
+export function canRedo() {
+    const ret = wasm.canRedo();
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return ret[0] !== 0;
+}
+
+/**
+ * @returns {boolean}
+ */
+export function canUndo() {
+    const ret = wasm.canUndo();
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return ret[0] !== 0;
+}
+
+/**
  * Place a component from the raw picks the user made.
  *
  * The component's own `PlacementKind` decides how the points are interpreted
@@ -239,6 +271,17 @@ export function previewProfile(profile_json, params_json) {
 }
 
 /**
+ * @returns {any}
+ */
+export function redo() {
+    const ret = wasm.redo();
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * Install a component at runtime, from a module or the visual editor.
  * @param {string} definition_json
  * @returns {any}
@@ -300,18 +343,20 @@ export function setActiveLevel(id) {
  * Re-place an existing element from a fresh set of picks.
  *
  * The existing curve type is kept, so dragging an arc wall's handles does
- * not turn it into a polyline.
+ * not turn it into a polyline. Pass `record_history: false` for live drag
+ * previews; the final commit should use the default `true`.
  * @param {string} id
  * @param {string} points_json
  * @param {number} rotation
+ * @param {boolean} record_history
  * @returns {any}
  */
-export function setElementPlacement(id, points_json, rotation) {
+export function setElementPlacement(id, points_json, rotation, record_history) {
     const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
     const ptr1 = passStringToWasm0(points_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len1 = WASM_VECTOR_LEN;
-    const ret = wasm.setElementPlacement(ptr0, len0, ptr1, len1, rotation);
+    const ret = wasm.setElementPlacement(ptr0, len0, ptr1, len1, rotation, record_history);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -353,6 +398,17 @@ export function toggleSelectElement(id) {
     const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
     const ret = wasm.toggleSelectElement(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @returns {any}
+ */
+export function undo() {
+    const ret = wasm.undo();
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }

@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::component::{ComponentDefinition, ComponentSource, ProfileType};
 use crate::document::Document;
 use crate::element::{Element, ElementId};
+use crate::history::History;
 use crate::level::{Level, LevelId};
 use crate::param::ParamMap;
 use crate::placement::{Placement, PlacementKind};
@@ -23,6 +24,7 @@ pub struct Project {
     /// Per-component instance counters, so names read "Wall 1", "Wall 2".
     counters: BTreeMap<String, u32>,
     level_counter: u32,
+    history: History,
 }
 
 impl Default for Project {
@@ -38,6 +40,60 @@ impl Project {
             registry: ComponentRegistry::with_builtins(),
             counters: Default::default(),
             level_counter: 0,
+            history: History::default(),
+        }
+    }
+
+    pub fn can_undo(&self) -> bool {
+        self.history.can_undo()
+    }
+
+    pub fn can_redo(&self) -> bool {
+        self.history.can_redo()
+    }
+
+    pub fn clear_history(&mut self) {
+        self.history.clear();
+    }
+
+    /// Open a coalesced edit (e.g. anchor drag). Call before intermediate mutations.
+    pub fn begin_undo_group(&mut self) {
+        let before = self.export_snapshot();
+        self.history.begin_transaction(before);
+    }
+
+    /// Finalize a coalesced edit started with [`Self::begin_undo_group`].
+    pub fn commit_undo_group(&mut self) {
+        self.history.commit_transaction();
+    }
+
+    /// Restore the previous project state. Returns `false` when the stack is empty.
+    pub fn undo(&mut self) -> Result<bool, RegistryError> {
+        let Some(prev) = self.history.pop_undo() else {
+            return Ok(false);
+        };
+        let current = self.export_snapshot();
+        self.history.push_redo(current);
+        self.restore_snapshot(prev)?;
+        Ok(true)
+    }
+
+    /// Re-apply a undone mutation. Returns `false` when the stack is empty.
+    pub fn redo(&mut self) -> Result<bool, RegistryError> {
+        let Some(next) = self.history.pop_redo() else {
+            return Ok(false);
+        };
+        let current = self.export_snapshot();
+        self.history.push_undo(current);
+        self.restore_snapshot(next)?;
+        Ok(true)
+    }
+
+    fn finish_recorded_edit(&mut self, before: Option<ProjectSnapshot>) {
+        if let Some(snap) = before {
+            self.history.record_before(snap);
+        } else {
+            self.history.commit_transaction();
         }
     }
 
@@ -92,6 +148,7 @@ impl Project {
         placement: Placement,
         params: ParamMap,
     ) -> Result<ElementId, RegistryError> {
+        let before = self.export_snapshot();
         let level_id = self
             .document
             .active_level_id()
@@ -113,16 +170,27 @@ impl Project {
         let element = Element::new(name, component_id, level_id, placement, params);
         let id = element.id;
         self.document.upsert_element(element, mesh);
+        self.history.record_before(before);
         Ok(id)
     }
 
     /// Apply a parameter patch and/or a new placement, then rebuild the mesh.
+    ///
+    /// When `record` is false, intermediate edits (e.g. live anchor drags) skip
+    /// history. When a coalesced edit is open ([`Self::begin_undo_group`]),
+    /// pass `record: true` on the final mutation to commit one undo step.
     pub fn update_element(
         &mut self,
         id: ElementId,
         params: Option<ParamMap>,
         placement: Option<Placement>,
+        record: bool,
     ) -> Result<(), RegistryError> {
+        let before = if record && !self.history.has_pending() {
+            Some(self.export_snapshot())
+        } else {
+            None
+        };
         let mut element = self
             .document
             .get_element(id)
@@ -144,19 +212,31 @@ impl Project {
             .registry
             .build_element_mesh(&element, self.work_plane(element.level_id))?;
         self.document.update_element(element, mesh);
+        if record {
+            self.finish_recorded_edit(before);
+        }
         Ok(())
     }
 
     /// Rebuild an element's mesh from its current state, after the level moved.
     pub fn rebuild_element(&mut self, id: ElementId) -> Result<(), RegistryError> {
-        self.update_element(id, None, None)
+        self.update_element(id, None, None, false)
     }
 
     pub fn delete_element(&mut self, id: ElementId) -> bool {
-        self.document.remove_element(id).is_some()
+        if self.document.get_element(id).is_none() {
+            return false;
+        }
+        let before = self.export_snapshot();
+        let removed = self.document.remove_element(id).is_some();
+        if removed {
+            self.history.record_before(before);
+        }
+        removed
     }
 
     pub fn add_level(&mut self, name: &str, elevation: f32) -> LevelId {
+        let before = self.export_snapshot();
         self.level_counter += 1;
         let label = if name.trim().is_empty() {
             format!("Level {}", self.level_counter)
@@ -164,7 +244,15 @@ impl Project {
             name.trim().to_string()
         };
         let (id, _) = self.document.add_level(label, elevation);
+        self.history.record_before(before);
         id
+    }
+
+    pub fn set_active_level(&mut self, id: LevelId) -> Result<(), String> {
+        let before = self.export_snapshot();
+        self.document.set_active_level(id)?;
+        self.history.record_before(before);
+        Ok(())
     }
 
     /// Move a level and rebuild everything that travelled with it.
@@ -173,6 +261,7 @@ impl Project {
         id: LevelId,
         elevation: f32,
     ) -> Result<(), RegistryError> {
+        let before = self.export_snapshot();
         let (_, moved) = self
             .document
             .set_level_elevation(id, elevation)
@@ -180,6 +269,7 @@ impl Project {
         for element_id in moved {
             self.rebuild_element(element_id)?;
         }
+        self.history.record_before(before);
         Ok(())
     }
 
@@ -188,20 +278,29 @@ impl Project {
         &mut self,
         definition: ComponentDefinition,
     ) -> Result<(), RegistryError> {
-        self.registry.upsert(definition)
+        let before = self.export_snapshot();
+        self.registry.upsert(definition)?;
+        self.history.record_before(before);
+        Ok(())
     }
 
     /// Install or replace a profile type, then rebuild every element that uses it.
     pub fn register_profile(&mut self, profile: ProfileType) -> Result<(), RegistryError> {
+        let before = self.export_snapshot();
         let id = profile.id.clone();
         self.registry.upsert_profile(profile)?;
-        self.rebuild_profile_dependents(&id)
+        self.rebuild_profile_dependents(&id)?;
+        self.history.record_before(before);
+        Ok(())
     }
 
     /// Patch type-level values on a profile and rebuild every dependent element.
     pub fn update_profile_type(&mut self, id: &str, patch: ParamMap) -> Result<(), RegistryError> {
+        let before = self.export_snapshot();
         self.registry.update_profile_type_values(id, &patch)?;
-        self.rebuild_profile_dependents(id)
+        self.rebuild_profile_dependents(id)?;
+        self.history.record_before(before);
+        Ok(())
     }
 
     fn rebuild_profile_dependents(&mut self, profile_id: &str) -> Result<(), RegistryError> {
@@ -301,6 +400,11 @@ impl Project {
 
     /// Replace this project from a snapshot. On failure, `self` is left unchanged.
     pub fn import_snapshot(&mut self, snap: ProjectSnapshot) -> Result<(), RegistryError> {
+        self.history.clear();
+        self.restore_snapshot(snap)
+    }
+
+    fn restore_snapshot(&mut self, snap: ProjectSnapshot) -> Result<(), RegistryError> {
         if snap.format != PROJECT_FORMAT {
             return Err(RegistryError::Unknown(format!(
                 "unsupported project format {}",
@@ -309,6 +413,7 @@ impl Project {
         }
 
         let mut next = Project::new();
+        next.history = std::mem::take(&mut self.history);
         next.counters = snap.counters;
         next.level_counter = snap.level_counter;
 
@@ -531,6 +636,7 @@ mod tests {
                 id,
                 Some(ParamMap::new().with("height", ParamValue::Number(5.0))),
                 None,
+                true,
             )
             .expect("update");
 
@@ -558,6 +664,7 @@ mod tests {
                 id,
                 None,
                 Some(Placement::line(Vec3::ZERO, Vec3::new(9.0, 0.0, 0.0))),
+                true,
             )
             .expect("update");
 
@@ -579,6 +686,7 @@ mod tests {
             id,
             Some(ParamMap::new().with("height", ParamValue::Number(-1.0))),
             None,
+            true,
         );
         assert!(err.is_err(), "a negative height must be refused");
 
@@ -742,6 +850,7 @@ mod tests {
                 a,
                 Some(ParamMap::new().with("height", ParamValue::Number(6.0))),
                 None,
+                true,
             )
             .expect("instance");
         assert!((size_of(project.document().get_mesh(a).unwrap())[1] - 6.0).abs() < EPS);
@@ -780,6 +889,7 @@ mod tests {
                         .with("profile", ParamValue::ProfileRef("apex.wall.round".into())),
                 ),
                 None,
+                true,
             )
             .expect("switch");
 
@@ -912,5 +1022,103 @@ mod tests {
         snap.format = 99;
         assert!(project.import_snapshot(snap).is_err());
         assert_eq!(project.document().elements().count(), 1);
+    }
+
+    #[test]
+    fn undo_redo_place_delete_and_param_edit() {
+        let mut project = Project::new();
+        assert!(!project.can_undo());
+        assert!(!project.can_redo());
+
+        let id = project
+            .create_element(
+                "apex.wall",
+                Placement::line(Vec3::ZERO, Vec3::new(5.0, 0.0, 0.0)),
+                ParamMap::new(),
+            )
+            .expect("create");
+        assert!(project.can_undo());
+        assert_eq!(project.document().elements().count(), 1);
+
+        project.undo().expect("undo create");
+        assert_eq!(project.document().elements().count(), 0);
+        assert!(project.can_redo());
+
+        project.redo().expect("redo create");
+        assert_eq!(project.document().elements().count(), 1);
+        assert_eq!(project.document().get_element(id).unwrap().name, "Wall 1");
+
+        project
+            .update_element(
+                id,
+                Some(ParamMap::new().with("height", ParamValue::Number(5.0))),
+                None,
+                true,
+            )
+            .expect("update");
+        assert!((size_of(project.document().get_mesh(id).unwrap())[1] - 5.0).abs() < EPS);
+
+        project.undo().expect("undo param");
+        assert!((size_of(project.document().get_mesh(id).unwrap())[1] - 3.0).abs() < EPS);
+
+        assert!(project.delete_element(id));
+        assert_eq!(project.document().elements().count(), 0);
+
+        project.undo().expect("undo delete");
+        assert_eq!(project.document().elements().count(), 1);
+    }
+
+    #[test]
+    fn import_and_new_clear_history() {
+        let mut project = Project::new();
+        project
+            .create_element(
+                "apex.column",
+                Placement::point(Vec3::ZERO),
+                ParamMap::new(),
+            )
+            .expect("create");
+        assert!(project.can_undo());
+
+        let snap = project.export_snapshot();
+        project.import_snapshot(snap).expect("import");
+        assert!(!project.can_undo());
+        assert!(!project.can_redo());
+    }
+
+    #[test]
+    fn coalesced_placement_edit_is_one_undo_step() {
+        let mut project = Project::new();
+        let id = project
+            .create_element(
+                "apex.wall",
+                Placement::line(Vec3::ZERO, Vec3::new(5.0, 0.0, 0.0)),
+                ParamMap::new(),
+            )
+            .expect("create");
+        project.undo().expect("undo create");
+        project.redo().expect("redo create");
+
+        project.begin_undo_group();
+        project
+            .update_element(
+                id,
+                None,
+                Some(Placement::line(Vec3::ZERO, Vec3::new(7.0, 0.0, 0.0))),
+                false,
+            )
+            .expect("preview");
+        project
+            .update_element(
+                id,
+                None,
+                Some(Placement::line(Vec3::ZERO, Vec3::new(9.0, 0.0, 0.0))),
+                true,
+            )
+            .expect("commit");
+        assert!((size_of(project.document().get_mesh(id).unwrap())[0] - 9.0).abs() < EPS);
+
+        project.undo().expect("undo drag");
+        assert!((size_of(project.document().get_mesh(id).unwrap())[0] - 5.0).abs() < EPS);
     }
 }
