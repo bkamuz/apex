@@ -83,7 +83,7 @@ export function defaultNewProfile(category: string, id: string): ProfileTypeDto 
     params: [],
     spec: placeholderPolygon([]),
     type_values: {},
-    sketch: { vertices: [], dimensions: [] },
+    sketch: { vertices: [], dimensions: [], constraints: [] },
   };
 }
 

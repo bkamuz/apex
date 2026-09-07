@@ -379,6 +379,20 @@ await page.getByTestId('close-outline').click();
 await page.waitForTimeout(200);
 await page.getByTestId('dimension-all').click();
 await page.waitForTimeout(200);
+await clickSketch(0.5, 0.68);
+await page.waitForTimeout(200);
+await page.getByTestId('constraint-horizontal').click();
+await page.waitForTimeout(200);
+check(
+  'horizontal constraint badge on top edge',
+  (await page.locator('[data-testid="constraint-badge-0"]').count()) === 1,
+);
+await page.getByTestId('constraint-equal-length').click();
+await page.waitForTimeout(200);
+check(
+  'equal length links parallel edges',
+  (await page.locator('[data-testid="constraint-badge-2"]').count()) === 1,
+);
 const idField = page.locator('[data-testid="profile-editor"] input[type="text"]').first();
 await idField.fill('user.wall.smoke');
 const nameField = page.locator('[data-testid="profile-editor"] input[type="text"]').nth(1);

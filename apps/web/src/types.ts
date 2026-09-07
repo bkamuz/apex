@@ -66,9 +66,15 @@ export interface SketchDimensionDto {
     param: string;
 }
 
+export type SketchConstraintDto =
+  | { kind: 'equal_length'; edges: number[]; param: string }
+  | { kind: 'horizontal'; edge: number }
+  | { kind: 'vertical'; edge: number };
+
 export interface ProfileSketchDto {
     vertices: [number, number][];
     dimensions?: SketchDimensionDto[];
+    constraints?: SketchConstraintDto[];
 }
 
 export interface ProfilePreviewDto {

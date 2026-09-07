@@ -5,6 +5,7 @@ import type {
   ProfileSketchDto,
   ProfileSpecDto,
   ProfileTypeDto,
+  SketchConstraintDto,
   SketchDimensionDto,
 } from '../types';
 
@@ -108,20 +109,26 @@ export function placeholderPolygon(vertices: [number, number][]): ProfileSpecDto
 export function inferSketch(
   profile: ProfileTypeDto,
   preview: ProfilePreviewDto | null,
-): { vertices: [number, number][]; closed: boolean; dimensions: SketchDimensionDto[] } {
+): {
+  vertices: [number, number][];
+  closed: boolean;
+  dimensions: SketchDimensionDto[];
+  constraints: SketchConstraintDto[];
+} {
   if (profile.sketch && profile.sketch.vertices.length >= 3) {
     return {
       vertices: profile.sketch.vertices.map(([x, y]) => [x, y]),
       closed: true,
       dimensions: [...(profile.sketch.dimensions ?? [])],
+      constraints: [...(profile.sketch.constraints ?? [])],
     };
   }
   if (profile.spec.shape === 'circle') {
-    return { vertices: [], closed: false, dimensions: [] };
+    return { vertices: [], closed: false, dimensions: [], constraints: [] };
   }
   const verts = (preview?.outer ?? []).map(([x, y]) => [x, y] as [number, number]);
   if (verts.length < 3) {
-    return { vertices: [], closed: false, dimensions: [] };
+    return { vertices: [], closed: false, dimensions: [], constraints: [] };
   }
   const dimensions: SketchDimensionDto[] = [];
   const n = verts.length;
@@ -132,7 +139,7 @@ export function inferSketch(
     );
     if (match) dimensions.push({ edge: i, param: match.id });
   }
-  return { vertices: verts, closed: true, dimensions };
+  return { vertices: verts, closed: true, dimensions, constraints: [] };
 }
 
 export function suggestDimension(
@@ -169,6 +176,45 @@ export function suggestDimension(
 export function sketchPayload(
   vertices: [number, number][],
   dimensions: SketchDimensionDto[],
+  constraints: SketchConstraintDto[] = [],
 ): ProfileSketchDto {
-  return { vertices, dimensions };
+  return {
+    vertices,
+    dimensions,
+    constraints: constraints.length > 0 ? constraints : undefined,
+  };
+}
+
+export function edgeOrientation(
+  constraints: SketchConstraintDto[],
+  edge: number,
+): 'horizontal' | 'vertical' | null {
+  for (const constraint of constraints) {
+    if (constraint.kind === 'horizontal' && constraint.edge === edge) return 'horizontal';
+    if (constraint.kind === 'vertical' && constraint.edge === edge) return 'vertical';
+  }
+  return null;
+}
+
+export function equalLengthGroup(
+  constraints: SketchConstraintDto[],
+  edge: number,
+): Extract<SketchConstraintDto, { kind: 'equal_length' }> | null {
+  for (const constraint of constraints) {
+    if (constraint.kind === 'equal_length' && constraint.edges.includes(edge)) {
+      return constraint;
+    }
+  }
+  return null;
+}
+
+export function referencedParamIds(
+  dimensions: SketchDimensionDto[],
+  constraints: SketchConstraintDto[],
+): Set<string> {
+  const used = new Set(dimensions.map((dim) => dim.param));
+  for (const constraint of constraints) {
+    if (constraint.kind === 'equal_length') used.add(constraint.param);
+  }
+  return used;
 }
