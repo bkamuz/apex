@@ -758,6 +758,18 @@ button:focus-visible {
   align-items: center;
 }
 
+.profile-constraint-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.profile-constraint-row button.active {
+  background: rgba(125, 206, 160, 0.25);
+  border-color: #7dcea0;
+  color: #7dcea0;
+}
+
 .icon-btn {
   padding: 4px 8px;
   line-height: 1;

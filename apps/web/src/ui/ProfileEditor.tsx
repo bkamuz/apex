@@ -3,6 +3,7 @@ import type {
   ParamSpecDto,
   ProfilePreviewDto,
   ProfileTypeDto,
+  SketchConstraintDto,
   SketchDimensionDto,
 } from '../types';
 import { apexPreviewProfile } from '../wasm/apex';
@@ -10,10 +11,13 @@ import {
   distToSegment,
   edgeLength,
   edgeMid,
+  edgeOrientation,
+  equalLengthGroup,
   inferSketch,
   lengthParam,
   parallelEdges,
   placeholderPolygon,
+  referencedParamIds,
   sketchPayload,
   snapSketch,
   suggestDimension,
@@ -100,6 +104,7 @@ export function ProfileEditor({ initial, originalId, onSave, onClose }: Props) {
   const [vertices, setVertices] = useState<[number, number][]>([]);
   const [closed, setClosed] = useState(false);
   const [dimensions, setDimensions] = useState<SketchDimensionDto[]>([]);
+  const [constraints, setConstraints] = useState<SketchConstraintDto[]>([]);
   const [params, setParams] = useState<ParamSpecDto[]>(initial.params);
   const [mode, setMode] = useState<Mode>('draw');
   const [cursor, setCursor] = useState<[number, number] | null>(null);
@@ -121,6 +126,7 @@ export function ProfileEditor({ initial, originalId, onSave, onClose }: Props) {
     setVertices(inferred.vertices);
     setClosed(inferred.closed);
     setDimensions(inferred.dimensions);
+    setConstraints(inferred.constraints);
     setParams(initial.params);
     setMode(inferred.closed ? 'dimension' : 'draw');
     setKeepCircle(initial.spec.shape === 'circle' && inferred.vertices.length < 3);
@@ -145,7 +151,7 @@ export function ProfileEditor({ initial, originalId, onSave, onClose }: Props) {
     if (!closed || vertices.length < 3) {
       return { profile: null, error: 'Draw a closed outline (click the first point to close).' };
     }
-    const used = new Set(dimensions.map((dim) => dim.param));
+    const used = referencedParamIds(dimensions, constraints);
     const kept = params.filter((param) => used.has(param.id));
     const ids = new Set<string>();
     for (const param of kept) {
@@ -163,11 +169,11 @@ export function ProfileEditor({ initial, originalId, onSave, onClose }: Props) {
         params: kept,
         spec: placeholderPolygon(vertices),
         type_values: typeValuesOf(kept),
-        sketch: sketchPayload(vertices, dimensions),
+        sketch: sketchPayload(vertices, dimensions, constraints),
       },
       error: null,
     };
-  }, [ready, keepCircle, closed, vertices, dimensions, params, id, displayName, category, initial]);
+  }, [ready, keepCircle, closed, vertices, dimensions, constraints, params, id, displayName, category, initial]);
 
   useEffect(() => {
     if (!built.profile) {
@@ -362,6 +368,78 @@ export function ProfileEditor({ initial, originalId, onSave, onClose }: Props) {
   const removeParam = (paramId: string) => {
     setParams((prev) => prev.filter((param) => param.id !== paramId));
     setDimensions((prev) => prev.filter((dim) => dim.param !== paramId));
+    setConstraints((prev) =>
+      prev.filter((constraint) => constraint.kind !== 'equal_length' || constraint.param !== paramId),
+    );
+  };
+
+  const removeOrientationOnEdge = (edge: number) => {
+    setConstraints((prev) =>
+      prev.filter(
+        (constraint) =>
+          !(
+            (constraint.kind === 'horizontal' || constraint.kind === 'vertical') &&
+            constraint.edge === edge
+          ),
+      ),
+    );
+  };
+
+  const setEdgeOrientation = (edge: number, orientation: 'horizontal' | 'vertical') => {
+    removeOrientationOnEdge(edge);
+    setConstraints((prev) => [
+      ...prev,
+      orientation === 'horizontal'
+        ? { kind: 'horizontal', edge }
+        : { kind: 'vertical', edge },
+    ]);
+  };
+
+  const addEqualLength = (edge: number) => {
+    const edges = parallelEdges(vertices, edge);
+    const existing = equalLengthGroup(constraints, edge);
+    const used = new Set(params.map((param) => param.id));
+    let paramId = existing?.param;
+    let nextParams = params;
+    if (!paramId) {
+      const existingDim = dimensions.find((dim) => edges.includes(dim.edge));
+      if (existingDim) {
+        paramId = existingDim.param;
+      } else {
+        const suggestion = suggestDimension(category, vertices, edge, used);
+        const len = edgeLength(vertices[edge], vertices[(edge + 1) % vertices.length]);
+        const nextParam = lengthParam(
+          suggestion.id,
+          suggestion.label,
+          Number(len.toFixed(4)),
+          suggestion.binding,
+        );
+        paramId = nextParam.id;
+        nextParams = [...params.filter((param) => param.id !== nextParam.id), nextParam];
+      }
+    }
+    setParams(nextParams);
+    setConstraints((prev) => {
+      const without = prev.filter(
+        (constraint) =>
+          constraint.kind !== 'equal_length' ||
+          !constraint.edges.some((item) => edges.includes(item)),
+      );
+      return [...without, { kind: 'equal_length', edges, param: paramId! }];
+    });
+    setDimensions((prev) => {
+      const without = prev.filter((dim) => !edges.includes(dim.edge));
+      return [...without, ...edges.map((item) => ({ edge: item, param: paramId! }))];
+    });
+  };
+
+  const removeEqualLengthOnEdge = (edge: number) => {
+    const group = equalLengthGroup(constraints, edge);
+    if (!group) return;
+    setConstraints((prev) =>
+      prev.filter((constraint) => constraint.kind !== 'equal_length' || constraint !== group),
+    );
+    setDimensions((prev) => prev.filter((dim) => !group.edges.includes(dim.edge)));
   };
 
   const save = (asNew: boolean) => {
@@ -381,6 +459,7 @@ export function ProfileEditor({ initial, originalId, onSave, onClose }: Props) {
     setVertices([]);
     setClosed(false);
     setDimensions([]);
+    setConstraints([]);
     setParams([]);
     setSelectedEdge(null);
     setMode('draw');
@@ -416,6 +495,10 @@ export function ProfileEditor({ initial, originalId, onSave, onClose }: Props) {
   const n = vertices.length;
   const selectedDim =
     selectedEdge != null ? dimensions.find((dim) => dim.edge === selectedEdge) : undefined;
+  const selectedOrient =
+    selectedEdge != null ? edgeOrientation(constraints, selectedEdge) : null;
+  const selectedEqual =
+    selectedEdge != null ? equalLengthGroup(constraints, selectedEdge) : null;
   const selectedParam = selectedDim
     ? params.find((param) => param.id === selectedDim.param)
     : undefined;
@@ -614,6 +697,33 @@ export function ProfileEditor({ initial, originalId, onSave, onClose }: Props) {
                   </text>
                 );
               })}
+              {closed
+                ? Array.from({ length: n }, (_, i) => {
+                    const a = vertices[i];
+                    const b = vertices[(i + 1) % n];
+                    if (!a || !b) return null;
+                    const mid = edgeMid(a, b);
+                    const orient = edgeOrientation(constraints, i);
+                    const equal = equalLengthGroup(constraints, i);
+                    const badge = orient === 'horizontal' ? 'H' : orient === 'vertical' ? 'V' : equal ? '=' : null;
+                    if (!badge) return null;
+                    const offset = Math.max(viewW, viewH) * 0.05;
+                    return (
+                      <text
+                        key={`c-${i}`}
+                        x={mid[0]}
+                        y={-mid[1] - offset}
+                        fill="#7dcea0"
+                        fontSize={Math.max(viewW, viewH) * 0.028}
+                        textAnchor="middle"
+                        dominantBaseline="middle"
+                        data-testid={`constraint-badge-${i}`}
+                      >
+                        {badge}
+                      </text>
+                    );
+                  })
+                : null}
               {vertices.map(([x, y], i) => (
                 <circle
                   key={`v-${i}`}
@@ -702,9 +812,54 @@ export function ProfileEditor({ initial, originalId, onSave, onClose }: Props) {
               </button>
             ) : null}
 
+            {closed && selectedEdge != null ? (
+              <>
+                <div className="section-title">Constraints (edge {selectedEdge + 1})</div>
+                <div className="profile-constraint-row">
+                  <button
+                    type="button"
+                    className={selectedOrient === 'horizontal' ? 'active' : ''}
+                    data-testid="constraint-horizontal"
+                    onClick={() =>
+                      selectedOrient === 'horizontal'
+                        ? removeOrientationOnEdge(selectedEdge)
+                        : setEdgeOrientation(selectedEdge, 'horizontal')
+                    }
+                  >
+                    Horizontal
+                  </button>
+                  <button
+                    type="button"
+                    className={selectedOrient === 'vertical' ? 'active' : ''}
+                    data-testid="constraint-vertical"
+                    onClick={() =>
+                      selectedOrient === 'vertical'
+                        ? removeOrientationOnEdge(selectedEdge)
+                        : setEdgeOrientation(selectedEdge, 'vertical')
+                    }
+                  >
+                    Vertical
+                  </button>
+                  <button
+                    type="button"
+                    className={selectedEqual ? 'active' : ''}
+                    data-testid="constraint-equal-length"
+                    onClick={() =>
+                      selectedEqual
+                        ? removeEqualLengthOnEdge(selectedEdge)
+                        : addEqualLength(selectedEdge)
+                    }
+                  >
+                    Equal length
+                  </button>
+                </div>
+              </>
+            ) : null}
+
             <div className="empty" style={{ padding: '8px 0 0' }}>
               Shared type values apply to every element of this profile. This element values vary
-              per instance. Origin is the cross. Alt: no snap.
+              per instance. Use Horizontal / Vertical / Equal length on a selected edge. Origin is
+              the cross. Alt: no snap.
             </div>
           </div>
         </div>

@@ -1322,6 +1322,7 @@ mod tests {
                         param: "height".into(),
                     },
                 ],
+                constraints: vec![],
             }),
         };
         profile.compile_sketch().expect("compile");
