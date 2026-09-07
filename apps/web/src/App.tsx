@@ -110,6 +110,8 @@ export default function App() {
   const selectedCountRef = useRef(0);
   const activeElevationRef = useRef(0);
   const suppressClickRef = useRef(false);
+  /** True only after App claims LMB capture for a tool gesture — not camera buttons. */
+  const appPointerCaptureRef = useRef(false);
   const draggingRef = useRef(false);
   const placementParamsRef = useRef<Record<string, ParamValue>>({});
 
@@ -562,6 +564,7 @@ export default function App() {
     if (!claimed) return;
     suppressClickRef.current = true;
     e.currentTarget.setPointerCapture(e.pointerId);
+    appPointerCaptureRef.current = true;
     e.preventDefault();
   };
 
@@ -571,10 +574,14 @@ export default function App() {
   };
 
   const onCanvasPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!ready || !rendererRef.current) return;
+    if (!ready || !rendererRef.current || e.button !== 0) return;
     tool.onPointerUp?.(pointerInfo(e), toolContext());
-    if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+    if (
+      appPointerCaptureRef.current &&
+      e.currentTarget.hasPointerCapture(e.pointerId)
+    ) {
       e.currentTarget.releasePointerCapture(e.pointerId);
+      appPointerCaptureRef.current = false;
     }
     if (suppressClickRef.current) {
       // Avoid the trailing click selecting or deselecting after a drag.

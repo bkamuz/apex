@@ -716,6 +716,7 @@ export class ViewportRenderer {
   private fps = 0;
   private fpsFrames = 0;
   private fpsWindowStart = 0;
+  private readonly eventAbort = new AbortController();
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -1235,6 +1236,7 @@ export class ViewportRenderer {
 
   dispose(): void {
     cancelAnimationFrame(this.raf);
+    this.eventAbort.abort();
     const c = this.canvas as HTMLCanvasElement & { __apexRenderer?: ViewportRenderer };
     if (c.__apexRenderer === this) delete c.__apexRenderer;
   }
@@ -1258,6 +1260,10 @@ export class ViewportRenderer {
   }
 
   private bindEvents(): void {
+    const signal = this.eventAbort.signal;
+    const opt = { signal };
+    const passiveFalse = { passive: false as const, signal };
+
     this.canvas.addEventListener('pointerdown', (e) => {
       this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
 
@@ -1300,13 +1306,15 @@ export class ViewportRenderer {
       }
       if (e.button === 2) {
         // Alt+RMB pans (same as MMB); plain RMB orbits.
+        e.preventDefault();
         this.beginDrag(e.altKey ? 'pan' : 'orbit', e);
+        return;
       }
-    });
+    }, opt);
     this.canvas.addEventListener('auxclick', (e) => {
       // Suppress browser middle-click autoscroll / open-link quirks.
       if (e.button === 1) e.preventDefault();
-    });
+    }, opt);
     this.canvas.addEventListener('pointermove', (e) => {
       if (this.pointers.has(e.pointerId)) {
         this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
@@ -1340,10 +1348,18 @@ export class ViewportRenderer {
         return;
       }
       this.applyOrbitDelta(dx, dy);
-    });
+    }, opt);
     const endPointer = (e: PointerEvent) => {
       const endedGesture = this.touchGesture;
-      this.pointers.delete(e.pointerId);
+      const isTouch = e.pointerType === 'touch';
+      // Mouse/pen use one pointer id for all buttons; a pointerup for button 0
+      // while RMB/MMB is still held must not end an active camera drag.
+      const partialMouseRelease =
+        !isTouch && e.type === 'pointerup' && e.buttons !== 0;
+
+      if (!partialMouseRelease) {
+        this.pointers.delete(e.pointerId);
+      }
 
       const n = this.touchPointerCount();
       if (n >= 3 && this.touchOrbitEnabled) {
@@ -1354,10 +1370,12 @@ export class ViewportRenderer {
         this.touchGesture = 'none';
       }
 
-      if (this.pointers.size === 0) {
-        this.dragMode = null;
-      } else if (e.pointerType === 'mouse' || e.pointerType === 'pen') {
-        this.dragMode = null;
+      if (!partialMouseRelease) {
+        if (this.pointers.size === 0) {
+          this.dragMode = null;
+        } else if (!isTouch) {
+          this.dragMode = null;
+        }
       }
 
       // Keep the suppress-click flag briefly so the synthetic click (if any) is
@@ -1372,20 +1390,20 @@ export class ViewportRenderer {
         }, 50);
       }
     };
-    this.canvas.addEventListener('pointerup', endPointer);
-    this.canvas.addEventListener('pointercancel', endPointer);
+    this.canvas.addEventListener('pointerup', endPointer, opt);
+    this.canvas.addEventListener('pointercancel', endPointer, opt);
     this.canvas.addEventListener('lostpointercapture', (e) => {
       if (e.pointerType === 'mouse' || e.pointerType === 'pen') {
         this.dragMode = null;
       }
-    });
+    }, opt);
     this.canvas.addEventListener(
       'wheel',
       (e) => {
         e.preventDefault();
         this.applyZoomFactor(1 + e.deltaY * 0.001);
       },
-      { passive: false },
+      passiveFalse,
     );
     // iOS Safari / Chrome-on-WebKit: page pinch-zoom and two-finger scroll are
     // not fully blocked by touch-action alone. Non-passive touch + Safari
@@ -1397,22 +1415,22 @@ export class ViewportRenderer {
         // so taps still synthesize clicks for place/select.
         if (e.touches.length >= 2) e.preventDefault();
       },
-      { passive: false },
+      passiveFalse,
     );
     this.canvas.addEventListener(
       'touchmove',
       (e) => {
         e.preventDefault();
       },
-      { passive: false },
+      passiveFalse,
     );
     const blockSafariGesture = (e: Event) => {
       e.preventDefault();
     };
-    this.canvas.addEventListener('gesturestart', blockSafariGesture);
-    this.canvas.addEventListener('gesturechange', blockSafariGesture);
-    this.canvas.addEventListener('gestureend', blockSafariGesture);
-    this.canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+    this.canvas.addEventListener('gesturestart', blockSafariGesture, opt);
+    this.canvas.addEventListener('gesturechange', blockSafariGesture, opt);
+    this.canvas.addEventListener('gestureend', blockSafariGesture, opt);
+    this.canvas.addEventListener('contextmenu', (e) => e.preventDefault(), opt);
   }
 
   private touchPointerCount(): number {
