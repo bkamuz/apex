@@ -794,53 +794,59 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <div className="brand">APEX</div>
-        <div className="file-actions">
-          <button
-            type="button"
-            onClick={onUndo}
-            disabled={!scene?.can_undo}
-            title="Undo (Ctrl+Z)"
-            data-testid="undo"
-          >
-            Undo
-          </button>
-          <button
-            type="button"
-            onClick={onRedo}
-            disabled={!scene?.can_redo}
-            title="Redo (Ctrl+Shift+Z)"
-            data-testid="redo"
-          >
-            Redo
-          </button>
-          <button type="button" onClick={onSaveProject} data-testid="save-project">
-            Save
-          </button>
-          <button
-            type="button"
-            onClick={() => fileRef.current?.click()}
-            data-testid="open-project"
-          >
-            Open
-          </button>
-          <button type="button" onClick={onNewProject} data-testid="new-project">
-            New
-          </button>
-          <input
-            ref={fileRef}
-            type="file"
-            accept="application/json,.json"
-            hidden
-            aria-label="Open project file"
-            onChange={(e) => {
-              const file = e.target.files?.[0];
-              e.target.value = '';
-              if (file) onOpenProjectFile(file);
-            }}
-          />
+        <div className="topbar-row">
+          <div className="brand">APEX</div>
+          <div className="file-actions">
+            <button
+              type="button"
+              onClick={onUndo}
+              disabled={!scene?.can_undo}
+              title="Undo (Ctrl+Z)"
+              data-testid="undo"
+            >
+              Undo
+            </button>
+            <button
+              type="button"
+              onClick={onRedo}
+              disabled={!scene?.can_redo}
+              title="Redo (Ctrl+Shift+Z)"
+              data-testid="redo"
+            >
+              Redo
+            </button>
+            <button type="button" onClick={onSaveProject} data-testid="save-project">
+              Save
+            </button>
+            <button
+              type="button"
+              onClick={() => fileRef.current?.click()}
+              data-testid="open-project"
+            >
+              Open
+            </button>
+            <button type="button" onClick={onNewProject} data-testid="new-project">
+              New
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept="application/json,.json"
+              hidden
+              aria-label="Open project file"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = '';
+                if (file) onOpenProjectFile(file);
+              }}
+            />
+          </div>
+          <div className="hint">
+            {tool.hint(pending.length)}
+            {activeLevel ? ` · ${activeLevel.name}` : ''}
+          </div>
         </div>
-        <div className="tools">
+        <div className="tools" role="toolbar" aria-label="Tools">
           {tools.map((t, i) => {
             const prev = tools[i - 1];
             const sep = prev && (prev.group ?? 'create') !== (t.group ?? 'create');
@@ -889,10 +895,6 @@ export default function App() {
           >
             Persp
           </button>
-        </div>
-        <div className="hint">
-          {tool.hint(pending.length)}
-          {activeLevel ? ` · ${activeLevel.name}` : ''}
         </div>
       </header>
 
