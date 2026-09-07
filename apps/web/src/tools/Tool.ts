@@ -26,6 +26,8 @@ export interface ToolContext {
   /** Live-update the selected element's placement while dragging. */
   previewAnchors(anchors: Vec3[]): void;
   commitAnchors(anchors: Vec3[]): void;
+  /** Open a coalesced undo step for the current gesture (e.g. anchor drag). */
+  beginUndoGroup(): void;
   setError(message: string | null): void;
   /** Let the tool tell the app how far through its gesture it is. */
   setPending(points: Vec3[]): void;

@@ -163,6 +163,8 @@ struct SceneDto {
     version: u64,
     selected_ids: Vec<String>,
     selected_id: Option<String>,
+    can_undo: bool,
+    can_redo: bool,
 }
 
 fn element_dto(project: &Project, element: &Element) -> ElementDto {
@@ -282,6 +284,8 @@ fn scene_dto(project: &Project) -> SceneDto {
         version: buffers.version,
         selected_id: selected_ids.first().cloned(),
         selected_ids,
+        can_undo: project.can_undo(),
+        can_redo: project.can_redo(),
     }
 }
 
@@ -454,7 +458,7 @@ pub fn update_element(id: &str, params_json: &str) -> Result<JsValue, JsValue> {
         let element = element_id(id)?;
         let params = parse_params(params_json)?;
         project
-            .update_element(element, Some(params), None)
+            .update_element(element, Some(params), None, true)
             .map_err(err)?;
         scene(project)
     })
@@ -463,12 +467,14 @@ pub fn update_element(id: &str, params_json: &str) -> Result<JsValue, JsValue> {
 /// Re-place an existing element from a fresh set of picks.
 ///
 /// The existing curve type is kept, so dragging an arc wall's handles does
-/// not turn it into a polyline.
+/// not turn it into a polyline. Pass `record_history: false` for live drag
+/// previews; the final commit should use the default `true`.
 #[wasm_bindgen(js_name = setElementPlacement)]
 pub fn set_element_placement(
     id: &str,
     points_json: &str,
     rotation: f32,
+    record_history: bool,
 ) -> Result<JsValue, JsValue> {
     with_project(|project| {
         let element = element_id(id)?;
@@ -488,7 +494,7 @@ pub fn set_element_placement(
             .placement_from_gesture(&component_id, Some(kind), &points, rotation)
             .map_err(err)?;
         project
-            .update_element(element, None, Some(placement))
+            .update_element(element, None, Some(placement), record_history)
             .map_err(err)?;
         scene(project)
     })
@@ -658,10 +664,7 @@ pub fn create_level(name: &str, elevation: f32) -> Result<JsValue, JsValue> {
 pub fn set_active_level(id: &str) -> Result<JsValue, JsValue> {
     with_project(|project| {
         let level = level_id(id)?;
-        project
-            .document_mut()
-            .set_active_level(level)
-            .map_err(err)?;
+        project.set_active_level(level).map_err(err)?;
         scene(project)
     })
 }
@@ -700,4 +703,45 @@ pub fn new_project() -> Result<JsValue, JsValue> {
     PROJECT.with(|cell| *cell.borrow_mut() = Some(Project::new()));
     with_selection(|s| s.set(None));
     with_project(|project| scene(project))
+}
+
+// ---------------------------------------------------------------------------
+// Undo / redo
+// ---------------------------------------------------------------------------
+
+#[wasm_bindgen(js_name = undo)]
+pub fn undo() -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        project.undo().map_err(err)?;
+        with_selection(|s| s.retain_existing(project));
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = redo)]
+pub fn redo() -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        project.redo().map_err(err)?;
+        with_selection(|s| s.retain_existing(project));
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = canUndo)]
+pub fn can_undo() -> Result<bool, JsValue> {
+    with_project(|project| Ok(project.can_undo()))
+}
+
+#[wasm_bindgen(js_name = canRedo)]
+pub fn can_redo() -> Result<bool, JsValue> {
+    with_project(|project| Ok(project.can_redo()))
+}
+
+/// Open a coalesced undo group (e.g. at the start of an anchor drag).
+#[wasm_bindgen(js_name = beginUndoGroup)]
+pub fn begin_undo_group() -> Result<(), JsValue> {
+    with_project(|project| {
+        project.begin_undo_group();
+        Ok(())
+    })
 }

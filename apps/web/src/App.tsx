@@ -1,5 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  apexBeginUndoGroup,
   apexCreateElement,
   apexCreateLevel,
   apexDeleteSelected,
@@ -12,6 +13,7 @@ import {
   apexNewProject,
   apexPickById,
   apexPreviewElement,
+  apexRedo,
   apexRegisterProfile,
   apexSelectElement,
   apexSetActiveLevel,
@@ -19,6 +21,7 @@ import {
   apexSetLevelElevation,
   apexTogglePickById,
   apexToggleSelectElement,
+  apexUndo,
   apexUpdateElement,
   initApex,
 } from './wasm/apex';
@@ -279,7 +282,7 @@ export default function App() {
         if (!sel) return;
         try {
           // Live-update through the core so the solid follows the handle.
-          const next = apexSetElementPlacement(sel.id, anchors);
+          const next = apexSetElementPlacement(sel.id, anchors, 0, false);
           renderer.setScene({
             positions: toFloatArray(next.positions),
             normals: toFloatArray(next.normals),
@@ -300,11 +303,19 @@ export default function App() {
         const sel = selectedRef.current;
         if (!sel) return;
         try {
-          applyScene(apexSetElementPlacement(sel.id, anchors));
+          applyScene(apexSetElementPlacement(sel.id, anchors, 0, true));
           setError(null);
         } catch (e) {
           setError(e instanceof Error ? e.message : String(e));
           syncEditGizmo(sel);
+        }
+      },
+
+      beginUndoGroup: () => {
+        try {
+          apexBeginUndoGroup();
+        } catch {
+          /* ignore */
         }
       },
 
@@ -369,6 +380,24 @@ export default function App() {
     setPlacementDraft(next);
   }, [toolId, tool.componentId, components, profiles]);
 
+  const onUndo = useCallback(() => {
+    try {
+      applyScene(apexUndo());
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [applyScene]);
+
+  const onRedo = useCallback(() => {
+    try {
+      applyScene(apexRedo());
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [applyScene]);
+
   /** Escape: abandon the gesture, clear selection, fall back to Select. */
   const onEscape = useCallback(() => {
     cancelGesture();
@@ -411,6 +440,18 @@ export default function App() {
         } catch {
           /* ignore */
         }
+        return;
+      }
+      const mod = e.ctrlKey || e.metaKey;
+      if (!typing && mod && e.key.toLowerCase() === 'z') {
+        e.preventDefault();
+        if (e.shiftKey) onRedo();
+        else onUndo();
+        return;
+      }
+      if (!typing && mod && e.key.toLowerCase() === 'y') {
+        e.preventDefault();
+        onRedo();
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
@@ -426,7 +467,7 @@ export default function App() {
       window.removeEventListener('keydown', onKeyDown, true);
       window.removeEventListener('keyup', onKeyUp, true);
     };
-  }, [applyScene, onEscape, profileEditor]);
+  }, [applyScene, onEscape, onRedo, onUndo, profileEditor]);
 
   useEffect(() => {
     let cancelled = false;
@@ -755,6 +796,24 @@ export default function App() {
       <header className="topbar">
         <div className="brand">APEX</div>
         <div className="file-actions">
+          <button
+            type="button"
+            onClick={onUndo}
+            disabled={!scene?.can_undo}
+            title="Undo (Ctrl+Z)"
+            data-testid="undo"
+          >
+            Undo
+          </button>
+          <button
+            type="button"
+            onClick={onRedo}
+            disabled={!scene?.can_redo}
+            title="Redo (Ctrl+Shift+Z)"
+            data-testid="redo"
+          >
+            Redo
+          </button>
           <button type="button" onClick={onSaveProject} data-testid="save-project">
             Save
           </button>

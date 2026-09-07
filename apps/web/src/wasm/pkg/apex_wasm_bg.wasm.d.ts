@@ -1,6 +1,9 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
+export const beginUndoGroup: () => [number, number];
+export const canRedo: () => [number, number, number];
+export const canUndo: () => [number, number, number];
 export const createElement: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
 export const createLevel: (a: number, b: number, c: number) => [number, number, number];
 export const deleteSelected: () => [number, number, number];
@@ -16,14 +19,16 @@ export const newProject: () => [number, number, number];
 export const pickById: (a: number) => [number, number, number];
 export const previewElement: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
 export const previewProfile: (a: number, b: number, c: number, d: number) => [number, number, number];
+export const redo: () => [number, number, number];
 export const registerComponent: (a: number, b: number) => [number, number, number];
 export const registerProfile: (a: number, b: number) => [number, number, number];
 export const selectElement: (a: number, b: number) => [number, number, number];
 export const setActiveLevel: (a: number, b: number) => [number, number, number];
-export const setElementPlacement: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
+export const setElementPlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
 export const setLevelElevation: (a: number, b: number, c: number) => [number, number, number];
 export const togglePickById: (a: number) => [number, number, number];
 export const toggleSelectElement: (a: number, b: number) => [number, number, number];
+export const undo: () => [number, number, number];
 export const updateElement: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const updateProfileType: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const __wbindgen_malloc: (a: number, b: number) => number;

@@ -2,6 +2,15 @@
 /* eslint-disable */
 
 /**
+ * Open a coalesced undo group (e.g. at the start of an anchor drag).
+ */
+export function beginUndoGroup(): void;
+
+export function canRedo(): boolean;
+
+export function canUndo(): boolean;
+
+/**
  * Place a component from the raw picks the user made.
  *
  * The component's own `PlacementKind` decides how the points are interpreted
@@ -78,6 +87,8 @@ export function previewElement(component_id: string, points_json: string, rotati
  */
 export function previewProfile(profile_json: string, params_json: string): any;
 
+export function redo(): any;
+
 /**
  * Install a component at runtime, from a module or the visual editor.
  */
@@ -96,15 +107,18 @@ export function setActiveLevel(id: string): any;
  * Re-place an existing element from a fresh set of picks.
  *
  * The existing curve type is kept, so dragging an arc wall's handles does
- * not turn it into a polyline.
+ * not turn it into a polyline. Pass `record_history: false` for live drag
+ * previews; the final commit should use the default `true`.
  */
-export function setElementPlacement(id: string, points_json: string, rotation: number): any;
+export function setElementPlacement(id: string, points_json: string, rotation: number, record_history: boolean): any;
 
 export function setLevelElevation(id: string, elevation: number): any;
 
 export function togglePickById(pick_id: number): any;
 
 export function toggleSelectElement(id: string): any;
+
+export function undo(): any;
 
 /**
  * Patch an element's parameters. Omitted parameters keep their current value.
@@ -120,6 +134,9 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly beginUndoGroup: () => [number, number];
+    readonly canRedo: () => [number, number, number];
+    readonly canUndo: () => [number, number, number];
     readonly createElement: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
     readonly createLevel: (a: number, b: number, c: number) => [number, number, number];
     readonly deleteSelected: () => [number, number, number];
@@ -135,14 +152,16 @@ export interface InitOutput {
     readonly pickById: (a: number) => [number, number, number];
     readonly previewElement: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
     readonly previewProfile: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly redo: () => [number, number, number];
     readonly registerComponent: (a: number, b: number) => [number, number, number];
     readonly registerProfile: (a: number, b: number) => [number, number, number];
     readonly selectElement: (a: number, b: number) => [number, number, number];
     readonly setActiveLevel: (a: number, b: number) => [number, number, number];
-    readonly setElementPlacement: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
+    readonly setElementPlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly setLevelElevation: (a: number, b: number, c: number) => [number, number, number];
     readonly togglePickById: (a: number) => [number, number, number];
     readonly toggleSelectElement: (a: number, b: number) => [number, number, number];
+    readonly undo: () => [number, number, number];
     readonly updateElement: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly updateProfileType: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;

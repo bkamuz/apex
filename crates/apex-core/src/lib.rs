@@ -4,6 +4,7 @@ mod component;
 mod document;
 mod element;
 mod expr;
+mod history;
 mod level;
 mod param;
 mod placement;
@@ -19,6 +20,7 @@ pub use component::{
 pub use document::{Document, DocumentChange, DocumentChangeKind, ElementSceneEntry, SceneBuffers};
 pub use element::{ComponentId, Element, ElementId};
 pub use expr::{Expr, ExprError};
+pub use history::History;
 pub use level::{Level, LevelId};
 pub use param::{ParamBinding, ParamError, ParamId, ParamKind, ParamMap, ParamSpec, ParamValue};
 pub use placement::{Placement, PlacementError, PlacementKind};
