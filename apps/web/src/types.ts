@@ -138,4 +138,6 @@ export interface SceneDto {
   selected_ids: string[];
   /** Primary / first selected id; null when empty. */
   selected_id: string | null;
+  can_undo?: boolean;
+  can_redo?: boolean;
 }

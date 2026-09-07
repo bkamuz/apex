@@ -34,6 +34,7 @@ export function createSelectTool(): Tool {
       if (index === null) return false;
 
       drag = { index, anchors: anchors.map((p) => [...p] as Vec3), moved: false };
+      ctx.beginUndoGroup();
       ctx.setTouchOrbitEnabled(false);
       return true;
     },

@@ -24,6 +24,9 @@ import initWasm, {
   exportProject,
   importProject,
   newProject,
+  undo,
+  redo,
+  beginUndoGroup,
 } from './pkg/apex_wasm.js';
 import type {
   ComponentDto,
@@ -114,8 +117,13 @@ export function apexUpdateElement(
   return asScene(updateElement(id, encodeParams(params)));
 }
 
-export function apexSetElementPlacement(id: string, points: Vec3[], rotation = 0): SceneDto {
-  return asScene(setElementPlacement(id, encodePoints(points), rotation));
+export function apexSetElementPlacement(
+  id: string,
+  points: Vec3[],
+  rotation = 0,
+  recordHistory = true,
+): SceneDto {
+  return asScene(setElementPlacement(id, encodePoints(points), rotation, recordHistory));
 }
 
 export function apexPreviewElement(
@@ -190,4 +198,16 @@ export function apexImportProject(json: string): SceneDto {
 
 export function apexNewProject(): SceneDto {
   return asScene(newProject());
+}
+
+export function apexUndo(): SceneDto {
+  return asScene(undo());
+}
+
+export function apexRedo(): SceneDto {
+  return asScene(redo());
+}
+
+export function apexBeginUndoGroup(): void {
+  beginUndoGroup();
 }

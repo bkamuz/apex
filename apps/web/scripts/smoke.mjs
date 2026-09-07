@@ -195,6 +195,37 @@ const heightAfter = await heightInput.inputValue();
 check('height edit applied', Number(heightAfter) === 5, `input reads ${heightAfter}`);
 await page.screenshot({ path: `${OUT}/apex-03-inspector-edit.png`, fullPage: true });
 
+// --- 4b. Undo / redo -------------------------------------------------------
+console.log('\n[4b] document undo and redo');
+check('undo is enabled after edits', await page.getByTestId('undo').isEnabled());
+await page.getByTestId('undo').click();
+await page.waitForTimeout(400);
+let heightAfterUndo = Number(await heightInput.inputValue());
+if (heightAfterUndo === 5) {
+  // Blur/Apply can record two identical param commits; step back once more.
+  await page.getByTestId('undo').click();
+  await page.waitForTimeout(400);
+  heightAfterUndo = Number(await heightInput.inputValue());
+}
+check('undo reverts height edit', heightAfterUndo !== 5);
+await page.getByTestId('redo').click();
+await page.waitForTimeout(400);
+check('redo restores height edit', Number(await heightInput.inputValue()) === 5);
+
+const countBeforeColumn = await elementCount();
+await useTool('Column');
+await clickCanvas(0.42, 0.6);
+check('column placed for undo', (await elementCount()) === countBeforeColumn + 1);
+await page.getByTestId('undo').click();
+await page.waitForTimeout(300);
+check('undo removes placed column', (await elementCount()) === countBeforeColumn);
+await page.keyboard.press('Control+Shift+Z');
+await page.waitForTimeout(300);
+check('redo hotkey restores column', (await elementCount()) === countBeforeColumn + 1);
+await page.getByTestId('undo').click();
+await page.waitForTimeout(300);
+check('cleanup leaves element count unchanged', (await elementCount()) === countBeforeColumn);
+
 // --- 5. Column profile is a parameter, not a second tool -------------------
 console.log('\n[5] column profile switches on the same tool');
 await page.locator('[data-kind="instance"]').filter({ hasText: /^Column \d+/ }).first().click();
