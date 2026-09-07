@@ -79,6 +79,12 @@ impl Frame {
     pub fn direction(&self, u: f32, v: f32) -> Vec3 {
         self.x * u + self.y * v
     }
+
+    /// Inverse of [`Self::point`]: world position to profile-space `(u, v)`.
+    pub fn local_xy(&self, world: Vec3) -> [f32; 2] {
+        let rel = world - self.origin;
+        [rel.dot(self.x), rel.dot(self.y)]
+    }
 }
 
 /// Deterministic pair of axes perpendicular to `normal`, right-handed with it.

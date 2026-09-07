@@ -342,7 +342,7 @@ fn builtin_profiles() -> Vec<ProfileType> {
 /// (rectangular vs round column, straight vs arc wall) are a parameter or a
 /// draw mode, not a second type.
 pub fn builtin_components() -> Vec<ComponentDefinition> {
-    vec![wall(), column(), beam()]
+    vec![wall(), column(), beam(), slab()]
 }
 
 /// A wall is a profile swept along a path, seated on the level.
@@ -421,6 +421,23 @@ fn beam() -> ComponentDefinition {
     }
 }
 
+/// A floor slab / перекрытие: a closed polyline on the level, extruded for thickness.
+fn slab() -> ComponentDefinition {
+    ComponentDefinition {
+        id: "apex.slab".to_string(),
+        display_name: "Slab".to_string(),
+        category: "slab".to_string(),
+        source: ComponentSource::BuiltIn,
+        placement: PlacementKind::Polyline,
+        params: vec![ParamSpec::length("thickness", "Thickness", 0.2)],
+        recipe: GeometryRecipe::Extrude {
+            profile: ProfileSpec::FromPlacement,
+            frame: FrameSource::WorkPlane,
+            height: Expr::param("thickness"),
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -441,8 +458,8 @@ mod tests {
     #[test]
     fn every_builtin_validates_and_registers() {
         let registry = ComponentRegistry::with_builtins();
-        assert_eq!(registry.len(), 3);
-        for id in ["apex.wall", "apex.column", "apex.beam"] {
+        assert_eq!(registry.len(), 4);
+        for id in ["apex.wall", "apex.column", "apex.beam", "apex.slab"] {
             let def = registry.get(id).unwrap_or_else(|| panic!("missing {id}"));
             assert_eq!(def.source, ComponentSource::BuiltIn);
             assert!(def.validate().is_ok());
@@ -800,7 +817,7 @@ mod tests {
         let size = size_of(&mesh);
         assert!((size[0] - 1.2).abs() < 1e-2, "diameter {}", size[0]);
         assert!((size[1] - 0.05).abs() < EPS);
-        assert_eq!(registry.len(), 4);
+        assert_eq!(registry.len(), 5);
     }
 
     #[test]
@@ -987,6 +1004,68 @@ mod tests {
         let (min, max) = profile.bounds();
         assert!((max[0] - min[0] - 0.2).abs() < EPS);
         assert!((max[1] - min[1] - 3.0).abs() < EPS);
+    }
+
+    #[test]
+    fn a_slab_extrudes_a_closed_polyline_for_thickness() {
+        let registry = ComponentRegistry::with_builtins();
+        let placement = PlacementKind::Polyline
+            .build(
+                &[
+                    Vec3::ZERO,
+                    Vec3::new(5.0, 0.0, 0.0),
+                    Vec3::new(5.0, 0.0, 4.0),
+                    Vec3::new(0.0, 0.0, 4.0),
+                ],
+                0.0,
+                &ground(),
+            )
+            .expect("polyline");
+        let params = ParamMap::new().with("thickness", ParamValue::Length(0.25));
+
+        let mesh = registry
+            .build_mesh("apex.slab", &placement, &params, ground())
+            .expect("mesh");
+
+        let size = size_of(&mesh);
+        assert!((size[0] - 5.0).abs() < EPS, "width {}", size[0]);
+        assert!((size[1] - 0.25).abs() < EPS, "thickness {}", size[1]);
+        assert!((size[2] - 4.0).abs() < EPS, "depth {}", size[2]);
+        assert!(mesh.aabb().unwrap().0[1].abs() < EPS, "sits on the level");
+    }
+
+    #[test]
+    fn a_slab_rejects_an_open_two_point_boundary() {
+        let registry = ComponentRegistry::with_builtins();
+        let placement = PlacementKind::Polyline
+            .build(&[Vec3::ZERO, Vec3::new(3.0, 0.0, 0.0)], 0.0, &ground())
+            .expect("polyline");
+        assert!(matches!(
+            registry
+                .build_mesh("apex.slab", &placement, &ParamMap::new(), ground())
+                .unwrap_err(),
+            RegistryError::Recipe(RecipeError::BoundaryTooSmall(2))
+        ));
+    }
+
+    #[test]
+    fn a_slab_rejects_point_placement() {
+        let registry = ComponentRegistry::with_builtins();
+        assert_eq!(
+            registry
+                .build_mesh(
+                    "apex.slab",
+                    &Placement::point(Vec3::ZERO),
+                    &ParamMap::new(),
+                    ground()
+                )
+                .unwrap_err(),
+            RegistryError::PlacementMismatch {
+                component: "apex.slab".into(),
+                expected: "polyline",
+                actual: "point"
+            }
+        );
     }
 
     #[test]

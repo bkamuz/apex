@@ -68,7 +68,7 @@ const toolbarNames = () =>
 console.log('\n[1] toolbar from plugins, one tool per type');
 const tools = await toolbarNames();
 console.log('  toolbar:', tools.join(' | '));
-for (const expected of ['Select', 'Wall', 'Column', 'Beam']) {
+for (const expected of ['Select', 'Wall', 'Column', 'Beam', 'Slab']) {
   check(`"${expected}" button exists`, tools.includes(expected));
 }
 check('arc wall is not a second tool', !tools.includes('Arc wall'));
@@ -131,6 +131,28 @@ await canvas.dblclick({ position: { x: box.width * 0.28, y: box.height * 0.52 } 
 await page.waitForTimeout(300);
 check('polyline wall placed on the same Wall tool', (await elementCount()) === 8);
 
+await useTool('Slab');
+await clickCanvas(0.34, 0.54);
+await clickCanvas(0.56, 0.54);
+await clickCanvas(0.56, 0.66);
+await clickCanvas(0.34, 0.66);
+await canvas.dblclick({ position: { x: box.width * 0.34, y: box.height * 0.66 } });
+await page.waitForTimeout(300);
+check('slab placed with polyline gesture', (await elementCount()) === 9);
+
+await useTool('Select');
+await page.locator('[data-kind="instance"]').filter({ hasText: /^Slab \d+/ }).first().click();
+await page.waitForTimeout(300);
+const slabLabels = await page
+  .locator('.inspector-body .field label')
+  .evaluateAll((els) => els.map((e) => e.textContent.trim()));
+check('slab thickness field rendered', slabLabels.some((l) => l.startsWith('Thickness')));
+const slabThickness = page.locator('[data-section="instance"] input[type="number"]').first();
+await slabThickness.fill('0.35');
+await page.getByRole('button', { name: 'Apply', exact: true }).click();
+await page.waitForTimeout(400);
+check('slab thickness edit applied', Number(await slabThickness.inputValue()) === 0.35);
+
 await page.screenshot({ path: `${OUT}/apex-02-all-components.png`, fullPage: true });
 
 // --- 4. Schema-driven inspector -------------------------------------------
@@ -185,7 +207,7 @@ await profileSelect.selectOption('apex.round');
 await page.waitForTimeout(400);
 const profileAfter = await profileSelect.inputValue();
 check('profile switched to round without a second tool', profileAfter === 'apex.round', `got ${profileAfter}`);
-check('still a single column element', (await elementCount()) === 8);
+check('still a single column element', (await elementCount()) === 9);
 await page.screenshot({ path: `${OUT}/apex-05-column-profile.png`, fullPage: true });
 
 // --- 6. A user component installed at runtime ------------------------------
@@ -222,7 +244,7 @@ check('a tool appeared for it with no app code', toolsAfter.includes('Planter'))
 await useTool('Planter');
 await clickCanvas(0.45, 0.58);
 const afterPlanter = await elementCount();
-check('user component placed like a built-in', afterPlanter === 9, `got ${afterPlanter}`);
+check('user component placed like a built-in', afterPlanter === 10, `got ${afterPlanter}`);
 
 await useTool('Select');
 await page.locator('[data-kind="instance"]', { hasText: 'Planter' }).first().click();

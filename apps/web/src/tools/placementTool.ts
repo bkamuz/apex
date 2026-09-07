@@ -139,6 +139,11 @@ export function createPlacementTool(
 /** Finish a variable-length gesture (polyline) on double-click. */
 export function finishOpenGesture(tool: Tool, picks: Vec3[], ctx: ToolContext): boolean {
   if (!tool.componentId || picks.length < 2) return false;
+  const min = tool.componentId === 'apex.slab' ? 3 : 2;
+  if (picks.length < min) {
+    ctx.setError(`Need at least ${min} points to finish.`);
+    return false;
+  }
   ctx.createElement(tool.componentId, picks, tool.placementKind?.());
   tool.cancel?.(ctx);
   return true;

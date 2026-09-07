@@ -9,7 +9,8 @@
 use std::collections::BTreeMap;
 
 use apex_geometry::{
-    extrude, sweep, Frame, GeometryError, Justification, Profile, SweepOptions, TriangleMesh,
+    extrude, sweep, Curve, Frame, GeometryError, Justification, MIN_CURVE_LENGTH, Profile,
+    SweepOptions, TriangleMesh,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -40,6 +41,10 @@ pub enum RecipeError {
     Placement(#[from] PlacementError),
     #[error("this recipe needs a curve placement, but the element is point-placed")]
     NeedsCurve,
+    #[error("a profile from the placement needs a polyline boundary, not a line or arc")]
+    NeedsPolylineBoundary,
+    #[error("a closed boundary needs at least 3 picks, got {0}")]
+    BoundaryTooSmall(usize),
     #[error("unknown profile '{0}'")]
     UnknownProfile(ProfileId),
     #[error("parameter '{0}' does not name a profile")]
@@ -135,6 +140,9 @@ pub enum ProfileSpec {
     FromParam {
         param: ParamId,
     },
+    /// Outline taken from the placement polyline, projected into the work plane.
+    /// Used by floor slabs: the picked boundary is extruded for thickness.
+    FromPlacement,
 }
 
 fn default_segments() -> u32 {
@@ -187,7 +195,28 @@ impl ProfileSpec {
                     .ok_or_else(|| RecipeError::NotAProfileParam(param.clone()))?;
                 Self::Named { id: id.to_string() }.evaluate_at(params, library, depth)
             }
+            Self::FromPlacement => Err(RecipeError::NeedsPolylineBoundary),
         }
+    }
+
+    /// Build a profile from the element's picked boundary in the work plane.
+    pub fn from_placement(placement: &Placement, frame: &Frame) -> Result<Profile, RecipeError> {
+        let curve = placement.curve().ok_or(RecipeError::NeedsCurve)?;
+        let mut points = match curve {
+            Curve::Polyline { points } => points.clone(),
+            _ => return Err(RecipeError::NeedsPolylineBoundary),
+        };
+        if points.len() > 1 && (points[0] - points[points.len() - 1]).length() < MIN_CURVE_LENGTH {
+            points.pop();
+        }
+        if points.len() < 3 {
+            return Err(RecipeError::BoundaryTooSmall(points.len()));
+        }
+        let uv = points
+            .iter()
+            .map(|p| frame.local_xy(*p))
+            .collect::<Vec<_>>();
+        Ok(Profile::polygon(uv)?)
     }
 
     fn collect_params(&self, out: &mut Vec<ParamId>) {
@@ -205,6 +234,7 @@ impl ProfileSpec {
             }
             Self::Named { .. } => {}
             Self::FromParam { param } => out.push(param.clone()),
+            Self::FromPlacement => {}
         }
     }
 
@@ -341,7 +371,10 @@ pub fn evaluate_recipe(
             height,
         } => {
             let base = frame.resolve(ctx)?;
-            let profile = profile.evaluate(ctx.params, ctx.profiles)?;
+            let profile = match profile {
+                ProfileSpec::FromPlacement => ProfileSpec::from_placement(ctx.placement, &base)?,
+                other => other.evaluate(ctx.params, ctx.profiles)?,
+            };
             Ok(extrude(&profile, &base, height.eval_f32(ctx.params)?)?)
         }
         GeometryRecipe::Group { steps } => {
@@ -644,6 +677,7 @@ fn formula_param_error(err: ExprError) -> ParamError {
 mod tests {
     use super::*;
     use crate::param::{ParamKind, ParamValue};
+    use crate::placement::{Placement, PlacementKind};
     use glam::Vec3;
 
     const EPS: f32 = 1e-4;
@@ -1220,6 +1254,42 @@ mod tests {
         assert!(def
             .resolve_params(&ParamMap::new().with("style", ParamValue::Text("z".into())))
             .is_err());
+    }
+
+    #[test]
+    fn a_profile_from_the_placement_projects_a_polyline_into_the_work_plane() {
+        let placement = PlacementKind::Polyline
+            .build(
+                &[
+                    Vec3::new(1.0, 0.0, 2.0),
+                    Vec3::new(6.0, 0.0, 2.0),
+                    Vec3::new(6.0, 0.0, 5.0),
+                    Vec3::new(1.0, 0.0, 5.0),
+                ],
+                0.0,
+                &Frame::horizontal(0.0),
+            )
+            .expect("polyline");
+        let frame = Frame::horizontal(0.0).with_origin(placement.origin());
+        let profile = ProfileSpec::from_placement(&placement, &frame).expect("profile");
+        let (min, max) = profile.bounds();
+        assert!((max[0] - min[0] - 5.0).abs() < EPS);
+        assert!((max[1] - min[1] - 3.0).abs() < EPS);
+
+        let recipe = GeometryRecipe::Extrude {
+            profile: ProfileSpec::FromPlacement,
+            frame: FrameSource::WorkPlane,
+            height: Expr::constant(0.2),
+        };
+        let params = ParamMap::new();
+        let profiles = ProfileLibrary::new();
+        let mesh = evaluate_recipe(
+            &recipe,
+            &ctx(&placement, &params, &profiles),
+            &no_builders(),
+        )
+        .expect("mesh");
+        assert!((size_of(&mesh)[1] - 0.2).abs() < EPS);
     }
 
     #[test]

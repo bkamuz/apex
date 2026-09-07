@@ -45,7 +45,8 @@ export type ProfileSpecDto =
   | { shape: 'circle'; radius: ExprDto; segments?: number }
   | { shape: 'polygon'; points: [ExprDto, ExprDto][] }
   | { shape: 'named'; id: string }
-  | { shape: 'from_param'; param: string };
+  | { shape: 'from_param'; param: string }
+  | { shape: 'from_placement' };
 
 /** A reusable section: shape plus type/instance parameters. */
 export interface ProfileTypeDto {

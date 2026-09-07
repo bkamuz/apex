@@ -47,6 +47,7 @@ The shipped types use exactly this structure and no bespoke geometry code:
 | `apex.wall` | path (line, arc, or polyline) | profile swept along the path, seated on the level; rectangle vs round is a `profile` parameter |
 | `apex.column` | one point | profile extruded up; rectangle vs round is a `profile` parameter |
 | `apex.beam` | two points | rectangle swept, hung below the line |
+| `apex.slab` | polyline (double-click to close) | closed boundary extruded for thickness |
 
 A **profile type** is the catalog object behind that `profile` parameter: a 2D
 section you **draw with the mouse** (click to place an outline, then assign
@@ -109,7 +110,7 @@ Each push to `main` redeploys automatically via `.github/workflows/deploy-pages.
 
 ### Demo
 
-1. Pick a tool: **Wall**, **Column** or **Beam**. With Wall active, switch **Line** / **Arc** / **Polyline**.
+1. Pick a tool: **Wall**, **Column**, **Beam** or **Slab**. With Wall active, switch **Line** / **Arc** / **Polyline**. With Slab active, click corners of the floor outline and double-click to finish.
 2. Click the number of points that mode needs (1, 2, 3, or double-click to finish a polyline); a ghost previews the result.
 3. Select the element. **This element** fields apply only to that instance; **Shared type** fields are the same for every element of that profile. **Edit profile** opens a 2D sketch: click to draw the outline, close it, then click edges (or **Dimension all edges**) to assign sizes as shared type or this-element parameters.
 4. The left **Project** browser lists types and instances. Change **Group** / **Sort** / **Types** vs **Instances** to rearrange it. **Save** downloads the project (it is also stored in the browser); **Open** loads a file; **New** starts over.
