@@ -938,6 +938,7 @@ mod tests {
                         param: "thickness".into(),
                     },
                 ],
+                constraints: vec![],
             }),
         };
         project.register_profile(profile).expect("register");

@@ -27,7 +27,7 @@ pub use placement::{Placement, PlacementError, PlacementKind};
 pub use project::Project;
 pub use project::ProjectSnapshot;
 pub use registry::{builtin_components, ComponentRegistry, RegistryError};
-pub use sketch::{ProfileSketch, SketchDimension, SketchError};
+pub use sketch::{ProfileSketch, SketchConstraint, SketchDimension, SketchError};
 
 /// Geometry primitives the document is expressed in, re-exported for convenience.
 pub use apex_geometry::{Curve, Frame, GeometryError, Justification, Profile, TriangleMesh};

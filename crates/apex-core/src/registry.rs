@@ -1098,6 +1098,7 @@ mod tests {
                         edge: 1,
                         param: "thickness".into(),
                     }],
+                    constraints: vec![],
                 }),
             })
             .expect("upsert");
