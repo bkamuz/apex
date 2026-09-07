@@ -88,7 +88,7 @@ button:focus-visible {
 .app {
   display: grid;
   grid-template-columns: 260px 1fr 280px;
-  grid-template-rows: 48px 1fr;
+  grid-template-rows: auto 1fr;
   width: 100%;
   height: 100%;
   /* Prefer app gestures; scrollable lists opt into pan-y. */
@@ -98,11 +98,19 @@ button:focus-visible {
 .topbar {
   grid-column: 1 / -1;
   display: flex;
-  align-items: center;
-  gap: 16px;
-  padding: 0 16px;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 16px;
   border-bottom: 1px solid var(--border);
   background: linear-gradient(180deg, #1c2030 0%, var(--bg-panel) 100%);
+}
+
+.topbar-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 32px;
+  width: 100%;
 }
 
 .brand {
@@ -124,29 +132,38 @@ button:focus-visible {
 
 .tools {
   display: flex;
-  gap: 8px;
+  flex-wrap: wrap;
+  gap: 4px;
   align-items: center;
-  /* One button per component, so the toolbar grows with the registry. */
-  overflow-x: auto;
-  scrollbar-width: thin;
+  width: 100%;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(10, 12, 18, 0.45);
 }
 
 /* Multi-word component names must not wrap and stagger the row. */
 .tools button {
   white-space: nowrap;
   flex-shrink: 0;
+  padding: 5px 11px;
+  font-size: 12px;
+  min-height: 30px;
 }
 
 .tools-sep {
   width: 1px;
-  height: 18px;
-  margin: 0 2px;
+  align-self: stretch;
+  min-height: 22px;
+  margin: 3px 2px;
   background: var(--border);
+  flex-shrink: 0;
 }
 
 .tools button.mode {
-  font-size: 12px;
-  opacity: 0.8;
+  font-size: 11px;
+  opacity: 0.85;
+  padding: 5px 9px;
 }
 
 .tools button.mode.active {
@@ -501,18 +518,26 @@ button:focus-visible {
   }
 
   .topbar {
-    flex-wrap: nowrap;
-    gap: 8px 12px;
-    min-height: 44px;
-    height: auto;
+    gap: 6px;
     padding: 6px 12px;
+  }
+
+  .topbar-row {
+    gap: 8px 12px;
+    min-height: 36px;
   }
 
   .tools {
     flex-wrap: nowrap;
-    gap: 6px;
+    gap: 4px;
     overflow-x: auto;
     -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .tools::-webkit-scrollbar {
+    display: none;
   }
 
   .tools button {
