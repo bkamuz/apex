@@ -1,25 +1,28 @@
 import { useMemo, useState } from 'react';
-import type { ElementListDto, LevelDto, ProfileTypeDto } from '../types';
+import type { ElementListDto, LevelDto, ProfileTypeDto, ReferenceDto } from '../types';
 import { profileLabel } from './profileModel';
 
 export type BrowserGroupBy = 'kind' | 'category' | 'level' | 'profile' | 'none';
 export type BrowserSortBy = 'name' | 'kind' | 'category';
-export type BrowserFilter = 'all' | 'types' | 'instances';
+export type BrowserFilter = 'all' | 'types' | 'instances' | 'references';
 
 interface Props {
   elements: ElementListDto[];
+  references: ReferenceDto[];
   profiles: ProfileTypeDto[];
   levels: LevelDto[];
   selectedIds: string[];
   selectedProfileId: string | null;
+  selectedRefId: string | null;
   onSelectInstance: (id: string, multi: boolean) => void;
+  onSelectReference: (id: string) => void;
   onSelectType: (profileId: string) => void;
   onNewProfile: () => void;
 }
 
 interface BrowserItem {
   key: string;
-  kind: 'type' | 'instance';
+  kind: 'type' | 'instance' | 'reference';
   id: string;
   name: string;
   category: string;
@@ -63,7 +66,9 @@ function storePrefs(prefs: {
 function groupKey(item: BrowserItem, groupBy: BrowserGroupBy): string {
   switch (groupBy) {
     case 'kind':
-      return item.kind === 'type' ? 'Shared types' : 'Placed elements';
+      if (item.kind === 'type') return 'Shared types';
+      if (item.kind === 'reference') return 'References';
+      return 'Placed elements';
     case 'category':
       return item.category || 'uncategorized';
     case 'level':
@@ -96,11 +101,14 @@ function compareItems(a: BrowserItem, b: BrowserItem, sortBy: BrowserSortBy): nu
 
 export function ProjectBrowser({
   elements,
+  references,
   profiles,
   levels,
   selectedIds,
   selectedProfileId,
+  selectedRefId,
   onSelectInstance,
+  onSelectReference,
   onSelectType,
   onNewProfile,
 }: Props) {
@@ -145,7 +153,16 @@ export function ProjectBrowser({
         ? profileLabel(profiles, element.profile_id)
         : element.category,
     }));
-    let all = [...types, ...instances];
+    const refs: BrowserItem[] = references.map((reference) => ({
+      key: `reference:${reference.id}`,
+      kind: 'reference',
+      id: reference.id,
+      name: reference.name,
+      category: reference.kind,
+      levelName: levelName(reference.level_id),
+      profileName: reference.kind,
+    }));
+    let all = [...types, ...instances, ...refs];
     switch (filter) {
       case 'all':
         break;
@@ -155,6 +172,9 @@ export function ProjectBrowser({
       case 'instances':
         all = all.filter((item) => item.kind === 'instance');
         break;
+      case 'references':
+        all = all.filter((item) => item.kind === 'reference');
+        break;
       default: {
         const exhaustive: never = filter;
         return exhaustive;
@@ -162,7 +182,7 @@ export function ProjectBrowser({
     }
     all.sort((a, b) => compareItems(a, b, sortBy));
     return all;
-  }, [elements, profiles, levels, filter, sortBy]);
+  }, [elements, references, profiles, levels, filter, sortBy]);
 
   const groups = useMemo(() => {
     const map = new Map<string, BrowserItem[]>();
@@ -226,6 +246,7 @@ export function ProjectBrowser({
             ['all', 'All'],
             ['types', 'Types'],
             ['instances', 'Instances'],
+            ['references', 'Refs'],
           ] as const
         ).map(([value, label]) => (
           <button
@@ -250,7 +271,12 @@ export function ProjectBrowser({
             <ul className="element-list">
               {groupItems.map((item) => {
                 const isType = item.kind === 'type';
-                const isSelected = isType ? selectedProfileId === item.id : selected.has(item.id);
+                const isRef = item.kind === 'reference';
+                const isSelected = isType
+                  ? selectedProfileId === item.id
+                  : isRef
+                    ? selectedRefId === item.id
+                    : selected.has(item.id);
                 return (
                   <li
                     key={item.key}
@@ -259,16 +285,19 @@ export function ProjectBrowser({
                     className={isSelected ? 'selected' : ''}
                     onClick={(event) => {
                       if (isType) onSelectType(item.id);
+                      else if (isRef) onSelectReference(item.id);
                       else onSelectInstance(item.id, event.ctrlKey || event.metaKey);
                     }}
                   >
                     <span>
                       {item.name}
                       <span className={`kind-badge kind-${item.kind}`}>
-                        {isType ? 'type' : 'instance'}
+                        {isType ? 'type' : isRef ? 'ref' : 'instance'}
                       </span>
                     </span>
-                    <span className="cat">{isType ? item.category : item.profileName}</span>
+                    <span className="cat">
+                      {isType ? item.category : isRef ? item.levelName : item.profileName}
+                    </span>
                   </li>
                 );
               })}

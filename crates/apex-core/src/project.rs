@@ -16,6 +16,7 @@ use crate::history::History;
 use crate::level::{Level, LevelId};
 use crate::param::ParamMap;
 use crate::placement::{Placement, PlacementKind};
+use crate::reference::{RefId, Reference, ReferenceKind};
 use crate::registry::{ComponentRegistry, RegistryError};
 
 pub struct Project {
@@ -23,6 +24,8 @@ pub struct Project {
     registry: ComponentRegistry,
     /// Per-component instance counters, so names read "Wall 1", "Wall 2".
     counters: BTreeMap<String, u32>,
+    /// Per-reference-kind counters, so names read "Ref point 1", "Ref plane 2".
+    ref_counters: BTreeMap<String, u32>,
     level_counter: u32,
     history: History,
 }
@@ -39,6 +42,7 @@ impl Project {
             document: Document::new(),
             registry: ComponentRegistry::with_builtins(),
             counters: Default::default(),
+            ref_counters: Default::default(),
             level_counter: 0,
             history: History::default(),
         }
@@ -137,8 +141,13 @@ impl Project {
         placement: &Placement,
         params: &ParamMap,
     ) -> Result<TriangleMesh, RegistryError> {
-        self.registry
-            .build_mesh(component_id, placement, params, self.active_work_plane())
+        self.registry.build_mesh(
+            component_id,
+            placement,
+            params,
+            self.active_work_plane(),
+            self.document.references(),
+        )
     }
 
     /// Place a new element of any component type on the active level.
@@ -166,6 +175,7 @@ impl Project {
             &placement,
             &params,
             self.work_plane(level_id),
+            self.document.references(),
         )?;
         let element = Element::new(name, component_id, level_id, placement, params);
         let id = element.id;
@@ -208,9 +218,11 @@ impl Project {
             .registry
             .persistable_params(&element.component_id, &element.params)?;
 
-        let mesh = self
-            .registry
-            .build_element_mesh(&element, self.work_plane(element.level_id))?;
+        let mesh = self.registry.build_element_mesh(
+            &element,
+            self.work_plane(element.level_id),
+            self.document.references(),
+        )?;
         self.document.update_element(element, mesh);
         if record {
             self.finish_recorded_edit(before);
@@ -221,6 +233,76 @@ impl Project {
     /// Rebuild an element's mesh from its current state, after the level moved.
     pub fn rebuild_element(&mut self, id: ElementId) -> Result<(), RegistryError> {
         self.update_element(id, None, None, false)
+    }
+
+    /// Turn raw picks into a reference placement on the active work plane.
+    pub fn placement_for_reference(
+        &self,
+        kind: ReferenceKind,
+        points: &[Vec3],
+        rotation: f32,
+    ) -> Result<Placement, crate::placement::PlacementError> {
+        kind.placement_kind()
+            .build(points, rotation, &self.active_work_plane())
+    }
+
+    /// Place a reference point or plane on the active level.
+    pub fn create_reference(
+        &mut self,
+        kind: ReferenceKind,
+        placement: Placement,
+    ) -> Result<RefId, RegistryError> {
+        let before = self.export_snapshot();
+        let level_id = self
+            .document
+            .active_level_id()
+            .ok_or_else(|| RegistryError::Unknown("no active level".to_string()))?;
+        let name = self.next_ref_name(kind);
+        let elevation = self.work_plane(level_id).origin.y;
+        let placement = placement.with_elevation(elevation);
+        let reference = Reference::new(name, level_id, kind, placement);
+        let id = reference.id;
+        self.document.upsert_reference(reference);
+        self.history.record_before(before);
+        Ok(id)
+    }
+
+    pub fn update_reference(
+        &mut self,
+        id: RefId,
+        placement: Placement,
+        record: bool,
+    ) -> Result<(), RegistryError> {
+        let before = if record && !self.history.has_pending() {
+            Some(self.export_snapshot())
+        } else {
+            None
+        };
+        let mut reference = self
+            .document
+            .get_reference(id)
+            .cloned()
+            .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
+        let elevation = self.work_plane(reference.level_id).origin.y;
+        reference.placement = placement.with_elevation(elevation);
+        self.document.upsert_reference(reference);
+        self.rebuild_reference_dependents(&id.to_string())?;
+        if record {
+            self.finish_recorded_edit(before);
+        }
+        Ok(())
+    }
+
+    pub fn delete_reference(&mut self, id: RefId) -> bool {
+        if self.document.get_reference(id).is_none() {
+            return false;
+        }
+        let before = self.export_snapshot();
+        let removed = self.document.remove_reference(id).is_some();
+        if removed {
+            self.history.record_before(before);
+        }
+        removed
     }
 
     pub fn delete_element(&mut self, id: ElementId) -> bool {
@@ -303,6 +385,19 @@ impl Project {
         Ok(())
     }
 
+    fn rebuild_reference_dependents(&mut self, ref_id: &str) -> Result<(), RegistryError> {
+        let ids: Vec<_> = self
+            .document
+            .elements()
+            .filter(|element| self.registry.element_uses_reference(element, ref_id))
+            .map(|element| element.id)
+            .collect();
+        for id in ids {
+            self.rebuild_element(id)?;
+        }
+        Ok(())
+    }
+
     fn rebuild_profile_dependents(&mut self, profile_id: &str) -> Result<(), RegistryError> {
         let ids: Vec<_> = self
             .document
@@ -361,6 +456,13 @@ impl Project {
         format!("{display_name} {counter}")
     }
 
+    fn next_ref_name(&mut self, kind: ReferenceKind) -> String {
+        let key = kind.as_str().to_string();
+        let counter = self.ref_counters.entry(key).or_insert(0);
+        *counter += 1;
+        format!("{} {counter}", kind.display_name())
+    }
+
     /// Serializable project: levels, elements, profiles, and extra components.
     /// Meshes are rebuilt on load.
     pub fn export_snapshot(&self) -> ProjectSnapshot {
@@ -386,14 +488,19 @@ impl Project {
             .collect();
         components.sort_by(|a, b| a.id.cmp(&b.id));
 
+        let mut references: Vec<Reference> = self.document.references().cloned().collect();
+        references.sort_by(|a, b| a.name.cmp(&b.name));
+
         ProjectSnapshot {
             format: PROJECT_FORMAT,
             levels,
             active_level: self.document.active_level_id(),
             elements,
+            references,
             profiles,
             components,
             counters: self.counters.clone(),
+            ref_counters: self.ref_counters.clone(),
             level_counter: self.level_counter,
         }
     }
@@ -405,7 +512,7 @@ impl Project {
     }
 
     fn restore_snapshot(&mut self, snap: ProjectSnapshot) -> Result<(), RegistryError> {
-        if snap.format != PROJECT_FORMAT {
+        if snap.format != PROJECT_FORMAT && snap.format != 1 {
             return Err(RegistryError::Unknown(format!(
                 "unsupported project format {}",
                 snap.format
@@ -415,6 +522,7 @@ impl Project {
         let mut next = Project::new();
         next.history = std::mem::take(&mut self.history);
         next.counters = snap.counters;
+        next.ref_counters = snap.ref_counters;
         next.level_counter = snap.level_counter;
 
         for profile in snap.profiles {
@@ -424,8 +532,12 @@ impl Project {
             next.registry.upsert(definition)?;
         }
 
-        next.document
-            .load_contents(snap.levels, snap.active_level, snap.elements);
+        next.document.load_contents(
+            snap.levels,
+            snap.active_level,
+            snap.elements,
+            snap.references,
+        );
 
         let ids: Vec<ElementId> = next.document.elements().map(|element| element.id).collect();
         for id in ids {
@@ -438,7 +550,7 @@ impl Project {
 }
 
 /// On-disk / download format. Bump [`PROJECT_FORMAT`] when the shape changes.
-pub const PROJECT_FORMAT: u32 = 1;
+pub const PROJECT_FORMAT: u32 = 2;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectSnapshot {
@@ -446,11 +558,15 @@ pub struct ProjectSnapshot {
     pub levels: Vec<Level>,
     pub active_level: Option<LevelId>,
     pub elements: Vec<Element>,
+    #[serde(default)]
+    pub references: Vec<Reference>,
     pub profiles: Vec<ProfileType>,
     #[serde(default)]
     pub components: Vec<ComponentDefinition>,
     #[serde(default)]
     pub counters: BTreeMap<String, u32>,
+    #[serde(default)]
+    pub ref_counters: BTreeMap<String, u32>,
     #[serde(default)]
     pub level_counter: u32,
 }
@@ -1081,6 +1197,56 @@ mod tests {
         project.import_snapshot(snap).expect("import");
         assert!(!project.can_undo());
         assert!(!project.can_redo());
+    }
+
+    #[test]
+    fn references_round_trip_and_undo() {
+        let mut project = Project::new();
+        let ref_id = project
+            .create_reference(
+                ReferenceKind::Point,
+                Placement::point(Vec3::new(2.0, 0.0, 3.0)),
+            )
+            .expect("create ref");
+        assert_eq!(project.document().references().count(), 1);
+
+        let json = serde_json::to_string(&project.export_snapshot()).expect("json");
+        let snap: ProjectSnapshot = serde_json::from_str(&json).expect("parse");
+        let mut restored = Project::new();
+        restored.import_snapshot(snap).expect("import");
+        assert_eq!(restored.document().references().count(), 1);
+        assert_eq!(
+            restored.document().get_reference(ref_id).unwrap().name,
+            "Ref point 1"
+        );
+
+        project.undo().expect("undo ref create");
+        assert_eq!(project.document().references().count(), 0);
+    }
+
+    #[test]
+    fn a_column_can_extrude_from_a_reference_point_frame() {
+        let mut project = Project::new();
+        let ref_id = project
+            .create_reference(
+                ReferenceKind::Point,
+                Placement::point(Vec3::new(4.0, 0.0, 0.0)),
+            )
+            .expect("ref");
+        let column_id = project
+            .create_element(
+                "apex.column",
+                Placement::point(Vec3::ZERO),
+                ParamMap::new().with(
+                    "frame_ref",
+                    ParamValue::ReferenceRef(ref_id.to_string()),
+                ),
+            )
+            .expect("column");
+        let mesh = project.document().get_mesh(column_id).expect("mesh");
+        let (min, max) = mesh.aabb().expect("aabb");
+        assert!((min[0] - 3.8).abs() < EPS, "column sits on ref x {}", min[0]);
+        assert!((max[1] - 3.0).abs() < EPS);
     }
 
     #[test]

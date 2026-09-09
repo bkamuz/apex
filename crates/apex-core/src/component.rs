@@ -15,10 +15,13 @@ use apex_geometry::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+use std::str::FromStr;
+
 use crate::element::ComponentId;
 use crate::expr::{Expr, ExprError};
 use crate::param::{ParamBinding, ParamError, ParamId, ParamMap, ParamSpec};
 use crate::placement::{Placement, PlacementError, PlacementKind};
+use crate::reference::{RefId, ReferenceLibrary};
 use crate::sketch::{ProfileSketch, SketchError};
 
 pub type ModuleId = String;
@@ -47,6 +50,8 @@ pub enum RecipeError {
     BoundaryTooSmall(usize),
     #[error("unknown profile '{0}'")]
     UnknownProfile(ProfileId),
+    #[error("unknown reference '{0}'")]
+    UnknownReference(String),
     #[error("parameter '{0}' does not name a profile")]
     NotAProfileParam(ParamId),
     #[error("profile '{0}' references itself")]
@@ -90,8 +95,18 @@ pub enum FrameSource {
     WorkPlane,
     /// The placement's own frame at `t`, following rotation or curve tangent.
     PlacementCurve { t: Expr },
-    /// Reserved for reference points and planes; not resolvable yet.
+    /// A document reference by id.
     Ref { id: String },
+    /// Instance parameter holding a reference id; falls back to placement curve at `t`.
+    RefParam {
+        param: ParamId,
+        #[serde(default = "default_ref_param_t")]
+        t: Expr,
+    },
+}
+
+fn default_ref_param_t() -> Expr {
+    Expr::zero()
 }
 
 impl Default for FrameSource {
@@ -110,9 +125,27 @@ impl FrameSource {
                 let t = t.eval_f32(ctx.params)?;
                 Ok(ctx.placement.frame_at(t, &ctx.work_plane)?)
             }
-            Self::Ref { id } => Err(RecipeError::UnknownProfile(id.clone())),
+            Self::Ref { id } => resolve_reference_id(id, ctx),
+            Self::RefParam { param, t } => {
+                if let Some(id) = ctx.params.text(param).filter(|s| !s.is_empty()) {
+                    return resolve_reference_id(id, ctx);
+                }
+                let t = t.eval_f32(ctx.params)?;
+                Ok(ctx.placement.frame_at(t, &ctx.work_plane)?)
+            }
         }
     }
+}
+
+fn resolve_reference_id(id: &str, ctx: &RecipeContext) -> Result<Frame, RecipeError> {
+    let ref_id = RefId::from_str(id).map_err(|_| RecipeError::UnknownReference(id.to_string()))?;
+    let reference = ctx
+        .references
+        .get(&ref_id)
+        .ok_or_else(|| RecipeError::UnknownReference(id.to_string()))?;
+    reference
+        .frame(&ctx.work_plane)
+        .map_err(|_| RecipeError::UnknownReference(id.to_string()))
 }
 
 /// A cross-section, described parametrically so it rebuilds when params change.
@@ -303,8 +336,11 @@ impl GeometryRecipe {
                 height,
             } => {
                 profile.collect_params(out);
-                if let FrameSource::PlacementCurve { t } = frame {
-                    out.extend(t.referenced_params());
+                match frame {
+                    FrameSource::PlacementCurve { t } | FrameSource::RefParam { t, .. } => {
+                        out.extend(t.referenced_params());
+                    }
+                    FrameSource::Ref { .. } | FrameSource::WorkPlane => {}
                 }
                 out.extend(height.referenced_params());
             }
@@ -325,6 +361,7 @@ pub struct RecipeContext<'a> {
     pub params: &'a ParamMap,
     pub work_plane: Frame,
     pub profiles: &'a ProfileLibrary,
+    pub references: &'a ReferenceLibrary,
 }
 
 /// A mesh generator supplied by a module, reached through `GeometryRecipe::Custom`.
@@ -678,6 +715,7 @@ mod tests {
     use super::*;
     use crate::param::{ParamKind, ParamValue};
     use crate::placement::{Placement, PlacementKind};
+    use crate::reference::{Reference, ReferenceKind};
     use glam::Vec3;
 
     const EPS: f32 = 1e-4;
@@ -690,13 +728,19 @@ mod tests {
         placement: &'a Placement,
         params: &'a ParamMap,
         profiles: &'a ProfileLibrary,
+        references: &'a ReferenceLibrary,
     ) -> RecipeContext<'a> {
         RecipeContext {
             placement,
             params,
             work_plane: Frame::horizontal(0.0),
             profiles,
+            references,
         }
+    }
+
+    fn empty_refs() -> ReferenceLibrary {
+        ReferenceLibrary::new()
     }
 
     fn size_of(mesh: &TriangleMesh) -> [f32; 3] {
@@ -723,7 +767,7 @@ mod tests {
 
         let mesh = evaluate_recipe(
             &recipe,
-            &ctx(&placement, &params, &profiles),
+            &ctx(&placement, &params, &profiles, &empty_refs()),
             &no_builders(),
         )
         .expect("mesh");
@@ -754,9 +798,9 @@ mod tests {
             .with("height", ParamValue::Length(6.0))
             .with("thickness", ParamValue::Length(0.2));
 
-        let a = evaluate_recipe(&recipe, &ctx(&placement, &short, &profiles), &no_builders())
+        let a = evaluate_recipe(&recipe, &ctx(&placement, &short, &profiles, &empty_refs()), &no_builders())
             .expect("mesh");
-        let b = evaluate_recipe(&recipe, &ctx(&placement, &tall, &profiles), &no_builders())
+        let b = evaluate_recipe(&recipe, &ctx(&placement, &tall, &profiles, &empty_refs()), &no_builders())
             .expect("mesh");
         assert!((size_of(&a)[1] - 2.0).abs() < EPS);
         assert!((size_of(&b)[1] - 6.0).abs() < EPS);
@@ -782,7 +826,7 @@ mod tests {
 
         let mesh = evaluate_recipe(
             &recipe,
-            &ctx(&placement, &params, &profiles),
+            &ctx(&placement, &params, &profiles, &empty_refs()),
             &no_builders(),
         )
         .expect("mesh");
@@ -807,7 +851,7 @@ mod tests {
         assert_eq!(
             evaluate_recipe(
                 &recipe,
-                &ctx(&placement, &params, &profiles),
+                &ctx(&placement, &params, &profiles, &empty_refs()),
                 &no_builders()
             )
             .unwrap_err(),
@@ -834,7 +878,7 @@ mod tests {
 
         let mesh = evaluate_recipe(
             &recipe,
-            &ctx(&placement, &params, &profiles),
+            &ctx(&placement, &params, &profiles, &empty_refs()),
             &no_builders(),
         )
         .expect("mesh");
@@ -863,7 +907,8 @@ mod tests {
         };
         let params = ParamMap::new();
         let profiles = ProfileLibrary::new();
-        let c = ctx(&placement, &params, &profiles);
+        let refs = empty_refs();
+        let c = ctx(&placement, &params, &profiles, &refs);
 
         let aligned = evaluate_recipe(&recipe(FrameSource::WorkPlane), &c, &no_builders()).unwrap();
         let turned = evaluate_recipe(&recipe(FrameSource::default()), &c, &no_builders()).unwrap();
@@ -903,7 +948,8 @@ mod tests {
         let placement = Placement::point(Vec3::ZERO);
         let params = ParamMap::new();
         let profiles = ProfileLibrary::new();
-        let c = ctx(&placement, &params, &profiles);
+        let refs = empty_refs();
+        let c = ctx(&placement, &params, &profiles, &refs);
 
         let one = evaluate_recipe(&column, &c, &no_builders()).unwrap();
         let both = evaluate_recipe(&group, &c, &no_builders()).unwrap();
@@ -921,7 +967,7 @@ mod tests {
         assert_eq!(
             evaluate_recipe(
                 &GeometryRecipe::Group { steps: vec![] },
-                &ctx(&placement, &params, &profiles),
+                &ctx(&placement, &params, &profiles, &empty_refs()),
                 &no_builders()
             )
             .unwrap_err(),
@@ -949,14 +995,14 @@ mod tests {
         };
 
         let mesh =
-            evaluate_recipe(&recipe, &ctx(&placement, &params, &profiles), &builders).unwrap();
+            evaluate_recipe(&recipe, &ctx(&placement, &params, &profiles, &empty_refs()), &builders).unwrap();
         assert_eq!(mesh.triangle_count(), 1);
 
         let missing = GeometryRecipe::Custom {
             builder_id: "acme.nope".into(),
         };
         assert_eq!(
-            evaluate_recipe(&missing, &ctx(&placement, &params, &profiles), &builders).unwrap_err(),
+            evaluate_recipe(&missing, &ctx(&placement, &params, &profiles, &empty_refs()), &builders).unwrap_err(),
             RecipeError::UnknownBuilder("acme.nope".into())
         );
     }
@@ -988,7 +1034,7 @@ mod tests {
 
         let mesh = evaluate_recipe(
             &recipe,
-            &ctx(&placement, &params, &profiles),
+            &ctx(&placement, &params, &profiles, &empty_refs()),
             &no_builders(),
         )
         .expect("mesh");
@@ -1033,9 +1079,9 @@ mod tests {
         let thin = ParamMap::new().with("profile", ParamValue::ProfileRef("acme.thin".into()));
         let fat = ParamMap::new().with("profile", ParamValue::ProfileRef("acme.fat".into()));
 
-        let a = evaluate_recipe(&recipe, &ctx(&placement, &thin, &profiles), &no_builders())
+        let a = evaluate_recipe(&recipe, &ctx(&placement, &thin, &profiles, &empty_refs()), &no_builders())
             .expect("mesh");
-        let b = evaluate_recipe(&recipe, &ctx(&placement, &fat, &profiles), &no_builders())
+        let b = evaluate_recipe(&recipe, &ctx(&placement, &fat, &profiles, &empty_refs()), &no_builders())
             .expect("mesh");
 
         assert!((size_of(&a)[2] - 0.1).abs() < EPS);
@@ -1058,7 +1104,7 @@ mod tests {
         assert_eq!(
             evaluate_recipe(
                 &recipe,
-                &ctx(&placement, &params, &profiles),
+                &ctx(&placement, &params, &profiles, &empty_refs()),
                 &no_builders()
             )
             .unwrap_err(),
@@ -1217,7 +1263,7 @@ mod tests {
         let placement = Placement::point(Vec3::ZERO);
         let mesh = evaluate_recipe(
             &def.recipe,
-            &ctx(&placement, &params, &profiles),
+            &ctx(&placement, &params, &profiles, &empty_refs()),
             &no_builders(),
         )
         .expect("mesh");
@@ -1257,6 +1303,95 @@ mod tests {
     }
 
     #[test]
+    fn frame_source_ref_resolves_a_document_reference() {
+        let mut references = empty_refs();
+        let reference = Reference::new(
+            "P1",
+            crate::level::LevelId::new(),
+            ReferenceKind::Point,
+            Placement::point(Vec3::new(3.0, 0.0, 4.0)),
+        );
+        let ref_id = reference.id.to_string();
+        references.insert(reference.id, reference);
+
+        let recipe = GeometryRecipe::Extrude {
+            profile: ProfileSpec::Rectangle {
+                width: Expr::constant(0.4),
+                height: Expr::constant(0.4),
+            },
+            frame: FrameSource::Ref {
+                id: ref_id.clone(),
+            },
+            height: Expr::constant(2.0),
+        };
+        let placement = Placement::point(Vec3::ZERO);
+        let params = ParamMap::new();
+        let profiles = ProfileLibrary::new();
+        let mesh = evaluate_recipe(
+            &recipe,
+            &ctx(&placement, &params, &profiles, &references),
+            &no_builders(),
+        )
+        .expect("mesh");
+        let (min, max) = mesh.aabb().expect("aabb");
+        assert!((min[0] - 2.8).abs() < EPS, "origin x {}", min[0]);
+        assert!((min[2] - 3.8).abs() < EPS, "origin z {}", min[2]);
+        assert!((max[1] - 2.0).abs() < EPS);
+    }
+
+    #[test]
+    fn frame_source_ref_reports_unknown_ids() {
+        let recipe = GeometryRecipe::Extrude {
+            profile: ProfileSpec::Rectangle {
+                width: Expr::constant(0.4),
+                height: Expr::constant(0.4),
+            },
+            frame: FrameSource::Ref {
+                id: "00000000-0000-0000-0000-000000000000".into(),
+            },
+            height: Expr::constant(2.0),
+        };
+        let err = evaluate_recipe(
+            &recipe,
+            &ctx(
+                &Placement::point(Vec3::ZERO),
+                &ParamMap::new(),
+                &ProfileLibrary::new(),
+                &empty_refs(),
+            ),
+            &no_builders(),
+        )
+        .unwrap_err();
+        assert!(matches!(err, RecipeError::UnknownReference(_)));
+    }
+
+    #[test]
+    fn frame_source_ref_param_falls_back_to_placement_when_empty() {
+        let recipe = GeometryRecipe::Extrude {
+            profile: ProfileSpec::Rectangle {
+                width: Expr::constant(0.4),
+                height: Expr::constant(0.4),
+            },
+            frame: FrameSource::RefParam {
+                param: "frame_ref".into(),
+                t: Expr::zero(),
+            },
+            height: Expr::constant(2.0),
+        };
+        let placement = Placement::point(Vec3::new(1.0, 0.0, 2.0));
+        let params = ParamMap::new();
+        let profiles = ProfileLibrary::new();
+        let mesh = evaluate_recipe(
+            &recipe,
+            &ctx(&placement, &params, &profiles, &empty_refs()),
+            &no_builders(),
+        )
+        .expect("mesh");
+        let (min, _) = mesh.aabb().expect("aabb");
+        assert!((min[0] - 0.8).abs() < EPS, "fallback placement x {}", min[0]);
+    }
+
+    #[test]
     fn a_profile_from_the_placement_projects_a_polyline_into_the_work_plane() {
         let placement = PlacementKind::Polyline
             .build(
@@ -1285,7 +1420,7 @@ mod tests {
         let profiles = ProfileLibrary::new();
         let mesh = evaluate_recipe(
             &recipe,
-            &ctx(&placement, &params, &profiles),
+            &ctx(&placement, &params, &profiles, &empty_refs()),
             &no_builders(),
         )
         .expect("mesh");

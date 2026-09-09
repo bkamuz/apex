@@ -3,7 +3,10 @@ import {
   apexBeginUndoGroup,
   apexCreateElement,
   apexCreateLevel,
+  apexCreateReference,
   apexDeleteSelected,
+  apexDeleteSelectedReference,
+  apexGetSelectedReference,
   apexExportProject,
   apexGetScene,
   apexGetSelected,
@@ -16,6 +19,8 @@ import {
   apexRedo,
   apexRegisterProfile,
   apexSelectElement,
+  apexSelectReference,
+  apexSetReferencePlacement,
   apexSetActiveLevel,
   apexSetElementPlacement,
   apexSetLevelElevation,
@@ -41,6 +46,8 @@ import type {
   ParamValue,
   PlacementKind,
   ProfileTypeDto,
+  ReferenceDto,
+  ReferenceKind,
   SceneDto,
 } from './types';
 import { LevelList } from './ui/LevelList';
@@ -107,6 +114,7 @@ export default function App() {
   const registryRef = useRef<ToolRegistry>(makeToolRegistry());
   const shiftHeldRef = useRef(false);
   const selectedRef = useRef<ElementDto | null>(null);
+  const selectedReferenceRef = useRef<ReferenceDto | null>(null);
   const selectedCountRef = useRef(0);
   const activeElevationRef = useRef(0);
   const suppressClickRef = useRef(false);
@@ -130,6 +138,7 @@ export default function App() {
   const [projection, setProjection] = useState<ProjectionMode>('orthographic');
   const [scene, setScene] = useState<SceneDto | null>(null);
   const [selected, setSelected] = useState<ElementDto | null>(null);
+  const [selectedReference, setSelectedReference] = useState<ReferenceDto | null>(null);
   const [selectedLevelId, setSelectedLevelId] = useState<string | null>(null);
   const [pending, setPending] = useState<Vec3[]>([]);
   const [fps, setFps] = useState(0);
@@ -139,6 +148,7 @@ export default function App() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   selectedRef.current = selected;
+  selectedReferenceRef.current = selectedReference;
   selectedCountRef.current = scene?.selected_ids?.length ?? 0;
   placementParamsRef.current = placementDraft;
 
@@ -163,8 +173,20 @@ export default function App() {
     return components.find((c) => c.id === selected.component_id) ?? null;
   }, [selected, components]);
 
-  const syncEditGizmo = useCallback((el: ElementDto | null) => {
-    rendererRef.current?.setEditGizmo(el?.anchors?.length ? el.anchors : null);
+  const syncReferenceGizmos = useCallback((refs: ReferenceDto[]) => {
+    const segments: Vec3[] = [];
+    for (const reference of refs) {
+      if (reference.gizmo_segments?.length) {
+        segments.push(...reference.gizmo_segments);
+      }
+    }
+    rendererRef.current?.setReferenceGizmos(segments.length >= 2 ? segments : null);
+  }, []);
+
+  const syncEditGizmo = useCallback((el: ElementDto | null, ref: ReferenceDto | null) => {
+    const anchors =
+      el?.anchors?.length ? el.anchors : ref?.anchors?.length ? ref.anchors : null;
+    rendererRef.current?.setEditGizmo(anchors);
   }, []);
 
   const clearPreview = useCallback(() => {
@@ -195,13 +217,18 @@ export default function App() {
           fitCamera,
         });
         syncLevelPlanes(renderer, next);
+        syncReferenceGizmos(next.references ?? []);
       }
+      setComponents(apexListComponents());
       const sel = apexGetSelected();
+      const selRef = apexGetSelectedReference();
       setSelected(sel);
+      setSelectedReference(selRef);
       if (sel) setSelectedLevelId(sel.level_id);
-      if (!draggingRef.current) syncEditGizmo(sel);
+      else if (selRef) setSelectedLevelId(selRef.level_id);
+      if (!draggingRef.current) syncEditGizmo(sel, selRef);
     },
-    [syncEditGizmo],
+    [syncEditGizmo, syncReferenceGizmos],
   );
 
   /** Screen point to a world point on the active work plane, with Shift snapping. */
@@ -230,6 +257,15 @@ export default function App() {
           applyScene(
             apexCreateElement(componentId, points, placementParamsRef.current, 0, placementKind),
           );
+          setError(null);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+        }
+      },
+
+      createReference: (kind: ReferenceKind, points) => {
+        try {
+          applyScene(apexCreateReference(kind, points));
           setError(null);
         } catch (e) {
           setError(e instanceof Error ? e.message : String(e));
@@ -274,16 +310,37 @@ export default function App() {
       },
 
       hitEditHandle: (x, y) => renderer.hitEditHandle(x, y),
-      selectedAnchors: () =>
-        selectedCountRef.current === 1 ? (selectedRef.current?.anchors ?? null) : null,
+      selectedAnchors: () => {
+        if (selectedReferenceRef.current) return selectedReferenceRef.current.anchors;
+        return selectedCountRef.current === 1 ? (selectedRef.current?.anchors ?? null) : null;
+      },
 
       previewAnchors: (anchors) => {
         draggingRef.current = true;
         renderer.setEditGizmo(anchors);
+        const refSel = selectedReferenceRef.current;
+        if (refSel) {
+          try {
+            const next = apexSetReferencePlacement(refSel.id, anchors, 0, false);
+            renderer.setScene({
+              positions: toFloatArray(next.positions),
+              normals: toFloatArray(next.normals),
+              indices: toUint32Array(next.indices),
+              pickIds: next.pick_ids,
+              edgePositions: next.edge_positions ? toFloatArray(next.edge_positions) : [],
+              selectedPickIds: selectedPickIds(next),
+              fitCamera: false,
+            });
+            syncReferenceGizmos(next.references ?? []);
+            setScene(next);
+          } catch {
+            /* keep dragging */
+          }
+          return;
+        }
         const sel = selectedRef.current;
         if (!sel) return;
         try {
-          // Live-update through the core so the solid follows the handle.
           const next = apexSetElementPlacement(sel.id, anchors, 0, false);
           renderer.setScene({
             positions: toFloatArray(next.positions),
@@ -296,12 +353,23 @@ export default function App() {
           });
           setScene(next);
         } catch {
-          // Keep dragging even if one intermediate placement is invalid.
+          /* keep dragging */
         }
       },
 
       commitAnchors: (anchors) => {
         draggingRef.current = false;
+        const refSel = selectedReferenceRef.current;
+        if (refSel) {
+          try {
+            applyScene(apexSetReferencePlacement(refSel.id, anchors, 0, true));
+            setError(null);
+          } catch (e) {
+            setError(e instanceof Error ? e.message : String(e));
+            syncEditGizmo(null, refSel);
+          }
+          return;
+        }
         const sel = selectedRef.current;
         if (!sel) return;
         try {
@@ -309,7 +377,7 @@ export default function App() {
           setError(null);
         } catch (e) {
           setError(e instanceof Error ? e.message : String(e));
-          syncEditGizmo(sel);
+          syncEditGizmo(sel, null);
         }
       },
 
@@ -325,7 +393,7 @@ export default function App() {
       setPending,
       setTouchOrbitEnabled: (enabled) => renderer.setTouchOrbitEnabled(enabled),
     };
-  }, [applyScene, resolvePoint, syncEditGizmo]);
+  }, [applyScene, resolvePoint, syncEditGizmo, syncReferenceGizmos]);
 
   const cancelGesture = useCallback(() => {
     if (!rendererRef.current) return;
@@ -341,7 +409,7 @@ export default function App() {
       setToolId(id);
       const next = registryRef.current.get(id);
       setDrawMode(next?.getMode?.() ?? null);
-      if (id === ToolRegistry.selectId) syncEditGizmo(selectedRef.current);
+      if (id === ToolRegistry.selectId) syncEditGizmo(selectedRef.current, selectedReferenceRef.current);
       else rendererRef.current?.setEditGizmo(null);
       const component = components.find((item) => item.id === next?.componentId);
       if (component) {
@@ -412,10 +480,11 @@ export default function App() {
       active.blur();
     }
     try {
-      applyScene(apexSelectElement(null));
+      applyScene(apexSelectReference(null));
     } catch {
       rendererRef.current?.setEditGizmo(null);
       setSelected(null);
+      setSelectedReference(null);
     }
   }, [applyScene, cancelGesture]);
 
@@ -435,14 +504,25 @@ export default function App() {
       const typing =
         active instanceof HTMLElement &&
         (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT');
-      if (!typing && (e.key === 'Delete' || e.key === 'Backspace') && selectedCountRef.current > 0) {
-        e.preventDefault();
-        try {
-          applyScene(apexDeleteSelected());
-        } catch {
-          /* ignore */
+      if (!typing && (e.key === 'Delete' || e.key === 'Backspace')) {
+        if (selectedReferenceRef.current) {
+          e.preventDefault();
+          try {
+            applyScene(apexDeleteSelectedReference());
+          } catch {
+            /* ignore */
+          }
+          return;
         }
-        return;
+        if (selectedCountRef.current > 0) {
+          e.preventDefault();
+          try {
+            applyScene(apexDeleteSelected());
+          } catch {
+            /* ignore */
+          }
+          return;
+        }
       }
       const mod = e.ctrlKey || e.metaKey;
       if (!typing && mod && e.key.toLowerCase() === 'z') {
@@ -643,6 +723,11 @@ export default function App() {
     applyScene(multi ? apexToggleSelectElement(id) : apexSelectElement(id));
   };
 
+  const onSelectReferenceFromTree = (id: string) => {
+    activateTool(ToolRegistry.selectId);
+    applyScene(apexSelectReference(id));
+  };
+
   const onSelectLevel = (id: string) => {
     setSelectedLevelId(id);
     try {
@@ -783,6 +868,7 @@ export default function App() {
       selectedCount={selectedIds.length}
       component={selectedComponent}
       profiles={profiles}
+      references={scene?.references ?? []}
       selectedLevel={selectedIds.length === 0 && !placementComponent ? selectedLevel : null}
       placement={
         placementComponent
@@ -916,11 +1002,14 @@ export default function App() {
           />
           <ProjectBrowser
             elements={elements}
+            references={scene?.references ?? []}
             profiles={profiles}
             levels={levels}
             selectedIds={selectedIds}
             selectedProfileId={profileEditor?.originalId ?? profileEditor?.profile.id ?? null}
+            selectedRefId={scene?.selected_ref_id ?? null}
             onSelectInstance={(id, multi) => onSelectFromTree(id, multi)}
+            onSelectReference={onSelectReferenceFromTree}
             onSelectType={onSelectType}
             onNewProfile={() => onNewProfile('wall')}
           />
@@ -977,13 +1066,19 @@ export default function App() {
             elements={
               <ProjectBrowser
                 elements={elements}
+                references={scene?.references ?? []}
                 profiles={profiles}
                 levels={levels}
                 selectedIds={selectedIds}
                 selectedProfileId={profileEditor?.originalId ?? profileEditor?.profile.id ?? null}
+                selectedRefId={scene?.selected_ref_id ?? null}
                 onSelectInstance={(id, multi) => {
                   onSelectFromTree(id, multi);
                   if (!multi) closeMobileMenu();
+                }}
+                onSelectReference={(id) => {
+                  onSelectReferenceFromTree(id);
+                  closeMobileMenu();
                 }}
                 onSelectType={(profileId) => {
                   onSelectType(profileId);

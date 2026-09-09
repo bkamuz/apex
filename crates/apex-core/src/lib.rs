@@ -9,6 +9,7 @@ mod level;
 mod param;
 mod placement;
 mod project;
+mod reference;
 mod registry;
 mod sketch;
 
@@ -24,6 +25,7 @@ pub use history::History;
 pub use level::{Level, LevelId};
 pub use param::{ParamBinding, ParamError, ParamId, ParamKind, ParamMap, ParamSpec, ParamValue};
 pub use placement::{Placement, PlacementError, PlacementKind};
+pub use reference::{RefId, Reference, ReferenceError, ReferenceFilter, ReferenceKind, ReferenceLibrary};
 pub use project::Project;
 pub use project::ProjectSnapshot;
 pub use registry::{builtin_components, ComponentRegistry, RegistryError};

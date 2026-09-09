@@ -77,11 +77,40 @@ export function createLevel(name, elevation) {
 }
 
 /**
+ * @param {string} kind
+ * @param {string} points_json
+ * @param {number} rotation
+ * @returns {any}
+ */
+export function createReference(kind, points_json, rotation) {
+    const ptr0 = passStringToWasm0(kind, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(points_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.createReference(ptr0, len0, ptr1, len1, rotation);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * Delete every selected element.
  * @returns {any}
  */
 export function deleteSelected() {
     const ret = wasm.deleteSelected();
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @returns {any}
+ */
+export function deleteSelectedReference() {
+    const ret = wasm.deleteSelectedReference();
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -128,6 +157,17 @@ export function getScene() {
  */
 export function getSelected() {
     const ret = wasm.getSelected();
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @returns {any}
+ */
+export function getSelectedReference() {
+    const ret = wasm.getSelectedReference();
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -329,6 +369,20 @@ export function selectElement(id) {
  * @param {string} id
  * @returns {any}
  */
+export function selectReference(id) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.selectReference(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {string} id
+ * @returns {any}
+ */
 export function setActiveLevel(id) {
     const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
@@ -372,6 +426,25 @@ export function setLevelElevation(id, elevation) {
     const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
     const ret = wasm.setLevelElevation(ptr0, len0, elevation);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {string} id
+ * @param {string} points_json
+ * @param {number} rotation
+ * @param {boolean} record_history
+ * @returns {any}
+ */
+export function setReferencePlacement(id, points_json, rotation, record_history) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(points_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.setReferencePlacement(ptr0, len0, ptr1, len1, rotation, record_history);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }

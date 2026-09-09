@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::element::{ComponentId, Element, ElementId};
 use crate::level::{Level, LevelId};
+use crate::reference::{RefId, Reference, ReferenceLibrary};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -13,6 +14,7 @@ pub enum DocumentChangeKind {
     Remove,
     Clear,
     LevelChanged,
+    ReferenceChanged,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -28,6 +30,7 @@ pub struct Document {
     levels: HashMap<LevelId, Level>,
     elements: HashMap<ElementId, Element>,
     meshes: HashMap<ElementId, TriangleMesh>,
+    references: ReferenceLibrary,
     version: u64,
     /// Level used for new placements (active work plane).
     active_level: Option<LevelId>,
@@ -125,6 +128,25 @@ impl Document {
         self.meshes.get(&id)
     }
 
+    pub fn references(&self) -> impl Iterator<Item = &Reference> {
+        self.references.values()
+    }
+
+    pub fn get_reference(&self, id: RefId) -> Option<&Reference> {
+        self.references.get(&id)
+    }
+
+    pub fn upsert_reference(&mut self, reference: Reference) -> DocumentChange {
+        let id = reference.id;
+        self.references.insert(id, reference);
+        self.bump(DocumentChangeKind::ReferenceChanged, vec![])
+    }
+
+    pub fn remove_reference(&mut self, id: RefId) -> Option<DocumentChange> {
+        self.references.remove(&id)?;
+        Some(self.bump(DocumentChangeKind::ReferenceChanged, vec![]))
+    }
+
     pub fn upsert_element(&mut self, element: Element, mesh: TriangleMesh) -> DocumentChange {
         let id = element.id;
         self.elements.insert(id, element);
@@ -156,6 +178,7 @@ impl Document {
         mut levels: Vec<Level>,
         active_level: Option<LevelId>,
         elements: Vec<Element>,
+        references: Vec<Reference>,
     ) {
         if levels.is_empty() {
             levels.push(Level::new("Level 0", 0.0));
@@ -164,6 +187,10 @@ impl Document {
         self.elements = elements
             .into_iter()
             .map(|element| (element.id, element))
+            .collect();
+        self.references = references
+            .into_iter()
+            .map(|reference| (reference.id, reference))
             .collect();
         self.meshes.clear();
         self.active_level = active_level.filter(|id| self.levels.contains_key(id));

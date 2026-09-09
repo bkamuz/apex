@@ -10,7 +10,17 @@ export type PlacementKind =
   | 'free';
 
 /** Mirrors `ParamKind` in apex-core. */
-export type ParamKind = 'length' | 'angle' | 'number' | 'bool' | 'text' | 'choice' | 'profile';
+export type ParamKind =
+  | 'length'
+  | 'angle'
+  | 'number'
+  | 'bool'
+  | 'text'
+  | 'choice'
+  | 'profile'
+  | 'reference';
+
+export type ReferenceKind = 'point' | 'plane';
 
 /** Whether a parameter lives on the profile/component type or on one element. */
 export type ParamBinding = 'type' | 'instance';
@@ -118,6 +128,15 @@ export interface ElementListDto {
   profile_id?: string | null;
 }
 
+export interface ReferenceDto {
+  id: string;
+  name: string;
+  kind: ReferenceKind;
+  level_id: string;
+  anchors: Vec3[];
+  gizmo_segments: Vec3[];
+}
+
 export interface LevelDto {
   id: string;
   name: string;
@@ -138,12 +157,14 @@ export interface SceneDto {
   pick_ids: Float64Array | number[];
   edge_positions?: Float32Array | number[];
   elements: ElementListDto[];
+  references?: ReferenceDto[];
   levels: LevelDto[];
   active_level_id: string | null;
   version: number;
   selected_ids: string[];
   /** Primary / first selected id; null when empty. */
   selected_id: string | null;
+  selected_ref_id?: string | null;
   can_undo?: boolean;
   can_redo?: boolean;
 }
