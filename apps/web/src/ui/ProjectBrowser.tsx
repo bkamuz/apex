@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { ElementListDto, GridAxisDto, LevelDto, ProfileTypeDto, ReferenceDto } from '../types';
 import { profileLabel } from './profileModel';
 
@@ -33,32 +33,34 @@ interface BrowserItem {
   profileName: string;
 }
 
+interface BrowserPrefs {
+  groupBy: BrowserGroupBy;
+  sortBy: BrowserSortBy;
+  filter: BrowserFilter;
+  collapsed: Partial<Record<BrowserGroupBy, string[]>>;
+}
+
 const BROWSER_PREFS_KEY = 'apex.browser';
 
-function loadPrefs(): { groupBy: BrowserGroupBy; sortBy: BrowserSortBy; filter: BrowserFilter } {
+function loadPrefs(): BrowserPrefs {
   try {
     const raw = localStorage.getItem(BROWSER_PREFS_KEY);
-    if (!raw) return { groupBy: 'kind', sortBy: 'name', filter: 'all' };
-    const parsed = JSON.parse(raw) as Partial<{
-      groupBy: BrowserGroupBy;
-      sortBy: BrowserSortBy;
-      filter: BrowserFilter;
-    }>;
+    if (!raw) {
+      return { groupBy: 'kind', sortBy: 'name', filter: 'all', collapsed: {} };
+    }
+    const parsed = JSON.parse(raw) as Partial<BrowserPrefs>;
     return {
       groupBy: parsed.groupBy ?? 'kind',
       sortBy: parsed.sortBy ?? 'name',
       filter: parsed.filter ?? 'all',
+      collapsed: parsed.collapsed ?? {},
     };
   } catch {
-    return { groupBy: 'kind', sortBy: 'name', filter: 'all' };
+    return { groupBy: 'kind', sortBy: 'name', filter: 'all', collapsed: {} };
   }
 }
 
-function storePrefs(prefs: {
-  groupBy: BrowserGroupBy;
-  sortBy: BrowserSortBy;
-  filter: BrowserFilter;
-}): void {
+function storePrefs(prefs: BrowserPrefs): void {
   try {
     localStorage.setItem(BROWSER_PREFS_KEY, JSON.stringify(prefs));
   } catch {
@@ -103,6 +105,136 @@ function compareItems(a: BrowserItem, b: BrowserItem, sortBy: BrowserSortBy): nu
   }
 }
 
+function isGroupExpanded(
+  groupBy: BrowserGroupBy,
+  label: string,
+  collapsed: Partial<Record<BrowserGroupBy, string[]>>,
+): boolean {
+  const list = collapsed[groupBy] ?? [];
+  return !list.includes(label);
+}
+
+interface BrowserTreeItemProps {
+  item: BrowserItem;
+  isSelected: boolean;
+  onSelectInstance: (id: string, multi: boolean) => void;
+  onSelectReference: (id: string) => void;
+  onSelectGridAxis: (id: string) => void;
+  onSelectType: (profileId: string) => void;
+}
+
+function BrowserTreeItem({
+  item,
+  isSelected,
+  onSelectInstance,
+  onSelectReference,
+  onSelectGridAxis,
+  onSelectType,
+}: BrowserTreeItemProps) {
+  const isType = item.kind === 'type';
+  const isRef = item.kind === 'reference';
+  const isGrid = item.kind === 'grid_axis';
+
+  return (
+    <li
+      data-kind={item.kind}
+      data-id={item.id}
+      className={isSelected ? 'selected' : ''}
+      onClick={(event) => {
+        if (isType) onSelectType(item.id);
+        else if (isRef) onSelectReference(item.id);
+        else if (isGrid) onSelectGridAxis(item.id);
+        else onSelectInstance(item.id, event.ctrlKey || event.metaKey);
+      }}
+    >
+      <span>
+        {item.name}
+        <span className={`kind-badge kind-${item.kind}`}>
+          {isType ? 'type' : isRef ? 'ref' : isGrid ? 'grid' : 'instance'}
+        </span>
+      </span>
+      <span className="cat">
+        {isType ? item.category : isRef || isGrid ? item.levelName : item.profileName}
+      </span>
+    </li>
+  );
+}
+
+interface BrowserTreeGroupProps {
+  label: string;
+  items: BrowserItem[];
+  expanded: boolean;
+  onToggle: () => void;
+  selected: Set<string>;
+  selectedProfileId: string | null;
+  selectedRefId: string | null;
+  selectedGridAxisId: string | null;
+  onSelectInstance: (id: string, multi: boolean) => void;
+  onSelectReference: (id: string) => void;
+  onSelectGridAxis: (id: string) => void;
+  onSelectType: (profileId: string) => void;
+}
+
+function BrowserTreeGroup({
+  label,
+  items,
+  expanded,
+  onToggle,
+  selected,
+  selectedProfileId,
+  selectedRefId,
+  selectedGridAxisId,
+  onSelectInstance,
+  onSelectReference,
+  onSelectGridAxis,
+  onSelectType,
+}: BrowserTreeGroupProps) {
+  return (
+    <div className="browser-tree-group">
+      <div className="browser-tree-group-header">
+        <button
+          type="button"
+          className="browser-tree-toggle"
+          aria-expanded={expanded}
+          aria-label={`${expanded ? 'Collapse' : 'Expand'} ${label}`}
+          onClick={onToggle}
+        >
+          <span className="browser-tree-chevron" aria-hidden="true" />
+        </button>
+        <span className="browser-tree-group-label">{label}</span>
+        <span className="browser-tree-group-count">{items.length}</span>
+      </div>
+      {expanded ? (
+        <ul className="browser-tree-items">
+          {items.map((item) => {
+            const isType = item.kind === 'type';
+            const isRef = item.kind === 'reference';
+            const isGrid = item.kind === 'grid_axis';
+            const isSelected = isType
+              ? selectedProfileId === item.id
+              : isRef
+                ? selectedRefId === item.id
+                : isGrid
+                  ? selectedGridAxisId === item.id
+                  : selected.has(item.id);
+            return (
+              <BrowserTreeItem
+                key={item.key}
+                item={item}
+                isSelected={isSelected}
+                onSelectInstance={onSelectInstance}
+                onSelectReference={onSelectReference}
+                onSelectGridAxis={onSelectGridAxis}
+                onSelectType={onSelectType}
+              />
+            );
+          })}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
 export function ProjectBrowser({
   elements,
   references,
@@ -123,18 +255,47 @@ export function ProjectBrowser({
   const [groupBy, setGroupBy] = useState<BrowserGroupBy>(initial.groupBy);
   const [sortBy, setSortBy] = useState<BrowserSortBy>(initial.sortBy);
   const [filter, setFilter] = useState<BrowserFilter>(initial.filter);
+  const [collapsed, setCollapsed] = useState<Partial<Record<BrowserGroupBy, string[]>>>(
+    initial.collapsed,
+  );
+
+  const persist = useCallback(
+    (next: Partial<BrowserPrefs>) => {
+      const prefs: BrowserPrefs = {
+        groupBy,
+        sortBy,
+        filter,
+        collapsed,
+        ...next,
+      };
+      storePrefs(prefs);
+    },
+    [groupBy, sortBy, filter, collapsed],
+  );
 
   const setGroup = (value: BrowserGroupBy) => {
     setGroupBy(value);
-    storePrefs({ groupBy: value, sortBy, filter });
+    persist({ groupBy: value });
   };
   const setSort = (value: BrowserSortBy) => {
     setSortBy(value);
-    storePrefs({ groupBy, sortBy: value, filter });
+    persist({ sortBy: value });
   };
   const setFilt = (value: BrowserFilter) => {
     setFilter(value);
-    storePrefs({ groupBy, sortBy, filter: value });
+    persist({ filter: value });
+  };
+
+  const toggleGroup = (label: string) => {
+    setCollapsed((prev) => {
+      const list = prev[groupBy] ?? [];
+      const nextList = list.includes(label)
+        ? list.filter((entry) => entry !== label)
+        : [...list, label];
+      const next = { ...prev, [groupBy]: nextList };
+      storePrefs({ groupBy, sortBy, filter, collapsed: next });
+      return next;
+    });
   };
 
   const levelName = (id: string) => levels.find((level) => level.id === id)?.name ?? '—';
@@ -282,53 +443,57 @@ export function ProjectBrowser({
           </button>
         ))}
       </div>
-      {groups.length === 0 ? (
-        <div className="empty">No types or elements yet. Draw a profile or place a wall.</div>
-      ) : (
-        groups.map(([label, groupItems]) => (
-          <div key={label} className="browser-group">
-            {groupBy !== 'none' ? <div className="browser-group-title">{label}</div> : null}
-            <ul className="element-list">
-              {groupItems.map((item) => {
-                const isType = item.kind === 'type';
-                const isRef = item.kind === 'reference';
-                const isGrid = item.kind === 'grid_axis';
-                const isSelected = isType
-                  ? selectedProfileId === item.id
-                  : isRef
-                    ? selectedRefId === item.id
-                    : isGrid
-                      ? selectedGridAxisId === item.id
-                      : selected.has(item.id);
-                return (
-                  <li
-                    key={item.key}
-                    data-kind={item.kind}
-                    data-id={item.id}
-                    className={isSelected ? 'selected' : ''}
-                    onClick={(event) => {
-                      if (isType) onSelectType(item.id);
-                      else if (isRef) onSelectReference(item.id);
-                      else if (isGrid) onSelectGridAxis(item.id);
-                      else onSelectInstance(item.id, event.ctrlKey || event.metaKey);
-                    }}
-                  >
-                    <span>
-                      {item.name}
-                      <span className={`kind-badge kind-${item.kind}`}>
-                        {isType ? 'type' : isRef ? 'ref' : isGrid ? 'grid' : 'instance'}
-                      </span>
-                    </span>
-                    <span className="cat">
-                      {isType ? item.category : isRef || isGrid ? item.levelName : item.profileName}
-                    </span>
-                  </li>
-                );
-              })}
-            </ul>
+      <div className="browser-tree-scroll shell-scroll" data-testid="browser-tree-scroll">
+        {groups.length === 0 ? (
+          <div className="empty">No types or elements yet. Draw a profile or place a wall.</div>
+        ) : groupBy === 'none' ? (
+          <ul className="browser-tree-items browser-tree-items--flat">
+            {items.map((item) => {
+              const isType = item.kind === 'type';
+              const isRef = item.kind === 'reference';
+              const isGrid = item.kind === 'grid_axis';
+              const isSelected = isType
+                ? selectedProfileId === item.id
+                : isRef
+                  ? selectedRefId === item.id
+                  : isGrid
+                    ? selectedGridAxisId === item.id
+                    : selected.has(item.id);
+              return (
+                <BrowserTreeItem
+                  key={item.key}
+                  item={item}
+                  isSelected={isSelected}
+                  onSelectInstance={onSelectInstance}
+                  onSelectReference={onSelectReference}
+                  onSelectGridAxis={onSelectGridAxis}
+                  onSelectType={onSelectType}
+                />
+              );
+            })}
+          </ul>
+        ) : (
+          <div className="browser-tree">
+            {groups.map(([label, groupItems]) => (
+              <BrowserTreeGroup
+                key={label}
+                label={label}
+                items={groupItems}
+                expanded={isGroupExpanded(groupBy, label, collapsed)}
+                onToggle={() => toggleGroup(label)}
+                selected={selected}
+                selectedProfileId={selectedProfileId}
+                selectedRefId={selectedRefId}
+                selectedGridAxisId={selectedGridAxisId}
+                onSelectInstance={onSelectInstance}
+                onSelectReference={onSelectReference}
+                onSelectGridAxis={onSelectGridAxis}
+                onSelectType={onSelectType}
+              />
+            ))}
           </div>
-        ))
-      )}
+        )}
+      </div>
     </div>
   );
 }
