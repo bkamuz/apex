@@ -524,7 +524,13 @@ mod tests {
             .with("thickness", ParamValue::Length(0.2));
 
         let mesh = registry
-            .build_mesh("apex.wall", &placement, &params, ground(), std::iter::empty())
+            .build_mesh(
+                "apex.wall",
+                &placement,
+                &params,
+                ground(),
+                std::iter::empty(),
+            )
             .expect("mesh");
 
         // Same counts and extents the bespoke wall generator produced.
@@ -542,7 +548,13 @@ mod tests {
         let registry = ComponentRegistry::with_builtins();
         let placement = Placement::line(Vec3::ZERO, Vec3::new(4.0, 0.0, 0.0));
         let mesh = registry
-            .build_mesh("apex.wall", &placement, &ParamMap::new(), ground(), std::iter::empty())
+            .build_mesh(
+                "apex.wall",
+                &placement,
+                &ParamMap::new(),
+                ground(),
+                std::iter::empty(),
+            )
             .expect("mesh");
 
         let size = size_of(&mesh);
@@ -585,13 +597,31 @@ mod tests {
             .expect("polyline");
 
         let line_mesh = registry
-            .build_mesh("apex.wall", &line, &ParamMap::new(), ground(), std::iter::empty())
+            .build_mesh(
+                "apex.wall",
+                &line,
+                &ParamMap::new(),
+                ground(),
+                std::iter::empty(),
+            )
             .expect("line");
         let arc_mesh = registry
-            .build_mesh("apex.wall", &arc, &ParamMap::new(), ground(), std::iter::empty())
+            .build_mesh(
+                "apex.wall",
+                &arc,
+                &ParamMap::new(),
+                ground(),
+                std::iter::empty(),
+            )
             .expect("arc");
         let poly_mesh = registry
-            .build_mesh("apex.wall", &poly, &ParamMap::new(), ground(), std::iter::empty())
+            .build_mesh(
+                "apex.wall",
+                &poly,
+                &ParamMap::new(),
+                ground(),
+                std::iter::empty(),
+            )
             .expect("poly");
 
         assert_eq!(line_mesh.triangle_count(), 12);
@@ -625,7 +655,13 @@ mod tests {
             .build_mesh("apex.wall", &placement, &rect, ground(), std::iter::empty())
             .expect("rect");
         let round_mesh = registry
-            .build_mesh("apex.wall", &placement, &round, ground(), std::iter::empty())
+            .build_mesh(
+                "apex.wall",
+                &placement,
+                &round,
+                ground(),
+                std::iter::empty(),
+            )
             .expect("round");
 
         let rect_size = size_of(&rect_mesh);
@@ -663,7 +699,13 @@ mod tests {
         let params = ParamMap::new().with("height", ParamValue::Length(4.0));
 
         let mesh = registry
-            .build_mesh("apex.column", &placement, &params, ground(), std::iter::empty())
+            .build_mesh(
+                "apex.column",
+                &placement,
+                &params,
+                ground(),
+                std::iter::empty(),
+            )
             .expect("mesh");
 
         let size = size_of(&mesh);
@@ -696,10 +738,22 @@ mod tests {
             .with("profile", ParamValue::ProfileRef("apex.round".into()));
 
         let rect_mesh = registry
-            .build_mesh("apex.column", &placement, &rect, ground(), std::iter::empty())
+            .build_mesh(
+                "apex.column",
+                &placement,
+                &rect,
+                ground(),
+                std::iter::empty(),
+            )
             .expect("rect");
         let round_mesh = registry
-            .build_mesh("apex.column", &placement, &round, ground(), std::iter::empty())
+            .build_mesh(
+                "apex.column",
+                &placement,
+                &round,
+                ground(),
+                std::iter::empty(),
+            )
             .expect("round");
 
         let rect_size = size_of(&rect_mesh);
@@ -725,10 +779,22 @@ mod tests {
         let placement = Placement::line(Vec3::new(0.0, 3.0, 0.0), Vec3::new(6.0, 3.0, 0.0));
 
         let beam = registry
-            .build_mesh("apex.beam", &placement, &ParamMap::new(), ground(), std::iter::empty())
+            .build_mesh(
+                "apex.beam",
+                &placement,
+                &ParamMap::new(),
+                ground(),
+                std::iter::empty(),
+            )
             .expect("mesh");
         let wall = registry
-            .build_mesh("apex.wall", &placement, &ParamMap::new(), ground(), std::iter::empty())
+            .build_mesh(
+                "apex.wall",
+                &placement,
+                &ParamMap::new(),
+                ground(),
+                std::iter::empty(),
+            )
             .expect("mesh");
 
         let (beam_min, beam_max) = beam.aabb().unwrap();
@@ -1070,7 +1136,13 @@ mod tests {
         let params = ParamMap::new().with("thickness", ParamValue::Length(0.25));
 
         let mesh = registry
-            .build_mesh("apex.slab", &placement, &params, ground(), std::iter::empty())
+            .build_mesh(
+                "apex.slab",
+                &placement,
+                &params,
+                ground(),
+                std::iter::empty(),
+            )
             .expect("mesh");
 
         let size = size_of(&mesh);
@@ -1088,7 +1160,13 @@ mod tests {
             .expect("polyline");
         assert!(matches!(
             registry
-                .build_mesh("apex.slab", &placement, &ParamMap::new(), ground(), std::iter::empty())
+                .build_mesh(
+                    "apex.slab",
+                    &placement,
+                    &ParamMap::new(),
+                    ground(),
+                    std::iter::empty()
+                )
                 .unwrap_err(),
             RegistryError::Recipe(RecipeError::BoundaryTooSmall(2))
         ));

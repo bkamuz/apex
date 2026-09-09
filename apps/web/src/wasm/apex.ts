@@ -32,6 +32,12 @@ import initWasm, {
   getSelectedReference,
   setReferencePlacement,
   deleteSelectedReference,
+  createGridAxis,
+  selectGridAxis,
+  getSelectedGridAxis,
+  setGridAxisPlacement,
+  updateGridAxis,
+  deleteSelectedGridAxis,
 } from './pkg/apex_wasm.js';
 import type {
   ComponentDto,
@@ -41,6 +47,7 @@ import type {
   PlacementKind,
   ProfilePreviewDto,
   ProfileTypeDto,
+  GridAxisDto,
   ReferenceDto,
   ReferenceKind,
   SceneDto,
@@ -244,4 +251,35 @@ export function apexSetReferencePlacement(
 
 export function apexDeleteSelectedReference(): SceneDto {
   return asScene(deleteSelectedReference());
+}
+
+export function apexCreateGridAxis(points: Vec3[], params?: Record<string, ParamValue>): SceneDto {
+  return asScene(createGridAxis(encodePoints(points), encodeParams(params), 0));
+}
+
+export function apexSelectGridAxis(id: string | null): SceneDto {
+  return asScene(selectGridAxis(id ?? ''));
+}
+
+export function apexGetSelectedGridAxis(): GridAxisDto | null {
+  const value = getSelectedGridAxis();
+  if (value === null || value === undefined) return null;
+  return value as GridAxisDto;
+}
+
+export function apexSetGridAxisPlacement(
+  id: string,
+  points: Vec3[],
+  rotation = 0,
+  recordHistory = true,
+): SceneDto {
+  return asScene(setGridAxisPlacement(id, encodePoints(points), rotation, recordHistory));
+}
+
+export function apexUpdateGridAxis(id: string, params: Record<string, ParamValue>): SceneDto {
+  return asScene(updateGridAxis(id, encodeParams(params)));
+}
+
+export function apexDeleteSelectedGridAxis(): SceneDto {
+  return asScene(deleteSelectedGridAxis());
 }

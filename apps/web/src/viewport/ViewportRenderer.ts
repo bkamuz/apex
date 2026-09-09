@@ -668,6 +668,12 @@ export class ViewportRenderer {
   private refLineVao: WebGLVertexArrayObject;
   private refLineBuf: WebGLBuffer;
   private refLineCount = 0;
+  private gridAxisLineVao: WebGLVertexArrayObject;
+  private gridAxisLineBuf: WebGLBuffer;
+  private gridAxisLineCount = 0;
+  private gridAxisBubbleVao: WebGLVertexArrayObject;
+  private gridAxisBubbleBuf: WebGLBuffer;
+  private gridAxisBubbleCount = 0;
   private editHandles: Vec3[] | null = null;
   private indexCount = 0;
   private pickFbo: WebGLFramebuffer | null = null;
@@ -820,6 +826,12 @@ export class ViewportRenderer {
     this.refLineVao = gl.createVertexArray()!;
     this.refLineBuf = gl.createBuffer()!;
     this.bindThickLineVao(this.refLineVao, this.refLineBuf);
+    this.gridAxisLineVao = gl.createVertexArray()!;
+    this.gridAxisLineBuf = gl.createBuffer()!;
+    this.bindThickLineVao(this.gridAxisLineVao, this.gridAxisLineBuf);
+    this.gridAxisBubbleVao = gl.createVertexArray()!;
+    this.gridAxisBubbleBuf = gl.createBuffer()!;
+    this.bindThickLineVao(this.gridAxisBubbleVao, this.gridAxisBubbleBuf);
 
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
@@ -1140,6 +1152,28 @@ export class ViewportRenderer {
     }
     this.includePoints(segments);
     this.refLineCount = this.uploadThickLines(this.refLineBuf, flatten(segments));
+  }
+
+  /** Always-visible plan grid axes: extended segment plus end bubbles. */
+  setGridAxisOverlays(
+    lines: Vec3[] | null,
+    bubbles: Vec3[] | null,
+  ): void {
+    if (!lines || lines.length < 2) {
+      this.gridAxisLineCount = 0;
+    } else {
+      this.includePoints(lines);
+      this.gridAxisLineCount = this.uploadThickLines(
+        this.gridAxisLineBuf,
+        segmentsThrough(lines),
+      );
+    }
+    if (!bubbles || bubbles.length < 2) {
+      this.gridAxisBubbleCount = 0;
+      return;
+    }
+    this.includePoints(bubbles);
+    this.gridAxisBubbleCount = this.uploadThickLines(this.gridAxisBubbleBuf, flatten(bubbles));
   }
 
   setEditGizmo(anchors: Vec3[] | null): void {
@@ -1953,6 +1987,8 @@ export class ViewportRenderer {
     this.drawOccludedAxis(this.previewVao, this.previewCount, [0.95, 0.7, 0.3, 1], 3.0);
     this.drawOccludedAxis(this.editLineVao, this.editLineCount, [0.95, 0.72, 0.28, 1], 3.0);
     this.drawOccludedAxis(this.refLineVao, this.refLineCount, [0.35, 0.82, 0.95, 0.95], 2.5);
+    this.drawOccludedAxis(this.gridAxisLineVao, this.gridAxisLineCount, [0.92, 0.55, 0.78, 0.98], 3.2);
+    this.drawOccludedAxis(this.gridAxisBubbleVao, this.gridAxisBubbleCount, [0.92, 0.55, 0.78, 0.98], 2.4);
     this.drawHandles();
     this.drawSnapMarker();
     this.frameMats = null;

@@ -68,7 +68,16 @@ const toolbarNames = () =>
 console.log('\n[1] toolbar from plugins, one tool per type');
 const tools = await toolbarNames();
 console.log('  toolbar:', tools.join(' | '));
-for (const expected of ['Select', 'Wall', 'Column', 'Beam', 'Slab', 'Ref point', 'Ref plane']) {
+for (const expected of [
+  'Select',
+  'Wall',
+  'Column',
+  'Beam',
+  'Slab',
+  'Ref point',
+  'Ref plane',
+  'Grid axis',
+]) {
   check(`"${expected}" button exists`, tools.includes(expected));
 }
 check('arc wall is not a second tool', !tools.includes('Arc wall'));
@@ -112,6 +121,27 @@ await clickCanvas(0.62, 0.45);
 check('ref plane created', (await refCount()) >= 2);
 await page.getByTestId('browser-filter-references').click();
 check('references filter lists refs', (await refCount()) >= 2);
+await page.getByTestId('browser-filter-all').click();
+
+// --- 3b. Grid axis (two-click placement + inspector params) ----------------
+console.log('\n[3b] grid axes');
+const gridCount = () => page.locator('[data-kind="grid_axis"]').count();
+await useTool('Grid axis');
+await clickCanvas(0.4, 0.62);
+await clickCanvas(0.7, 0.62);
+check('grid axis created', (await gridCount()) >= 1);
+await page.getByTestId('browser-filter-grids').click();
+check('grids filter lists axes', (await gridCount()) >= 1);
+await page.locator('[data-kind="grid_axis"]').first().click();
+await page.waitForTimeout(250);
+const labelField = page.locator('[data-section="instance"] input[type="text"]').first();
+await labelField.fill('A');
+await labelField.press('Enter');
+await page.waitForTimeout(200);
+check(
+  'grid label editable in inspector',
+  (await page.locator('.grid-axis-label').filter({ hasText: 'A' }).count()) >= 1,
+);
 await page.getByTestId('browser-filter-all').click();
 
 // --- 4. Point, two-point and three-point gestures all work -----------------

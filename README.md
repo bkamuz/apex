@@ -110,10 +110,12 @@ Each push to `main` redeploys automatically via `.github/workflows/deploy-pages.
 
 ### Demo
 
-1. Pick a tool: **Wall**, **Column**, **Beam**, **Slab**, **Ref point**, or **Ref plane**. With Wall active, switch **Line** / **Arc** / **Polyline**. With Slab active, click corners of the floor outline and double-click to finish. **Ref point** is one click; **Ref plane** is origin plus in-plane direction (two clicks).
+1. Pick a tool: **Wall**, **Column**, **Beam**, **Slab**, **Ref point**, **Ref plane**, or **Grid axis**. With Wall active, switch **Line** / **Arc** / **Polyline**. With Slab active, click corners of the floor outline and double-click to finish. **Ref point** is one click; **Ref plane** is origin plus in-plane direction (two clicks); **Grid axis** is start plus end (two clicks) on the active level.
 2. Click the number of points that mode needs (1, 2, 3, or double-click to finish a polyline); a ghost previews the result.
-3. Select the element. **This element** fields apply only to that instance; **Shared type** fields are the same for every element of that profile. On a **Column**, set **Frame reference** to a placed ref point to extrude from that frame instead of the click point. **Edit profile** opens a 2D sketch: click to draw the outline, close it, then click edges (or **Dimension all edges**) to assign sizes as shared type or this-element parameters.
-4. The left **Project** browser lists types, instances, and references. Use the **Refs** filter to see ref points/planes. Change **Group** / **Sort** to rearrange. **Save** downloads the project (it is also stored in the browser); **Open** loads a file; **New** starts over.
+3. Select the element. **This element** fields apply only to that instance; **Shared type** fields are the same for every element of that profile. On a **Column**, set **Frame reference** to a placed ref point to extrude from that frame instead of the click point. **Edit profile** opens a 2D sketch: click to draw the outline, close it, then click edges (or **Dimension all edges**) to assign sizes as shared type or this-element parameters. Select a **Grid axis** to edit label, bubble visibility per end, extension, and bubble radius; drag endpoints like ref anchors.
+4. The left **Project** browser lists types, instances, references, and grid axes. Use **Refs** / **Grids** filters. Change **Group** / **Sort** to rearrange. **Save** downloads the project (it is also stored in the browser); **Open** loads a file; **New** starts over.
+
+**Grid axes:** the segment lies on the level (plan XZ). Each axis defines a **vertical datum plane** through that segment and world up (BIM-style grid). Viewport overlay draws the extended segment, end bubbles, and a simple text label. Future 2D annotation entities should implement [`PlanAnnotation`](crates/apex-core/src/annotation.rs) alongside grid axes.
 5. Orbit: right-drag · Pan: middle-drag · Zoom: wheel · Shift: snap to grid.
 
 ## Tests

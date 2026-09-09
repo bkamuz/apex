@@ -1,4 +1,5 @@
 import { componentPlugin } from './componentPlugin';
+import { gridAxisPlugin } from './gridAxis';
 import { refPlanePlugin } from './refPlane';
 import { refPointPlugin } from './refPoint';
 import { selectPlugin } from './select';
@@ -19,4 +20,5 @@ export const firstPartyPlugins: Plugin[] = [
   componentPlugin('apex.slab'),
   refPointPlugin,
   refPlanePlugin,
+  gridAxisPlugin,
 ];

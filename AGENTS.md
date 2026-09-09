@@ -56,3 +56,11 @@ Two consequences worth remembering:
 
 - A stale root-level `node_modules/` may exist from the old JS prototype; it is gitignored and unused. The only npm project that needs installing is `apps/web`.
 - WebGL2 rendering works headlessly in this environment (software GL), so the smoke test renders real geometry.
+
+### Grid axes and 2D annotations
+
+- Plan grid axes are first-class document entities in `crates/apex-core/src/grid_axis.rs` (not component instances). They use two-point placement on the active level; semantically each axis is a **vertical plane** through the segment and world up.
+- Params are data-driven via `grid_axis_param_specs()` (label, per-end bubbles, extension, bubble radius). Inspector reads `param_specs` from the selected axis DTO.
+- Viewport overlay: `ViewportRenderer.setGridAxisOverlays` (WebGL lines/circles) plus `GridAxisLabels` (HTML text at bubble centers). Distinct pink styling vs cyan refs.
+- Future universal 2D family/annotation editor: implement `PlanAnnotation` in `crates/apex-core/src/annotation.rs` — shared param schema + overlay segments/labels. Do not add per-type branches in `App.tsx` or `apex-wasm`.
+- Project snapshot format is `PROJECT_FORMAT = 3` (`grid_axes` array). Format 2 snapshots still import (empty grid list).

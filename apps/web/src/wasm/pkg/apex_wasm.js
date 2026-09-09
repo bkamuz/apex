@@ -62,6 +62,24 @@ export function createElement(component_id, points_json, rotation, params_json, 
 }
 
 /**
+ * @param {string} points_json
+ * @param {string} params_json
+ * @param {number} rotation
+ * @returns {any}
+ */
+export function createGridAxis(points_json, params_json, rotation) {
+    const ptr0 = passStringToWasm0(points_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(params_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.createGridAxis(ptr0, len0, ptr1, len1, rotation);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * @param {string} name
  * @param {number} elevation
  * @returns {any}
@@ -100,6 +118,17 @@ export function createReference(kind, points_json, rotation) {
  */
 export function deleteSelected() {
     const ret = wasm.deleteSelected();
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @returns {any}
+ */
+export function deleteSelectedGridAxis() {
+    const ret = wasm.deleteSelectedGridAxis();
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -157,6 +186,17 @@ export function getScene() {
  */
 export function getSelected() {
     const ret = wasm.getSelected();
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @returns {any}
+ */
+export function getSelectedGridAxis() {
+    const ret = wasm.getSelectedGridAxis();
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -369,6 +409,20 @@ export function selectElement(id) {
  * @param {string} id
  * @returns {any}
  */
+export function selectGridAxis(id) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.selectGridAxis(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {string} id
+ * @returns {any}
+ */
 export function selectReference(id) {
     const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
@@ -411,6 +465,25 @@ export function setElementPlacement(id, points_json, rotation, record_history) {
     const ptr1 = passStringToWasm0(points_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len1 = WASM_VECTOR_LEN;
     const ret = wasm.setElementPlacement(ptr0, len0, ptr1, len1, rotation, record_history);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {string} id
+ * @param {string} points_json
+ * @param {number} rotation
+ * @param {boolean} record_history
+ * @returns {any}
+ */
+export function setGridAxisPlacement(id, points_json, rotation, record_history) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(points_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.setGridAxisPlacement(ptr0, len0, ptr1, len1, rotation, record_history);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -500,6 +573,23 @@ export function updateElement(id, params_json) {
     const ptr1 = passStringToWasm0(params_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len1 = WASM_VECTOR_LEN;
     const ret = wasm.updateElement(ptr0, len0, ptr1, len1);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {string} id
+ * @param {string} params_json
+ * @returns {any}
+ */
+export function updateGridAxis(id, params_json) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(params_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.updateGridAxis(ptr0, len0, ptr1, len1);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }

@@ -1,28 +1,31 @@
 import { useMemo, useState } from 'react';
-import type { ElementListDto, LevelDto, ProfileTypeDto, ReferenceDto } from '../types';
+import type { ElementListDto, GridAxisDto, LevelDto, ProfileTypeDto, ReferenceDto } from '../types';
 import { profileLabel } from './profileModel';
 
 export type BrowserGroupBy = 'kind' | 'category' | 'level' | 'profile' | 'none';
 export type BrowserSortBy = 'name' | 'kind' | 'category';
-export type BrowserFilter = 'all' | 'types' | 'instances' | 'references';
+export type BrowserFilter = 'all' | 'types' | 'instances' | 'references' | 'grids';
 
 interface Props {
   elements: ElementListDto[];
   references: ReferenceDto[];
+  gridAxes: GridAxisDto[];
   profiles: ProfileTypeDto[];
   levels: LevelDto[];
   selectedIds: string[];
   selectedProfileId: string | null;
   selectedRefId: string | null;
+  selectedGridAxisId: string | null;
   onSelectInstance: (id: string, multi: boolean) => void;
   onSelectReference: (id: string) => void;
+  onSelectGridAxis: (id: string) => void;
   onSelectType: (profileId: string) => void;
   onNewProfile: () => void;
 }
 
 interface BrowserItem {
   key: string;
-  kind: 'type' | 'instance' | 'reference';
+  kind: 'type' | 'instance' | 'reference' | 'grid_axis';
   id: string;
   name: string;
   category: string;
@@ -68,6 +71,7 @@ function groupKey(item: BrowserItem, groupBy: BrowserGroupBy): string {
     case 'kind':
       if (item.kind === 'type') return 'Shared types';
       if (item.kind === 'reference') return 'References';
+      if (item.kind === 'grid_axis') return 'Grid axes';
       return 'Placed elements';
     case 'category':
       return item.category || 'uncategorized';
@@ -102,13 +106,16 @@ function compareItems(a: BrowserItem, b: BrowserItem, sortBy: BrowserSortBy): nu
 export function ProjectBrowser({
   elements,
   references,
+  gridAxes,
   profiles,
   levels,
   selectedIds,
   selectedProfileId,
   selectedRefId,
+  selectedGridAxisId,
   onSelectInstance,
   onSelectReference,
+  onSelectGridAxis,
   onSelectType,
   onNewProfile,
 }: Props) {
@@ -162,7 +169,16 @@ export function ProjectBrowser({
       levelName: levelName(reference.level_id),
       profileName: reference.kind,
     }));
-    let all = [...types, ...instances, ...refs];
+    const grids: BrowserItem[] = gridAxes.map((axis) => ({
+      key: `grid:${axis.id}`,
+      kind: 'grid_axis',
+      id: axis.id,
+      name: axis.name,
+      category: 'grid',
+      levelName: levelName(axis.level_id),
+      profileName: String(axis.params.label ?? '—'),
+    }));
+    let all = [...types, ...instances, ...refs, ...grids];
     switch (filter) {
       case 'all':
         break;
@@ -175,6 +191,9 @@ export function ProjectBrowser({
       case 'references':
         all = all.filter((item) => item.kind === 'reference');
         break;
+      case 'grids':
+        all = all.filter((item) => item.kind === 'grid_axis');
+        break;
       default: {
         const exhaustive: never = filter;
         return exhaustive;
@@ -182,7 +201,7 @@ export function ProjectBrowser({
     }
     all.sort((a, b) => compareItems(a, b, sortBy));
     return all;
-  }, [elements, references, profiles, levels, filter, sortBy]);
+  }, [elements, references, gridAxes, profiles, levels, filter, sortBy]);
 
   const groups = useMemo(() => {
     const map = new Map<string, BrowserItem[]>();
@@ -247,6 +266,7 @@ export function ProjectBrowser({
             ['types', 'Types'],
             ['instances', 'Instances'],
             ['references', 'Refs'],
+            ['grids', 'Grids'],
           ] as const
         ).map(([value, label]) => (
           <button
@@ -272,11 +292,14 @@ export function ProjectBrowser({
               {groupItems.map((item) => {
                 const isType = item.kind === 'type';
                 const isRef = item.kind === 'reference';
+                const isGrid = item.kind === 'grid_axis';
                 const isSelected = isType
                   ? selectedProfileId === item.id
                   : isRef
                     ? selectedRefId === item.id
-                    : selected.has(item.id);
+                    : isGrid
+                      ? selectedGridAxisId === item.id
+                      : selected.has(item.id);
                 return (
                   <li
                     key={item.key}
@@ -286,17 +309,18 @@ export function ProjectBrowser({
                     onClick={(event) => {
                       if (isType) onSelectType(item.id);
                       else if (isRef) onSelectReference(item.id);
+                      else if (isGrid) onSelectGridAxis(item.id);
                       else onSelectInstance(item.id, event.ctrlKey || event.metaKey);
                     }}
                   >
                     <span>
                       {item.name}
                       <span className={`kind-badge kind-${item.kind}`}>
-                        {isType ? 'type' : isRef ? 'ref' : 'instance'}
+                        {isType ? 'type' : isRef ? 'ref' : isGrid ? 'grid' : 'instance'}
                       </span>
                     </span>
                     <span className="cat">
-                      {isType ? item.category : isRef ? item.levelName : item.profileName}
+                      {isType ? item.category : isRef || isGrid ? item.levelName : item.profileName}
                     </span>
                   </li>
                 );

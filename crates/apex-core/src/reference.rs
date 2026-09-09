@@ -189,13 +189,7 @@ fn plane_square(frame: &Frame, half: f32) -> Vec<Vec3> {
         frame.point(-half, half),
     ];
     vec![
-        corners[0],
-        corners[1],
-        corners[1],
-        corners[2],
-        corners[2],
-        corners[3],
-        corners[3],
+        corners[0], corners[1], corners[1], corners[2], corners[2], corners[3], corners[3],
         corners[0],
     ]
 }
