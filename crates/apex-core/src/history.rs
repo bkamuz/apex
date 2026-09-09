@@ -113,10 +113,12 @@ mod tests {
             active_level: None,
             elements: Vec::new(),
             references: Vec::new(),
+            grid_axes: Vec::new(),
             profiles: Vec::new(),
             components: Vec::new(),
             counters: Default::default(),
             ref_counters: Default::default(),
+            grid_axis_counter: 0,
             level_counter: n,
         }
     }

@@ -4,6 +4,7 @@ use apex_geometry::TriangleMesh;
 use serde::{Deserialize, Serialize};
 
 use crate::element::{ComponentId, Element, ElementId};
+use crate::grid_axis::{GridAxis, GridAxisId, GridAxisLibrary};
 use crate::level::{Level, LevelId};
 use crate::reference::{RefId, Reference, ReferenceLibrary};
 
@@ -15,6 +16,7 @@ pub enum DocumentChangeKind {
     Clear,
     LevelChanged,
     ReferenceChanged,
+    GridAxisChanged,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -31,6 +33,7 @@ pub struct Document {
     elements: HashMap<ElementId, Element>,
     meshes: HashMap<ElementId, TriangleMesh>,
     references: ReferenceLibrary,
+    grid_axes: GridAxisLibrary,
     version: u64,
     /// Level used for new placements (active work plane).
     active_level: Option<LevelId>,
@@ -147,6 +150,25 @@ impl Document {
         Some(self.bump(DocumentChangeKind::ReferenceChanged, vec![]))
     }
 
+    pub fn grid_axes(&self) -> impl Iterator<Item = &GridAxis> {
+        self.grid_axes.values()
+    }
+
+    pub fn get_grid_axis(&self, id: GridAxisId) -> Option<&GridAxis> {
+        self.grid_axes.get(&id)
+    }
+
+    pub fn upsert_grid_axis(&mut self, axis: GridAxis) -> DocumentChange {
+        let id = axis.id;
+        self.grid_axes.insert(id, axis);
+        self.bump(DocumentChangeKind::GridAxisChanged, vec![])
+    }
+
+    pub fn remove_grid_axis(&mut self, id: GridAxisId) -> Option<DocumentChange> {
+        self.grid_axes.remove(&id)?;
+        Some(self.bump(DocumentChangeKind::GridAxisChanged, vec![]))
+    }
+
     pub fn upsert_element(&mut self, element: Element, mesh: TriangleMesh) -> DocumentChange {
         let id = element.id;
         self.elements.insert(id, element);
@@ -179,6 +201,7 @@ impl Document {
         active_level: Option<LevelId>,
         elements: Vec<Element>,
         references: Vec<Reference>,
+        grid_axes: Vec<GridAxis>,
     ) {
         if levels.is_empty() {
             levels.push(Level::new("Level 0", 0.0));
@@ -192,6 +215,7 @@ impl Document {
             .into_iter()
             .map(|reference| (reference.id, reference))
             .collect();
+        self.grid_axes = grid_axes.into_iter().map(|axis| (axis.id, axis)).collect();
         self.meshes.clear();
         self.active_level = active_level.filter(|id| self.levels.contains_key(id));
         if self.active_level.is_none() {

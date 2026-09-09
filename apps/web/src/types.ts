@@ -137,6 +137,23 @@ export interface ReferenceDto {
   gizmo_segments: Vec3[];
 }
 
+export interface GridAxisLabelDto {
+  position: Vec3;
+  text: string;
+}
+
+export interface GridAxisDto {
+  id: string;
+  name: string;
+  level_id: string;
+  anchors: Vec3[];
+  line_segments: Vec3[];
+  bubble_segments: Vec3[];
+  labels: GridAxisLabelDto[];
+  params: Record<string, ParamValue>;
+  param_specs: ParamSpecDto[];
+}
+
 export interface LevelDto {
   id: string;
   name: string;
@@ -158,6 +175,7 @@ export interface SceneDto {
   edge_positions?: Float32Array | number[];
   elements: ElementListDto[];
   references?: ReferenceDto[];
+  grid_axes?: GridAxisDto[];
   levels: LevelDto[];
   active_level_id: string | null;
   version: number;
@@ -165,6 +183,7 @@ export interface SceneDto {
   /** Primary / first selected id; null when empty. */
   selected_id: string | null;
   selected_ref_id?: string | null;
+  selected_grid_axis_id?: string | null;
   can_undo?: boolean;
   can_redo?: boolean;
 }

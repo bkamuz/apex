@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type {
   ComponentDto,
   ElementDto,
+  GridAxisDto,
   LevelDto,
   ParamSpecDto,
   ParamValue,
@@ -21,6 +22,7 @@ interface Props {
   selected: ElementDto | null;
   /** Total selection size (0, 1, or many). */
   selectedCount: number;
+  selectedGridAxis: GridAxisDto | null;
   /** Definition of the selected element's component, which supplies the schema. */
   component: ComponentDto | null;
   profiles: ProfileTypeDto[];
@@ -29,11 +31,13 @@ interface Props {
   /** Create-tool draft: profile + instance fields used for preview and place. */
   placement: { component: ComponentDto; params: Record<string, ParamValue> } | null;
   onUpdate: (params: Record<string, ParamValue>) => void;
+  onUpdateGridAxis: (params: Record<string, ParamValue>) => void;
   onPlacementChange: (params: Record<string, ParamValue>) => void;
   onEditType: (profileId: string) => void;
   onNewProfile: (category: string) => void;
   onUpdateLevelElevation: (id: string, elevation: number) => void;
   onDelete: () => void;
+  onDeleteGridAxis: () => void;
 }
 
 function stepFor(spec: ParamSpecDto): number {
@@ -273,24 +277,32 @@ function emptyComponent(): ComponentDto {
 export function PropertiesPanel({
   selected,
   selectedCount,
+  selectedGridAxis,
   component,
   profiles,
   references,
   selectedLevel,
   placement,
   onUpdate,
+  onUpdateGridAxis,
   onPlacementChange,
   onEditType,
   onNewProfile,
   onUpdateLevelElevation,
   onDelete,
+  onDeleteGridAxis,
 }: Props) {
   const [draft, setDraft] = useState<Record<string, ParamValue>>({});
+  const [gridDraft, setGridDraft] = useState<Record<string, ParamValue>>({});
   const [elevation, setElevation] = useState(0);
 
   useEffect(() => {
     setDraft(selected ? { ...selected.params } : {});
   }, [selected]);
+
+  useEffect(() => {
+    setGridDraft(selectedGridAxis ? { ...selectedGridAxis.params } : {});
+  }, [selectedGridAxis]);
 
   useEffect(() => {
     if (!selectedLevel) return;
@@ -335,6 +347,41 @@ export function PropertiesPanel({
           onEditType={onEditType}
           onNewProfile={() => onNewProfile(placement.component.category)}
         />
+      </div>
+    );
+  }
+
+  if (selectedGridAxis) {
+    const applyGrid = (patch: Record<string, ParamValue> = {}) => {
+      const next = { ...gridDraft, ...patch };
+      setGridDraft(next);
+      onUpdateGridAxis(next);
+    };
+    return (
+      <div className="inspector-body">
+        <div className="field">
+          <label>Name</label>
+          <div>{selectedGridAxis.name}</div>
+        </div>
+        <div className="field">
+          <label>Type</label>
+          <div>Grid axis</div>
+        </div>
+        <div className="inspector-section" data-section="instance">
+          <div className="section-title">This axis</div>
+          <SchemaFields
+            specs={selectedGridAxis.param_specs}
+            values={gridDraft}
+            profiles={profiles}
+            references={references}
+            live
+            onDraft={(id, value) => setGridDraft((prev) => ({ ...prev, [id]: value }))}
+            onCommit={(patch) => applyGrid(patch)}
+          />
+        </div>
+        <button type="button" className="danger" onClick={onDeleteGridAxis}>
+          Delete
+        </button>
       </div>
     );
   }

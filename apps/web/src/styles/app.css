@@ -377,6 +377,35 @@ button:focus-visible {
   color: #9ec5ff;
 }
 
+.kind-badge.kind-grid_axis {
+  background: rgba(180, 90, 150, 0.25);
+  color: #e8b8dc;
+}
+
+.grid-axis-labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 2;
+}
+
+.grid-axis-label {
+  position: fixed;
+  transform: translate(-50%, -50%);
+  min-width: 1.4rem;
+  min-height: 1.4rem;
+  padding: 0.1rem 0.35rem;
+  border-radius: 999px;
+  border: 1.5px solid rgba(235, 140, 200, 0.95);
+  background: rgba(18, 20, 26, 0.82);
+  color: #f4d9ef;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-align: center;
+  line-height: 1.2;
+}
+
 .viewport-wrap {
   position: relative;
   min-width: 0;

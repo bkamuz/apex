@@ -122,7 +122,9 @@ impl ParamValue {
 
     pub fn as_text(&self) -> Option<&str> {
         match self {
-            Self::Text(s) | Self::Choice(s) | Self::ProfileRef(s) | Self::ReferenceRef(s) => Some(s),
+            Self::Text(s) | Self::Choice(s) | Self::ProfileRef(s) | Self::ReferenceRef(s) => {
+                Some(s)
+            }
             _ => None,
         }
     }
@@ -343,12 +345,7 @@ impl ParamSpec {
         }
     }
 
-    pub fn reference(
-        id: &str,
-        label: &str,
-        filter: ReferenceFilter,
-        options: &[&str],
-    ) -> Self {
+    pub fn reference(id: &str, label: &str, filter: ReferenceFilter, options: &[&str]) -> Self {
         Self {
             id: id.to_string(),
             label: label.to_string(),

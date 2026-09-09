@@ -12,6 +12,8 @@ export interface ToolContext {
   createElement(componentId: string, points: Vec3[], placementKind?: PlacementKind): void;
   /** Commit picks as a new document reference. */
   createReference(kind: ReferenceKind, points: Vec3[]): void;
+  /** Commit picks as a new plan grid axis. */
+  createGridAxis(points: Vec3[]): void;
   /** Ghost geometry, built by the same recipe the committed element will use. */
   showPreview(componentId: string, points: Vec3[], placementKind?: PlacementKind): void;
   clearPreview(): void;

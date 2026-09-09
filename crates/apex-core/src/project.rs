@@ -12,6 +12,7 @@ use serde::{Deserialize, Serialize};
 use crate::component::{ComponentDefinition, ComponentSource, ProfileType};
 use crate::document::Document;
 use crate::element::{Element, ElementId};
+use crate::grid_axis::{grid_axis_param_specs, GridAxis, GridAxisId};
 use crate::history::History;
 use crate::level::{Level, LevelId};
 use crate::param::ParamMap;
@@ -26,6 +27,7 @@ pub struct Project {
     counters: BTreeMap<String, u32>,
     /// Per-reference-kind counters, so names read "Ref point 1", "Ref plane 2".
     ref_counters: BTreeMap<String, u32>,
+    grid_axis_counter: u32,
     level_counter: u32,
     history: History,
 }
@@ -43,6 +45,7 @@ impl Project {
             registry: ComponentRegistry::with_builtins(),
             counters: Default::default(),
             ref_counters: Default::default(),
+            grid_axis_counter: 0,
             level_counter: 0,
             history: History::default(),
         }
@@ -305,6 +308,81 @@ impl Project {
         removed
     }
 
+    /// Turn raw picks into a two-point line on the active work plane.
+    pub fn placement_for_grid_axis(
+        &self,
+        points: &[Vec3],
+        rotation: f32,
+    ) -> Result<Placement, crate::placement::PlacementError> {
+        PlacementKind::TwoPoint.build(points, rotation, &self.active_work_plane())
+    }
+
+    /// Place a grid axis on the active level.
+    pub fn create_grid_axis(
+        &mut self,
+        placement: Placement,
+        params: ParamMap,
+    ) -> Result<GridAxisId, RegistryError> {
+        let before = self.export_snapshot();
+        let level_id = self
+            .document
+            .active_level_id()
+            .ok_or_else(|| RegistryError::Unknown("no active level".to_string()))?;
+        let name = self.next_grid_axis_name();
+        let elevation = self.work_plane(level_id).origin.y;
+        let placement = placement.with_elevation(elevation);
+        let params = params.resolve(&grid_axis_param_specs())?;
+        let axis = GridAxis::new(name, level_id, placement, params);
+        let id = axis.id;
+        self.document.upsert_grid_axis(axis);
+        self.history.record_before(before);
+        Ok(id)
+    }
+
+    pub fn update_grid_axis(
+        &mut self,
+        id: GridAxisId,
+        params: Option<ParamMap>,
+        placement: Option<Placement>,
+        record: bool,
+    ) -> Result<(), RegistryError> {
+        let before = if record && !self.history.has_pending() {
+            Some(self.export_snapshot())
+        } else {
+            None
+        };
+        let mut axis = self
+            .document
+            .get_grid_axis(id)
+            .cloned()
+            .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
+        if let Some(patch) = params {
+            axis.params = axis.params.merged(&patch);
+        }
+        if let Some(placement) = placement {
+            let elevation = self.work_plane(axis.level_id).origin.y;
+            axis.placement = placement.with_elevation(elevation);
+        }
+        axis.params = axis.params.resolve(&grid_axis_param_specs())?;
+        self.document.upsert_grid_axis(axis);
+        if record {
+            self.finish_recorded_edit(before);
+        }
+        Ok(())
+    }
+
+    pub fn delete_grid_axis(&mut self, id: GridAxisId) -> bool {
+        if self.document.get_grid_axis(id).is_none() {
+            return false;
+        }
+        let before = self.export_snapshot();
+        let removed = self.document.remove_grid_axis(id).is_some();
+        if removed {
+            self.history.record_before(before);
+        }
+        removed
+    }
+
     pub fn delete_element(&mut self, id: ElementId) -> bool {
         if self.document.get_element(id).is_none() {
             return false;
@@ -463,6 +541,11 @@ impl Project {
         format!("{} {counter}", kind.display_name())
     }
 
+    fn next_grid_axis_name(&mut self) -> String {
+        self.grid_axis_counter += 1;
+        format!("Grid {}", self.grid_axis_counter)
+    }
+
     /// Serializable project: levels, elements, profiles, and extra components.
     /// Meshes are rebuilt on load.
     pub fn export_snapshot(&self) -> ProjectSnapshot {
@@ -491,16 +574,21 @@ impl Project {
         let mut references: Vec<Reference> = self.document.references().cloned().collect();
         references.sort_by(|a, b| a.name.cmp(&b.name));
 
+        let mut grid_axes: Vec<GridAxis> = self.document.grid_axes().cloned().collect();
+        grid_axes.sort_by(|a, b| a.name.cmp(&b.name));
+
         ProjectSnapshot {
             format: PROJECT_FORMAT,
             levels,
             active_level: self.document.active_level_id(),
             elements,
             references,
+            grid_axes,
             profiles,
             components,
             counters: self.counters.clone(),
             ref_counters: self.ref_counters.clone(),
+            grid_axis_counter: self.grid_axis_counter,
             level_counter: self.level_counter,
         }
     }
@@ -512,7 +600,7 @@ impl Project {
     }
 
     fn restore_snapshot(&mut self, snap: ProjectSnapshot) -> Result<(), RegistryError> {
-        if snap.format != PROJECT_FORMAT && snap.format != 1 {
+        if snap.format != PROJECT_FORMAT && snap.format != 1 && snap.format != 2 {
             return Err(RegistryError::Unknown(format!(
                 "unsupported project format {}",
                 snap.format
@@ -523,6 +611,7 @@ impl Project {
         next.history = std::mem::take(&mut self.history);
         next.counters = snap.counters;
         next.ref_counters = snap.ref_counters;
+        next.grid_axis_counter = snap.grid_axis_counter;
         next.level_counter = snap.level_counter;
 
         for profile in snap.profiles {
@@ -537,6 +626,7 @@ impl Project {
             snap.active_level,
             snap.elements,
             snap.references,
+            snap.grid_axes,
         );
 
         let ids: Vec<ElementId> = next.document.elements().map(|element| element.id).collect();
@@ -550,7 +640,7 @@ impl Project {
 }
 
 /// On-disk / download format. Bump [`PROJECT_FORMAT`] when the shape changes.
-pub const PROJECT_FORMAT: u32 = 2;
+pub const PROJECT_FORMAT: u32 = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectSnapshot {
@@ -560,6 +650,8 @@ pub struct ProjectSnapshot {
     pub elements: Vec<Element>,
     #[serde(default)]
     pub references: Vec<Reference>,
+    #[serde(default)]
+    pub grid_axes: Vec<GridAxis>,
     pub profiles: Vec<ProfileType>,
     #[serde(default)]
     pub components: Vec<ComponentDefinition>,
@@ -567,6 +659,8 @@ pub struct ProjectSnapshot {
     pub counters: BTreeMap<String, u32>,
     #[serde(default)]
     pub ref_counters: BTreeMap<String, u32>,
+    #[serde(default)]
+    pub grid_axis_counter: u32,
     #[serde(default)]
     pub level_counter: u32,
 }
@@ -1200,6 +1294,47 @@ mod tests {
     }
 
     #[test]
+    fn grid_axes_round_trip_params_and_undo() {
+        let mut project = Project::new();
+        let axis_id = project
+            .create_grid_axis(
+                Placement::line(Vec3::ZERO, Vec3::new(8.0, 0.0, 0.0)),
+                ParamMap::new()
+                    .with("label", ParamValue::Text("A".into()))
+                    .with("extension", ParamValue::Length(0.75)),
+            )
+            .expect("create axis");
+        assert_eq!(project.document().grid_axes().count(), 1);
+
+        let json = serde_json::to_string(&project.export_snapshot()).expect("json");
+        let snap: ProjectSnapshot = serde_json::from_str(&json).expect("parse");
+        assert_eq!(snap.format, PROJECT_FORMAT);
+        let mut restored = Project::new();
+        restored.import_snapshot(snap).expect("import");
+        let axis = restored.document().get_grid_axis(axis_id).expect("axis");
+        assert_eq!(axis.params.text("label"), Some("A"));
+
+        project
+            .update_grid_axis(
+                axis_id,
+                Some(ParamMap::new().with("label", ParamValue::Text("B".into()))),
+                None,
+                true,
+            )
+            .expect("update");
+        project.undo().expect("undo label");
+        assert_eq!(
+            project
+                .document()
+                .get_grid_axis(axis_id)
+                .unwrap()
+                .params
+                .text("label"),
+            Some("A")
+        );
+    }
+
+    #[test]
     fn references_round_trip_and_undo() {
         let mut project = Project::new();
         let ref_id = project
@@ -1237,15 +1372,16 @@ mod tests {
             .create_element(
                 "apex.column",
                 Placement::point(Vec3::ZERO),
-                ParamMap::new().with(
-                    "frame_ref",
-                    ParamValue::ReferenceRef(ref_id.to_string()),
-                ),
+                ParamMap::new().with("frame_ref", ParamValue::ReferenceRef(ref_id.to_string())),
             )
             .expect("column");
         let mesh = project.document().get_mesh(column_id).expect("mesh");
         let (min, max) = mesh.aabb().expect("aabb");
-        assert!((min[0] - 3.8).abs() < EPS, "column sits on ref x {}", min[0]);
+        assert!(
+            (min[0] - 3.8).abs() < EPS,
+            "column sits on ref x {}",
+            min[0]
+        );
         assert!((max[1] - 3.0).abs() < EPS);
     }
 

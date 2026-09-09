@@ -798,10 +798,18 @@ mod tests {
             .with("height", ParamValue::Length(6.0))
             .with("thickness", ParamValue::Length(0.2));
 
-        let a = evaluate_recipe(&recipe, &ctx(&placement, &short, &profiles, &empty_refs()), &no_builders())
-            .expect("mesh");
-        let b = evaluate_recipe(&recipe, &ctx(&placement, &tall, &profiles, &empty_refs()), &no_builders())
-            .expect("mesh");
+        let a = evaluate_recipe(
+            &recipe,
+            &ctx(&placement, &short, &profiles, &empty_refs()),
+            &no_builders(),
+        )
+        .expect("mesh");
+        let b = evaluate_recipe(
+            &recipe,
+            &ctx(&placement, &tall, &profiles, &empty_refs()),
+            &no_builders(),
+        )
+        .expect("mesh");
         assert!((size_of(&a)[1] - 2.0).abs() < EPS);
         assert!((size_of(&b)[1] - 6.0).abs() < EPS);
     }
@@ -994,15 +1002,24 @@ mod tests {
             builder_id: "acme.blob".into(),
         };
 
-        let mesh =
-            evaluate_recipe(&recipe, &ctx(&placement, &params, &profiles, &empty_refs()), &builders).unwrap();
+        let mesh = evaluate_recipe(
+            &recipe,
+            &ctx(&placement, &params, &profiles, &empty_refs()),
+            &builders,
+        )
+        .unwrap();
         assert_eq!(mesh.triangle_count(), 1);
 
         let missing = GeometryRecipe::Custom {
             builder_id: "acme.nope".into(),
         };
         assert_eq!(
-            evaluate_recipe(&missing, &ctx(&placement, &params, &profiles, &empty_refs()), &builders).unwrap_err(),
+            evaluate_recipe(
+                &missing,
+                &ctx(&placement, &params, &profiles, &empty_refs()),
+                &builders
+            )
+            .unwrap_err(),
             RecipeError::UnknownBuilder("acme.nope".into())
         );
     }
@@ -1079,10 +1096,18 @@ mod tests {
         let thin = ParamMap::new().with("profile", ParamValue::ProfileRef("acme.thin".into()));
         let fat = ParamMap::new().with("profile", ParamValue::ProfileRef("acme.fat".into()));
 
-        let a = evaluate_recipe(&recipe, &ctx(&placement, &thin, &profiles, &empty_refs()), &no_builders())
-            .expect("mesh");
-        let b = evaluate_recipe(&recipe, &ctx(&placement, &fat, &profiles, &empty_refs()), &no_builders())
-            .expect("mesh");
+        let a = evaluate_recipe(
+            &recipe,
+            &ctx(&placement, &thin, &profiles, &empty_refs()),
+            &no_builders(),
+        )
+        .expect("mesh");
+        let b = evaluate_recipe(
+            &recipe,
+            &ctx(&placement, &fat, &profiles, &empty_refs()),
+            &no_builders(),
+        )
+        .expect("mesh");
 
         assert!((size_of(&a)[2] - 0.1).abs() < EPS);
         assert!((size_of(&b)[2] - 0.9).abs() < EPS);
@@ -1319,9 +1344,7 @@ mod tests {
                 width: Expr::constant(0.4),
                 height: Expr::constant(0.4),
             },
-            frame: FrameSource::Ref {
-                id: ref_id.clone(),
-            },
+            frame: FrameSource::Ref { id: ref_id.clone() },
             height: Expr::constant(2.0),
         };
         let placement = Placement::point(Vec3::ZERO);
@@ -1388,7 +1411,11 @@ mod tests {
         )
         .expect("mesh");
         let (min, _) = mesh.aabb().expect("aabb");
-        assert!((min[0] - 0.8).abs() < EPS, "fallback placement x {}", min[0]);
+        assert!(
+            (min[0] - 0.8).abs() < EPS,
+            "fallback placement x {}",
+            min[0]
+        );
     }
 
     #[test]

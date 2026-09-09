@@ -1,9 +1,11 @@
 //! Apex document model: elements, levels, and change notifications.
 
+mod annotation;
 mod component;
 mod document;
 mod element;
 mod expr;
+mod grid_axis;
 mod history;
 mod level;
 mod param;
@@ -13,6 +15,7 @@ mod reference;
 mod registry;
 mod sketch;
 
+pub use annotation::{AnnotationLabel, PlanAnnotation};
 pub use component::{
     evaluate_recipe, ComponentDefinition, ComponentSource, DefinitionError, FrameSource,
     GeometryRecipe, MeshBuilder, ModuleId, ProfileId, ProfileLibrary, ProfileSpec, ProfileType,
@@ -21,13 +24,18 @@ pub use component::{
 pub use document::{Document, DocumentChange, DocumentChangeKind, ElementSceneEntry, SceneBuffers};
 pub use element::{ComponentId, Element, ElementId};
 pub use expr::{Expr, ExprError};
+pub use grid_axis::{
+    grid_axis_param_specs, GridAxis, GridAxisError, GridAxisId, GridAxisLibrary, GridAxisOverlay,
+};
 pub use history::History;
 pub use level::{Level, LevelId};
 pub use param::{ParamBinding, ParamError, ParamId, ParamKind, ParamMap, ParamSpec, ParamValue};
 pub use placement::{Placement, PlacementError, PlacementKind};
-pub use reference::{RefId, Reference, ReferenceError, ReferenceFilter, ReferenceKind, ReferenceLibrary};
 pub use project::Project;
 pub use project::ProjectSnapshot;
+pub use reference::{
+    RefId, Reference, ReferenceError, ReferenceFilter, ReferenceKind, ReferenceLibrary,
+};
 pub use registry::{builtin_components, ComponentRegistry, RegistryError};
 pub use sketch::{ProfileSketch, SketchConstraint, SketchDimension, SketchError};
 

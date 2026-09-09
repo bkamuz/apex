@@ -19,6 +19,8 @@ export function canUndo(): boolean;
  */
 export function createElement(component_id: string, points_json: string, rotation: number, params_json: string, placement_kind: string): any;
 
+export function createGridAxis(points_json: string, params_json: string, rotation: number): any;
+
 export function createLevel(name: string, elevation: number): any;
 
 export function createReference(kind: string, points_json: string, rotation: number): any;
@@ -27,6 +29,8 @@ export function createReference(kind: string, points_json: string, rotation: num
  * Delete every selected element.
  */
 export function deleteSelected(): any;
+
+export function deleteSelectedGridAxis(): any;
 
 export function deleteSelectedReference(): any;
 
@@ -41,6 +45,8 @@ export function getScene(): any;
  * Details of the single selected element, or null.
  */
 export function getSelected(): any;
+
+export function getSelectedGridAxis(): any;
 
 export function getSelectedReference(): any;
 
@@ -107,6 +113,8 @@ export function registerProfile(definition_json: string): any;
 
 export function selectElement(id: string): any;
 
+export function selectGridAxis(id: string): any;
+
 export function selectReference(id: string): any;
 
 export function setActiveLevel(id: string): any;
@@ -119,6 +127,8 @@ export function setActiveLevel(id: string): any;
  * previews; the final commit should use the default `true`.
  */
 export function setElementPlacement(id: string, points_json: string, rotation: number, record_history: boolean): any;
+
+export function setGridAxisPlacement(id: string, points_json: string, rotation: number, record_history: boolean): any;
 
 export function setLevelElevation(id: string, elevation: number): any;
 
@@ -135,6 +145,8 @@ export function undo(): any;
  */
 export function updateElement(id: string, params_json: string): any;
 
+export function updateGridAxis(id: string, params_json: string): any;
+
 /**
  * Patch type-level values on a profile and rebuild every element that uses it.
  */
@@ -148,13 +160,16 @@ export interface InitOutput {
     readonly canRedo: () => [number, number, number];
     readonly canUndo: () => [number, number, number];
     readonly createElement: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
+    readonly createGridAxis: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly createLevel: (a: number, b: number, c: number) => [number, number, number];
     readonly createReference: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly deleteSelected: () => [number, number, number];
+    readonly deleteSelectedGridAxis: () => [number, number, number];
     readonly deleteSelectedReference: () => [number, number, number];
     readonly exportProject: () => [number, number, number, number];
     readonly getScene: () => [number, number, number];
     readonly getSelected: () => [number, number, number];
+    readonly getSelectedGridAxis: () => [number, number, number];
     readonly getSelectedReference: () => [number, number, number];
     readonly importProject: (a: number, b: number) => [number, number, number];
     readonly initApp: () => [number, number];
@@ -169,15 +184,18 @@ export interface InitOutput {
     readonly registerComponent: (a: number, b: number) => [number, number, number];
     readonly registerProfile: (a: number, b: number) => [number, number, number];
     readonly selectElement: (a: number, b: number) => [number, number, number];
+    readonly selectGridAxis: (a: number, b: number) => [number, number, number];
     readonly selectReference: (a: number, b: number) => [number, number, number];
     readonly setActiveLevel: (a: number, b: number) => [number, number, number];
     readonly setElementPlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
+    readonly setGridAxisPlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly setLevelElevation: (a: number, b: number, c: number) => [number, number, number];
     readonly setReferencePlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly togglePickById: (a: number) => [number, number, number];
     readonly toggleSelectElement: (a: number, b: number) => [number, number, number];
     readonly undo: () => [number, number, number];
     readonly updateElement: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly updateGridAxis: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly updateProfileType: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;

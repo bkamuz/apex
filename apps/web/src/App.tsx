@@ -3,9 +3,12 @@ import {
   apexBeginUndoGroup,
   apexCreateElement,
   apexCreateLevel,
+  apexCreateGridAxis,
   apexCreateReference,
   apexDeleteSelected,
+  apexDeleteSelectedGridAxis,
   apexDeleteSelectedReference,
+  apexGetSelectedGridAxis,
   apexGetSelectedReference,
   apexExportProject,
   apexGetScene,
@@ -19,8 +22,11 @@ import {
   apexRedo,
   apexRegisterProfile,
   apexSelectElement,
+  apexSelectGridAxis,
   apexSelectReference,
+  apexSetGridAxisPlacement,
   apexSetReferencePlacement,
+  apexUpdateGridAxis,
   apexSetActiveLevel,
   apexSetElementPlacement,
   apexSetLevelElevation,
@@ -46,10 +52,12 @@ import type {
   ParamValue,
   PlacementKind,
   ProfileTypeDto,
+  GridAxisDto,
   ReferenceDto,
   ReferenceKind,
   SceneDto,
 } from './types';
+import { GridAxisLabels } from './ui/GridAxisLabels';
 import { LevelList } from './ui/LevelList';
 import { MobileMenuSheet, type MobileMenuTab } from './ui/MobileMenuSheet';
 import { ProfileEditor } from './ui/ProfileEditor';
@@ -115,6 +123,7 @@ export default function App() {
   const shiftHeldRef = useRef(false);
   const selectedRef = useRef<ElementDto | null>(null);
   const selectedReferenceRef = useRef<ReferenceDto | null>(null);
+  const selectedGridAxisRef = useRef<GridAxisDto | null>(null);
   const selectedCountRef = useRef(0);
   const activeElevationRef = useRef(0);
   const suppressClickRef = useRef(false);
@@ -139,6 +148,7 @@ export default function App() {
   const [scene, setScene] = useState<SceneDto | null>(null);
   const [selected, setSelected] = useState<ElementDto | null>(null);
   const [selectedReference, setSelectedReference] = useState<ReferenceDto | null>(null);
+  const [selectedGridAxis, setSelectedGridAxis] = useState<GridAxisDto | null>(null);
   const [selectedLevelId, setSelectedLevelId] = useState<string | null>(null);
   const [pending, setPending] = useState<Vec3[]>([]);
   const [fps, setFps] = useState(0);
@@ -149,6 +159,7 @@ export default function App() {
 
   selectedRef.current = selected;
   selectedReferenceRef.current = selectedReference;
+  selectedGridAxisRef.current = selectedGridAxis;
   selectedCountRef.current = scene?.selected_ids?.length ?? 0;
   placementParamsRef.current = placementDraft;
 
@@ -183,11 +194,32 @@ export default function App() {
     rendererRef.current?.setReferenceGizmos(segments.length >= 2 ? segments : null);
   }, []);
 
-  const syncEditGizmo = useCallback((el: ElementDto | null, ref: ReferenceDto | null) => {
-    const anchors =
-      el?.anchors?.length ? el.anchors : ref?.anchors?.length ? ref.anchors : null;
-    rendererRef.current?.setEditGizmo(anchors);
+  const syncGridAxisGizmos = useCallback((axes: GridAxisDto[]) => {
+    const lines: Vec3[] = [];
+    const bubbles: Vec3[] = [];
+    for (const axis of axes) {
+      if (axis.line_segments?.length) lines.push(...axis.line_segments);
+      if (axis.bubble_segments?.length) bubbles.push(...axis.bubble_segments);
+    }
+    rendererRef.current?.setGridAxisOverlays(
+      lines.length >= 2 ? lines : null,
+      bubbles.length >= 2 ? bubbles : null,
+    );
   }, []);
+
+  const syncEditGizmo = useCallback(
+    (el: ElementDto | null, ref: ReferenceDto | null, axis: GridAxisDto | null) => {
+      const anchors = el?.anchors?.length
+        ? el.anchors
+        : ref?.anchors?.length
+          ? ref.anchors
+          : axis?.anchors?.length
+            ? axis.anchors
+            : null;
+      rendererRef.current?.setEditGizmo(anchors);
+    },
+    [],
+  );
 
   const clearPreview = useCallback(() => {
     rendererRef.current?.setPreviewLine(null);
@@ -218,17 +250,21 @@ export default function App() {
         });
         syncLevelPlanes(renderer, next);
         syncReferenceGizmos(next.references ?? []);
+        syncGridAxisGizmos(next.grid_axes ?? []);
       }
       setComponents(apexListComponents());
       const sel = apexGetSelected();
       const selRef = apexGetSelectedReference();
+      const selAxis = apexGetSelectedGridAxis();
       setSelected(sel);
       setSelectedReference(selRef);
+      setSelectedGridAxis(selAxis);
       if (sel) setSelectedLevelId(sel.level_id);
       else if (selRef) setSelectedLevelId(selRef.level_id);
-      if (!draggingRef.current) syncEditGizmo(sel, selRef);
+      else if (selAxis) setSelectedLevelId(selAxis.level_id);
+      if (!draggingRef.current) syncEditGizmo(sel, selRef, selAxis);
     },
-    [syncEditGizmo, syncReferenceGizmos],
+    [syncEditGizmo, syncGridAxisGizmos, syncReferenceGizmos],
   );
 
   /** Screen point to a world point on the active work plane, with Shift snapping. */
@@ -266,6 +302,15 @@ export default function App() {
       createReference: (kind: ReferenceKind, points) => {
         try {
           applyScene(apexCreateReference(kind, points));
+          setError(null);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+        }
+      },
+
+      createGridAxis: (points) => {
+        try {
+          applyScene(apexCreateGridAxis(points));
           setError(null);
         } catch (e) {
           setError(e instanceof Error ? e.message : String(e));
@@ -311,6 +356,7 @@ export default function App() {
 
       hitEditHandle: (x, y) => renderer.hitEditHandle(x, y),
       selectedAnchors: () => {
+        if (selectedGridAxisRef.current) return selectedGridAxisRef.current.anchors;
         if (selectedReferenceRef.current) return selectedReferenceRef.current.anchors;
         return selectedCountRef.current === 1 ? (selectedRef.current?.anchors ?? null) : null;
       },
@@ -318,6 +364,26 @@ export default function App() {
       previewAnchors: (anchors) => {
         draggingRef.current = true;
         renderer.setEditGizmo(anchors);
+        const axisSel = selectedGridAxisRef.current;
+        if (axisSel) {
+          try {
+            const next = apexSetGridAxisPlacement(axisSel.id, anchors, 0, false);
+            renderer.setScene({
+              positions: toFloatArray(next.positions),
+              normals: toFloatArray(next.normals),
+              indices: toUint32Array(next.indices),
+              pickIds: next.pick_ids,
+              edgePositions: next.edge_positions ? toFloatArray(next.edge_positions) : [],
+              selectedPickIds: selectedPickIds(next),
+              fitCamera: false,
+            });
+            syncGridAxisGizmos(next.grid_axes ?? []);
+            setScene(next);
+          } catch {
+            /* keep dragging */
+          }
+          return;
+        }
         const refSel = selectedReferenceRef.current;
         if (refSel) {
           try {
@@ -359,6 +425,17 @@ export default function App() {
 
       commitAnchors: (anchors) => {
         draggingRef.current = false;
+        const axisSel = selectedGridAxisRef.current;
+        if (axisSel) {
+          try {
+            applyScene(apexSetGridAxisPlacement(axisSel.id, anchors, 0, true));
+            setError(null);
+          } catch (e) {
+            setError(e instanceof Error ? e.message : String(e));
+            syncEditGizmo(null, null, axisSel);
+          }
+          return;
+        }
         const refSel = selectedReferenceRef.current;
         if (refSel) {
           try {
@@ -366,7 +443,7 @@ export default function App() {
             setError(null);
           } catch (e) {
             setError(e instanceof Error ? e.message : String(e));
-            syncEditGizmo(null, refSel);
+            syncEditGizmo(null, refSel, null);
           }
           return;
         }
@@ -377,7 +454,7 @@ export default function App() {
           setError(null);
         } catch (e) {
           setError(e instanceof Error ? e.message : String(e));
-          syncEditGizmo(sel, null);
+          syncEditGizmo(sel, null, null);
         }
       },
 
@@ -393,7 +470,7 @@ export default function App() {
       setPending,
       setTouchOrbitEnabled: (enabled) => renderer.setTouchOrbitEnabled(enabled),
     };
-  }, [applyScene, resolvePoint, syncEditGizmo, syncReferenceGizmos]);
+  }, [applyScene, resolvePoint, syncEditGizmo, syncGridAxisGizmos, syncReferenceGizmos]);
 
   const cancelGesture = useCallback(() => {
     if (!rendererRef.current) return;
@@ -409,7 +486,13 @@ export default function App() {
       setToolId(id);
       const next = registryRef.current.get(id);
       setDrawMode(next?.getMode?.() ?? null);
-      if (id === ToolRegistry.selectId) syncEditGizmo(selectedRef.current, selectedReferenceRef.current);
+      if (id === ToolRegistry.selectId) {
+        syncEditGizmo(
+          selectedRef.current,
+          selectedReferenceRef.current,
+          selectedGridAxisRef.current,
+        );
+      }
       else rendererRef.current?.setEditGizmo(null);
       const component = components.find((item) => item.id === next?.componentId);
       if (component) {
@@ -480,11 +563,13 @@ export default function App() {
       active.blur();
     }
     try {
+      applyScene(apexSelectGridAxis(null));
       applyScene(apexSelectReference(null));
     } catch {
       rendererRef.current?.setEditGizmo(null);
       setSelected(null);
       setSelectedReference(null);
+      setSelectedGridAxis(null);
     }
   }, [applyScene, cancelGesture]);
 
@@ -505,6 +590,15 @@ export default function App() {
         active instanceof HTMLElement &&
         (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT');
       if (!typing && (e.key === 'Delete' || e.key === 'Backspace')) {
+        if (selectedGridAxisRef.current) {
+          e.preventDefault();
+          try {
+            applyScene(apexDeleteSelectedGridAxis());
+          } catch {
+            /* ignore */
+          }
+          return;
+        }
         if (selectedReferenceRef.current) {
           e.preventDefault();
           try {
@@ -728,6 +822,11 @@ export default function App() {
     applyScene(apexSelectReference(id));
   };
 
+  const onSelectGridAxisFromTree = (id: string) => {
+    activateTool(ToolRegistry.selectId);
+    applyScene(apexSelectGridAxis(id));
+  };
+
   const onSelectLevel = (id: string) => {
     setSelectedLevelId(id);
     try {
@@ -768,6 +867,16 @@ export default function App() {
     if (!selected) return;
     try {
       applyScene(apexUpdateElement(selected.id, params));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const onUpdateGridAxisParams = (params: Record<string, ParamValue>) => {
+    if (!selectedGridAxis) return;
+    try {
+      applyScene(apexUpdateGridAxis(selectedGridAxis.id, params));
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -866,21 +975,28 @@ export default function App() {
     <PropertiesPanel
       selected={selected}
       selectedCount={selectedIds.length}
+      selectedGridAxis={selectedGridAxis}
       component={selectedComponent}
       profiles={profiles}
       references={scene?.references ?? []}
-      selectedLevel={selectedIds.length === 0 && !placementComponent ? selectedLevel : null}
+      selectedLevel={
+        selectedIds.length === 0 && !placementComponent && !selectedGridAxis && !selectedReference
+          ? selectedLevel
+          : null
+      }
       placement={
         placementComponent
           ? { component: placementComponent, params: placementDraft }
           : null
       }
       onUpdate={onUpdateParams}
+      onUpdateGridAxis={onUpdateGridAxisParams}
       onPlacementChange={onPlacementChange}
       onEditType={onEditType}
       onNewProfile={onNewProfile}
       onUpdateLevelElevation={onUpdateLevelElevation}
       onDelete={onDelete}
+      onDeleteGridAxis={() => applyScene(apexDeleteSelectedGridAxis())}
     />
   );
 
@@ -1003,13 +1119,16 @@ export default function App() {
           <ProjectBrowser
             elements={elements}
             references={scene?.references ?? []}
+            gridAxes={scene?.grid_axes ?? []}
             profiles={profiles}
             levels={levels}
             selectedIds={selectedIds}
             selectedProfileId={profileEditor?.originalId ?? profileEditor?.profile.id ?? null}
             selectedRefId={scene?.selected_ref_id ?? null}
+            selectedGridAxisId={scene?.selected_grid_axis_id ?? null}
             onSelectInstance={(id, multi) => onSelectFromTree(id, multi)}
             onSelectReference={onSelectReferenceFromTree}
+            onSelectGridAxis={onSelectGridAxisFromTree}
             onSelectType={onSelectType}
             onNewProfile={() => onNewProfile('wall')}
           />
@@ -1019,6 +1138,10 @@ export default function App() {
       <div className="viewport-wrap">
         {!ready && !error && <div className="loading">Loading Apex core…</div>}
         {error && <div className="error-banner">{error}</div>}
+        <GridAxisLabels
+          axes={scene?.grid_axes ?? []}
+          renderer={ready ? rendererRef.current : null}
+        />
         <canvas
           ref={canvasRef}
           onClick={onCanvasClick}
@@ -1067,17 +1190,23 @@ export default function App() {
               <ProjectBrowser
                 elements={elements}
                 references={scene?.references ?? []}
+                gridAxes={scene?.grid_axes ?? []}
                 profiles={profiles}
                 levels={levels}
                 selectedIds={selectedIds}
                 selectedProfileId={profileEditor?.originalId ?? profileEditor?.profile.id ?? null}
                 selectedRefId={scene?.selected_ref_id ?? null}
+                selectedGridAxisId={scene?.selected_grid_axis_id ?? null}
                 onSelectInstance={(id, multi) => {
                   onSelectFromTree(id, multi);
                   if (!multi) closeMobileMenu();
                 }}
                 onSelectReference={(id) => {
                   onSelectReferenceFromTree(id);
+                  closeMobileMenu();
+                }}
+                onSelectGridAxis={(id) => {
+                  onSelectGridAxisFromTree(id);
                   closeMobileMenu();
                 }}
                 onSelectType={(profileId) => {
