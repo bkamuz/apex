@@ -27,6 +27,11 @@ import initWasm, {
   undo,
   redo,
   beginUndoGroup,
+  createReference,
+  selectReference,
+  getSelectedReference,
+  setReferencePlacement,
+  deleteSelectedReference,
 } from './pkg/apex_wasm.js';
 import type {
   ComponentDto,
@@ -36,6 +41,8 @@ import type {
   PlacementKind,
   ProfilePreviewDto,
   ProfileTypeDto,
+  ReferenceDto,
+  ReferenceKind,
   SceneDto,
   Vec3,
 } from '../types';
@@ -210,4 +217,31 @@ export function apexRedo(): SceneDto {
 
 export function apexBeginUndoGroup(): void {
   beginUndoGroup();
+}
+
+export function apexCreateReference(kind: ReferenceKind, points: Vec3[]): SceneDto {
+  return asScene(createReference(kind, encodePoints(points), 0));
+}
+
+export function apexSelectReference(id: string | null): SceneDto {
+  return asScene(selectReference(id ?? ''));
+}
+
+export function apexGetSelectedReference(): ReferenceDto | null {
+  const value = getSelectedReference();
+  if (value === null || value === undefined) return null;
+  return value as ReferenceDto;
+}
+
+export function apexSetReferencePlacement(
+  id: string,
+  points: Vec3[],
+  rotation = 0,
+  recordHistory = true,
+): SceneDto {
+  return asScene(setReferencePlacement(id, encodePoints(points), rotation, recordHistory));
+}
+
+export function apexDeleteSelectedReference(): SceneDto {
+  return asScene(deleteSelectedReference());
 }

@@ -6,6 +6,7 @@ import type {
   ParamSpecDto,
   ParamValue,
   ProfileTypeDto,
+  ReferenceDto,
 } from '../types';
 import {
   applyProfileChange,
@@ -23,6 +24,7 @@ interface Props {
   /** Definition of the selected element's component, which supplies the schema. */
   component: ComponentDto | null;
   profiles: ProfileTypeDto[];
+  references: ReferenceDto[];
   selectedLevel: LevelDto | null;
   /** Create-tool draft: profile + instance fields used for preview and place. */
   placement: { component: ComponentDto; params: Record<string, ParamValue> } | null;
@@ -38,9 +40,17 @@ function stepFor(spec: ParamSpecDto): number {
   return spec.kind === 'angle' ? 0.05 : 0.05;
 }
 
-function optionLabel(kind: ParamSpecDto['kind'], option: string, profiles: ProfileTypeDto[]): string {
-  if (kind !== 'profile') return option;
-  return profileLabel(profiles, option);
+function optionLabel(
+  spec: ParamSpecDto,
+  option: string,
+  profiles: ProfileTypeDto[],
+  references: ReferenceDto[],
+): string {
+  if (spec.kind === 'profile') return profileLabel(profiles, option);
+  if (spec.kind === 'reference' && option) {
+    return references.find((reference) => reference.id === option)?.name ?? option;
+  }
+  return option;
 }
 
 /** One control per parameter, chosen from the declared kind. */
@@ -48,6 +58,7 @@ function ParamField({
   spec,
   value,
   profiles,
+  references,
   readOnly,
   onChange,
   onCommit,
@@ -55,6 +66,7 @@ function ParamField({
   spec: ParamSpecDto;
   value: ParamValue;
   profiles: ProfileTypeDto[];
+  references: ReferenceDto[];
   readOnly?: boolean;
   onChange: (value: ParamValue) => void;
   /** Immediate commit, used when the new value is known in this event (select/checkbox). */
@@ -78,6 +90,7 @@ function ParamField({
 
     case 'choice':
     case 'profile':
+    case 'reference':
       return (
         <div className="field">
           <label>{label}</label>
@@ -87,8 +100,10 @@ function ParamField({
             onChange={(e) => onCommit(e.target.value)}
           >
             {(spec.options ?? []).map((option) => (
-              <option key={option} value={option}>
-                {optionLabel(spec.kind, option, profiles)}
+              <option key={option || '__none'} value={option}>
+                {spec.kind === 'reference' && option === ''
+                  ? '(placement)'
+                  : optionLabel(spec, option, profiles, references)}
               </option>
             ))}
           </select>
@@ -154,6 +169,7 @@ function SchemaFields({
   specs,
   values,
   profiles,
+  references,
   readOnly,
   live,
   onDraft,
@@ -162,6 +178,7 @@ function SchemaFields({
   specs: ParamSpecDto[];
   values: Record<string, ParamValue>;
   profiles: ProfileTypeDto[];
+  references: ReferenceDto[];
   readOnly?: boolean;
   /** Commit on every change, so a placement ghost tracks the inspector. */
   live?: boolean;
@@ -175,6 +192,7 @@ function SchemaFields({
           key={spec.id}
           spec={spec}
           profiles={profiles}
+          references={references}
           readOnly={readOnly}
           value={values[spec.id] ?? spec.default}
           onChange={(value) => {
@@ -218,6 +236,7 @@ function TypeBlock({
             key={spec.id}
             spec={spec}
             profiles={profiles}
+            references={[]}
             readOnly
             value={values[spec.id] ?? spec.default}
             onChange={() => undefined}
@@ -256,6 +275,7 @@ export function PropertiesPanel({
   selectedCount,
   component,
   profiles,
+  references,
   selectedLevel,
   placement,
   onUpdate,
@@ -302,6 +322,7 @@ export function PropertiesPanel({
             specs={specs}
             values={placement.params}
             profiles={profiles}
+            references={references}
             live
             onDraft={() => undefined}
             onCommit={apply}
@@ -368,6 +389,7 @@ export function PropertiesPanel({
             specs={specs}
             values={draft}
             profiles={profiles}
+            references={references}
             onDraft={(id, value) => setDraft((prev) => ({ ...prev, [id]: value }))}
             onCommit={(patch) => apply(patch)}
           />

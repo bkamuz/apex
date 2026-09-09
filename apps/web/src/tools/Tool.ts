@@ -1,5 +1,5 @@
 import type { Vec3 } from '../viewport/ViewportRenderer';
-import type { ComponentDto, PlacementKind } from '../types';
+import type { ComponentDto, PlacementKind, ReferenceKind } from '../types';
 
 /**
  * Services a tool may use. The app supplies a fresh context per event, so a
@@ -10,6 +10,8 @@ export interface ToolContext {
   resolvePoint(clientX: number, clientY: number, shift: boolean, anchor: Vec3 | null): Vec3 | null;
   /** Commit picks as a new element of `componentId`. */
   createElement(componentId: string, points: Vec3[], placementKind?: PlacementKind): void;
+  /** Commit picks as a new document reference. */
+  createReference(kind: ReferenceKind, points: Vec3[]): void;
   /** Ghost geometry, built by the same recipe the committed element will use. */
   showPreview(componentId: string, points: Vec3[], placementKind?: PlacementKind): void;
   clearPreview(): void;

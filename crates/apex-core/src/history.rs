@@ -112,9 +112,11 @@ mod tests {
             levels: Vec::new(),
             active_level: None,
             elements: Vec::new(),
+            references: Vec::new(),
             profiles: Vec::new(),
             components: Vec::new(),
             counters: Default::default(),
+            ref_counters: Default::default(),
             level_counter: n,
         }
     }

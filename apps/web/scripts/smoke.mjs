@@ -68,7 +68,7 @@ const toolbarNames = () =>
 console.log('\n[1] toolbar from plugins, one tool per type');
 const tools = await toolbarNames();
 console.log('  toolbar:', tools.join(' | '));
-for (const expected of ['Select', 'Wall', 'Column', 'Beam', 'Slab']) {
+for (const expected of ['Select', 'Wall', 'Column', 'Beam', 'Slab', 'Ref point', 'Ref plane']) {
   check(`"${expected}" button exists`, tools.includes(expected));
 }
 check('arc wall is not a second tool', !tools.includes('Arc wall'));
@@ -100,8 +100,22 @@ for (let i = 0; i < corners.length; i++) {
 const afterWalls = await elementCount();
 check('four walls placed', afterWalls === 4, `got ${afterWalls}`);
 
-// --- 3. Point, two-point and three-point gestures all work -----------------
-console.log('\n[3] every other built-in gesture');
+// --- 3. Reference point and plane tools ------------------------------------
+console.log('\n[3] reference points and planes');
+const refCount = () => page.locator('[data-kind="reference"]').count();
+await useTool('Ref point');
+await clickCanvas(0.45, 0.55);
+check('ref point created', (await refCount()) >= 1);
+await useTool('Ref plane');
+await clickCanvas(0.5, 0.45);
+await clickCanvas(0.62, 0.45);
+check('ref plane created', (await refCount()) >= 2);
+await page.getByTestId('browser-filter-references').click();
+check('references filter lists refs', (await refCount()) >= 2);
+await page.getByTestId('browser-filter-all').click();
+
+// --- 4. Point, two-point and three-point gestures all work -----------------
+console.log('\n[4] every other built-in gesture');
 await useTool('Column');
 await clickCanvas(0.32, 0.5);
 check('column placed with one pick', (await elementCount()) === 5);
@@ -156,7 +170,7 @@ check('slab thickness edit applied', Number(await slabThickness.inputValue()) ==
 await page.screenshot({ path: `${OUT}/apex-02-all-components.png`, fullPage: true });
 
 // --- 4. Schema-driven inspector -------------------------------------------
-console.log('\n[4] inspector generated from the parameter schema');
+console.log('\n[5] inspector generated from the parameter schema');
 await useTool('Select');
 // Elements are listed by id, so pick the wall by name rather than by position.
 await page.locator('[data-kind="instance"]').filter({ hasText: /^Wall \d+/ }).first().click();
@@ -227,7 +241,7 @@ await page.waitForTimeout(300);
 check('cleanup leaves element count unchanged', (await elementCount()) === countBeforeColumn);
 
 // --- 5. Column profile is a parameter, not a second tool -------------------
-console.log('\n[5] column profile switches on the same tool');
+console.log('\n[6] column profile switches on the same tool');
 await page.locator('[data-kind="instance"]').filter({ hasText: /^Column \d+/ }).first().click();
 await page.waitForTimeout(300);
 const profileSelect = page.locator('.inspector-body select').first();
@@ -242,7 +256,7 @@ check('still a single column element', (await elementCount()) === 9);
 await page.screenshot({ path: `${OUT}/apex-05-column-profile.png`, fullPage: true });
 
 // --- 6. A user component installed at runtime ------------------------------
-console.log('\n[6] user component installed through the module SDK');
+console.log('\n[7] user component installed through the module SDK');
 const sdkError = await page.evaluate(() => {
   try {
     window.apex.defineComponent({
@@ -318,7 +332,7 @@ check(
 await page.screenshot({ path: `${OUT}/apex-04-user-component.png`, fullPage: true });
 
 // --- 7. Shared type vs this element, sketch editor on an existing profile --
-console.log('\n[7] sketch editor edits a shared type dimension');
+console.log('\n[8] sketch editor edits a shared type dimension');
 await useTool('Select');
 const wallItems = page.locator('[data-kind="instance"]').filter({ hasText: /^Wall \d+/ });
 await wallItems.first().click();
@@ -360,7 +374,7 @@ check(
 );
 
 // --- 8. Draw a new profile with the mouse ---------------------------------
-console.log('\n[8] mouse-drawn profile');
+console.log('\n[9] mouse-drawn profile');
 await useTool('Wall');
 await page.getByRole('button', { name: 'Draw new profile', exact: true }).click();
 await page.waitForSelector('[data-testid="profile-sketch"]');
@@ -427,7 +441,7 @@ if ((await toolHeight.count()) > 0) {
 await page.screenshot({ path: `${OUT}/apex-06-profile-editor.png`, fullPage: true });
 
 // --- 9. Project browser grouping and save/load ----------------------------
-console.log('\n[9] project browser and persistence');
+console.log('\n[10] project browser and persistence');
 check(
   'browser is present',
   (await page.locator('[data-testid="project-browser"]').count()) >= 1,

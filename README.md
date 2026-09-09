@@ -110,10 +110,10 @@ Each push to `main` redeploys automatically via `.github/workflows/deploy-pages.
 
 ### Demo
 
-1. Pick a tool: **Wall**, **Column**, **Beam** or **Slab**. With Wall active, switch **Line** / **Arc** / **Polyline**. With Slab active, click corners of the floor outline and double-click to finish.
+1. Pick a tool: **Wall**, **Column**, **Beam**, **Slab**, **Ref point**, or **Ref plane**. With Wall active, switch **Line** / **Arc** / **Polyline**. With Slab active, click corners of the floor outline and double-click to finish. **Ref point** is one click; **Ref plane** is origin plus in-plane direction (two clicks).
 2. Click the number of points that mode needs (1, 2, 3, or double-click to finish a polyline); a ghost previews the result.
-3. Select the element. **This element** fields apply only to that instance; **Shared type** fields are the same for every element of that profile. **Edit profile** opens a 2D sketch: click to draw the outline, close it, then click edges (or **Dimension all edges**) to assign sizes as shared type or this-element parameters.
-4. The left **Project** browser lists types and instances. Change **Group** / **Sort** / **Types** vs **Instances** to rearrange it. **Save** downloads the project (it is also stored in the browser); **Open** loads a file; **New** starts over.
+3. Select the element. **This element** fields apply only to that instance; **Shared type** fields are the same for every element of that profile. On a **Column**, set **Frame reference** to a placed ref point to extrude from that frame instead of the click point. **Edit profile** opens a 2D sketch: click to draw the outline, close it, then click edges (or **Dimension all edges**) to assign sizes as shared type or this-element parameters.
+4. The left **Project** browser lists types, instances, and references. Use the **Refs** filter to see ref points/planes. Change **Group** / **Sort** to rearrange. **Save** downloads the project (it is also stored in the browser); **Open** loads a file; **New** starts over.
 5. Orbit: right-drag · Pan: middle-drag · Zoom: wheel · Shift: snap to grid.
 
 ## Tests
@@ -127,7 +127,7 @@ npm run test:smoke                         # Playwright end-to-end
 
 ## Roadmap (not in this MVP)
 
-- Reference points and planes as first-class objects (`FrameSource::Ref` is the reserved seam)
+- Full associativity when a reference moves (dependents follow automatically)
 - A visual component editor, so components can be built without JSON
 - Undo/redo
 - A full CAD constraint solver (the sketch editor is polyline + labeled edge lengths)

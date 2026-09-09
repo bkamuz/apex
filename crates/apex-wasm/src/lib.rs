@@ -8,8 +8,9 @@ use std::cell::RefCell;
 use std::str::FromStr;
 
 use apex_core::{
-    ComponentDefinition, Element, ElementId, LevelId, ParamKind, ParamMap, PlacementKind,
-    ProfileSpec, ProfileType, Project, ProjectSnapshot, SceneBuffers,
+    ComponentDefinition, ComponentRegistry, Element, ElementId, LevelId, ParamKind, ParamMap,
+    PlacementKind, ProfileSpec, ProfileType, Project, ProjectSnapshot, RefId, Reference,
+    ReferenceKind, SceneBuffers,
 };
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
@@ -97,6 +98,7 @@ impl Selection {
 
 thread_local! {
     static SELECTION: RefCell<Selection> = RefCell::new(Selection::default());
+    static SELECTED_REF: RefCell<Option<RefId>> = const { RefCell::new(None) };
 }
 
 fn with_selection<R>(f: impl FnOnce(&mut Selection) -> R) -> R {
@@ -150,6 +152,16 @@ struct MeshDto {
 }
 
 #[derive(Serialize)]
+struct ReferenceDto {
+    id: String,
+    name: String,
+    kind: String,
+    level_id: String,
+    anchors: Vec<[f32; 3]>,
+    gizmo_segments: Vec<[f32; 3]>,
+}
+
+#[derive(Serialize)]
 struct SceneDto {
     positions: Vec<f32>,
     normals: Vec<f32>,
@@ -158,11 +170,13 @@ struct SceneDto {
     pick_ids: Vec<f64>,
     edge_positions: Vec<f32>,
     elements: Vec<ElementListDto>,
+    references: Vec<ReferenceDto>,
     levels: Vec<LevelDto>,
     active_level_id: Option<String>,
     version: u64,
     selected_ids: Vec<String>,
     selected_id: Option<String>,
+    selected_ref_id: Option<String>,
     can_undo: bool,
     can_redo: bool,
 }
@@ -204,21 +218,53 @@ fn element_dto(project: &Project, element: &Element) -> ElementDto {
     }
 }
 
-/// Fill empty `profile` option lists from the library, filtered by category.
-fn with_profile_options(
+fn reference_dto(project: &Project, reference: &Reference) -> ReferenceDto {
+    let work_plane = project.work_plane(reference.level_id);
+    let gizmo_segments = reference
+        .gizmo_segments(&work_plane)
+        .unwrap_or_default()
+        .into_iter()
+        .map(|p| p.to_array())
+        .collect();
+    ReferenceDto {
+        id: reference.id.to_string(),
+        name: reference.name.clone(),
+        kind: reference.kind.as_str().to_string(),
+        level_id: reference.level_id.to_string(),
+        anchors: reference
+            .placement
+            .anchors()
+            .into_iter()
+            .map(|p| p.to_array())
+            .collect(),
+        gizmo_segments,
+    }
+}
+
+/// Fill empty option lists from the document (profiles by category, refs by filter).
+fn with_dynamic_options(
     project: &Project,
     mut definition: ComponentDefinition,
 ) -> ComponentDefinition {
     let category = definition.category.clone();
     for spec in &mut definition.params {
-        if let ParamKind::Profile { options } = &mut spec.kind {
-            if options.is_empty() {
+        match &mut spec.kind {
+            ParamKind::Profile { options } if options.is_empty() => {
                 *options = project
                     .registry()
                     .profiles_in_category(&category)
                     .map(|profile| profile.id.clone())
                     .collect();
             }
+            ParamKind::Reference { filter, options } if options.is_empty() => {
+                let mut ids = ComponentRegistry::references_for_filter(
+                    project.document().references(),
+                    *filter,
+                );
+                ids.insert(0, String::new());
+                *options = ids;
+            }
+            _ => {}
         }
     }
     definition
@@ -246,6 +292,13 @@ fn sorted_levels(project: &Project) -> Vec<LevelDto> {
 fn scene_dto(project: &Project) -> SceneDto {
     let buffers: SceneBuffers = project.document().build_scene_buffers();
     let selected_ids = with_selection(|s| s.0.iter().map(|id| id.to_string()).collect::<Vec<_>>());
+    let selected_ref_id = SELECTED_REF.with(|cell| cell.borrow().map(|id| id.to_string()));
+    let mut references: Vec<_> = project
+        .document()
+        .references()
+        .map(|reference| reference_dto(project, reference))
+        .collect();
+    references.sort_by(|a, b| a.name.cmp(&b.name));
 
     SceneDto {
         positions: buffers.positions,
@@ -276,6 +329,7 @@ fn scene_dto(project: &Project) -> SceneDto {
                 }
             })
             .collect(),
+        references,
         levels: sorted_levels(project),
         active_level_id: project
             .document()
@@ -284,9 +338,30 @@ fn scene_dto(project: &Project) -> SceneDto {
         version: buffers.version,
         selected_id: selected_ids.first().cloned(),
         selected_ids,
+        selected_ref_id,
         can_undo: project.can_undo(),
         can_redo: project.can_redo(),
     }
+}
+
+fn ref_id(id: &str) -> Result<RefId, JsValue> {
+    RefId::from_str(id).map_err(|e| err(format!("bad reference id: {e}")))
+}
+
+fn parse_reference_kind(name: &str) -> Result<ReferenceKind, JsValue> {
+    match name.trim() {
+        "point" => Ok(ReferenceKind::Point),
+        "plane" => Ok(ReferenceKind::Plane),
+        other => Err(err(format!("unknown reference kind '{other}'"))),
+    }
+}
+
+fn clear_element_selection() {
+    with_selection(|s| s.set(None));
+}
+
+fn clear_ref_selection() {
+    SELECTED_REF.with(|cell| *cell.borrow_mut() = None);
 }
 
 fn scene(project: &Project) -> Result<JsValue, JsValue> {
@@ -333,7 +408,7 @@ pub fn list_components() -> Result<JsValue, JsValue> {
             .registry()
             .components()
             .cloned()
-            .map(|definition| with_profile_options(project, definition))
+            .map(|definition| with_dynamic_options(project, definition))
             .collect();
         to_js(&list)
     })
@@ -591,9 +666,42 @@ pub fn select_element(id: &str) -> Result<JsValue, JsValue> {
             if project.document().get_element(element).is_none() {
                 return Err(err("Element not found"));
             }
+            clear_ref_selection();
             with_selection(|s| s.set(Some(element)));
         }
         scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = selectReference)]
+pub fn select_reference(id: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        if id.is_empty() {
+            clear_ref_selection();
+        } else {
+            let reference = ref_id(id)?;
+            if project.document().get_reference(reference).is_none() {
+                return Err(err("Reference not found"));
+            }
+            clear_element_selection();
+            clear_ref_selection();
+            SELECTED_REF.with(|cell| *cell.borrow_mut() = Some(reference));
+        }
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = getSelectedReference)]
+pub fn get_selected_reference() -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let selected = SELECTED_REF.with(|cell| *cell.borrow());
+        let Some(id) = selected else {
+            return Ok(JsValue::NULL);
+        };
+        match project.document().get_reference(id) {
+            Some(reference) => to_js(&reference_dto(project, reference)),
+            None => Ok(JsValue::NULL),
+        }
     })
 }
 
@@ -614,6 +722,9 @@ pub fn toggle_select_element(id: &str) -> Result<JsValue, JsValue> {
 pub fn pick_by_id(pick_id: f64) -> Result<JsValue, JsValue> {
     with_project(|project| {
         let found = find_by_pick_id(project, pick_id);
+        if found.is_some() {
+            clear_ref_selection();
+        }
         with_selection(|s| s.set(found));
         scene(project)
     })
@@ -638,6 +749,66 @@ fn find_by_pick_id(project: &Project, pick_id: f64) -> Option<ElementId> {
         .iter()
         .find(|e| e.pick_id == target)
         .map(|e| e.id)
+}
+
+// ---------------------------------------------------------------------------
+// References
+// ---------------------------------------------------------------------------
+
+#[wasm_bindgen(js_name = createReference)]
+pub fn create_reference(
+    kind: &str,
+    points_json: &str,
+    rotation: f32,
+) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let kind = parse_reference_kind(kind)?;
+        let points = points_from_json(points_json)?;
+        let placement = project
+            .placement_for_reference(kind, &points, rotation)
+            .map_err(err)?;
+        let id = project.create_reference(kind, placement).map_err(err)?;
+        clear_element_selection();
+        SELECTED_REF.with(|cell| *cell.borrow_mut() = Some(id));
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = setReferencePlacement)]
+pub fn set_reference_placement(
+    id: &str,
+    points_json: &str,
+    rotation: f32,
+    record_history: bool,
+) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let reference = ref_id(id)?;
+        let existing = project
+            .document()
+            .get_reference(reference)
+            .ok_or_else(|| err("Reference not found"))?;
+        let points = points_from_json(points_json)?;
+        let placement = existing
+            .kind
+            .placement_kind()
+            .build(&points, rotation, &project.work_plane(existing.level_id))
+            .map_err(|e| err(e.to_string()))?;
+        project
+            .update_reference(reference, placement, record_history)
+            .map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = deleteSelectedReference)]
+pub fn delete_selected_reference() -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let id = SELECTED_REF.with(|cell| cell.borrow_mut().take());
+        if let Some(id) = id {
+            project.delete_reference(id);
+        }
+        scene(project)
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -693,6 +864,7 @@ pub fn import_project(json: &str) -> Result<JsValue, JsValue> {
         let snap: ProjectSnapshot = parse_json("project", json)?;
         project.import_snapshot(snap).map_err(err)?;
         with_selection(|s| s.set(None));
+        clear_ref_selection();
         scene(project)
     })
 }
@@ -702,6 +874,7 @@ pub fn import_project(json: &str) -> Result<JsValue, JsValue> {
 pub fn new_project() -> Result<JsValue, JsValue> {
     PROJECT.with(|cell| *cell.borrow_mut() = Some(Project::new()));
     with_selection(|s| s.set(None));
+    clear_ref_selection();
     with_project(|project| scene(project))
 }
 

@@ -6,6 +6,8 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use thiserror::Error;
 
+use crate::reference::ReferenceFilter;
+
 pub type ParamId = String;
 
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
@@ -68,6 +70,12 @@ pub enum ParamKind {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         options: Vec<String>,
     },
+    /// Reference to a document reference point or plane.
+    Reference {
+        filter: ReferenceFilter,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        options: Vec<String>,
+    },
 }
 
 impl ParamKind {
@@ -84,6 +92,7 @@ impl ParamKind {
             Self::Text => "text",
             Self::Choice { .. } => "one of the allowed options",
             Self::Profile { .. } => "a profile id",
+            Self::Reference { .. } => "a reference id",
         }
     }
 }
@@ -99,6 +108,7 @@ pub enum ParamValue {
     Text(String),
     Choice(String),
     ProfileRef(String),
+    ReferenceRef(String),
 }
 
 impl ParamValue {
@@ -112,7 +122,7 @@ impl ParamValue {
 
     pub fn as_text(&self) -> Option<&str> {
         match self {
-            Self::Text(s) | Self::Choice(s) | Self::ProfileRef(s) => Some(s),
+            Self::Text(s) | Self::Choice(s) | Self::ProfileRef(s) | Self::ReferenceRef(s) => Some(s),
             _ => None,
         }
     }
@@ -160,6 +170,16 @@ impl ParamValue {
                 }
                 Ok(ParamValue::ProfileRef(text.to_string()))
             }
+            ParamKind::Reference { options, .. } => {
+                let text = self.as_text().ok_or_else(mismatch)?;
+                if text.is_empty() {
+                    return Ok(ParamValue::ReferenceRef(String::new()));
+                }
+                if !options.is_empty() && !options.iter().any(|o| o == text) {
+                    return Err(ParamError::BadChoice { id: id.to_string() });
+                }
+                Ok(ParamValue::ReferenceRef(text.to_string()))
+            }
         }
     }
 }
@@ -178,7 +198,9 @@ impl Serialize for ParamValue {
         match self {
             Self::Length(v) | Self::Angle(v) | Self::Number(v) => serializer.serialize_f64(*v),
             Self::Bool(b) => serializer.serialize_bool(*b),
-            Self::Text(s) | Self::Choice(s) | Self::ProfileRef(s) => serializer.serialize_str(s),
+            Self::Text(s) | Self::Choice(s) | Self::ProfileRef(s) | Self::ReferenceRef(s) => {
+                serializer.serialize_str(s)
+            }
         }
     }
 }
@@ -314,6 +336,27 @@ impl ParamSpec {
                 options: options.iter().map(|s| s.to_string()).collect(),
             },
             default: ParamValue::ProfileRef(default.to_string()),
+            min: None,
+            max: None,
+            unit: None,
+            binding: ParamBinding::Instance,
+        }
+    }
+
+    pub fn reference(
+        id: &str,
+        label: &str,
+        filter: ReferenceFilter,
+        options: &[&str],
+    ) -> Self {
+        Self {
+            id: id.to_string(),
+            label: label.to_string(),
+            kind: ParamKind::Reference {
+                filter,
+                options: options.iter().map(|s| s.to_string()).collect(),
+            },
+            default: ParamValue::ReferenceRef(String::new()),
             min: None,
             max: None,
             unit: None,

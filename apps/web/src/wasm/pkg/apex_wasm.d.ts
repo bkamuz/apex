@@ -21,10 +21,14 @@ export function createElement(component_id: string, points_json: string, rotatio
 
 export function createLevel(name: string, elevation: number): any;
 
+export function createReference(kind: string, points_json: string, rotation: number): any;
+
 /**
  * Delete every selected element.
  */
 export function deleteSelected(): any;
+
+export function deleteSelectedReference(): any;
 
 /**
  * JSON snapshot of the document, profiles, and extra components.
@@ -37,6 +41,8 @@ export function getScene(): any;
  * Details of the single selected element, or null.
  */
 export function getSelected(): any;
+
+export function getSelectedReference(): any;
 
 /**
  * Replace the current project from a JSON snapshot.
@@ -101,6 +107,8 @@ export function registerProfile(definition_json: string): any;
 
 export function selectElement(id: string): any;
 
+export function selectReference(id: string): any;
+
 export function setActiveLevel(id: string): any;
 
 /**
@@ -113,6 +121,8 @@ export function setActiveLevel(id: string): any;
 export function setElementPlacement(id: string, points_json: string, rotation: number, record_history: boolean): any;
 
 export function setLevelElevation(id: string, elevation: number): any;
+
+export function setReferencePlacement(id: string, points_json: string, rotation: number, record_history: boolean): any;
 
 export function togglePickById(pick_id: number): any;
 
@@ -139,10 +149,13 @@ export interface InitOutput {
     readonly canUndo: () => [number, number, number];
     readonly createElement: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
     readonly createLevel: (a: number, b: number, c: number) => [number, number, number];
+    readonly createReference: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly deleteSelected: () => [number, number, number];
+    readonly deleteSelectedReference: () => [number, number, number];
     readonly exportProject: () => [number, number, number, number];
     readonly getScene: () => [number, number, number];
     readonly getSelected: () => [number, number, number];
+    readonly getSelectedReference: () => [number, number, number];
     readonly importProject: (a: number, b: number) => [number, number, number];
     readonly initApp: () => [number, number];
     readonly listComponents: () => [number, number, number];
@@ -156,9 +169,11 @@ export interface InitOutput {
     readonly registerComponent: (a: number, b: number) => [number, number, number];
     readonly registerProfile: (a: number, b: number) => [number, number, number];
     readonly selectElement: (a: number, b: number) => [number, number, number];
+    readonly selectReference: (a: number, b: number) => [number, number, number];
     readonly setActiveLevel: (a: number, b: number) => [number, number, number];
     readonly setElementPlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly setLevelElevation: (a: number, b: number, c: number) => [number, number, number];
+    readonly setReferencePlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly togglePickById: (a: number) => [number, number, number];
     readonly toggleSelectElement: (a: number, b: number) => [number, number, number];
     readonly undo: () => [number, number, number];

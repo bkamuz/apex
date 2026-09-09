@@ -16,8 +16,9 @@ use crate::component::{
 };
 use crate::element::{ComponentId, Element};
 use crate::expr::Expr;
-use crate::param::{ParamError, ParamMap, ParamSpec};
+use crate::param::{ParamError, ParamKind, ParamMap, ParamSpec};
 use crate::placement::{Placement, PlacementKind};
+use crate::reference::{Reference, ReferenceFilter};
 
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum RegistryError {
@@ -213,13 +214,42 @@ impl ComponentRegistry {
         Ok(())
     }
 
+    /// Whether this element's resolved params name the given reference id.
+    pub fn element_uses_reference(&self, element: &Element, ref_id: &str) -> bool {
+        let Ok(params) = self.eval_params(&element.component_id, &element.params) else {
+            return false;
+        };
+        let Some(definition) = self.get(&element.component_id) else {
+            return false;
+        };
+        for spec in &definition.params {
+            if matches!(spec.kind, ParamKind::Reference { .. })
+                && params.text(&spec.id) == Some(ref_id)
+            {
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn references_for_filter<'a>(
+        references: impl Iterator<Item = &'a Reference>,
+        filter: ReferenceFilter,
+    ) -> Vec<String> {
+        references
+            .filter(|reference| reference.accepts_filter(filter))
+            .map(|reference| reference.id.to_string())
+            .collect()
+    }
+
     /// Build the mesh for a placement plus a raw parameter set.
-    pub fn build_mesh(
+    pub fn build_mesh<'a>(
         &self,
         component_id: &str,
         placement: &Placement,
         raw_params: &ParamMap,
         work_plane: Frame,
+        references: impl IntoIterator<Item = &'a Reference>,
     ) -> Result<TriangleMesh, RegistryError> {
         let definition = self.require(component_id)?;
         if !definition.placement.accepts(placement) {
@@ -231,26 +261,33 @@ impl ComponentRegistry {
         }
 
         let params = self.eval_params(component_id, raw_params)?;
+        let reference_library = references
+            .into_iter()
+            .map(|reference| (reference.id, reference.clone()))
+            .collect();
         let ctx = RecipeContext {
             placement,
             params: &params,
             work_plane,
             profiles: &self.profiles,
+            references: &reference_library,
         };
         Ok(evaluate_recipe(&definition.recipe, &ctx, &self.builders)?)
     }
 
     /// Build the mesh for an existing element.
-    pub fn build_element_mesh(
+    pub fn build_element_mesh<'a>(
         &self,
         element: &Element,
         work_plane: Frame,
+        references: impl IntoIterator<Item = &'a Reference>,
     ) -> Result<TriangleMesh, RegistryError> {
         self.build_mesh(
             &element.component_id,
             &element.placement,
             &element.params,
             work_plane,
+            references,
         )
     }
 }
@@ -385,12 +422,16 @@ fn column() -> ComponentDefinition {
         params: vec![
             ParamSpec::profile("profile", "Profile", "apex.rect", &[]),
             ParamSpec::length("height", "Height", 3.0),
+            ParamSpec::reference("frame_ref", "Frame reference", ReferenceFilter::Point, &[]),
         ],
         recipe: GeometryRecipe::Extrude {
             profile: ProfileSpec::FromParam {
                 param: "profile".into(),
             },
-            frame: FrameSource::PlacementCurve { t: Expr::zero() },
+            frame: FrameSource::RefParam {
+                param: "frame_ref".into(),
+                t: Expr::zero(),
+            },
             height: Expr::param("height"),
         },
     }
@@ -483,7 +524,7 @@ mod tests {
             .with("thickness", ParamValue::Length(0.2));
 
         let mesh = registry
-            .build_mesh("apex.wall", &placement, &params, ground())
+            .build_mesh("apex.wall", &placement, &params, ground(), std::iter::empty())
             .expect("mesh");
 
         // Same counts and extents the bespoke wall generator produced.
@@ -501,7 +542,7 @@ mod tests {
         let registry = ComponentRegistry::with_builtins();
         let placement = Placement::line(Vec3::ZERO, Vec3::new(4.0, 0.0, 0.0));
         let mesh = registry
-            .build_mesh("apex.wall", &placement, &ParamMap::new(), ground())
+            .build_mesh("apex.wall", &placement, &ParamMap::new(), ground(), std::iter::empty())
             .expect("mesh");
 
         let size = size_of(&mesh);
@@ -544,13 +585,13 @@ mod tests {
             .expect("polyline");
 
         let line_mesh = registry
-            .build_mesh("apex.wall", &line, &ParamMap::new(), ground())
+            .build_mesh("apex.wall", &line, &ParamMap::new(), ground(), std::iter::empty())
             .expect("line");
         let arc_mesh = registry
-            .build_mesh("apex.wall", &arc, &ParamMap::new(), ground())
+            .build_mesh("apex.wall", &arc, &ParamMap::new(), ground(), std::iter::empty())
             .expect("arc");
         let poly_mesh = registry
-            .build_mesh("apex.wall", &poly, &ParamMap::new(), ground())
+            .build_mesh("apex.wall", &poly, &ParamMap::new(), ground(), std::iter::empty())
             .expect("poly");
 
         assert_eq!(line_mesh.triangle_count(), 12);
@@ -581,10 +622,10 @@ mod tests {
             .with("profile", ParamValue::ProfileRef("apex.wall.round".into()));
 
         let rect_mesh = registry
-            .build_mesh("apex.wall", &placement, &rect, ground())
+            .build_mesh("apex.wall", &placement, &rect, ground(), std::iter::empty())
             .expect("rect");
         let round_mesh = registry
-            .build_mesh("apex.wall", &placement, &round, ground())
+            .build_mesh("apex.wall", &placement, &round, ground(), std::iter::empty())
             .expect("round");
 
         let rect_size = size_of(&rect_mesh);
@@ -622,7 +663,7 @@ mod tests {
         let params = ParamMap::new().with("height", ParamValue::Length(4.0));
 
         let mesh = registry
-            .build_mesh("apex.column", &placement, &params, ground())
+            .build_mesh("apex.column", &placement, &params, ground(), std::iter::empty())
             .expect("mesh");
 
         let size = size_of(&mesh);
@@ -655,10 +696,10 @@ mod tests {
             .with("profile", ParamValue::ProfileRef("apex.round".into()));
 
         let rect_mesh = registry
-            .build_mesh("apex.column", &placement, &rect, ground())
+            .build_mesh("apex.column", &placement, &rect, ground(), std::iter::empty())
             .expect("rect");
         let round_mesh = registry
-            .build_mesh("apex.column", &placement, &round, ground())
+            .build_mesh("apex.column", &placement, &round, ground(), std::iter::empty())
             .expect("round");
 
         let rect_size = size_of(&rect_mesh);
@@ -684,10 +725,10 @@ mod tests {
         let placement = Placement::line(Vec3::new(0.0, 3.0, 0.0), Vec3::new(6.0, 3.0, 0.0));
 
         let beam = registry
-            .build_mesh("apex.beam", &placement, &ParamMap::new(), ground())
+            .build_mesh("apex.beam", &placement, &ParamMap::new(), ground(), std::iter::empty())
             .expect("mesh");
         let wall = registry
-            .build_mesh("apex.wall", &placement, &ParamMap::new(), ground())
+            .build_mesh("apex.wall", &placement, &ParamMap::new(), ground(), std::iter::empty())
             .expect("mesh");
 
         let (beam_min, beam_max) = beam.aabb().unwrap();
@@ -706,6 +747,7 @@ mod tests {
                 &Placement::point(Vec3::ZERO),
                 &ParamMap::new(),
                 ground(),
+                std::iter::empty(),
             )
             .unwrap_err();
         assert_eq!(
@@ -727,7 +769,8 @@ mod tests {
                     "acme.nope",
                     &Placement::point(Vec3::ZERO),
                     &ParamMap::new(),
-                    ground()
+                    ground(),
+                    std::iter::empty(),
                 )
                 .unwrap_err(),
             RegistryError::Unknown("acme.nope".into())
@@ -812,6 +855,7 @@ mod tests {
                 &Placement::point(Vec3::ZERO),
                 &ParamMap::new(),
                 ground(),
+                std::iter::empty(),
             )
             .expect("mesh");
         let size = size_of(&mesh);
@@ -852,6 +896,7 @@ mod tests {
                 &Placement::point(Vec3::new(1.0, 0.0, 1.0)),
                 &ParamMap::new().with("height", ParamValue::Number(0.5)),
                 ground(),
+                std::iter::empty(),
             )
             .expect("mesh");
 
@@ -897,6 +942,7 @@ mod tests {
                 &Placement::point(Vec3::new(5.0, 0.0, 0.0)),
                 &ParamMap::new(),
                 ground(),
+                std::iter::empty(),
             )
             .expect("mesh");
         assert_eq!(mesh.triangle_count(), 1);
@@ -915,7 +961,7 @@ mod tests {
         );
 
         let mesh = registry
-            .build_element_mesh(&element, ground())
+            .build_element_mesh(&element, ground(), std::iter::empty())
             .expect("mesh");
         assert!((size_of(&mesh)[1] - 2.0).abs() < EPS);
     }
@@ -1024,7 +1070,7 @@ mod tests {
         let params = ParamMap::new().with("thickness", ParamValue::Length(0.25));
 
         let mesh = registry
-            .build_mesh("apex.slab", &placement, &params, ground())
+            .build_mesh("apex.slab", &placement, &params, ground(), std::iter::empty())
             .expect("mesh");
 
         let size = size_of(&mesh);
@@ -1042,7 +1088,7 @@ mod tests {
             .expect("polyline");
         assert!(matches!(
             registry
-                .build_mesh("apex.slab", &placement, &ParamMap::new(), ground())
+                .build_mesh("apex.slab", &placement, &ParamMap::new(), ground(), std::iter::empty())
                 .unwrap_err(),
             RegistryError::Recipe(RecipeError::BoundaryTooSmall(2))
         ));
@@ -1057,7 +1103,8 @@ mod tests {
                     "apex.slab",
                     &Placement::point(Vec3::ZERO),
                     &ParamMap::new(),
-                    ground()
+                    ground(),
+                    std::iter::empty(),
                 )
                 .unwrap_err(),
             RegistryError::PlacementMismatch {

@@ -665,6 +665,9 @@ export class ViewportRenderer {
   private editLineVao: WebGLVertexArrayObject;
   private editLineBuf: WebGLBuffer;
   private editLineCount = 0;
+  private refLineVao: WebGLVertexArrayObject;
+  private refLineBuf: WebGLBuffer;
+  private refLineCount = 0;
   private editHandles: Vec3[] | null = null;
   private indexCount = 0;
   private pickFbo: WebGLFramebuffer | null = null;
@@ -814,6 +817,9 @@ export class ViewportRenderer {
     this.editLineVao = gl.createVertexArray()!;
     this.editLineBuf = gl.createBuffer()!;
     this.bindThickLineVao(this.editLineVao, this.editLineBuf);
+    this.refLineVao = gl.createVertexArray()!;
+    this.refLineBuf = gl.createBuffer()!;
+    this.bindThickLineVao(this.refLineVao, this.refLineBuf);
 
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
@@ -1126,6 +1132,16 @@ export class ViewportRenderer {
    * Takes the element's anchors as-is, so a 1-pick column, a 2-pick wall and a
    * 3-pick arc all get the right gizmo without the renderer knowing the type.
    */
+  /** Always-visible markers for document reference points and planes. */
+  setReferenceGizmos(segments: Vec3[] | null): void {
+    if (!segments || segments.length < 2) {
+      this.refLineCount = 0;
+      return;
+    }
+    this.includePoints(segments);
+    this.refLineCount = this.uploadThickLines(this.refLineBuf, flatten(segments));
+  }
+
   setEditGizmo(anchors: Vec3[] | null): void {
     const gl = this.gl;
     if (!anchors || anchors.length === 0) {
@@ -1936,6 +1952,7 @@ export class ViewportRenderer {
     // Axis / preview: solid where visible, dashed where behind opaque walls.
     this.drawOccludedAxis(this.previewVao, this.previewCount, [0.95, 0.7, 0.3, 1], 3.0);
     this.drawOccludedAxis(this.editLineVao, this.editLineCount, [0.95, 0.72, 0.28, 1], 3.0);
+    this.drawOccludedAxis(this.refLineVao, this.refLineCount, [0.35, 0.82, 0.95, 0.95], 2.5);
     this.drawHandles();
     this.drawSnapMarker();
     this.frameMats = null;

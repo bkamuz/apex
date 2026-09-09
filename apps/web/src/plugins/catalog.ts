@@ -1,4 +1,6 @@
 import { componentPlugin } from './componentPlugin';
+import { refPlanePlugin } from './refPlane';
+import { refPointPlugin } from './refPoint';
 import { selectPlugin } from './select';
 import { wallPlugin } from './wall';
 import type { Plugin } from './types';
@@ -15,4 +17,6 @@ export const firstPartyPlugins: Plugin[] = [
   componentPlugin('apex.column'),
   componentPlugin('apex.beam'),
   componentPlugin('apex.slab'),
+  refPointPlugin,
+  refPlanePlugin,
 ];
