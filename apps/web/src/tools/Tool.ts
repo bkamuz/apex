@@ -22,7 +22,8 @@ export interface ToolContext {
   showSnapMarker(point: Vec3 | null, shift: boolean): void;
   /** GPU pick id under the cursor, or null. */
   pick(clientX: number, clientY: number): number | null;
-  selectByPick(pickId: number | null, multi: boolean): void;
+  /** Resolve a viewport click to element or datum selection. */
+  selectAt(clientX: number, clientY: number, multi: boolean): void;
   /** Anchor index of the edit handle under the cursor, or null. */
   hitEditHandle(clientX: number, clientY: number): number | null;
   /** Anchors of the selected element, when exactly one is selected. */

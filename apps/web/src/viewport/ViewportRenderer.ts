@@ -481,6 +481,50 @@ function distPointToSegment2d(
   return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
 }
 
+export interface ReferencePickTarget {
+  id: string;
+  gizmo_segments: Vec3[];
+  anchors: Vec3[];
+}
+
+export interface GridAxisPickTarget {
+  id: string;
+  line_segments: Vec3[];
+  bubble_segments: Vec3[];
+  anchors: Vec3[];
+}
+
+function minDistToSegmentPairs(
+  clientX: number,
+  clientY: number,
+  points: Vec3[],
+  toScreen: (point: Vec3) => [number, number] | null,
+): number {
+  let best = Number.POSITIVE_INFINITY;
+  for (let i = 0; i + 1 < points.length; i += 2) {
+    const a = toScreen(points[i]);
+    const b = toScreen(points[i + 1]);
+    if (!a || !b) continue;
+    best = Math.min(best, distPointToSegment2d(clientX, clientY, a[0], a[1], b[0], b[1]));
+  }
+  return best;
+}
+
+function minDistToAnchors(
+  clientX: number,
+  clientY: number,
+  anchors: Vec3[],
+  toScreen: (point: Vec3) => [number, number] | null,
+): number {
+  let best = Number.POSITIVE_INFINITY;
+  for (const anchor of anchors) {
+    const screen = toScreen(anchor);
+    if (!screen) continue;
+    best = Math.min(best, Math.hypot(clientX - screen[0], clientY - screen[1]));
+  }
+  return best;
+}
+
 export interface LevelPlaneView {
   id: string;
   elevation: number;
@@ -1238,6 +1282,75 @@ export class ViewportRenderer {
         best = index;
       }
     });
+    return best;
+  }
+
+  /**
+   * Screen-space pick for plan grid axes (extended line, bubbles, anchors).
+   * Returns the closest axis within the pixel thresholds.
+   */
+  hitGridAxis(
+    clientX: number,
+    clientY: number,
+    axes: GridAxisPickTarget[],
+    lineRadius = 14,
+    pointRadius = 12,
+  ): { id: string; distance: number } | null {
+    const toScreen = (point: Vec3) => this.worldToClient(point);
+    let best: { id: string; distance: number } | null = null;
+
+    for (const axis of axes) {
+      const lineDist =
+        axis.line_segments.length >= 2
+          ? minDistToSegmentPairs(clientX, clientY, axis.line_segments, toScreen)
+          : Number.POSITIVE_INFINITY;
+      const bubbleDist =
+        axis.bubble_segments.length >= 2
+          ? minDistToSegmentPairs(clientX, clientY, axis.bubble_segments, toScreen)
+          : Number.POSITIVE_INFINITY;
+      const anchorDist = minDistToAnchors(clientX, clientY, axis.anchors, toScreen);
+      const segmentDist = Math.min(lineDist, bubbleDist);
+      const distance = Math.min(
+        segmentDist <= lineRadius ? segmentDist : Number.POSITIVE_INFINITY,
+        anchorDist <= pointRadius ? anchorDist : Number.POSITIVE_INFINITY,
+      );
+      if (distance === Number.POSITIVE_INFINITY) continue;
+      if (!best || distance < best.distance) {
+        best = { id: axis.id, distance };
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Screen-space pick for reference points and planes (gizmo outline + anchors).
+   * Returns the closest reference within the pixel thresholds.
+   */
+  hitReference(
+    clientX: number,
+    clientY: number,
+    references: ReferencePickTarget[],
+    lineRadius = 14,
+    pointRadius = 16,
+  ): { id: string; distance: number } | null {
+    const toScreen = (point: Vec3) => this.worldToClient(point);
+    let best: { id: string; distance: number } | null = null;
+
+    for (const reference of references) {
+      const segmentDist =
+        reference.gizmo_segments.length >= 2
+          ? minDistToSegmentPairs(clientX, clientY, reference.gizmo_segments, toScreen)
+          : Number.POSITIVE_INFINITY;
+      const anchorDist = minDistToAnchors(clientX, clientY, reference.anchors, toScreen);
+      const distance = Math.min(
+        segmentDist <= lineRadius ? segmentDist : Number.POSITIVE_INFINITY,
+        anchorDist <= pointRadius ? anchorDist : Number.POSITIVE_INFINITY,
+      );
+      if (distance === Number.POSITIVE_INFINITY) continue;
+      if (!best || distance < best.distance) {
+        best = { id: reference.id, distance };
+      }
+    }
     return best;
   }
 

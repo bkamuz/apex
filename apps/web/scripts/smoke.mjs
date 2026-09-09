@@ -60,6 +60,15 @@ async function useTool(name) {
   await page.waitForTimeout(120);
 }
 
+async function isTreeItemSelected(kind, index = 0) {
+  const cls = await page.locator(`[data-kind="${kind}"]`).nth(index).getAttribute('class');
+  return cls?.includes('selected') ?? false;
+}
+
+async function isNamedItemSelected(kind, name) {
+  return (await page.locator(`[data-kind="${kind}"].selected`).filter({ hasText: name }).count()) >= 1;
+}
+
 const elementCount = () => page.locator('[data-kind="instance"]').count();
 const toolbarNames = () =>
   page.locator('.tools button').evaluateAll((els) => els.map((e) => e.textContent.trim()));
@@ -115,13 +124,28 @@ const refCount = () => page.locator('[data-kind="reference"]').count();
 await useTool('Ref point');
 await clickCanvas(0.45, 0.55);
 check('ref point created', (await refCount()) >= 1);
+check('ref point auto-selected after place', await isNamedItemSelected('reference', 'Ref point'));
 await useTool('Ref plane');
 await clickCanvas(0.5, 0.45);
 await clickCanvas(0.62, 0.45);
 check('ref plane created', (await refCount()) >= 2);
+check('ref plane auto-selected after place', await isNamedItemSelected('reference', 'Ref plane'));
 await page.getByTestId('browser-filter-references').click();
 check('references filter lists refs', (await refCount()) >= 2);
 await page.getByTestId('browser-filter-all').click();
+
+console.log('\n[3a] viewport pick for references');
+await useTool('Select');
+await clickCanvas(0.12, 0.15);
+check(
+  'references deselected on empty click',
+  (await page.locator('[data-kind="reference"].selected').count()) === 0,
+);
+await clickCanvas(0.55, 0.45);
+check('ref plane selected via viewport click', await isNamedItemSelected('reference', 'Ref plane'));
+await clickCanvas(0.12, 0.15);
+await clickCanvas(0.45, 0.55);
+check('ref point selected via viewport click', await isNamedItemSelected('reference', 'Ref point'));
 
 // --- 3b. Grid axis (two-click placement + inspector params) ----------------
 console.log('\n[3b] grid axes');
@@ -130,19 +154,38 @@ await useTool('Grid axis');
 await clickCanvas(0.4, 0.62);
 await clickCanvas(0.7, 0.62);
 check('grid axis created', (await gridCount()) >= 1);
-await page.getByTestId('browser-filter-grids').click();
-check('grids filter lists axes', (await gridCount()) >= 1);
-await page.locator('[data-kind="grid_axis"]').first().click();
-await page.waitForTimeout(250);
+check('grid axis auto-selected after place', await isTreeItemSelected('grid_axis', 0));
 const labelField = page.locator('[data-section="instance"] input[type="text"]').first();
 await labelField.fill('A');
 await labelField.press('Enter');
 await page.waitForTimeout(200);
 check(
-  'grid label editable in inspector',
+  'grid label editable in inspector after auto-select',
   (await page.locator('.grid-axis-label').filter({ hasText: 'A' }).count()) >= 1,
 );
+await page.getByTestId('browser-filter-grids').click();
+check('grids filter lists axes', (await gridCount()) >= 1);
 await page.getByTestId('browser-filter-all').click();
+
+console.log('\n[3c] viewport pick for grid axis');
+await useTool('Select');
+await clickCanvas(0.12, 0.15);
+check('grid axis deselected on empty click', !(await isTreeItemSelected('grid_axis', 0)));
+await clickCanvas(0.55, 0.62);
+check('grid axis selected via viewport click', await isTreeItemSelected('grid_axis', 0));
+check(
+  'grid inspector visible after viewport pick',
+  (await page.locator('[data-section="instance"] input[type="text"]').first().inputValue()) === 'A',
+);
+await page.locator('[data-kind="grid_axis"]').first().click();
+await page.waitForTimeout(200);
+await labelField.fill('B');
+await labelField.press('Enter');
+await page.waitForTimeout(200);
+check(
+  'grid label editable in inspector from browser',
+  (await page.locator('.grid-axis-label').filter({ hasText: 'B' }).count()) >= 1,
+);
 
 // --- 4. Point, two-point and three-point gestures all work -----------------
 console.log('\n[4] every other built-in gesture');
