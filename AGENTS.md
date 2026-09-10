@@ -57,6 +57,31 @@ Two consequences worth remembering:
 - A stale root-level `node_modules/` may exist from the old JS prototype; it is gitignored and unused. The only npm project that needs installing is `apps/web`.
 - WebGL2 rendering works headlessly in this environment (software GL), so the smoke test renders real geometry.
 
+### Tools and plugins
+
+- One plugin = one toolbar button (`apps/web/src/plugins/`). `installPlugins()` rebuilds `ToolRegistry` from `firstPartyPlugins` plus any runtime tools from `window.apex.registerTool`.
+- Implement a tool by satisfying `Tool` in `apps/web/src/tools/Tool.ts` and registering it from a plugin's `install(host)` or at runtime via the SDK.
+- `ToolContext` is the only bridge to WASM/React — tools hold no React state. Extend `ToolContext` when a new gesture family needs core support (see transform: `getTransformSelection`, `previewTransform`, `commitTransform`).
+- Toolbar groups: `select` | `transform` | `create` (visual separators). Transform tools (Move `M`, Copy `C`) live in the `transform` group.
+- Minimal third-party stub: `examples/custom-tool.ts`. Document shape:
+
+```ts
+import type { Tool } from './apps/web/src/tools/Tool';
+
+export const myTool: Tool = {
+  id: 'acme.myTool',
+  label: 'My tool',
+  group: 'transform',
+  shortcut: 'T',
+  hint: () => 'Status line while active',
+  onClick(e, ctx) { /* use ctx.resolvePoint, ctx.setError, … */ },
+};
+
+// window.apex.registerTool(myTool)
+```
+
+- Core transforms (`translateSelection`, `copySelection`) live in `Project` + `apex-wasm`; prefer adding mutations there over per-type branches in `App.tsx`.
+
 ### Grid axes and 2D annotations
 
 - Plan grid axes are first-class document entities in `crates/apex-core/src/grid_axis.rs` (not component instances). They use two-point placement on the active level; semantically each axis is a **vertical plane** through the segment and world up.

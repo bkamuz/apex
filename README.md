@@ -75,8 +75,14 @@ inspector is generated from the schema.
 window.apex.defineComponent({ /* definition as above */ });
 ```
 
-`window.apex.registerTool(tool)` exists for the rare case of a genuinely new
-input gesture; placing a new component type does not need it.
+`window.apex.registerTool(tool)` adds a toolbar button for a custom gesture.
+See `apps/web/src/tools/Tool.ts` for the `Tool` interface and
+`examples/custom-tool.ts` for a minimal stub.
+
+Built-in **Move** (`M`) and **Copy** (`C`) transform the current selection
+(instances, references, grid axes): pick a base point, then a target. Undo/redo
+and project save include the results. Rotate / mirror / array are natural
+follow-ups on the same transform tool infrastructure.
 
 ## Prerequisites
 
