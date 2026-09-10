@@ -38,6 +38,9 @@ import initWasm, {
   setGridAxisPlacement,
   updateGridAxis,
   deleteSelectedGridAxis,
+  getSelectedElements,
+  translateSelection,
+  copySelection,
 } from './pkg/apex_wasm.js';
 import type {
   ComponentDto,
@@ -282,4 +285,20 @@ export function apexUpdateGridAxis(id: string, params: Record<string, ParamValue
 
 export function apexDeleteSelectedGridAxis(): SceneDto {
   return asScene(deleteSelectedGridAxis());
+}
+
+export function apexGetSelectedElements(): ElementDto[] {
+  return getSelectedElements() as ElementDto[];
+}
+
+function encodeDelta(delta: Vec3): string {
+  return JSON.stringify(delta);
+}
+
+export function apexTranslateSelection(delta: Vec3, recordHistory = true): SceneDto {
+  return asScene(translateSelection(encodeDelta(delta), recordHistory));
+}
+
+export function apexCopySelection(delta: Vec3): SceneDto {
+  return asScene(copySelection(encodeDelta(delta)));
 }

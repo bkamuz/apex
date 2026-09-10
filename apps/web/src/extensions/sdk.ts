@@ -2,6 +2,10 @@ import { apexListComponents, apexRegisterComponent } from '../wasm/apex';
 import { createPlacementTool } from '../tools/placementTool';
 import type { Tool } from '../tools/Tool';
 
+/** Re-export the tool surface third-party modules implement. */
+export type { Tool, ToolContext, ToolGroup, ToolMode } from '../tools/Tool';
+export type { TransformOriginal, TransformMode } from '../tools/transformTypes';
+
 type Listener = () => void;
 
 /**
