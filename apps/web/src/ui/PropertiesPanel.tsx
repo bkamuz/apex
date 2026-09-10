@@ -323,7 +323,7 @@ export function PropertiesPanel({
       onPlacementChange(next);
     };
     return (
-      <div className="inspector-body">
+      <div className="inspector-body shell-scroll">
         <div className="field">
           <label>Tool</label>
           <div>{placement.component.display_name}</div>
@@ -358,7 +358,7 @@ export function PropertiesPanel({
       onUpdateGridAxis(next);
     };
     return (
-      <div className="inspector-body">
+      <div className="inspector-body shell-scroll">
         <div className="field">
           <label>Name</label>
           <div>{selectedGridAxis.name}</div>
@@ -388,7 +388,7 @@ export function PropertiesPanel({
 
   if (selectedCount > 1) {
     return (
-      <div className="inspector-body">
+      <div className="inspector-body shell-scroll">
         <div className="empty">{selectedCount} elements selected</div>
         <button type="button" className="danger" onClick={onDelete}>
           Delete selected
@@ -414,7 +414,7 @@ export function PropertiesPanel({
     };
 
     return (
-      <div className="inspector-body">
+      <div className="inspector-body shell-scroll">
         <div className="field">
           <label>Name</label>
           <div>{selected.name}</div>
@@ -464,7 +464,7 @@ export function PropertiesPanel({
   if (selectedLevel) {
     const applyLevel = () => onUpdateLevelElevation(selectedLevel.id, elevation);
     return (
-      <div className="inspector-body">
+      <div className="inspector-body shell-scroll">
         <div className="field">
           <label>Level</label>
           <div>{selectedLevel.name}</div>

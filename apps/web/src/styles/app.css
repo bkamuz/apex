@@ -85,6 +85,30 @@ button:focus-visible {
   outline-offset: 1px;
 }
 
+/* Themed scrollbars for panel scroll areas (browser, inspector, levels). */
+.shell-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #3a4256 transparent;
+}
+
+.shell-scroll::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.shell-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.shell-scroll::-webkit-scrollbar-thumb {
+  background: #3a4256;
+  border-radius: 3px;
+}
+
+.shell-scroll::-webkit-scrollbar-thumb:hover {
+  background: #4a5368;
+}
+
 .app {
   display: grid;
   grid-template-columns: 260px 1fr 280px;
@@ -239,6 +263,10 @@ button:focus-visible {
   touch-action: pan-y;
 }
 
+.level-list.shell-scroll {
+  scrollbar-gutter: stable;
+}
+
 .level-list li {
   padding: 8px 10px;
   border-radius: var(--radius);
@@ -347,18 +375,108 @@ button:focus-visible {
   font-size: 11px;
 }
 
-.browser-group {
-  display: flex;
-  flex-direction: column;
+.browser-tree-scroll {
+  flex: 1;
   min-height: 0;
+  overflow: auto;
+  touch-action: pan-y;
 }
 
-.browser-group-title {
-  padding: 8px 12px 0;
+.browser-tree {
+  padding: 4px 0 8px;
+}
+
+.browser-tree-group + .browser-tree-group {
+  margin-top: 2px;
+}
+
+.browser-tree-group-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px 2px 2px;
+  user-select: none;
+}
+
+.browser-tree-toggle {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius);
+}
+
+.browser-tree-toggle:hover {
+  background: var(--bg-elevated);
+  border: none;
+}
+
+.browser-tree-chevron {
+  display: block;
+  width: 0;
+  height: 0;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid var(--text-muted);
+  transition: transform 0.12s ease;
+}
+
+.browser-tree-toggle[aria-expanded='true'] .browser-tree-chevron {
+  transform: rotate(90deg);
+}
+
+.browser-tree-group-label {
+  flex: 1;
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--text-muted);
+}
+
+.browser-tree-group-count {
+  font-size: 10px;
+  font-family: var(--mono);
+  color: var(--text-muted);
+  opacity: 0.75;
+}
+
+.browser-tree-items {
+  list-style: none;
+  margin: 0;
+  padding: 0 8px 4px 22px;
+}
+
+.browser-tree-items--flat {
+  padding: 8px;
+}
+
+.browser-tree-items li {
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.browser-tree-items li:hover {
+  background: var(--bg-elevated);
+}
+
+.browser-tree-items li.selected {
+  background: var(--accent-soft);
+  color: #f3d2a8;
+}
+
+.browser-tree-items .cat {
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 11px;
 }
 
 .kind-badge {
@@ -451,6 +569,10 @@ button:focus-visible {
   gap: 12px;
   overflow: auto;
   touch-action: pan-y;
+}
+
+.inspector-body.shell-scroll {
+  scrollbar-gutter: stable;
 }
 
 .field label {

@@ -33,7 +33,7 @@ export function LevelList({
       {levels.length === 0 ? (
         <div className="empty">No levels.</div>
       ) : (
-        <ul className="level-list">
+        <ul className="level-list shell-scroll">
           {levels.map((level) => {
             const active = level.id === activeLevelId;
             const selected = level.id === selectedLevelId;
