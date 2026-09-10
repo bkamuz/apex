@@ -33,6 +33,21 @@ export function canUndo() {
 }
 
 /**
+ * Duplicate the current selection, offsetting copies by a world-space vector.
+ * @param {string} delta_json
+ * @returns {any}
+ */
+export function copySelection(delta_json) {
+    const ptr0 = passStringToWasm0(delta_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.copySelection(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * Place a component from the raw picks the user made.
  *
  * The component's own `PlacementKind` decides how the points are interpreted
@@ -186,6 +201,18 @@ export function getScene() {
  */
 export function getSelected() {
     const ret = wasm.getSelected();
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Every currently selected element, with full placement detail.
+ * @returns {any}
+ */
+export function getSelectedElements() {
+    const ret = wasm.getSelectedElements();
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -544,6 +571,22 @@ export function toggleSelectElement(id) {
     const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
     const ret = wasm.toggleSelectElement(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Move the current selection by a world-space offset.
+ * @param {string} delta_json
+ * @param {boolean} record_history
+ * @returns {any}
+ */
+export function translateSelection(delta_json, record_history) {
+    const ptr0 = passStringToWasm0(delta_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.translateSelection(ptr0, len0, record_history);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }

@@ -395,6 +395,153 @@ impl Project {
         removed
     }
 
+    /// Move one or more elements by a plan-space offset.
+    pub fn translate_elements(
+        &mut self,
+        ids: &[ElementId],
+        delta: Vec3,
+        record: bool,
+    ) -> Result<(), RegistryError> {
+        if ids.is_empty() {
+            return Ok(());
+        }
+        let before = if record && !self.history.has_pending() {
+            Some(self.export_snapshot())
+        } else {
+            None
+        };
+        for id in ids {
+            let element = self
+                .document
+                .get_element(*id)
+                .cloned()
+                .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
+            let placement = element.placement.translated(delta);
+            self.update_element(*id, None, Some(placement), false)?;
+        }
+        if record {
+            self.finish_recorded_edit(before);
+        }
+        Ok(())
+    }
+
+    /// Duplicate elements, optionally offsetting the copies. One undo step.
+    pub fn copy_elements(
+        &mut self,
+        ids: &[ElementId],
+        delta: Vec3,
+    ) -> Result<Vec<ElementId>, RegistryError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let before = self.export_snapshot();
+        let mut new_ids = Vec::with_capacity(ids.len());
+        for id in ids {
+            let source = self
+                .document
+                .get_element(*id)
+                .cloned()
+                .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
+            let display_name = self
+                .registry
+                .require(&source.component_id)?
+                .display_name
+                .clone();
+            let name = self.next_name(&source.component_id, &display_name);
+            let placement = source.placement.translated(delta);
+            let params = self
+                .registry
+                .persistable_params(&source.component_id, &source.params)?;
+            let mesh = self.registry.build_mesh(
+                &source.component_id,
+                &placement,
+                &params,
+                self.work_plane(source.level_id),
+                self.document.references(),
+            )?;
+            let element = Element::new(
+                name,
+                source.component_id,
+                source.level_id,
+                placement,
+                params,
+            );
+            let new_id = element.id;
+            self.document.upsert_element(element, mesh);
+            new_ids.push(new_id);
+        }
+        self.history.record_before(before);
+        Ok(new_ids)
+    }
+
+    pub fn translate_reference(
+        &mut self,
+        id: RefId,
+        delta: Vec3,
+        record: bool,
+    ) -> Result<(), RegistryError> {
+        let reference = self
+            .document
+            .get_reference(id)
+            .cloned()
+            .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
+        let placement = reference.placement.translated(delta);
+        self.update_reference(id, placement, record)
+    }
+
+    pub fn copy_reference(&mut self, id: RefId, delta: Vec3) -> Result<RefId, RegistryError> {
+        let before = self.export_snapshot();
+        let source = self
+            .document
+            .get_reference(id)
+            .cloned()
+            .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
+        let name = self.next_ref_name(source.kind);
+        let placement = source.placement.translated(delta);
+        let reference = Reference::new(name, source.level_id, source.kind, placement);
+        let new_id = reference.id;
+        self.document.upsert_reference(reference);
+        self.rebuild_reference_dependents(&new_id.to_string())?;
+        self.history.record_before(before);
+        Ok(new_id)
+    }
+
+    pub fn translate_grid_axis(
+        &mut self,
+        id: GridAxisId,
+        delta: Vec3,
+        record: bool,
+    ) -> Result<(), RegistryError> {
+        let axis = self
+            .document
+            .get_grid_axis(id)
+            .cloned()
+            .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
+        let placement = axis.placement.translated(delta);
+        self.update_grid_axis(id, None, Some(placement), record)
+    }
+
+    pub fn copy_grid_axis(
+        &mut self,
+        id: GridAxisId,
+        delta: Vec3,
+    ) -> Result<GridAxisId, RegistryError> {
+        let before = self.export_snapshot();
+        let source = self
+            .document
+            .get_grid_axis(id)
+            .cloned()
+            .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
+        let name = self.next_grid_axis_name();
+        let placement = source.placement.translated(delta);
+        let params = source.params.resolve(&grid_axis_param_specs())?;
+        let axis = GridAxis::new(name, source.level_id, placement, params);
+        let new_id = axis.id;
+        self.document.upsert_grid_axis(axis);
+        self.history.record_before(before);
+        Ok(new_id)
+    }
+
     pub fn add_level(&mut self, name: &str, elevation: f32) -> LevelId {
         let before = self.export_snapshot();
         self.level_counter += 1;
@@ -856,6 +1003,28 @@ mod tests {
             (size_of(mesh)[2] - 0.2).abs() < EPS,
             "a partial patch must keep the other params"
         );
+    }
+
+    #[test]
+    fn translate_and_copy_elements() {
+        let mut project = Project::new();
+        let id = project
+            .create_element("apex.column", Placement::point(Vec3::ZERO), ParamMap::new())
+            .expect("create");
+        project
+            .translate_elements(&[id], Vec3::new(2.0, 0.0, 1.0), true)
+            .expect("translate");
+        let moved = project.document().get_element(id).expect("element");
+        assert!((moved.placement.origin().x - 2.0).abs() < EPS);
+        assert!((moved.placement.origin().z - 1.0).abs() < EPS);
+
+        let copies = project
+            .copy_elements(&[id], Vec3::new(1.0, 0.0, 0.0))
+            .expect("copy");
+        assert_eq!(copies.len(), 1);
+        assert_eq!(project.document().elements().count(), 2);
+        let copy = project.document().get_element(copies[0]).expect("copy");
+        assert!((copy.placement.origin().x - 3.0).abs() < EPS);
     }
 
     #[test]

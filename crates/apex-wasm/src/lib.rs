@@ -451,6 +451,11 @@ fn points_from_json(json: &str) -> Result<Vec<Vec3>, JsValue> {
     Ok(raw.into_iter().map(Vec3::from_array).collect())
 }
 
+fn delta_from_json(json: &str) -> Result<Vec3, JsValue> {
+    let raw: [f32; 3] = parse_json("delta", json)?;
+    Ok(Vec3::from_array(raw))
+}
+
 fn parse_placement_kind(name: &str) -> Result<Option<PlacementKind>, JsValue> {
     let name = name.trim();
     if name.is_empty() {
@@ -686,6 +691,82 @@ pub fn preview_element(
             indices: mesh.indices,
             edge_positions: mesh.edges,
         })
+    })
+}
+
+/// Every currently selected element, with full placement detail.
+#[wasm_bindgen(js_name = getSelectedElements)]
+pub fn get_selected_elements() -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let ids = with_selection(|s| s.0.clone());
+        let list: Vec<ElementDto> = ids
+            .iter()
+            .filter_map(|id| {
+                project
+                    .document()
+                    .get_element(*id)
+                    .map(|element| element_dto(project, element))
+            })
+            .collect();
+        to_js(&list)
+    })
+}
+
+/// Move the current selection by a world-space offset.
+#[wasm_bindgen(js_name = translateSelection)]
+pub fn translate_selection(delta_json: &str, record_history: bool) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let delta = delta_from_json(delta_json)?;
+        if let Some(ref_id) = SELECTED_REF.with(|cell| *cell.borrow()) {
+            project
+                .translate_reference(ref_id, delta, record_history)
+                .map_err(err)?;
+        } else if let Some(axis_id) = SELECTED_GRID_AXIS.with(|cell| *cell.borrow()) {
+            project
+                .translate_grid_axis(axis_id, delta, record_history)
+                .map_err(err)?;
+        } else {
+            let ids = with_selection(|s| s.0.clone());
+            if ids.is_empty() {
+                return Err(err("Nothing selected to move"));
+            }
+            project
+                .translate_elements(&ids, delta, record_history)
+                .map_err(err)?;
+        }
+        scene(project)
+    })
+}
+
+/// Duplicate the current selection, offsetting copies by a world-space vector.
+#[wasm_bindgen(js_name = copySelection)]
+pub fn copy_selection(delta_json: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let delta = delta_from_json(delta_json)?;
+        if let Some(ref_id) = SELECTED_REF.with(|cell| *cell.borrow()) {
+            let new_id = project.copy_reference(ref_id, delta).map_err(err)?;
+            clear_element_selection();
+            clear_grid_axis_selection();
+            SELECTED_REF.with(|cell| *cell.borrow_mut() = Some(new_id));
+        } else if let Some(axis_id) = SELECTED_GRID_AXIS.with(|cell| *cell.borrow()) {
+            let new_id = project.copy_grid_axis(axis_id, delta).map_err(err)?;
+            clear_element_selection();
+            clear_ref_selection();
+            SELECTED_GRID_AXIS.with(|cell| *cell.borrow_mut() = Some(new_id));
+        } else {
+            let ids = with_selection(|s| s.0.clone());
+            if ids.is_empty() {
+                return Err(err("Nothing selected to copy"));
+            }
+            let new_ids = project.copy_elements(&ids, delta).map_err(err)?;
+            clear_ref_selection();
+            clear_grid_axis_selection();
+            with_selection(|s| {
+                s.0.clear();
+                s.0.extend(new_ids);
+            });
+        }
+        scene(project)
     })
 }
 
