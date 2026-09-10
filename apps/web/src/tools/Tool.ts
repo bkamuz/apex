@@ -1,5 +1,6 @@
 import type { Vec3 } from '../viewport/ViewportRenderer';
 import type { ComponentDto, PlacementKind, ReferenceKind } from '../types';
+import type { TransformMode, TransformOriginal } from './transformTypes';
 
 /**
  * Services a tool may use. The app supplies a fresh context per event, so a
@@ -38,9 +39,18 @@ export interface ToolContext {
   setPending(points: Vec3[]): void;
   /** Suppress camera orbit on touch while a gesture is in flight. */
   setTouchOrbitEnabled(enabled: boolean): void;
+  /** Current selection as transform targets (elements, ref, or grid axis). */
+  getTransformSelection(): TransformOriginal[] | null;
+  /** Live preview of a move from captured originals. */
+  previewTransform(originals: TransformOriginal[], delta: Vec3): void;
+  /** Commit a move or copy after base → target picks. */
+  commitTransform(originals: TransformOriginal[], delta: Vec3, mode: TransformMode): void;
+  /** Revert a cancelled move preview back to captured originals. */
+  restoreTransformOriginals(originals: TransformOriginal[]): void;
 }
 
-export type ToolGroup = 'select' | 'create';
+/** Toolbar clusters: select, transform (move/copy/…), then create tools. */
+export type ToolGroup = 'select' | 'transform' | 'create';
 
 /** A drawable sub-mode of a create tool (e.g. wall line / arc / polyline). */
 export interface ToolMode {
@@ -59,8 +69,10 @@ export interface PointerInfo {
 export interface Tool {
   readonly id: string;
   readonly label: string;
-  /** Toolbar cluster. Select sits apart from the create tools. */
+  /** Toolbar cluster. Select and transform sit before create tools. */
   readonly group?: ToolGroup;
+  /** Letter hotkey shown in the button tooltip, when set. */
+  readonly shortcut?: string;
   /** Component this tool places, for placement tools. */
   readonly componentId?: string;
   /** Sub-modes of this tool (e.g. wall line / arc / polyline). */

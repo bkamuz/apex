@@ -11,6 +11,11 @@ export function canRedo(): boolean;
 export function canUndo(): boolean;
 
 /**
+ * Duplicate the current selection, offsetting copies by a world-space vector.
+ */
+export function copySelection(delta_json: string): any;
+
+/**
  * Place a component from the raw picks the user made.
  *
  * The component's own `PlacementKind` decides how the points are interpreted
@@ -45,6 +50,11 @@ export function getScene(): any;
  * Details of the single selected element, or null.
  */
 export function getSelected(): any;
+
+/**
+ * Every currently selected element, with full placement detail.
+ */
+export function getSelectedElements(): any;
 
 export function getSelectedGridAxis(): any;
 
@@ -138,6 +148,11 @@ export function togglePickById(pick_id: number): any;
 
 export function toggleSelectElement(id: string): any;
 
+/**
+ * Move the current selection by a world-space offset.
+ */
+export function translateSelection(delta_json: string, record_history: boolean): any;
+
 export function undo(): any;
 
 /**
@@ -159,6 +174,7 @@ export interface InitOutput {
     readonly beginUndoGroup: () => [number, number];
     readonly canRedo: () => [number, number, number];
     readonly canUndo: () => [number, number, number];
+    readonly copySelection: (a: number, b: number) => [number, number, number];
     readonly createElement: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
     readonly createGridAxis: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly createLevel: (a: number, b: number, c: number) => [number, number, number];
@@ -169,6 +185,7 @@ export interface InitOutput {
     readonly exportProject: () => [number, number, number, number];
     readonly getScene: () => [number, number, number];
     readonly getSelected: () => [number, number, number];
+    readonly getSelectedElements: () => [number, number, number];
     readonly getSelectedGridAxis: () => [number, number, number];
     readonly getSelectedReference: () => [number, number, number];
     readonly importProject: (a: number, b: number) => [number, number, number];
@@ -193,6 +210,7 @@ export interface InitOutput {
     readonly setReferencePlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly togglePickById: (a: number) => [number, number, number];
     readonly toggleSelectElement: (a: number, b: number) => [number, number, number];
+    readonly translateSelection: (a: number, b: number, c: number) => [number, number, number];
     readonly undo: () => [number, number, number];
     readonly updateElement: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly updateGridAxis: (a: number, b: number, c: number, d: number) => [number, number, number];

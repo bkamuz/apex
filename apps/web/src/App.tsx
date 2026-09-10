@@ -1,6 +1,7 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   apexBeginUndoGroup,
+  apexCopySelection,
   apexCreateElement,
   apexCreateLevel,
   apexCreateGridAxis,
@@ -13,6 +14,7 @@ import {
   apexExportProject,
   apexGetScene,
   apexGetSelected,
+  apexGetSelectedElements,
   apexImportProject,
   apexListComponents,
   apexListProfiles,
@@ -32,6 +34,7 @@ import {
   apexSetLevelElevation,
   apexTogglePickById,
   apexToggleSelectElement,
+  apexTranslateSelection,
   apexUndo,
   apexUpdateElement,
   initApex,
@@ -69,6 +72,11 @@ import { useMediaQuery } from './hooks/useMediaQuery';
 import { ToolRegistry } from './tools/registry';
 import { finishOpenGesture } from './tools/placementTool';
 import { requiredPoints, type PointerInfo, type ToolContext } from './tools/Tool';
+import {
+  translatedAnchors,
+  type TransformMode,
+  type TransformOriginal,
+} from './tools/transformTypes';
 import { extensions, installGlobalSdk } from './extensions/sdk';
 import { installPlugins } from './plugins';
 
@@ -86,6 +94,25 @@ function toFloatArray(data: ArrayLike<number> | number[]): Float32Array {
 
 function toUint32Array(data: ArrayLike<number> | number[]): Uint32Array {
   return data instanceof Uint32Array ? data : new Uint32Array(data);
+}
+
+function applyTransformPlacements(
+  originals: TransformOriginal[],
+  delta: Vec3 | null,
+  recordHistory: boolean,
+): SceneDto | null {
+  let scene: SceneDto | null = null;
+  for (const original of originals) {
+    const anchors = delta ? translatedAnchors(original.anchors, delta) : original.anchors;
+    if (original.kind === 'element') {
+      scene = apexSetElementPlacement(original.id, anchors, 0, recordHistory);
+    } else if (original.kind === 'reference') {
+      scene = apexSetReferencePlacement(original.id, anchors, 0, recordHistory);
+    } else {
+      scene = apexSetGridAxisPlacement(original.id, anchors, 0, recordHistory);
+    }
+  }
+  return scene;
 }
 
 function selectedPickIds(scene: SceneDto): number[] {
@@ -497,6 +524,80 @@ export default function App() {
         }
       },
 
+      getTransformSelection: () => {
+        const axisSel = selectedGridAxisRef.current;
+        if (axisSel) {
+          return [
+            {
+              kind: 'grid_axis' as const,
+              id: axisSel.id,
+              anchors: axisSel.anchors.map((p) => [...p] as Vec3),
+            },
+          ];
+        }
+        const refSel = selectedReferenceRef.current;
+        if (refSel) {
+          return [
+            {
+              kind: 'reference' as const,
+              id: refSel.id,
+              anchors: refSel.anchors.map((p) => [...p] as Vec3),
+            },
+          ];
+        }
+        const elements = apexGetSelectedElements();
+        if (elements.length === 0) return null;
+        return elements.map((element) => ({
+          kind: 'element' as const,
+          id: element.id,
+          anchors: element.anchors.map((p) => [...p] as Vec3),
+        }));
+      },
+
+      previewTransform: (originals, delta) => {
+        try {
+          const next = applyTransformPlacements(originals, delta, false);
+          if (next) {
+            renderer.setScene({
+              positions: toFloatArray(next.positions),
+              normals: toFloatArray(next.normals),
+              indices: toUint32Array(next.indices),
+              pickIds: next.pick_ids,
+              edgePositions: next.edge_positions ? toFloatArray(next.edge_positions) : [],
+              selectedPickIds: selectedPickIds(next),
+              fitCamera: false,
+            });
+            syncGridAxisGizmos(next.grid_axes ?? []);
+            syncReferenceGizmos(next.references ?? []);
+            setScene(next);
+          }
+        } catch {
+          /* keep dragging */
+        }
+      },
+
+      commitTransform: (_originals, delta, mode: TransformMode) => {
+        try {
+          const next =
+            mode === 'move'
+              ? apexTranslateSelection(delta, true)
+              : apexCopySelection(delta);
+          applyScene(next);
+          setError(null);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+        }
+      },
+
+      restoreTransformOriginals: (originals) => {
+        try {
+          const next = applyTransformPlacements(originals, null, false);
+          if (next) applyScene(next);
+        } catch {
+          /* ignore */
+        }
+      },
+
       setError,
       setPending,
       setTouchOrbitEnabled: (enabled) => renderer.setTouchOrbitEnabled(enabled),
@@ -659,6 +760,16 @@ export default function App() {
       if (!typing && mod && e.key.toLowerCase() === 'y') {
         e.preventDefault();
         onRedo();
+        return;
+      }
+      if (!typing && !mod && e.key.toLowerCase() === 'm') {
+        e.preventDefault();
+        activateTool('apex.move');
+        return;
+      }
+      if (!typing && !mod && e.key.toLowerCase() === 'c') {
+        e.preventDefault();
+        activateTool('apex.copy');
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
@@ -674,7 +785,7 @@ export default function App() {
       window.removeEventListener('keydown', onKeyDown, true);
       window.removeEventListener('keyup', onKeyUp, true);
     };
-  }, [applyScene, onEscape, onRedo, onUndo, profileEditor]);
+  }, [activateTool, applyScene, onEscape, onRedo, onUndo, profileEditor]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1096,6 +1207,7 @@ export default function App() {
                 <button
                   type="button"
                   className={toolId === t.id ? 'active' : ''}
+                  title={t.shortcut ? `${t.label} (${t.shortcut})` : t.label}
                   onClick={() => activateTool(t.id)}
                 >
                   {t.label}

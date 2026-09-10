@@ -79,6 +79,8 @@ const tools = await toolbarNames();
 console.log('  toolbar:', tools.join(' | '));
 for (const expected of [
   'Select',
+  'Move',
+  'Copy',
   'Wall',
   'Column',
   'Beam',
@@ -241,6 +243,36 @@ await page.waitForTimeout(400);
 check('slab thickness edit applied', Number(await slabThickness.inputValue()) === 0.35);
 
 await page.screenshot({ path: `${OUT}/apex-02-all-components.png`, fullPage: true });
+
+// --- 4c. Move and Copy transform tools ------------------------------------
+console.log('\n[4c] move and copy transforms');
+const countBeforeMove = await elementCount();
+await useTool('Select');
+await page.locator('[data-kind="instance"]').filter({ hasText: /^Column \d+/ }).first().click();
+await page.waitForTimeout(200);
+await useTool('Move');
+await clickCanvas(0.42, 0.6);
+await clickCanvas(0.52, 0.6);
+await page.waitForTimeout(300);
+check('move keeps element count', (await elementCount()) === countBeforeMove);
+await page.getByTestId('undo').click();
+await page.waitForTimeout(300);
+check('undo reverts move', (await elementCount()) === countBeforeMove);
+
+await useTool('Copy');
+await clickCanvas(0.42, 0.6);
+await clickCanvas(0.48, 0.66);
+await page.waitForTimeout(300);
+check('copy adds one column', (await elementCount()) === countBeforeMove + 1);
+await page.getByTestId('undo').click();
+await page.waitForTimeout(300);
+check('undo removes copy', (await elementCount()) === countBeforeMove);
+
+await page.keyboard.press('m');
+await page.waitForTimeout(120);
+check('M hotkey activates Move', (await page.getByRole('button', { name: 'Move', exact: true }).getAttribute('class'))?.includes('active'));
+await page.keyboard.press('Escape');
+await page.waitForTimeout(120);
 
 // --- 4. Schema-driven inspector -------------------------------------------
 console.log('\n[5] inspector generated from the parameter schema');

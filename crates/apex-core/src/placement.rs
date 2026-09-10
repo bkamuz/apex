@@ -264,6 +264,53 @@ impl Placement {
         }
     }
 
+    /// Shift every defining point by `delta`, keeping shape and orientation.
+    pub fn translated(&self, delta: Vec3) -> Self {
+        let shift = |p: Vec3| p + delta;
+        match self {
+            Self::Point { origin, rotation } => Self::Point {
+                origin: shift(*origin),
+                rotation: *rotation,
+            },
+            Self::Curve { curve } => Self::Curve {
+                curve: match curve {
+                    Curve::Line { a, b } => Curve::Line {
+                        a: shift(*a),
+                        b: shift(*b),
+                    },
+                    Curve::Polyline { points } => Curve::Polyline {
+                        points: points.iter().map(|p| shift(*p)).collect(),
+                    },
+                    Curve::Arc {
+                        center,
+                        normal,
+                        radius,
+                        start_angle,
+                        sweep,
+                    } => Curve::Arc {
+                        center: shift(*center),
+                        normal: *normal,
+                        radius: *radius,
+                        start_angle: *start_angle,
+                        sweep: *sweep,
+                    },
+                    Curve::Circle {
+                        center,
+                        normal,
+                        radius,
+                    } => Curve::Circle {
+                        center: shift(*center),
+                        normal: *normal,
+                        radius: *radius,
+                    },
+                },
+            },
+            Self::Free { frame } => Self::Free {
+                frame: frame.translated(delta),
+            },
+        }
+    }
+
     /// Move every defining point to world `elevation`, keeping the plan shape.
     ///
     /// This is how a level carries its elements when it moves.
@@ -395,6 +442,16 @@ mod tests {
                 .unwrap_err(),
             PlacementError::Degenerate("three_point_arc"),
             "collinear picks cannot make an arc"
+        );
+    }
+
+    #[test]
+    fn translated_shifts_every_anchor() {
+        let line = Placement::line(Vec3::ZERO, Vec3::new(4.0, 0.0, 0.0));
+        let moved = line.translated(Vec3::new(1.0, 2.0, 3.0));
+        assert_eq!(
+            moved.anchors(),
+            vec![Vec3::new(1.0, 2.0, 3.0), Vec3::new(5.0, 2.0, 3.0)]
         );
     }
 

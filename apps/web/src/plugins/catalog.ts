@@ -1,5 +1,7 @@
 import { componentPlugin } from './componentPlugin';
+import { copyPlugin } from './copy';
 import { gridAxisPlugin } from './gridAxis';
+import { movePlugin } from './move';
 import { refPlanePlugin } from './refPlane';
 import { refPointPlugin } from './refPoint';
 import { selectPlugin } from './select';
@@ -14,6 +16,8 @@ import type { Plugin } from './types';
  */
 export const firstPartyPlugins: Plugin[] = [
   selectPlugin,
+  movePlugin,
+  copyPlugin,
   wallPlugin,
   componentPlugin('apex.column'),
   componentPlugin('apex.beam'),
