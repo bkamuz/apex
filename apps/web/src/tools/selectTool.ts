@@ -67,7 +67,7 @@ export function createSelectTool(): Tool {
     onClick(e, ctx) {
       // A click on a handle should edit, not deselect.
       if (ctx.hitEditHandle(e.clientX, e.clientY) !== null) return;
-      ctx.selectByPick(ctx.pick(e.clientX, e.clientY), e.multi);
+      ctx.selectAt(e.clientX, e.clientY, e.multi);
     },
 
     cancel(ctx) {

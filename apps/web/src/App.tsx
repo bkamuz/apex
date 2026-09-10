@@ -146,6 +146,7 @@ export default function App() {
   const [drawMode, setDrawMode] = useState<string | null>(null);
   const [projection, setProjection] = useState<ProjectionMode>('orthographic');
   const [scene, setScene] = useState<SceneDto | null>(null);
+  const sceneRef = useRef<SceneDto | null>(null);
   const [selected, setSelected] = useState<ElementDto | null>(null);
   const [selectedReference, setSelectedReference] = useState<ReferenceDto | null>(null);
   const [selectedGridAxis, setSelectedGridAxis] = useState<GridAxisDto | null>(null);
@@ -161,6 +162,7 @@ export default function App() {
   selectedReferenceRef.current = selectedReference;
   selectedGridAxisRef.current = selectedGridAxis;
   selectedCountRef.current = scene?.selected_ids?.length ?? 0;
+  sceneRef.current = scene;
   placementParamsRef.current = placementDraft;
 
   const tool = registryRef.current.get(toolId) ?? registryRef.current.get(ToolRegistry.selectId)!;
@@ -346,11 +348,40 @@ export default function App() {
 
       pick: (x, y) => renderer.pick(x, y),
 
-      selectByPick: (pickId, multi) => {
-        if (pickId == null) {
-          if (!multi) applyScene(apexSelectElement(null));
-        } else {
+      selectAt: (clientX, clientY, multi) => {
+        const current = sceneRef.current;
+        const gridHit = renderer.hitGridAxis(clientX, clientY, current?.grid_axes ?? []);
+        const refHit = renderer.hitReference(clientX, clientY, current?.references ?? []);
+        const overlayHit =
+          gridHit && refHit
+            ? gridHit.distance <= refHit.distance
+              ? { kind: 'grid_axis' as const, id: gridHit.id }
+              : { kind: 'reference' as const, id: refHit.id }
+            : gridHit
+              ? { kind: 'grid_axis' as const, id: gridHit.id }
+              : refHit
+                ? { kind: 'reference' as const, id: refHit.id }
+                : null;
+
+        if (overlayHit) {
+          applyScene(
+            overlayHit.kind === 'grid_axis'
+              ? apexSelectGridAxis(overlayHit.id)
+              : apexSelectReference(overlayHit.id),
+          );
+          return;
+        }
+
+        const pickId = renderer.pick(clientX, clientY);
+        if (pickId != null) {
           applyScene(multi ? apexTogglePickById(pickId) : apexPickById(pickId));
+          return;
+        }
+
+        if (!multi) {
+          applyScene(apexSelectElement(null));
+          applyScene(apexSelectReference(null));
+          applyScene(apexSelectGridAxis(null));
         }
       },
 
