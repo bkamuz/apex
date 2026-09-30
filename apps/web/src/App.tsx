@@ -15,6 +15,7 @@ import {
   apexGetScene,
   apexGetSelected,
   apexGetSelectedElements,
+  apexListElements,
   apexImportProject,
   apexListComponents,
   apexListProfiles,
@@ -596,6 +597,30 @@ export default function App() {
         } catch {
           /* ignore */
         }
+      },
+
+      // Parenting gestures need element identity, not just a GPU pick id.
+      pickElementId: (clientX, clientY) => {
+        const pickId = renderer.pick(clientX, clientY);
+        if (pickId == null) return null;
+        const current = sceneRef.current;
+        const entry = current?.elements.find((candidate) => candidate.pick_id === pickId);
+        return entry?.id ?? null;
+      },
+
+      selectedElementIds: () => apexGetSelectedElements().map((element) => element.id),
+
+      elementParentId: (id) =>
+        apexListElements().find((element) => element.id === id)?.parent_id ?? null,
+
+      anchorOf: (id) => {
+        const element = apexListElements().find((candidate) => candidate.id === id);
+        const origin = element?.anchors[0];
+        return (origin ? [...origin] : [0, 0, 0]) as Vec3;
+      },
+
+      applyScene: (scene) => {
+        applyScene(scene as SceneDto);
       },
 
       setError,

@@ -213,8 +213,13 @@ impl Project {
         if let Some(patch) = params {
             element.params = element.params.merged(&patch);
         }
+        // A child is built against its parent's level, not its own.
+        let level_id = self
+            .document
+            .effective_level_id(id)
+            .unwrap_or(element.level_id);
         if let Some(placement) = placement {
-            let elevation = self.work_plane(element.level_id).origin.y;
+            let elevation = self.work_plane(level_id).origin.y;
             element.placement = placement.with_elevation(elevation);
         }
         element.params = self
@@ -223,7 +228,7 @@ impl Project {
 
         let mesh = self.registry.build_element_mesh(
             &element,
-            self.work_plane(element.level_id),
+            self.work_plane(level_id),
             self.document.references(),
         )?;
         self.document.update_element(element, mesh);
@@ -388,14 +393,56 @@ impl Project {
             return false;
         }
         let before = self.export_snapshot();
-        let removed = self.document.remove_element(id).is_some();
+        let removed = self
+            .document
+            .remove_element_detaching_children(id)
+            .is_some();
         if removed {
             self.history.record_before(before);
         }
         removed
     }
 
+    /// Attach `id` to `parent`, or detach it with `None`.
+    ///
+    /// Children follow the parent's level, so anything whose effective level
+    /// changed is rebuilt. One undo step.
+    pub fn set_element_parent(
+        &mut self,
+        id: ElementId,
+        parent: Option<ElementId>,
+    ) -> Result<Vec<ElementId>, RegistryError> {
+        let before = self.export_snapshot();
+        let changed = self
+            .document
+            .set_parent(id, parent)
+            .map_err(RegistryError::Document)?;
+        for element_id in &changed {
+            self.rebuild_element(*element_id)?;
+        }
+        self.history.record_before(before);
+        Ok(changed)
+    }
+
+    /// Direct children of `id`.
+    pub fn children_of(&self, id: ElementId) -> Vec<ElementId> {
+        self.document.children_of(id)
+    }
+
+    /// Every descendant of `id`, breadth first.
+    pub fn descendants_of(&self, id: ElementId) -> Vec<ElementId> {
+        self.document.descendants_of(id)
+    }
+
+    /// The level an element actually sits on, following parent inheritance.
+    pub fn effective_level_id(&self, id: ElementId) -> Option<LevelId> {
+        self.document.effective_level_id(id)
+    }
+
     /// Move one or more elements by a plan-space offset.
+    ///
+    /// Descendants travel with their parent. A child named in `ids` alongside
+    /// its ancestor is moved once, not twice, because the set is deduplicated.
     pub fn translate_elements(
         &mut self,
         ids: &[ElementId],
@@ -410,14 +457,24 @@ impl Project {
         } else {
             None
         };
+        // Expand to the full set first, so each element moves exactly once.
+        let mut moving: std::collections::BTreeSet<ElementId> = std::collections::BTreeSet::new();
         for id in ids {
+            if self.document.get_element(*id).is_none() {
+                return Err(RegistryError::Unknown(id.to_string()));
+            }
+            moving.insert(*id);
+            moving.extend(self.document.descendants_of(*id));
+        }
+
+        for id in moving {
             let element = self
                 .document
-                .get_element(*id)
+                .get_element(id)
                 .cloned()
                 .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
             let placement = element.placement.translated(delta);
-            self.update_element(*id, None, Some(placement), false)?;
+            self.update_element(id, None, Some(placement), false)?;
         }
         if record {
             self.finish_recorded_edit(before);
@@ -747,7 +804,13 @@ impl Project {
     }
 
     fn restore_snapshot(&mut self, snap: ProjectSnapshot) -> Result<(), RegistryError> {
-        if snap.format != PROJECT_FORMAT && snap.format != 1 && snap.format != 2 {
+        // Format 3 predates element parentage; `parent_id` defaults to None on
+        // load, so a format 3 file imports as a flat document.
+        let known = snap.format == PROJECT_FORMAT
+            || snap.format == 1
+            || snap.format == 2
+            || snap.format == 3;
+        if !known {
             return Err(RegistryError::Unknown(format!(
                 "unsupported project format {}",
                 snap.format
@@ -787,7 +850,7 @@ impl Project {
 }
 
 /// On-disk / download format. Bump [`PROJECT_FORMAT`] when the shape changes.
-pub const PROJECT_FORMAT: u32 = 3;
+pub const PROJECT_FORMAT: u32 = 4;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectSnapshot {
@@ -1588,5 +1651,359 @@ mod tests {
 
         project.undo().expect("undo drag");
         assert!((size_of(project.document().get_mesh(id).unwrap())[0] - 5.0).abs() < EPS);
+    }
+
+    // --- parentage ---------------------------------------------------------
+
+    fn place_wall(project: &mut Project, a: Vec3, b: Vec3) -> ElementId {
+        project
+            .create_element("apex.wall", Placement::line(a, b), ParamMap::new())
+            .expect("place wall")
+    }
+
+    fn origin_y(project: &Project, id: ElementId) -> f32 {
+        project
+            .document()
+            .get_element(id)
+            .expect("element")
+            .placement
+            .origin()
+            .y
+    }
+
+    #[test]
+    fn a_child_is_built_on_its_parents_work_plane() {
+        // The mesh must come out at the parent's elevation, not the child's own
+        // level: build_element_mesh gets the work plane, so a wrong level here
+        // silently seats the child at the wrong height.
+        let mut project = Project::new();
+        let level0 = project.document().active_level_id().expect("level 0");
+        let (level1, _) = project.document_mut().add_level("Level 1", 3.0);
+
+        project.set_active_level(level1).expect("activate");
+        let parent = place_wall(&mut project, Vec3::ZERO, Vec3::new(4.0, 0.0, 0.0));
+
+        project.set_active_level(level0).expect("activate");
+        let child = project
+            .create_element(
+                "apex.column",
+                Placement::point(Vec3::new(1.0, 0.0, 0.0)),
+                ParamMap::new(),
+            )
+            .expect("place child");
+        project
+            .set_element_parent(child, Some(parent))
+            .expect("re-parent");
+
+        let (min, max) = project
+            .document()
+            .get_mesh(child)
+            .expect("child mesh")
+            .aabb()
+            .expect("aabb");
+        assert!(
+            (min[1] - 3.0).abs() < EPS,
+            "child base sat at {} instead of the parent's 3.0",
+            min[1]
+        );
+        assert!((max[1] - 6.0).abs() < EPS, "child top was {}", max[1]);
+    }
+
+    #[test]
+    fn a_child_takes_its_parents_level() {
+        let mut project = Project::new();
+        let level0 = project.document().active_level_id().expect("level 0");
+        let (level1, _) = project.document_mut().add_level("Level 1", 3.0);
+
+        // Parent sits on level 1.
+        project.set_active_level(level1).expect("activate");
+        let parent = place_wall(&mut project, Vec3::ZERO, Vec3::new(4.0, 0.0, 0.0));
+
+        // Child is placed on level 0, so the two start out on different levels.
+        project.set_active_level(level0).expect("activate");
+        let child = project
+            .create_element(
+                "apex.column",
+                Placement::point(Vec3::new(1.0, 0.0, 0.0)),
+                ParamMap::new(),
+            )
+            .expect("place child");
+
+        assert_eq!(project.effective_level_id(parent), Some(level1));
+        assert_eq!(
+            project.effective_level_id(child),
+            Some(level0),
+            "precondition: child starts on its own level"
+        );
+
+        project
+            .set_element_parent(child, Some(parent))
+            .expect("re-parent");
+
+        assert_eq!(
+            project.effective_level_id(child),
+            Some(level1),
+            "child must read the parent's level"
+        );
+    }
+
+    #[test]
+    fn moving_a_level_carries_children_with_it() {
+        let mut project = Project::new();
+        let level1 = project.document().active_level_id().unwrap();
+        let parent = place_wall(&mut project, Vec3::ZERO, Vec3::new(4.0, 0.0, 0.0));
+        let child = project
+            .create_element(
+                "apex.column",
+                Placement::point(Vec3::new(1.0, 0.0, 0.0)),
+                ParamMap::new(),
+            )
+            .expect("place child");
+        project
+            .set_element_parent(child, Some(parent))
+            .expect("re-parent");
+
+        project.set_level_elevation(level1, 5.0).expect("raise");
+
+        assert!(
+            (origin_y(&project, parent) - 5.0).abs() < EPS,
+            "parent rose"
+        );
+        assert!(
+            (origin_y(&project, child) - 5.0).abs() < EPS,
+            "child inherited the level, was {}",
+            origin_y(&project, child)
+        );
+    }
+
+    #[test]
+    fn translating_a_parent_carries_its_children() {
+        let mut project = Project::new();
+        let parent = place_wall(&mut project, Vec3::ZERO, Vec3::new(4.0, 0.0, 0.0));
+        let child = project
+            .create_element(
+                "apex.column",
+                Placement::point(Vec3::new(1.0, 0.0, 0.0)),
+                ParamMap::new(),
+            )
+            .expect("place child");
+        project
+            .set_element_parent(child, Some(parent))
+            .expect("re-parent");
+
+        let delta = Vec3::new(0.0, 0.0, 2.0);
+        project
+            .translate_elements(&[parent], delta, true)
+            .expect("translate parent");
+
+        let parent_pos = project
+            .document()
+            .get_element(parent)
+            .unwrap()
+            .placement
+            .origin();
+        let child_pos = project
+            .document()
+            .get_element(child)
+            .unwrap()
+            .placement
+            .origin();
+        assert!((parent_pos.z - 2.0).abs() < EPS, "parent moved");
+        assert!(
+            (child_pos.z - parent_pos.z).abs() < EPS,
+            "child followed the parent"
+        );
+    }
+
+    #[test]
+    fn a_child_named_alongside_its_parent_moves_only_once() {
+        let mut project = Project::new();
+        let parent = place_wall(&mut project, Vec3::ZERO, Vec3::new(4.0, 0.0, 0.0));
+        let child = project
+            .create_element(
+                "apex.column",
+                Placement::point(Vec3::new(1.0, 0.0, 0.0)),
+                ParamMap::new(),
+            )
+            .expect("place child");
+        project
+            .set_element_parent(child, Some(parent))
+            .expect("re-parent");
+
+        // Both selected: the child must not be translated twice.
+        project
+            .translate_elements(&[parent, child], Vec3::new(0.0, 0.0, 3.0), true)
+            .expect("translate both");
+
+        let child_pos = project
+            .document()
+            .get_element(child)
+            .unwrap()
+            .placement
+            .origin();
+        assert!(
+            (child_pos.z - 3.0).abs() < EPS,
+            "child moved twice to {}",
+            child_pos.z
+        );
+    }
+
+    #[test]
+    fn descendants_of_follows_the_whole_chain() {
+        let mut project = Project::new();
+        let root = place_wall(&mut project, Vec3::ZERO, Vec3::new(4.0, 0.0, 0.0));
+        let middle = project
+            .create_element(
+                "apex.column",
+                Placement::point(Vec3::new(1.0, 0.0, 0.0)),
+                ParamMap::new(),
+            )
+            .expect("middle");
+        let leaf = project
+            .create_element(
+                "apex.column",
+                Placement::point(Vec3::new(2.0, 0.0, 0.0)),
+                ParamMap::new(),
+            )
+            .expect("leaf");
+
+        project
+            .set_element_parent(middle, Some(root))
+            .expect("middle under root");
+        project
+            .set_element_parent(leaf, Some(middle))
+            .expect("leaf under middle");
+
+        assert_eq!(project.children_of(root), vec![middle]);
+        assert_eq!(project.children_of(middle), vec![leaf]);
+        let all = project.descendants_of(root);
+        assert_eq!(all.len(), 2);
+        assert!(all.contains(&middle) && all.contains(&leaf));
+        assert_eq!(
+            project.effective_level_id(leaf),
+            project.effective_level_id(root),
+            "level inherits down the whole chain"
+        );
+    }
+
+    #[test]
+    fn an_element_cannot_become_its_own_ancestor() {
+        let mut project = Project::new();
+        let parent = place_wall(&mut project, Vec3::ZERO, Vec3::new(4.0, 0.0, 0.0));
+        let child = project
+            .create_element(
+                "apex.column",
+                Placement::point(Vec3::new(1.0, 0.0, 0.0)),
+                ParamMap::new(),
+            )
+            .expect("child");
+        project
+            .set_element_parent(child, Some(parent))
+            .expect("re-parent");
+
+        assert!(
+            project.set_element_parent(parent, Some(child)).is_err(),
+            "a cycle must be refused"
+        );
+        assert!(
+            project.set_element_parent(parent, Some(parent)).is_err(),
+            "self-parenting must be refused"
+        );
+    }
+
+    #[test]
+    fn deleting_a_parent_detaches_its_children() {
+        let mut project = Project::new();
+        let parent = place_wall(&mut project, Vec3::ZERO, Vec3::new(4.0, 0.0, 0.0));
+        let child = project
+            .create_element(
+                "apex.column",
+                Placement::point(Vec3::new(1.0, 0.0, 0.0)),
+                ParamMap::new(),
+            )
+            .expect("child");
+        project
+            .set_element_parent(child, Some(parent))
+            .expect("re-parent");
+
+        assert!(project.delete_element(parent));
+        assert!(
+            project.document().get_element(child).is_some(),
+            "the child must survive its parent"
+        );
+        assert_eq!(
+            project.document().get_element(child).unwrap().parent_id,
+            None,
+            "and must be a root again"
+        );
+    }
+
+    #[test]
+    fn re_parenting_survives_a_snapshot_round_trip() {
+        let mut project = Project::new();
+        let parent = place_wall(&mut project, Vec3::ZERO, Vec3::new(4.0, 0.0, 0.0));
+        let child = project
+            .create_element(
+                "apex.column",
+                Placement::point(Vec3::new(1.0, 0.0, 0.0)),
+                ParamMap::new(),
+            )
+            .expect("child");
+        project
+            .set_element_parent(child, Some(parent))
+            .expect("re-parent");
+
+        let snapshot = project.export_snapshot();
+        let mut restored = Project::new();
+        restored.import_snapshot(snapshot).expect("restore");
+
+        assert_eq!(
+            restored.document().get_element(child).unwrap().parent_id,
+            Some(parent),
+            "parent link must survive the file format"
+        );
+    }
+
+    #[test]
+    fn a_format_three_snapshot_still_imports() {
+        let project = Project::new();
+        let mut snapshot = project.export_snapshot();
+        snapshot.format = 3;
+        let mut restored = Project::new();
+        restored
+            .import_snapshot(snapshot)
+            .expect("a pre-parentage file must load");
+    }
+
+    #[test]
+    fn re_parenting_is_a_single_undo_step() {
+        let mut project = Project::new();
+        let parent = place_wall(&mut project, Vec3::ZERO, Vec3::new(4.0, 0.0, 0.0));
+        let child = project
+            .create_element(
+                "apex.column",
+                Placement::point(Vec3::new(1.0, 0.0, 0.0)),
+                ParamMap::new(),
+            )
+            .expect("child");
+        assert_eq!(
+            project.document().get_element(child).unwrap().parent_id,
+            None
+        );
+
+        project
+            .set_element_parent(child, Some(parent))
+            .expect("re-parent");
+        assert_eq!(
+            project.document().get_element(child).unwrap().parent_id,
+            Some(parent)
+        );
+
+        project.undo().expect("undo");
+        assert_eq!(
+            project.document().get_element(child).unwrap().parent_id,
+            None,
+            "one undo must detach again"
+        );
     }
 }

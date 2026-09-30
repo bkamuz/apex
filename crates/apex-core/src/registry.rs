@@ -28,6 +28,11 @@ pub enum RegistryError {
     Duplicate(ComponentId),
     #[error("unknown component '{0}'")]
     Unknown(ComponentId),
+    /// A document-level refusal that is not a component lookup: a missing
+    /// element id, a cycle in the parent chain, and so on. Separate from
+    /// `Unknown` so the message is not read as a component problem.
+    #[error("{0}")]
+    Document(String),
     #[error("component '{component}' is placed by {expected}, but the element uses {actual}")]
     PlacementMismatch {
         component: ComponentId,

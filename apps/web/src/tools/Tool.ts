@@ -47,6 +47,16 @@ export interface ToolContext {
   commitTransform(originals: TransformOriginal[], delta: Vec3, mode: TransformMode): void;
   /** Revert a cancelled move preview back to captured originals. */
   restoreTransformOriginals(originals: TransformOriginal[]): void;
+  /** Element id under the cursor, or null. Distinct from `pick`, which returns a GPU pick id. */
+  pickElementId(clientX: number, clientY: number): string | null;
+  /** Ids of the currently selected elements. */
+  selectedElementIds(): string[];
+  /** The parent of `id`, or null when it is a root. */
+  elementParentId(id: string): string | null;
+  /** A world point to highlight for `id` — its placement origin. */
+  anchorOf(id: string): Vec3;
+  /** Apply a scene returned by a core mutation. */
+  applyScene(scene: unknown): void;
 }
 
 /** Toolbar clusters: select, transform (move/copy/…), then create tools. */

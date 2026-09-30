@@ -11,6 +11,11 @@ export function canRedo(): boolean;
 export function canUndo(): boolean;
 
 /**
+ * Direct children of an element.
+ */
+export function childrenOf(id: string): any;
+
+/**
  * Duplicate the current selection, offsetting copies by a world-space vector.
  */
 export function copySelection(delta_json: string): any;
@@ -38,6 +43,16 @@ export function deleteSelected(): any;
 export function deleteSelectedGridAxis(): any;
 
 export function deleteSelectedReference(): any;
+
+/**
+ * Every descendant of an element, breadth first.
+ */
+export function descendantsOf(id: string): any;
+
+/**
+ * The level an element actually sits on, following parent inheritance.
+ */
+export function effectiveLevelOf(id: string): string | undefined;
 
 /**
  * JSON snapshot of the document, profiles, and extra components.
@@ -130,6 +145,14 @@ export function selectReference(id: string): any;
 export function setActiveLevel(id: string): any;
 
 /**
+ * Attach an element to a parent, or detach it by passing `null`.
+ *
+ * The child takes the parent's level and follows it when moved. One undo step.
+ * Returns the ids whose level changed, so the UI can refresh them.
+ */
+export function setElementParent(id: string, parent_id?: string | null): any;
+
+/**
  * Re-place an existing element from a fresh set of picks.
  *
  * The existing curve type is kept, so dragging an arc wall's handles does
@@ -174,6 +197,7 @@ export interface InitOutput {
     readonly beginUndoGroup: () => [number, number];
     readonly canRedo: () => [number, number, number];
     readonly canUndo: () => [number, number, number];
+    readonly childrenOf: (a: number, b: number) => [number, number, number];
     readonly copySelection: (a: number, b: number) => [number, number, number];
     readonly createElement: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
     readonly createGridAxis: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
@@ -182,6 +206,8 @@ export interface InitOutput {
     readonly deleteSelected: () => [number, number, number];
     readonly deleteSelectedGridAxis: () => [number, number, number];
     readonly deleteSelectedReference: () => [number, number, number];
+    readonly descendantsOf: (a: number, b: number) => [number, number, number];
+    readonly effectiveLevelOf: (a: number, b: number) => [number, number, number, number];
     readonly exportProject: () => [number, number, number, number];
     readonly getScene: () => [number, number, number];
     readonly getSelected: () => [number, number, number];
@@ -204,6 +230,7 @@ export interface InitOutput {
     readonly selectGridAxis: (a: number, b: number) => [number, number, number];
     readonly selectReference: (a: number, b: number) => [number, number, number];
     readonly setActiveLevel: (a: number, b: number) => [number, number, number];
+    readonly setElementParent: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly setElementPlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly setGridAxisPlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly setLevelElevation: (a: number, b: number, c: number) => [number, number, number];

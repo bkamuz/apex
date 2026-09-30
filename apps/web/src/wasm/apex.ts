@@ -5,6 +5,10 @@ import initWasm, {
   getScene,
   getSelected,
   initApp,
+  setElementParent,
+  childrenOf,
+  descendantsOf,
+  effectiveLevelOf,
   listComponents,
   listElements,
   listProfiles,
@@ -141,6 +145,31 @@ export function apexSetElementPlacement(
   recordHistory = true,
 ): SceneDto {
   return asScene(setElementPlacement(id, encodePoints(points), rotation, recordHistory));
+}
+
+/**
+ * Attach an element to a parent, or pass `null` to detach.
+ *
+ * The child takes the parent's level and follows it when moved. Returns the
+ * scene; ids whose level changed are already reflected in it.
+ */
+export function apexSetElementParent(id: string, parentId: string | null): SceneDto {
+  return asScene(setElementParent(id, parentId ?? undefined));
+}
+
+/** Direct children of an element. */
+export function apexChildrenOf(id: string): string[] {
+  return childrenOf(id) as string[];
+}
+
+/** Every descendant, breadth first. Nesting is unbounded. */
+export function apexDescendantsOf(id: string): string[] {
+  return descendantsOf(id) as string[];
+}
+
+/** The level an element actually sits on, following parent inheritance. */
+export function apexEffectiveLevelOf(id: string): string | undefined {
+  return effectiveLevelOf(id);
 }
 
 export function apexPreviewElement(
