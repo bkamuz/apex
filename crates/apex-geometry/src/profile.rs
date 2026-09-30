@@ -1,6 +1,7 @@
 use std::f32::consts::TAU;
 
 use serde::{Deserialize, Serialize};
+use spade::{ConstrainedDelaunayTriangulation, Triangulation};
 
 use crate::error::GeometryError;
 
@@ -92,6 +93,11 @@ impl Profile {
         self.loops.len() > 1
     }
 
+    /// Every loop: the outline first, then any holes.
+    pub fn loops(&self) -> &[Vec<Point2>] {
+        &self.loops
+    }
+
     /// `(min, max)` of the outline in profile space.
     pub fn bounds(&self) -> (Point2, Point2) {
         let mut min = self.loops[0][0];
@@ -127,13 +133,96 @@ impl Profile {
         self.translated(center_u, dv)
     }
 
-    /// Triangulate the outline into index triples over [`Profile::outer`].
+    /// Triangulate the profile into index triples.
+    ///
+    /// Indices address [`Profile::all_points`]: the outline vertices come first,
+    /// then each hole's vertices in loop order. With no holes this is the same
+    /// result as triangulating the outline alone.
     pub fn triangulate(&self) -> Result<Vec<[usize; 3]>, GeometryError> {
-        if self.has_holes() {
-            return Err(GeometryError::HolesUnsupported);
+        if !self.has_holes() {
+            return triangulate_ccw(self.outer());
         }
-        triangulate_ccw(self.outer())
+        triangulate_with_holes(&self.loops)
     }
+
+    /// Every point of every loop, flattened. Outline first, then holes.
+    ///
+    /// This is the vertex list the indices from [`Profile::triangulate`] address.
+    pub fn all_points(&self) -> Vec<Point2> {
+        self.loops.iter().flatten().copied().collect()
+    }
+}
+
+/// Even-odd point-in-polygon, used to classify a candidate triangle by centroid.
+fn point_in_loop(loop_points: &[Point2], p: Point2) -> bool {
+    let mut inside = false;
+    let n = loop_points.len();
+    let mut j = n - 1;
+    for i in 0..n {
+        let [xi, yi] = loop_points[i];
+        let [xj, yj] = loop_points[j];
+        // The edge straddles the horizontal ray when the two y values differ.
+        if (yi > p[1]) != (yj > p[1]) {
+            let t = (p[1] - yi) / (yj - yi);
+            if xi + t * (xj - xi) > p[0] {
+                inside = !inside;
+            }
+        }
+        j = i;
+    }
+    inside
+}
+
+/// Triangulate a polygon with holes using a constrained Delaunay triangulation.
+///
+/// Every loop edge becomes a constraint, so the result honours concave outlines
+/// and hole boundaries exactly. Faces whose centroid falls outside the outline or
+/// inside a hole are then discarded, which leaves the annular triangles.
+fn triangulate_with_holes(loops: &[Vec<Point2>]) -> Result<Vec<[usize; 3]>, GeometryError> {
+    let points: Vec<Point2> = loops.iter().flatten().copied().collect();
+    let mut constraints = Vec::new();
+    let mut base = 0usize;
+    for loop_points in loops {
+        let n = loop_points.len();
+        for i in 0..n {
+            constraints.push([base + i, base + (i + 1) % n]);
+        }
+        base += n;
+    }
+
+    let spade_points: Vec<spade::Point2<f64>> = points
+        .iter()
+        .map(|p| spade::Point2::new(p[0] as f64, p[1] as f64))
+        .collect();
+
+    let cdt = ConstrainedDelaunayTriangulation::<spade::Point2<f64>>::bulk_load_cdt(
+        spade_points,
+        constraints,
+    )
+    .map_err(|_| GeometryError::Triangulation)?;
+
+    let mut triangles = Vec::new();
+    for face in cdt.inner_faces() {
+        let handles = face.vertices();
+        let [a, b, c] = [handles[0].index(), handles[1].index(), handles[2].index()];
+        // Work out which side of each hole the face centroid lands on.
+        let centroid: Point2 = [
+            (points[a][0] + points[b][0] + points[c][0]) / 3.0,
+            (points[a][1] + points[b][1] + points[c][1]) / 3.0,
+        ];
+        if !point_in_loop(&loops[0], centroid) {
+            continue;
+        }
+        if loops[1..].iter().any(|l| point_in_loop(l, centroid)) {
+            continue;
+        }
+        triangles.push([a, b, c]);
+    }
+
+    if triangles.is_empty() {
+        return Err(GeometryError::Triangulation);
+    }
+    Ok(triangles)
 }
 
 fn signed_area(points: &[Point2]) -> f32 {
@@ -349,11 +438,129 @@ mod tests {
     }
 
     #[test]
-    fn profiles_with_holes_are_rejected_for_now() {
+    fn a_square_with_a_square_hole_has_the_annular_area() {
         let outer = vec![[0.0, 0.0], [4.0, 0.0], [4.0, 4.0], [0.0, 4.0]];
         let hole = vec![[1.0, 1.0], [2.0, 1.0], [2.0, 2.0], [1.0, 2.0]];
         let p = Profile::new(outer, vec![hole]).expect("profile");
         assert!(p.has_holes());
-        assert_eq!(p.triangulate(), Err(GeometryError::HolesUnsupported));
+
+        let tris = p.triangulate().expect("triangulate");
+        // 16 outline points minus the 4 inside the hole, bridged into 14 faces.
+        assert!(!tris.is_empty(), "holes must not empty the triangulation");
+
+        let all = p.all_points();
+        let area: f64 = tris
+            .iter()
+            .map(|t| cross2(all[t[0]], all[t[1]], all[t[2]]) as f64 * 0.5)
+            .map(f64::abs)
+            .sum();
+        // Outline area 16, hole area 1, so the ring between them is 15.
+        assert!((area - 15.0).abs() < 1e-3, "area was {area}");
+    }
+
+    #[test]
+    fn triangles_never_straddle_a_hole() {
+        let outer = vec![[0.0, 0.0], [4.0, 0.0], [4.0, 4.0], [0.0, 4.0]];
+        let hole = vec![[1.0, 1.0], [2.0, 1.0], [2.0, 2.0], [1.0, 2.0]];
+        let p = Profile::new(outer, vec![hole]).expect("profile");
+        let all = p.all_points();
+        let tris = p.triangulate().expect("triangulate");
+
+        for t in &tris {
+            let c = [
+                (all[t[0]][0] + all[t[1]][0] + all[t[2]][0]) / 3.0,
+                (all[t[0]][1] + all[t[1]][1] + all[t[2]][1]) / 3.0,
+            ];
+            assert!(
+                !point_in_loop(&p.holes()[0], c),
+                "centroid {c:?} fell inside the hole for triangle {t:?}"
+            );
+            assert!(
+                point_in_loop(p.outer(), c),
+                "centroid {c:?} fell outside the outline for triangle {t:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn two_holes_in_one_outline_both_keep_their_area_out() {
+        let outer = vec![[0.0, 0.0], [6.0, 0.0], [6.0, 4.0], [0.0, 4.0]];
+        let left = vec![[1.0, 1.0], [2.0, 1.0], [2.0, 2.0], [1.0, 2.0]];
+        let right = vec![[4.0, 1.0], [5.0, 1.0], [5.0, 2.0], [4.0, 2.0]];
+        let p = Profile::new(outer, vec![left, right]).expect("profile");
+        assert_eq!(p.holes().len(), 2);
+
+        let all = p.all_points();
+        let tris = p.triangulate().expect("triangulate");
+        let area: f64 = tris
+            .iter()
+            .map(|t| cross2(all[t[0]], all[t[1]], all[t[2]]).abs() as f64 * 0.5)
+            .sum();
+        // Outline 24, two holes of 1 each.
+        assert!((area - 22.0).abs() < 1e-3, "area was {area}");
+    }
+
+    #[test]
+    fn a_profile_without_holes_still_uses_ear_clipping() {
+        // The no-hole path must keep its old n-2 triangle count exactly.
+        let p = Profile::rectangle(2.0, 2.0).expect("profile");
+        assert_eq!(p.triangulate().expect("tri").len(), 2);
+        assert!(!p.has_holes());
+    }
+
+    #[test]
+    fn a_hole_that_touches_the_outline_is_still_rejected_cleanly() {
+        // Degenerate input must produce an error, never a panic or a bad mesh.
+        let outer = vec![[0.0, 0.0], [4.0, 0.0], [4.0, 4.0], [0.0, 4.0]];
+        // Shares the x=0 edge with the outline.
+        let hole = vec![[0.0, 1.0], [2.0, 1.0], [2.0, 2.0], [0.0, 2.0]];
+        let p = Profile::new(outer, vec![hole]).expect("profile");
+        match p.triangulate() {
+            Ok(tris) => {
+                let all = p.all_points();
+                for t in &tris {
+                    let c = [
+                        (all[t[0]][0] + all[t[1]][0] + all[t[2]][0]) / 3.0,
+                        (all[t[0]][1] + all[t[1]][1] + all[t[2]][1]) / 3.0,
+                    ];
+                    assert!(!point_in_loop(&p.holes()[0], c), "centroid in hole");
+                }
+            }
+            Err(GeometryError::Triangulation) => {}
+            Err(other) => panic!("unexpected error {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_hole_reaching_the_outline_boundary_is_still_handled() {
+        // A hole sharing the x=1 edge region with the outline: CDT must either
+        // solve it or report a clean error, never panic.
+        let outer = vec![[0.0, 0.0], [4.0, 0.0], [4.0, 4.0], [0.0, 4.0]];
+        let touching = vec![[0.0, 1.0], [0.0, 3.0], [1.0, 3.0], [1.0, 1.0]];
+        let p = Profile::new(outer, vec![touching]).expect("profile");
+        match p.triangulate() {
+            Ok(tris) => {
+                let all = p.all_points();
+                for t in &tris {
+                    let c = [
+                        (all[t[0]][0] + all[t[1]][0] + all[t[2]][0]) / 3.0,
+                        (all[t[0]][1] + all[t[1]][1] + all[t[2]][1]) / 3.0,
+                    ];
+                    assert!(!point_in_loop(&p.holes()[0], c), "centroid in hole");
+                }
+            }
+            Err(GeometryError::Triangulation) => {}
+            Err(other) => panic!("unexpected error {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_thin_sliver_outline_still_triangulates() {
+        // Near-degenerate input must not hang or panic.
+        let outer = vec![[0.0, 0.0], [4.0, 0.0], [4.0, 1e-3], [0.0, 1e-3]];
+        let hole = vec![[1.0, 2e-4], [2.0, 2e-4], [2.0, 4e-4], [1.0, 4e-4]];
+        let p = Profile::new(outer, vec![hole]).expect("profile");
+        // Either a clean error or a triangulation; never a panic.
+        let _ = p.triangulate();
     }
 }

@@ -78,60 +78,102 @@ pub fn extrude(
 }
 
 /// Shared ring-and-cap builder for every swept solid.
+///
+/// A profile with holes produces a swept tube: every loop becomes its own ring
+/// wall, and the caps are covered by the triangulated profile.
 fn build(profile: &Profile, frames: &[Frame], closed: bool) -> Result<TriangleMesh, GeometryError> {
-    if profile.has_holes() {
-        return Err(GeometryError::HolesUnsupported);
-    }
-    let outline = profile.outer();
-    let corners = outline.len();
-    if corners < 3 {
-        return Err(GeometryError::ProfileTooSmall(corners));
-    }
     let stations = frames.len();
     if stations < 2 {
         return Err(GeometryError::NotEnoughStations);
     }
 
-    let rings: Vec<Vec<Vec3>> = frames
-        .iter()
-        .map(|f| outline.iter().map(|p| f.point(p[0], p[1])).collect())
-        .collect();
-
-    let mut mesh = TriangleMesh::empty();
+    // One ring per loop: the outline plus every hole. Hole walls face inwards,
+    // so their winding is reversed relative to the outline.
+    let mut all_rings: Vec<Vec<Vec<Vec3>>> = Vec::new();
+    for loop_points in profile.loops() {
+        if loop_points.len() < 3 {
+            return Err(GeometryError::ProfileTooSmall(loop_points.len()));
+        }
+        all_rings.push(
+            frames
+                .iter()
+                .map(|f| loop_points.iter().map(|p| f.point(p[0], p[1])).collect())
+                .collect(),
+        );
+    }
     let spans = if closed { stations } else { stations - 1 };
 
-    for i in 0..spans {
-        let next = (i + 1) % stations;
-        for j in 0..corners {
-            let j1 = (j + 1) % corners;
-            let normal = side_normal(outline, j, &frames[i], &frames[next]);
-            let (a, b) = (rings[i][j], rings[i][j1]);
-            let (c, d) = (rings[next][j1], rings[next][j]);
-            mesh.push_triangle(a.to_array(), b.to_array(), c.to_array(), normal);
-            mesh.push_triangle(a.to_array(), c.to_array(), d.to_array(), normal);
+    let mut mesh = TriangleMesh::empty();
+
+    for (loop_index, (loop_points, loop_rings)) in
+        profile.loops().iter().zip(all_rings.iter()).enumerate()
+    {
+        let corners = loop_points.len();
+        for i in 0..spans {
+            let next = (i + 1) % stations;
+            for j in 0..corners {
+                let j1 = (j + 1) % corners;
+                let normal = side_normal(loop_points, j, &frames[i], &frames[next]);
+                let (a, b) = (loop_rings[i][j], loop_rings[i][j1]);
+                let (c, d) = (loop_rings[next][j1], loop_rings[next][j]);
+                // Hole walls face inwards, so reverse their winding to stay watertight.
+                if !is_outline(loop_index) {
+                    mesh.push_triangle(a.to_array(), c.to_array(), b.to_array(), normal);
+                    mesh.push_triangle(a.to_array(), d.to_array(), c.to_array(), normal);
+                } else {
+                    mesh.push_triangle(a.to_array(), b.to_array(), c.to_array(), normal);
+                    mesh.push_triangle(a.to_array(), c.to_array(), d.to_array(), normal);
+                }
+            }
         }
     }
 
     if !closed {
         let triangles = profile.triangulate()?;
+        // Cap indices address every loop's points, so map them onto the frame.
+        let cap_points = profile.all_points();
+        let start_ring: Vec<Vec3> = cap_points
+            .iter()
+            .map(|p| frames[0].point(p[0], p[1]))
+            .collect();
         let last = stations - 1;
+        let end_ring: Vec<Vec3> = cap_points
+            .iter()
+            .map(|p| frames[last].point(p[0], p[1]))
+            .collect();
 
         // Start cap faces backwards, so its winding is reversed.
         let start_normal = (-frames[0].z).to_array();
         for t in &triangles {
-            let (a, b, c) = (rings[0][t[0]], rings[0][t[1]], rings[0][t[2]]);
+            let (a, b, c) = (start_ring[t[0]], start_ring[t[1]], start_ring[t[2]]);
             mesh.push_triangle(a.to_array(), c.to_array(), b.to_array(), start_normal);
         }
 
         let end_normal = frames[last].z.to_array();
         for t in &triangles {
-            let (a, b, c) = (rings[last][t[0]], rings[last][t[1]], rings[last][t[2]]);
+            let (a, b, c) = (end_ring[t[0]], end_ring[t[1]], end_ring[t[2]]);
             mesh.push_triangle(a.to_array(), b.to_array(), c.to_array(), end_normal);
         }
     }
 
-    push_edges(&mut mesh, &rings, corners, stations, closed, spans);
+    for loop_rings in &all_rings {
+        push_edges(
+            &mut mesh,
+            loop_rings,
+            loop_rings[0].len(),
+            stations,
+            closed,
+            spans,
+        );
+    }
     Ok(mesh)
+}
+
+/// True when `loop_points` is the profile's outline rather than one of its holes.
+///
+/// `Profile::loops` yields the outline first, so index 0 is the outline.
+fn is_outline(loop_index: usize) -> bool {
+    loop_index == 0
 }
 
 /// CAD overlay lines: the profile outline at each open end, plus rails along the path.
@@ -387,6 +429,76 @@ mod tests {
             sweep(&profile, &path, &SweepOptions::default()),
             Err(GeometryError::DegenerateCurve(_))
         ));
+    }
+
+    #[test]
+    fn extruding_a_hollow_profile_leaves_the_hole_empty() {
+        // A 4x4 outline with a 2x2 hole in the middle: the extrusion must have
+        // a cavity, so no vertex may sit inside the hole footprint.
+        let outer = vec![[0.0, 0.0], [4.0, 0.0], [4.0, 4.0], [0.0, 4.0]];
+        let hole = vec![[1.0, 1.0], [1.0, 3.0], [3.0, 3.0], [3.0, 1.0]];
+        let profile = Profile::new(outer, vec![hole]).expect("profile");
+        let mesh = extrude(&profile, &Frame::horizontal(0.0), 2.0).expect("mesh");
+
+        // 4 outline walls + 4 hole walls per span, plus both caps.
+        assert!(mesh.triangle_count() > 12, "hollow solid must add faces");
+
+        // The cavity must stay open. Hole wall vertices sit exactly on the
+        // footprint boundary, so only vertices strictly clear of it would be
+        // wrong.
+        let uv_of = |p: [f32; 3]| Frame::horizontal(0.0).local_xy(Vec3::new(p[0], p[1], p[2]));
+        let margin = 1e-3;
+        let intruding = mesh
+            .positions
+            .chunks(3)
+            .filter(|p| {
+                let [u, v] = uv_of([p[0], p[1], p[2]]);
+                u > 1.0 + margin && u < 3.0 - margin && v > 1.0 + margin && v < 3.0 - margin
+            })
+            .count();
+        // The hole walls themselves must be present, so the cavity has sides.
+        assert!(
+            mesh.edge_count() > 0,
+            "a hollow profile must still emit CAD overlay edges"
+        );
+        // Only vertices strictly inside the hole footprint would be wrong;
+        // the hole's own wall vertices sit exactly on its boundary.
+        assert_eq!(intruding, 0, "{intruding} vertices inside the hole cavity");
+    }
+
+    #[test]
+    fn extruding_a_hollow_profile_matches_the_solid_area_on_top() {
+        let outer = vec![[0.0, 0.0], [4.0, 0.0], [4.0, 4.0], [0.0, 4.0]];
+        let hole = vec![[1.0, 1.0], [1.0, 3.0], [3.0, 3.0], [3.0, 1.0]];
+        let profile = Profile::new(outer, vec![hole]).expect("profile");
+        let mesh = extrude(&profile, &Frame::horizontal(0.0), 2.0).expect("mesh");
+
+        // AABB still spans the outline: the hole does not shrink the footprint.
+        // Frame::horizontal maps profile u to world X and profile v to -Z.
+        let (min, max) = mesh.aabb().expect("aabb");
+        assert!((max[0] - 4.0).abs() < EPS, "outline width {}", max[0]);
+        assert!((min[2] + 4.0).abs() < EPS, "outline depth {}", min[2]);
+        assert!((max[1] - 2.0).abs() < EPS, "extruded height {}", max[1]);
+
+        // Triangle count: two spans-worth of walls per loop plus two caps.
+        let tris = profile.triangulate().expect("tri");
+        let expected = (4 + 4) * 2 + tris.len() * 2;
+        assert_eq!(mesh.triangle_count(), expected, "walls plus annular caps");
+    }
+
+    #[test]
+    fn a_solid_sweep_is_unchanged_by_the_hollow_path() {
+        // Regression guard: no-hole sweeps must keep their exact triangle count.
+        let profile = Profile::rectangle(0.2, 3.0).expect("profile");
+        let path = Curve::line(Vec3::ZERO, Vec3::new(5.0, 0.0, 0.0));
+        let mesh = sweep(
+            &profile,
+            &path,
+            &SweepOptions::with_justification(Justification::BaseCenter),
+        )
+        .expect("mesh");
+        assert_eq!(mesh.triangle_count(), 12);
+        assert_unit_normals(&mesh);
     }
 
     #[test]
