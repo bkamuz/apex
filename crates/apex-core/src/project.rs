@@ -416,7 +416,7 @@ impl Project {
         let changed = self
             .document
             .set_parent(id, parent)
-            .map_err(RegistryError::Unknown)?;
+            .map_err(RegistryError::Document)?;
         for element_id in &changed {
             self.rebuild_element(*element_id)?;
         }
