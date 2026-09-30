@@ -8,6 +8,7 @@ description = "Apex geometry kernel: frames, curves, profiles, sweeps"
 [dependencies]
 glam = { workspace = true }
 serde = { workspace = true }
+spade = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
