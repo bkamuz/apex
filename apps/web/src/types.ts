@@ -109,7 +109,14 @@ export interface ElementDto {
   name: string;
   component_id: string;
   category: string;
+  /** The element's own level. */
   level_id: string;
+  /** The level it actually sits on, following parent inheritance. */
+  effective_level_id: string;
+  /** The element this one is attached to, if any. */
+  parent_id?: string | null;
+  /** Direct children, so the tree needs no second call. */
+  child_ids: string[];
   /** The picks that defined this element; one draggable handle each. */
   anchors: Vec3[];
   length?: number | null;
@@ -125,6 +132,8 @@ export interface ElementListDto {
   category: string;
   pick_id: number;
   level_id: string;
+  effective_level_id: string;
+  parent_id?: string | null;
   profile_id?: string | null;
 }
 

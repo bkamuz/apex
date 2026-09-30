@@ -316,7 +316,8 @@ export function ProjectBrowser({
       id: element.id,
       name: element.name,
       category: element.category,
-      levelName: levelName(element.level_id),
+      // A child reads its parent's level, so show the effective one.
+      levelName: levelName(element.effective_level_id),
       profileName: element.profile_id
         ? profileLabel(profiles, element.profile_id)
         : element.category,

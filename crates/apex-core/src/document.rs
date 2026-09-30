@@ -93,6 +93,8 @@ impl Document {
     /// Set level elevation and carry every element on that level with it.
     ///
     /// Returns the ids whose placement moved; their meshes must be rebuilt.
+    /// Parent inheritance applies: an element whose parent is on the level is
+    /// carried even when its own `level_id` points elsewhere.
     pub fn set_level_elevation(
         &mut self,
         id: LevelId,
@@ -104,13 +106,14 @@ impl Document {
             .ok_or_else(|| "Level not found".to_string())?;
         level.elevation = elevation;
 
+        let carried = self.elements_on_level(id);
         let mut moved = Vec::new();
-        for element in self.elements.values_mut() {
-            if element.level_id != id {
+        for element_id in carried {
+            let Some(element) = self.elements.get_mut(&element_id) else {
                 continue;
-            }
+            };
             element.placement = element.placement.with_elevation(elevation);
-            moved.push(element.id);
+            moved.push(element_id);
         }
 
         Ok((
@@ -119,12 +122,160 @@ impl Document {
         ))
     }
 
+    /// Re-parent `id`, refusing anything that would create a cycle.
+    ///
+    /// Returns the ids whose effective level changed as a result.
+    pub fn set_parent(
+        &mut self,
+        id: ElementId,
+        parent: Option<ElementId>,
+    ) -> Result<Vec<ElementId>, String> {
+        if !self.elements.contains_key(&id) {
+            return Err("Element not found".into());
+        }
+        if let Some(parent_id) = parent {
+            if parent_id == id {
+                return Err("An element cannot be its own parent".into());
+            }
+            if !self.elements.contains_key(&parent_id) {
+                return Err("Parent element not found".into());
+            }
+            // Walking up from the proposed parent must not reach the child.
+            let mut cursor = Some(parent_id);
+            let mut guard = 0usize;
+            while let Some(current) = cursor {
+                if current == id {
+                    return Err("That parent is already a descendant of this element".into());
+                }
+                if guard > 64 {
+                    break;
+                }
+                cursor = self.elements.get(&current).and_then(|e| e.parent_id);
+                guard += 1;
+            }
+        }
+
+        let before = self.level_of_subtree(id);
+        if let Some(element) = self.elements.get_mut(&id) {
+            element.parent_id = parent;
+        }
+        let after = self.level_of_subtree(id);
+
+        let mut changed: Vec<ElementId> = std::iter::once(id)
+            .chain(self.descendants_of(id))
+            .filter(|element_id| before.get(element_id) != after.get(element_id))
+            .collect();
+        changed.sort_by_key(|element_id| element_id.to_string());
+        changed.dedup();
+
+        // Re-seat each moved element on its new level's elevation, the same way
+        // set_level_elevation does, so a child that changes level actually
+        // changes height rather than just its bookkeeping.
+        for element_id in &changed {
+            let Some(level_id) = after.get(element_id).copied().flatten() else {
+                continue;
+            };
+            let Some(elevation) = self.levels.get(&level_id).map(|level| level.elevation) else {
+                continue;
+            };
+            if let Some(element) = self.elements.get_mut(element_id) {
+                element.placement = element.placement.with_elevation(elevation);
+            }
+        }
+
+        if !changed.is_empty() {
+            self.bump(DocumentChangeKind::Upsert, changed.clone());
+        }
+        Ok(changed)
+    }
+
+    /// Effective level per element for `id` and its descendants.
+    fn level_of_subtree(
+        &self,
+        id: ElementId,
+    ) -> std::collections::BTreeMap<ElementId, Option<LevelId>> {
+        std::iter::once(id)
+            .chain(self.descendants_of(id))
+            .map(|element_id| (element_id, self.effective_level_id(element_id)))
+            .collect()
+    }
+
     pub fn elements(&self) -> impl Iterator<Item = &Element> {
         self.elements.values()
     }
 
     pub fn get_element(&self, id: ElementId) -> Option<&Element> {
         self.elements.get(&id)
+    }
+
+    /// Direct children of `id`, in a stable order.
+    pub fn children_of(&self, id: ElementId) -> Vec<ElementId> {
+        let mut children: Vec<ElementId> = self
+            .elements
+            .values()
+            .filter(|element| element.parent_id == Some(id) && element.id != id)
+            .map(|element| element.id)
+            .collect();
+        children.sort_by_key(|child| child.to_string());
+        children
+    }
+
+    /// Every descendant of `id`, breadth first, excluding `id` itself.
+    ///
+    /// Visited ids are tracked, so a cycle that somehow reached the document
+    /// cannot spin here.
+    pub fn descendants_of(&self, id: ElementId) -> Vec<ElementId> {
+        let mut out = Vec::new();
+        let mut seen = std::collections::BTreeSet::from([id]);
+        let mut queue = vec![id];
+        while let Some(current) = queue.pop() {
+            for child in self.children_of(current) {
+                if seen.insert(child) {
+                    out.push(child);
+                    queue.push(child);
+                }
+            }
+        }
+        out
+    }
+
+    /// The level an element actually sits on: its own, or the nearest ancestor's.
+    ///
+    /// Walks up the parent chain. A missing or self-referential parent stops the
+    /// walk, so a broken link degrades to the element's own level instead of
+    /// looping or panicking.
+    pub fn effective_level_id(&self, id: ElementId) -> Option<LevelId> {
+        let mut current = id;
+        let mut guard = 0usize;
+        loop {
+            let element = self.elements.get(&current)?;
+            match element.parent_id {
+                Some(parent) if parent != current && guard < 64 => {
+                    // Only follow a parent that really exists in the document.
+                    if !self.elements.contains_key(&parent) {
+                        return Some(element.level_id);
+                    }
+                    current = parent;
+                    guard += 1;
+                }
+                _ => return Some(element.level_id),
+            }
+        }
+    }
+
+    /// Elements sitting on `level` once parent inheritance is applied.
+    ///
+    /// Used instead of comparing `element.level_id` directly, so that a child of
+    /// an element on the level counts as being on that level too.
+    pub fn elements_on_level(&self, level: LevelId) -> Vec<ElementId> {
+        let mut ids: Vec<ElementId> = self
+            .elements
+            .values()
+            .filter(|element| self.effective_level_id(element.id) == Some(level))
+            .map(|element| element.id)
+            .collect();
+        ids.sort_by_key(|id| id.to_string());
+        ids
     }
 
     pub fn get_mesh(&self, id: ElementId) -> Option<&TriangleMesh> {
@@ -192,6 +343,33 @@ impl Document {
         self.elements.clear();
         self.meshes.clear();
         self.bump(DocumentChangeKind::Clear, ids)
+    }
+
+    /// Delete an element, detaching its children rather than deleting them.
+    ///
+    /// A child keeps its own `level_id`, so losing a parent leaves the child
+    /// standing where it was instead of jumping levels. Returns the detached
+    /// children along with the change.
+    pub fn remove_element_detaching_children(
+        &mut self,
+        id: ElementId,
+    ) -> Option<(DocumentChange, Vec<ElementId>)> {
+        let orphans = self.descendants_of(id);
+        for orphan in &orphans {
+            // Only direct children get detached; deeper ones follow them.
+            let is_direct = self
+                .elements
+                .get(orphan)
+                .and_then(|element| element.parent_id)
+                == Some(id);
+            if is_direct {
+                if let Some(element) = self.elements.get_mut(orphan) {
+                    element.parent_id = None;
+                }
+            }
+        }
+        let change = self.remove_element(id)?;
+        Some((change, orphans))
     }
 
     /// Replace levels and elements. Meshes must be rebuilt by the caller.

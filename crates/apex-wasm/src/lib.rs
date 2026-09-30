@@ -112,7 +112,15 @@ struct ElementDto {
     name: String,
     component_id: String,
     category: String,
+    /// The element's own level.
     level_id: String,
+    /// The level it actually sits on, following parent inheritance. Differs from
+    /// `level_id` when the element has a parent on another level.
+    effective_level_id: String,
+    /// The element this one is attached to, if any.
+    parent_id: Option<String>,
+    /// Direct children, so the UI can draw the tree without a second call.
+    child_ids: Vec<String>,
     /// The picks that defined this element, so the UI can draw handles.
     anchors: Vec<[f32; 3]>,
     /// Length along the placement, when it has one.
@@ -134,6 +142,8 @@ struct ElementListDto {
     category: String,
     pick_id: f64,
     level_id: String,
+    effective_level_id: String,
+    parent_id: Option<String>,
     profile_id: Option<String>,
 }
 
@@ -221,12 +231,23 @@ fn element_dto(project: &Project, element: &Element) -> ElementDto {
         .and_then(|profile| profile.resolve_type_values().ok())
         .unwrap_or_default();
 
+    let effective_level_id = project
+        .effective_level_id(element.id)
+        .unwrap_or(element.level_id);
+
     ElementDto {
         id: element.id.to_string(),
         name: element.name.clone(),
         component_id: element.component_id.clone(),
         category,
         level_id: element.level_id.to_string(),
+        effective_level_id: effective_level_id.to_string(),
+        parent_id: element.parent_id.map(|id| id.to_string()),
+        child_ids: project
+            .children_of(element.id)
+            .into_iter()
+            .map(|id| id.to_string())
+            .collect(),
         anchors: element
             .placement
             .anchors()
@@ -393,6 +414,15 @@ fn scene_dto(project: &Project) -> SceneDto {
                         .unwrap_or_default(),
                     pick_id: e.pick_id as f64,
                     level_id: e.level_id.to_string(),
+                    effective_level_id: project
+                        .effective_level_id(e.id)
+                        .unwrap_or(e.level_id)
+                        .to_string(),
+                    parent_id: project
+                        .document()
+                        .get_element(e.id)
+                        .and_then(|element| element.parent_id)
+                        .map(|id| id.to_string()),
                     profile_id,
                 }
             })
@@ -619,6 +649,60 @@ pub fn update_element(id: &str, params_json: &str) -> Result<JsValue, JsValue> {
             .update_element(element, Some(params), None, true)
             .map_err(err)?;
         scene(project)
+    })
+}
+
+/// Attach an element to a parent, or detach it by passing `null`.
+///
+/// The child takes the parent's level and follows it when moved. One undo step.
+/// Returns the ids whose level changed, so the UI can refresh them.
+#[wasm_bindgen(js_name = setElementParent)]
+pub fn set_element_parent(id: &str, parent_id: Option<String>) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let element = element_id(id)?;
+        let parent = match parent_id.as_deref() {
+            Some(raw) => Some(element_id(raw)?),
+            None => None,
+        };
+        let changed = project.set_element_parent(element, parent).map_err(err)?;
+        to_js(&changed.iter().map(|id| id.to_string()).collect::<Vec<_>>())
+    })
+}
+
+/// Direct children of an element.
+#[wasm_bindgen(js_name = childrenOf)]
+pub fn children_of(id: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let element = element_id(id)?;
+        let ids: Vec<String> = project
+            .children_of(element)
+            .into_iter()
+            .map(|id| id.to_string())
+            .collect();
+        to_js(&ids)
+    })
+}
+
+/// Every descendant of an element, breadth first.
+#[wasm_bindgen(js_name = descendantsOf)]
+pub fn descendants_of(id: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let element = element_id(id)?;
+        let ids: Vec<String> = project
+            .descendants_of(element)
+            .into_iter()
+            .map(|id| id.to_string())
+            .collect();
+        to_js(&ids)
+    })
+}
+
+/// The level an element actually sits on, following parent inheritance.
+#[wasm_bindgen(js_name = effectiveLevelOf)]
+pub fn effective_level_of(id: &str) -> Result<Option<String>, JsValue> {
+    with_project(|project| {
+        let element = element_id(id)?;
+        Ok(project.effective_level_id(element).map(|l| l.to_string()))
     })
 }
 
