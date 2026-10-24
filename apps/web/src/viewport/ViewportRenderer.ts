@@ -915,7 +915,8 @@ export class ViewportRenderer {
     gl.disable(gl.BLEND);
     // Two-sided solids: avoid empty/see-through walls if winding disagrees with the view.
     gl.disable(gl.CULL_FACE);
-    gl.clearColor(0.09, 0.1, 0.12, 1);
+    // Match --chrome-viewport (#1c1c1c) so the canvas sits in the industrial shell.
+    gl.clearColor(28 / 255, 28 / 255, 28 / 255, 1);
 
     this.bindEvents();
     // Harness / debug access (Playwright camera checks).
@@ -2190,7 +2191,8 @@ export class ViewportRenderer {
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.disable(gl.BLEND);
     gl.depthMask(true);
-    gl.clearColor(0.09, 0.1, 0.12, 1);
+    // Match --chrome-viewport (#1c1c1c) so the canvas sits in the industrial shell.
+    gl.clearColor(28 / 255, 28 / 255, 28 / 255, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     // Active level grid (semi-transparent) — no separate Y=0 ground grid.
     this.drawLines(this.gridVao, this.gridCount, [0.42, 0.55, 0.68, 0.35], 0.8);
