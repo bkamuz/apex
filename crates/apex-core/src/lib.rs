@@ -15,6 +15,7 @@ mod placement;
 mod project;
 mod reference;
 mod registry;
+mod room_detect;
 mod section_cut;
 mod sketch;
 mod space;
@@ -45,12 +46,15 @@ pub use reference::{
     RefId, Reference, ReferenceError, ReferenceFilter, ReferenceKind, ReferenceLibrary,
 };
 pub use registry::{builtin_components, ComponentRegistry, RegistryError};
+pub use room_detect::{detect_room_polygons, wall_centerline_segments, ENDPOINT_SNAP};
 pub use section_cut::{
     section_cut_param_specs, SectionCut, SectionCutError, SectionCutId, SectionCutLibrary,
     SectionCutOverlay,
 };
 pub use sketch::{ProfileSketch, SketchConstraint, SketchDimension, SketchError};
-pub use space::{space_param_specs, Space, SpaceError, SpaceId, SpaceLibrary, SpaceOverlay};
+pub use space::{
+    space_is_auto, space_param_specs, Space, SpaceError, SpaceId, SpaceLibrary, SpaceOverlay,
+};
 
 /// Geometry primitives the document is expressed in, re-exported for convenience.
 pub use apex_geometry::{Curve, Frame, GeometryError, Justification, Profile, TriangleMesh};

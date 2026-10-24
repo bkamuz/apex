@@ -58,6 +58,7 @@ import initWasm, {
   updateSectionCut,
   deleteSelectedSectionCut,
   createSpace,
+  detectRoomsFromWalls,
   selectSpace,
   getSelectedSpace,
   setSpacePlacement,
@@ -441,6 +442,10 @@ export function apexDeleteSelectedSectionCut(): SceneDto {
 
 export function apexCreateSpace(points: Vec3[], params?: Record<string, ParamValue>): SceneDto {
   return asScene(createSpace(encodePoints(points), encodeParams(params), 0));
+}
+
+export function apexDetectRoomsFromWalls(): SceneDto {
+  return asScene(detectRoomsFromWalls());
 }
 
 export function apexSelectSpace(id: string | null): SceneDto {

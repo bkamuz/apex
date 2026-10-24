@@ -311,6 +311,7 @@ await page.waitForTimeout(80);
 const spacesTools = await toolbarNames();
 console.log('  spaces toolbar:', spacesTools.join(' | '));
 check('"Space" on Spaces tab', spacesTools.includes('Space'));
+check('"Detect rooms" on Spaces tab', spacesTools.includes('Detect rooms'));
 check('Wall is not on Spaces tab', !spacesTools.includes('Wall'));
 const spaceCount = () => page.locator('[data-kind="space"]').count();
 await useTool('Space');
@@ -331,6 +332,25 @@ check(
   (await page.locator('.space-label').filter({ hasText: 'Kitchen' }).count()) >= 1,
 );
 await page.screenshot({ path: `${OUT}/apex-spaces-placed.png`, fullPage: true });
+
+// Detect rooms from the four walls placed in [2]; keep the manual Kitchen space.
+console.log('\n[3e2] Detect rooms from wall loops');
+const spacesBeforeDetect = await spaceCount();
+await useTool('Detect rooms');
+await clickCanvas(0.5, 0.5);
+await page.waitForTimeout(400);
+const spacesAfterDetect = await spaceCount();
+check(
+  'detect rooms created ≥1 auto space',
+  spacesAfterDetect > spacesBeforeDetect,
+  `before ${spacesBeforeDetect} after ${spacesAfterDetect}`,
+);
+check(
+  'manual Kitchen space preserved',
+  (await page.locator('.space-label').filter({ hasText: 'Kitchen' }).count()) >= 1,
+);
+check('space overlay labels visible after detect', (await page.locator('.space-label').count()) >= 2);
+await page.screenshot({ path: `${OUT}/apex-detect-rooms.png`, fullPage: true });
 
 // --- 4. Point, two-point and three-point gestures all work -----------------
 console.log('\n[4] every other built-in gesture');

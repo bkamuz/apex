@@ -22,8 +22,9 @@ use crate::param::{ParamMap, ParamValue};
 use crate::placement::{Placement, PlacementKind};
 use crate::reference::{RefId, Reference, ReferenceKind};
 use crate::registry::{ComponentRegistry, RegistryError};
+use crate::room_detect::{detect_room_polygons, wall_centerline_segments, ENDPOINT_SNAP};
 use crate::section_cut::{section_cut_param_specs, SectionCut, SectionCutId};
-use crate::space::{space_param_specs, Space, SpaceId};
+use crate::space::{space_is_auto, space_param_specs, Space, SpaceId};
 
 /// Fallback storey height when a level has no level above it.
 const DEFAULT_STOREY_RISE: f32 = 3.0;
@@ -831,12 +832,77 @@ impl Project {
             .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
         let name = self.next_space_name();
         let placement = source.placement.translated(delta);
-        let params = source.params.resolve(&space_param_specs())?;
+        // Copied spaces are always manual, even if the source was auto-detected.
+        let mut params = source.params.resolve(&space_param_specs())?;
+        params = params.with("auto", ParamValue::Bool(false));
+        let params = params.resolve(&space_param_specs())?;
         let space = Space::new(name, source.level_id, placement, params);
         let new_id = space.id;
         self.document.upsert_space(space);
         self.history.record_before(before);
         Ok(new_id)
+    }
+
+    /// Detect closed wall loops on the active level and refresh auto spaces.
+    ///
+    /// Manual (non-auto) spaces are left alone. Existing auto spaces on the
+    /// active level are removed and replaced. One undo group for the whole pass.
+    /// Returns how many auto spaces were created.
+    pub fn detect_rooms_from_walls(&mut self) -> Result<usize, RegistryError> {
+        let level_id = self
+            .document
+            .active_level_id()
+            .ok_or_else(|| RegistryError::Unknown("no active level".to_string()))?;
+
+        let mut segments = Vec::new();
+        for id in self.document.elements_on_level(level_id) {
+            let Some(element) = self.document.get_element(id) else {
+                continue;
+            };
+            if element.component_id != "apex.wall" {
+                continue;
+            }
+            segments.extend(wall_centerline_segments(element));
+        }
+
+        let polygons = detect_room_polygons(&segments, ENDPOINT_SNAP);
+
+        self.begin_undo_group();
+
+        let stale: Vec<SpaceId> = self
+            .document
+            .spaces()
+            .filter(|space| space.level_id == level_id && space_is_auto(space))
+            .map(|space| space.id)
+            .collect();
+        let stale_count = stale.len();
+        for id in stale {
+            self.document.remove_space(id);
+        }
+
+        let elevation = self.work_plane(level_id).origin.y;
+        let mut created = 0usize;
+        for ring in &polygons {
+            let placement =
+                match PlacementKind::Polyline.build(ring, 0.0, &self.work_plane(level_id)) {
+                    Ok(p) => p.with_elevation(elevation),
+                    Err(_) => continue,
+                };
+            let name = self.next_space_name();
+            let params = ParamMap::new()
+                .with("auto", ParamValue::Bool(true))
+                .resolve(&space_param_specs())?;
+            let space = Space::new(name, level_id, placement, params);
+            self.document.upsert_space(space);
+            created += 1;
+        }
+
+        if created > 0 || stale_count > 0 {
+            self.commit_undo_group();
+        } else {
+            self.abort_undo_group();
+        }
+        Ok(created)
     }
 
     pub fn delete_element(&mut self, id: ElementId) -> bool {
@@ -2366,6 +2432,69 @@ mod tests {
         assert_eq!(restored.document().construction_lines().count(), 0);
         assert_eq!(restored.document().section_cuts().count(), 0);
         assert_eq!(restored.document().spaces().count(), 0);
+    }
+
+    #[test]
+    fn detect_rooms_from_walls_creates_auto_space_and_undoes() {
+        let mut project = Project::new();
+        let corners = [
+            Vec3::ZERO,
+            Vec3::new(4.0, 0.0, 0.0),
+            Vec3::new(4.0, 0.0, 3.0),
+            Vec3::new(0.0, 0.0, 3.0),
+        ];
+        for i in 0..4 {
+            project
+                .create_element(
+                    "apex.wall",
+                    Placement::line(corners[i], corners[(i + 1) % 4]),
+                    ParamMap::new(),
+                )
+                .expect("wall");
+        }
+
+        // Manual space must survive detect.
+        let manual = project
+            .placement_for_space(
+                &[
+                    Vec3::new(10.0, 0.0, 10.0),
+                    Vec3::new(12.0, 0.0, 10.0),
+                    Vec3::new(12.0, 0.0, 12.0),
+                ],
+                0.0,
+            )
+            .expect("manual placement");
+        let manual_id = project
+            .create_space(
+                manual,
+                ParamMap::new().with("label", ParamValue::Text("Manual".into())),
+            )
+            .expect("manual space");
+
+        let created = project.detect_rooms_from_walls().expect("detect");
+        assert_eq!(created, 1);
+        assert_eq!(project.document().spaces().count(), 2);
+        let autos: Vec<_> = project
+            .document()
+            .spaces()
+            .filter(|s| space_is_auto(s))
+            .collect();
+        assert_eq!(autos.len(), 1);
+        assert!(!space_is_auto(
+            project.document().get_space(manual_id).unwrap()
+        ));
+
+        // Idempotent: re-detect still one auto, one manual.
+        let created_again = project.detect_rooms_from_walls().expect("re-detect");
+        assert_eq!(created_again, 1);
+        assert_eq!(project.document().spaces().count(), 2);
+
+        project.undo().expect("undo detect");
+        // One undo reverts the last detect pass (still one auto from first detect + manual).
+        assert_eq!(project.document().spaces().count(), 2);
+        project.undo().expect("undo first detect");
+        assert_eq!(project.document().spaces().count(), 1);
+        assert!(project.document().get_space(manual_id).is_some());
     }
 
     #[test]
