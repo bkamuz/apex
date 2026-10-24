@@ -67,7 +67,7 @@ impl TriangleMesh {
             return self.clone();
         }
         let mut out = Self::empty();
-        for tri in self.indices.chunks_exact(3) {
+        for tri in self.indices.as_chunks::<3>().0 {
             let a = self.vertex(tri[0] as usize);
             let b = self.vertex(tri[1] as usize);
             let c = self.vertex(tri[2] as usize);
@@ -82,7 +82,7 @@ impl TriangleMesh {
             out.push_triangle(a, b, c, na);
         }
         // Keep edges that still have both endpoints outside every void.
-        for edge in self.edges.chunks_exact(6) {
+        for edge in self.edges.as_chunks::<6>().0 {
             let a = [edge[0], edge[1], edge[2]];
             let b = [edge[3], edge[4], edge[5]];
             let mid = [
