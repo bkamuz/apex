@@ -69,6 +69,7 @@ import {
   snapPointToGrid,
   ViewportRenderer,
   type ProjectionMode,
+  type ViewNavigationMode,
   type Vec3,
 } from './viewport/ViewportRenderer';
 import type {
@@ -188,6 +189,9 @@ export default function App() {
   const placementToolIdRef = useRef(toolId);
   const [drawMode, setDrawMode] = useState<string | null>(null);
   const [projection, setProjection] = useState<ProjectionMode>('orthographic');
+  const [viewNavigation, setViewNavigation] = useState<ViewNavigationMode>('3d');
+  const viewNavigationRef = useRef<ViewNavigationMode>('3d');
+  viewNavigationRef.current = viewNavigation;
   const [scene, setScene] = useState<SceneDto | null>(null);
   const sceneRef = useRef<SceneDto | null>(null);
   const [selected, setSelected] = useState<ElementDto | null>(null);
@@ -227,6 +231,7 @@ export default function App() {
     return levels.find((l) => l.id === scene.active_level_id) ?? levels[0] ?? null;
   }, [scene, levels]);
   activeElevationRef.current = activeLevel?.elevation ?? 0;
+  rendererRef.current?.setPlanCutHeight(activeLevel?.elevation ?? 0);
 
   const selectedLevel = useMemo(() => {
     if (!selectedLevelId) return activeLevel;
@@ -1032,6 +1037,29 @@ export default function App() {
     }
   }, [applyScene, cancelGesture]);
 
+  const setProjectionMode = useCallback((mode: ProjectionMode) => {
+    setProjection(mode);
+    rendererRef.current?.setProjection(mode);
+  }, []);
+
+  const setViewNavigationMode = useCallback((mode: ViewNavigationMode) => {
+    setViewNavigation(mode);
+    const renderer = rendererRef.current;
+    if (!renderer) return;
+    renderer.setPlanCutHeight(activeElevationRef.current);
+    renderer.setViewNavigation(mode);
+    if (mode === 'plan') {
+      setProjection('orthographic');
+      renderer.fitViewExtents();
+    } else {
+      setProjection(renderer.getProjection());
+    }
+  }, []);
+
+  const fitView = useCallback(() => {
+    rendererRef.current?.fitViewExtents();
+  }, []);
+
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' || e.code === 'Escape') {
@@ -1126,6 +1154,21 @@ export default function App() {
         activateTool('apex.copy');
         return;
       }
+      if (!typing && !mod && e.key.toLowerCase() === 'p') {
+        e.preventDefault();
+        setViewNavigationMode(viewNavigationRef.current === 'plan' ? '3d' : 'plan');
+        return;
+      }
+      if (!typing && !mod && e.key === '3') {
+        e.preventDefault();
+        setViewNavigationMode('3d');
+        return;
+      }
+      if (!typing && !mod && e.key.toLowerCase() === 'f') {
+        e.preventDefault();
+        fitView();
+        return;
+      }
       if (!typing && !mod && (e.key === 'Enter' || e.code === 'Enter')) {
         const activeTool = toolRef.current;
         if (activeTool.finishGesture) {
@@ -1158,7 +1201,17 @@ export default function App() {
       window.removeEventListener('keydown', onKeyDown, true);
       window.removeEventListener('keyup', onKeyUp, true);
     };
-  }, [activateTool, applyScene, onEscape, onRedo, onUndo, profileEditor, toolContext]);
+  }, [
+    activateTool,
+    applyScene,
+    fitView,
+    onEscape,
+    onRedo,
+    onUndo,
+    profileEditor,
+    setViewNavigationMode,
+    toolContext,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -1225,11 +1278,6 @@ export default function App() {
   useEffect(() => {
     if (!isMobile) setMobileMenuOpen(false);
   }, [isMobile]);
-
-  const setProjectionMode = useCallback((mode: ProjectionMode) => {
-    setProjection(mode);
-    rendererRef.current?.setProjection(mode);
-  }, []);
 
   // A module can install a component at any time; the toolbar follows.
   useEffect(() => {
@@ -1692,9 +1740,12 @@ export default function App() {
           activeToolId={toolId}
           drawMode={drawMode}
           projection={projection}
+          viewNavigation={viewNavigation}
           onActivateTool={activateTool}
           onActivateDrawMode={activateDrawMode}
           onSetProjection={setProjectionMode}
+          onSetViewNavigation={setViewNavigationMode}
+          onFitView={fitView}
         />
         <div className="topbar-hint" data-testid="topbar-hint">
           <b>INFO</b>
