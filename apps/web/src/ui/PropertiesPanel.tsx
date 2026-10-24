@@ -581,11 +581,6 @@ export function PropertiesPanel({
             onDraft={(id, value) => setDraft((prev) => ({ ...prev, [id]: value }))}
             onCommit={(patch) => apply(patch)}
           />
-          {specs.length > 0 ? (
-            <button type="button" onClick={() => apply()}>
-              Apply
-            </button>
-          ) : null}
         </div>
 
         <TypeBlock
@@ -621,9 +616,6 @@ export function PropertiesPanel({
             onKeyDown={(e) => e.key === 'Enter' && applyLevel()}
           />
         </div>
-        <button type="button" onClick={applyLevel}>
-          Apply elevation
-        </button>
         <div className="empty" style={{ padding: 0 }}>
           Double-click the level plane (or its contour) in the viewport to activate it.
         </div>

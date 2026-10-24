@@ -320,6 +320,15 @@ export function apexSelectReference(id: string | null): SceneDto {
   return asScene(selectReference(id ?? ''));
 }
 
+/** Clear plan annotation / reference selection (not element instances). */
+export function apexClearDatumSelections(): SceneDto {
+  apexSelectGridAxis(null);
+  apexSelectConstructionLine(null);
+  apexSelectSectionCut(null);
+  apexSelectSpace(null);
+  return apexSelectReference(null);
+}
+
 export function apexGetSelectedReference(): ReferenceDto | null {
   const value = getSelectedReference();
   if (value === null || value === undefined) return null;
