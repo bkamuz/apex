@@ -1356,7 +1356,16 @@ mod tests {
             .update_element(id, None, Some(Placement::point(delta)), false)
             .expect("preview");
         assert!(
-            (project.document().get_element(id).unwrap().placement.origin().x - 2.0).abs() < EPS
+            (project
+                .document()
+                .get_element(id)
+                .unwrap()
+                .placement
+                .origin()
+                .x
+                - 2.0)
+                .abs()
+                < EPS
         );
         // Commit path: restore captured originals, then translate once.
         project
@@ -1366,15 +1375,28 @@ mod tests {
             .translate_elements(&[id], delta, true)
             .expect("commit");
 
-        let origin = project.document().get_element(id).unwrap().placement.origin();
+        let origin = project
+            .document()
+            .get_element(id)
+            .unwrap()
+            .placement
+            .origin();
         assert!(
             (origin.x - 2.0).abs() < EPS,
             "final must be original+delta (x=2), got {origin:?}"
         );
         assert!(project.can_undo(), "coalesced move must be undoable");
         project.undo().expect("undo move");
-        let restored = project.document().get_element(id).unwrap().placement.origin();
-        assert!(restored.x.abs() < EPS, "undo returns to origin, got {restored:?}");
+        let restored = project
+            .document()
+            .get_element(id)
+            .unwrap()
+            .placement
+            .origin();
+        assert!(
+            restored.x.abs() < EPS,
+            "undo returns to origin, got {restored:?}"
+        );
     }
 
     /// Copy must not run under an open undo group — `record_before` no-ops while
@@ -1392,7 +1414,10 @@ mod tests {
             .copy_elements(&[id], Vec3::new(1.0, 0.0, 0.0))
             .expect("copy");
         assert_eq!(project.document().elements().count(), 2);
-        assert!(project.can_undo(), "copy must push an undo entry immediately");
+        assert!(
+            project.can_undo(),
+            "copy must push an undo entry immediately"
+        );
         project.undo().expect("undo copy");
         assert_eq!(project.document().elements().count(), 1);
     }
