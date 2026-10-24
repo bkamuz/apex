@@ -121,11 +121,15 @@ mod tests {
             elements: Vec::new(),
             references: Vec::new(),
             grid_axes: Vec::new(),
+            construction_lines: Vec::new(),
+            section_cuts: Vec::new(),
             profiles: Vec::new(),
             components: Vec::new(),
             counters: Default::default(),
             ref_counters: Default::default(),
             grid_axis_counter: 0,
+            construction_line_counter: 0,
+            section_cut_counter: 0,
             level_counter: n,
         }
     }

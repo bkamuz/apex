@@ -494,6 +494,14 @@ export interface GridAxisPickTarget {
   anchors: Vec3[];
 }
 
+export interface PlanSegmentPickTarget {
+  id: string;
+  line_segments: Vec3[];
+  anchors: Vec3[];
+  /** Optional secondary segments (e.g. section fill hint). */
+  extra_segments?: Vec3[];
+}
+
 function minDistToSegmentPairs(
   clientX: number,
   clientY: number,
@@ -718,6 +726,15 @@ export class ViewportRenderer {
   private gridAxisBubbleVao: WebGLVertexArrayObject;
   private gridAxisBubbleBuf: WebGLBuffer;
   private gridAxisBubbleCount = 0;
+  private constructionLineVao: WebGLVertexArrayObject;
+  private constructionLineBuf: WebGLBuffer;
+  private constructionLineCount = 0;
+  private sectionCutLineVao: WebGLVertexArrayObject;
+  private sectionCutLineBuf: WebGLBuffer;
+  private sectionCutLineCount = 0;
+  private sectionCutFillVao: WebGLVertexArrayObject;
+  private sectionCutFillBuf: WebGLBuffer;
+  private sectionCutFillCount = 0;
   private editHandles: Vec3[] | null = null;
   private indexCount = 0;
   private pickFbo: WebGLFramebuffer | null = null;
@@ -876,6 +893,15 @@ export class ViewportRenderer {
     this.gridAxisBubbleVao = gl.createVertexArray()!;
     this.gridAxisBubbleBuf = gl.createBuffer()!;
     this.bindThickLineVao(this.gridAxisBubbleVao, this.gridAxisBubbleBuf);
+    this.constructionLineVao = gl.createVertexArray()!;
+    this.constructionLineBuf = gl.createBuffer()!;
+    this.bindThickLineVao(this.constructionLineVao, this.constructionLineBuf);
+    this.sectionCutLineVao = gl.createVertexArray()!;
+    this.sectionCutLineBuf = gl.createBuffer()!;
+    this.bindThickLineVao(this.sectionCutLineVao, this.sectionCutLineBuf);
+    this.sectionCutFillVao = gl.createVertexArray()!;
+    this.sectionCutFillBuf = gl.createBuffer()!;
+    this.bindThickLineVao(this.sectionCutFillVao, this.sectionCutFillBuf);
 
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
@@ -1220,6 +1246,38 @@ export class ViewportRenderer {
     this.gridAxisBubbleCount = this.uploadThickLines(this.gridAxisBubbleBuf, flatten(bubbles));
   }
 
+  /** Construction lines — olive, distinct from pink grids and cyan refs. */
+  setConstructionLineOverlays(lines: Vec3[] | null): void {
+    if (!lines || lines.length < 2) {
+      this.constructionLineCount = 0;
+      return;
+    }
+    this.includePoints(lines);
+    this.constructionLineCount = this.uploadThickLines(
+      this.constructionLineBuf,
+      segmentsThrough(lines),
+    );
+  }
+
+  /** Section-cut MVP: cut line plus optional vertical fill-hint outline. */
+  setSectionCutOverlays(lines: Vec3[] | null, fill: Vec3[] | null): void {
+    if (!lines || lines.length < 2) {
+      this.sectionCutLineCount = 0;
+    } else {
+      this.includePoints(lines);
+      this.sectionCutLineCount = this.uploadThickLines(
+        this.sectionCutLineBuf,
+        segmentsThrough(lines),
+      );
+    }
+    if (!fill || fill.length < 2) {
+      this.sectionCutFillCount = 0;
+      return;
+    }
+    this.includePoints(fill);
+    this.sectionCutFillCount = this.uploadThickLines(this.sectionCutFillBuf, flatten(fill));
+  }
+
   setEditGizmo(anchors: Vec3[] | null): void {
     const gl = this.gl;
     if (!anchors || anchors.length === 0) {
@@ -1317,6 +1375,43 @@ export class ViewportRenderer {
       if (distance === Number.POSITIVE_INFINITY) continue;
       if (!best || distance < best.distance) {
         best = { id: axis.id, distance };
+      }
+    }
+    return best;
+  }
+
+  /**
+   * Screen-space pick for two-point plan annotations (construction lines, section cuts).
+   */
+  hitPlanSegment(
+    clientX: number,
+    clientY: number,
+    targets: PlanSegmentPickTarget[],
+    lineRadius = 14,
+    pointRadius = 12,
+  ): { id: string; distance: number } | null {
+    const toScreen = (point: Vec3) => this.worldToClient(point);
+    let best: { id: string; distance: number } | null = null;
+
+    for (const target of targets) {
+      const lineDist =
+        target.line_segments.length >= 2
+          ? minDistToSegmentPairs(clientX, clientY, target.line_segments, toScreen)
+          : Number.POSITIVE_INFINITY;
+      const extra = target.extra_segments ?? [];
+      const extraDist =
+        extra.length >= 2
+          ? minDistToSegmentPairs(clientX, clientY, extra, toScreen)
+          : Number.POSITIVE_INFINITY;
+      const anchorDist = minDistToAnchors(clientX, clientY, target.anchors, toScreen);
+      const segmentDist = Math.min(lineDist, extraDist);
+      const distance = Math.min(
+        segmentDist <= lineRadius ? segmentDist : Number.POSITIVE_INFINITY,
+        anchorDist <= pointRadius ? anchorDist : Number.POSITIVE_INFINITY,
+      );
+      if (distance === Number.POSITIVE_INFINITY) continue;
+      if (!best || distance < best.distance) {
+        best = { id: target.id, distance };
       }
     }
     return best;
@@ -2102,6 +2197,16 @@ export class ViewportRenderer {
     this.drawOccludedAxis(this.refLineVao, this.refLineCount, [0.35, 0.82, 0.95, 0.95], 2.5);
     this.drawOccludedAxis(this.gridAxisLineVao, this.gridAxisLineCount, [0.92, 0.55, 0.78, 0.98], 3.2);
     this.drawOccludedAxis(this.gridAxisBubbleVao, this.gridAxisBubbleCount, [0.92, 0.55, 0.78, 0.98], 2.4);
+    // Construction lines: olive (distinct from pink grid / cyan refs).
+    this.drawOccludedAxis(
+      this.constructionLineVao,
+      this.constructionLineCount,
+      [0.62, 0.72, 0.38, 0.95],
+      2.6,
+    );
+    // Section cut: amber line + dimmer fill hint.
+    this.drawOccludedAxis(this.sectionCutLineVao, this.sectionCutLineCount, [0.95, 0.58, 0.28, 0.98], 3.4);
+    this.drawOccludedAxis(this.sectionCutFillVao, this.sectionCutFillCount, [0.95, 0.58, 0.28, 0.45], 1.6);
     this.drawHandles();
     this.drawSnapMarker();
     this.frameMats = null;

@@ -45,12 +45,25 @@ import initWasm, {
   setGridAxisPlacement,
   updateGridAxis,
   deleteSelectedGridAxis,
+  createConstructionLine,
+  selectConstructionLine,
+  getSelectedConstructionLine,
+  setConstructionLinePlacement,
+  updateConstructionLine,
+  deleteSelectedConstructionLine,
+  createSectionCut,
+  selectSectionCut,
+  getSelectedSectionCut,
+  setSectionCutPlacement,
+  updateSectionCut,
+  deleteSelectedSectionCut,
   getSelectedElements,
   translateSelection,
   copySelection,
 } from './pkg/apex_wasm.js';
 import type {
   ComponentDto,
+  ConstructionLineDto,
   ElementDto,
   MeshDto,
   ParamValue,
@@ -61,6 +74,7 @@ import type {
   ReferenceDto,
   ReferenceKind,
   SceneDto,
+  SectionCutDto,
   Vec3,
 } from '../types';
 
@@ -345,6 +359,77 @@ export function apexUpdateGridAxis(id: string, params: Record<string, ParamValue
 
 export function apexDeleteSelectedGridAxis(): SceneDto {
   return asScene(deleteSelectedGridAxis());
+}
+
+export function apexCreateConstructionLine(
+  points: Vec3[],
+  params?: Record<string, ParamValue>,
+): SceneDto {
+  return asScene(createConstructionLine(encodePoints(points), encodeParams(params), 0));
+}
+
+export function apexSelectConstructionLine(id: string | null): SceneDto {
+  return asScene(selectConstructionLine(id ?? ''));
+}
+
+export function apexGetSelectedConstructionLine(): ConstructionLineDto | null {
+  const value = getSelectedConstructionLine();
+  if (value === null || value === undefined) return null;
+  return value as ConstructionLineDto;
+}
+
+export function apexSetConstructionLinePlacement(
+  id: string,
+  points: Vec3[],
+  rotation = 0,
+  recordHistory = true,
+): SceneDto {
+  return asScene(setConstructionLinePlacement(id, encodePoints(points), rotation, recordHistory));
+}
+
+export function apexUpdateConstructionLine(
+  id: string,
+  params: Record<string, ParamValue>,
+): SceneDto {
+  return asScene(updateConstructionLine(id, encodeParams(params)));
+}
+
+export function apexDeleteSelectedConstructionLine(): SceneDto {
+  return asScene(deleteSelectedConstructionLine());
+}
+
+export function apexCreateSectionCut(
+  points: Vec3[],
+  params?: Record<string, ParamValue>,
+): SceneDto {
+  return asScene(createSectionCut(encodePoints(points), encodeParams(params), 0));
+}
+
+export function apexSelectSectionCut(id: string | null): SceneDto {
+  return asScene(selectSectionCut(id ?? ''));
+}
+
+export function apexGetSelectedSectionCut(): SectionCutDto | null {
+  const value = getSelectedSectionCut();
+  if (value === null || value === undefined) return null;
+  return value as SectionCutDto;
+}
+
+export function apexSetSectionCutPlacement(
+  id: string,
+  points: Vec3[],
+  rotation = 0,
+  recordHistory = true,
+): SceneDto {
+  return asScene(setSectionCutPlacement(id, encodePoints(points), rotation, recordHistory));
+}
+
+export function apexUpdateSectionCut(id: string, params: Record<string, ParamValue>): SceneDto {
+  return asScene(updateSectionCut(id, encodeParams(params)));
+}
+
+export function apexDeleteSelectedSectionCut(): SceneDto {
+  return asScene(deleteSelectedSectionCut());
 }
 
 export function apexGetSelectedElements(): ElementDto[] {

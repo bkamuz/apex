@@ -6,13 +6,19 @@ import {
   apexCreateElement,
   apexCreateElementWithParent,
   apexCreateLevel,
+  apexCreateConstructionLine,
   apexCreateGridAxis,
   apexCreateReference,
+  apexCreateSectionCut,
   apexDeleteSelected,
+  apexDeleteSelectedConstructionLine,
   apexDeleteSelectedGridAxis,
   apexDeleteSelectedReference,
+  apexDeleteSelectedSectionCut,
+  apexGetSelectedConstructionLine,
   apexGetSelectedGridAxis,
   apexGetSelectedReference,
+  apexGetSelectedSectionCut,
   apexExportProject,
   apexGetScene,
   apexGetSelected,
@@ -27,11 +33,17 @@ import {
   apexRedo,
   apexRegisterProfile,
   apexSelectElement,
+  apexSelectConstructionLine,
   apexSelectGridAxis,
   apexSelectReference,
+  apexSelectSectionCut,
+  apexSetConstructionLinePlacement,
   apexSetGridAxisPlacement,
   apexSetReferencePlacement,
+  apexSetSectionCutPlacement,
+  apexUpdateConstructionLine,
   apexUpdateGridAxis,
+  apexUpdateSectionCut,
   apexSetActiveLevel,
   apexSetElementPlacement,
   apexSetLevelElevation,
@@ -52,6 +64,7 @@ import {
 } from './viewport/ViewportRenderer';
 import type {
   ComponentDto,
+  ConstructionLineDto,
   ElementDto,
   ElementListDto,
   LevelDto,
@@ -62,6 +75,7 @@ import type {
   ReferenceDto,
   ReferenceKind,
   SceneDto,
+  SectionCutDto,
 } from './types';
 import { GridAxisLabels } from './ui/GridAxisLabels';
 import { LevelList } from './ui/LevelList';
@@ -108,12 +122,26 @@ function applyTransformPlacements(
   let scene: SceneDto | null = null;
   for (const original of originals) {
     const anchors = delta ? translatedAnchors(original.anchors, delta) : original.anchors;
-    if (original.kind === 'element') {
-      scene = apexSetElementPlacement(original.id, anchors, 0, recordHistory);
-    } else if (original.kind === 'reference') {
-      scene = apexSetReferencePlacement(original.id, anchors, 0, recordHistory);
-    } else {
-      scene = apexSetGridAxisPlacement(original.id, anchors, 0, recordHistory);
+    switch (original.kind) {
+      case 'element':
+        scene = apexSetElementPlacement(original.id, anchors, 0, recordHistory);
+        break;
+      case 'reference':
+        scene = apexSetReferencePlacement(original.id, anchors, 0, recordHistory);
+        break;
+      case 'grid_axis':
+        scene = apexSetGridAxisPlacement(original.id, anchors, 0, recordHistory);
+        break;
+      case 'construction_line':
+        scene = apexSetConstructionLinePlacement(original.id, anchors, 0, recordHistory);
+        break;
+      case 'section_cut':
+        scene = apexSetSectionCutPlacement(original.id, anchors, 0, recordHistory);
+        break;
+      default: {
+        const exhaustive: never = original.kind;
+        return exhaustive;
+      }
     }
   }
   return scene;
@@ -155,6 +183,8 @@ export default function App() {
   const selectedRef = useRef<ElementDto | null>(null);
   const selectedReferenceRef = useRef<ReferenceDto | null>(null);
   const selectedGridAxisRef = useRef<GridAxisDto | null>(null);
+  const selectedConstructionLineRef = useRef<ConstructionLineDto | null>(null);
+  const selectedSectionCutRef = useRef<SectionCutDto | null>(null);
   const selectedCountRef = useRef(0);
   const activeElevationRef = useRef(0);
   const suppressClickRef = useRef(false);
@@ -182,6 +212,9 @@ export default function App() {
   const [selected, setSelected] = useState<ElementDto | null>(null);
   const [selectedReference, setSelectedReference] = useState<ReferenceDto | null>(null);
   const [selectedGridAxis, setSelectedGridAxis] = useState<GridAxisDto | null>(null);
+  const [selectedConstructionLine, setSelectedConstructionLine] =
+    useState<ConstructionLineDto | null>(null);
+  const [selectedSectionCut, setSelectedSectionCut] = useState<SectionCutDto | null>(null);
   const [selectedLevelId, setSelectedLevelId] = useState<string | null>(null);
   const [pending, setPending] = useState<Vec3[]>([]);
   const [fps, setFps] = useState(0);
@@ -193,6 +226,8 @@ export default function App() {
   selectedRef.current = selected;
   selectedReferenceRef.current = selectedReference;
   selectedGridAxisRef.current = selectedGridAxis;
+  selectedConstructionLineRef.current = selectedConstructionLine;
+  selectedSectionCutRef.current = selectedSectionCut;
   selectedCountRef.current = scene?.selected_ids?.length ?? 0;
   sceneRef.current = scene;
   placementParamsRef.current = placementDraft;
@@ -241,15 +276,46 @@ export default function App() {
     );
   }, []);
 
+  const syncConstructionLineOverlays = useCallback((items: ConstructionLineDto[]) => {
+    const lines: Vec3[] = [];
+    for (const item of items) {
+      if (item.line_segments?.length) lines.push(...item.line_segments);
+    }
+    rendererRef.current?.setConstructionLineOverlays(lines.length >= 2 ? lines : null);
+  }, []);
+
+  const syncSectionCutOverlays = useCallback((items: SectionCutDto[]) => {
+    const lines: Vec3[] = [];
+    const fill: Vec3[] = [];
+    for (const item of items) {
+      if (item.line_segments?.length) lines.push(...item.line_segments);
+      if (item.fill_segments?.length) fill.push(...item.fill_segments);
+    }
+    rendererRef.current?.setSectionCutOverlays(
+      lines.length >= 2 ? lines : null,
+      fill.length >= 2 ? fill : null,
+    );
+  }, []);
+
   const syncEditGizmo = useCallback(
-    (el: ElementDto | null, ref: ReferenceDto | null, axis: GridAxisDto | null) => {
+    (
+      el: ElementDto | null,
+      ref: ReferenceDto | null,
+      axis: GridAxisDto | null,
+      line: ConstructionLineDto | null = null,
+      cut: SectionCutDto | null = null,
+    ) => {
       const anchors = el?.anchors?.length
         ? el.anchors
         : ref?.anchors?.length
           ? ref.anchors
           : axis?.anchors?.length
             ? axis.anchors
-            : null;
+            : line?.anchors?.length
+              ? line.anchors
+              : cut?.anchors?.length
+                ? cut.anchors
+                : null;
       rendererRef.current?.setEditGizmo(anchors);
     },
     [],
@@ -286,20 +352,34 @@ export default function App() {
         syncLevelPlanes(renderer, next);
         syncReferenceGizmos(next.references ?? []);
         syncGridAxisGizmos(next.grid_axes ?? []);
+        syncConstructionLineOverlays(next.construction_lines ?? []);
+        syncSectionCutOverlays(next.section_cuts ?? []);
       }
       setComponents(apexListComponents());
       const sel = apexGetSelected();
       const selRef = apexGetSelectedReference();
       const selAxis = apexGetSelectedGridAxis();
+      const selLine = apexGetSelectedConstructionLine();
+      const selCut = apexGetSelectedSectionCut();
       setSelected(sel);
       setSelectedReference(selRef);
       setSelectedGridAxis(selAxis);
+      setSelectedConstructionLine(selLine);
+      setSelectedSectionCut(selCut);
       if (sel) setSelectedLevelId(sel.level_id);
       else if (selRef) setSelectedLevelId(selRef.level_id);
       else if (selAxis) setSelectedLevelId(selAxis.level_id);
-      if (!draggingRef.current) syncEditGizmo(sel, selRef, selAxis);
+      else if (selLine) setSelectedLevelId(selLine.level_id);
+      else if (selCut) setSelectedLevelId(selCut.level_id);
+      if (!draggingRef.current) syncEditGizmo(sel, selRef, selAxis, selLine, selCut);
     },
-    [syncEditGizmo, syncGridAxisGizmos, syncReferenceGizmos],
+    [
+      syncConstructionLineOverlays,
+      syncEditGizmo,
+      syncGridAxisGizmos,
+      syncReferenceGizmos,
+      syncSectionCutOverlays,
+    ],
   );
 
   /** Screen point to a world point on the active work plane, with Shift snapping. */
@@ -375,6 +455,45 @@ export default function App() {
         }
       },
 
+      createConstructionLine: (points) => {
+        try {
+          applyScene(apexCreateConstructionLine(points));
+          setError(null);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+        }
+      },
+
+      createSectionCut: (points) => {
+        try {
+          applyScene(apexCreateSectionCut(points));
+          setError(null);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+        }
+      },
+
+      createLevel: () => {
+        const currentLevels = sceneRef.current?.levels ?? [];
+        const maxElev = currentLevels.reduce(
+          (m, l) => Math.max(m, l.elevation),
+          Number.NEGATIVE_INFINITY,
+        );
+        const elevation = currentLevels.length === 0 ? 0 : maxElev + DEFAULT_LEVEL_RISE;
+        try {
+          const next = apexCreateLevel('', elevation);
+          applyScene(next);
+          const createdId =
+            next.levels.find((l) => !currentLevels.some((prev) => prev.id === l.id))?.id ??
+            next.levels[next.levels.length - 1]?.id ??
+            null;
+          setSelectedLevelId(createdId);
+          setError(null);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+        }
+      },
+
       showPreview: (componentId, points, placementKind) => {
         try {
           const mesh = apexPreviewElement(
@@ -406,25 +525,50 @@ export default function App() {
 
       selectAt: (clientX, clientY, multi) => {
         const current = sceneRef.current;
+        const candidates: { kind: string; id: string; distance: number }[] = [];
         const gridHit = renderer.hitGridAxis(clientX, clientY, current?.grid_axes ?? []);
+        if (gridHit) candidates.push({ kind: 'grid_axis', id: gridHit.id, distance: gridHit.distance });
         const refHit = renderer.hitReference(clientX, clientY, current?.references ?? []);
-        const overlayHit =
-          gridHit && refHit
-            ? gridHit.distance <= refHit.distance
-              ? { kind: 'grid_axis' as const, id: gridHit.id }
-              : { kind: 'reference' as const, id: refHit.id }
-            : gridHit
-              ? { kind: 'grid_axis' as const, id: gridHit.id }
-              : refHit
-                ? { kind: 'reference' as const, id: refHit.id }
-                : null;
+        if (refHit) candidates.push({ kind: 'reference', id: refHit.id, distance: refHit.distance });
+        const lineHit = renderer.hitPlanSegment(clientX, clientY, current?.construction_lines ?? []);
+        if (lineHit)
+          candidates.push({
+            kind: 'construction_line',
+            id: lineHit.id,
+            distance: lineHit.distance,
+          });
+        const cutHit = renderer.hitPlanSegment(
+          clientX,
+          clientY,
+          (current?.section_cuts ?? []).map((cut) => ({
+            id: cut.id,
+            line_segments: cut.line_segments,
+            anchors: cut.anchors,
+            extra_segments: cut.fill_segments,
+          })),
+        );
+        if (cutHit)
+          candidates.push({ kind: 'section_cut', id: cutHit.id, distance: cutHit.distance });
+        candidates.sort((a, b) => a.distance - b.distance);
+        const overlayHit = candidates[0] ?? null;
 
         if (overlayHit) {
-          applyScene(
-            overlayHit.kind === 'grid_axis'
-              ? apexSelectGridAxis(overlayHit.id)
-              : apexSelectReference(overlayHit.id),
-          );
+          switch (overlayHit.kind) {
+            case 'grid_axis':
+              applyScene(apexSelectGridAxis(overlayHit.id));
+              break;
+            case 'reference':
+              applyScene(apexSelectReference(overlayHit.id));
+              break;
+            case 'construction_line':
+              applyScene(apexSelectConstructionLine(overlayHit.id));
+              break;
+            case 'section_cut':
+              applyScene(apexSelectSectionCut(overlayHit.id));
+              break;
+            default:
+              break;
+          }
           return;
         }
 
@@ -438,12 +582,17 @@ export default function App() {
           applyScene(apexSelectElement(null));
           applyScene(apexSelectReference(null));
           applyScene(apexSelectGridAxis(null));
+          applyScene(apexSelectConstructionLine(null));
+          applyScene(apexSelectSectionCut(null));
         }
       },
 
       hitEditHandle: (x, y) => renderer.hitEditHandle(x, y),
       selectedAnchors: () => {
         if (selectedGridAxisRef.current) return selectedGridAxisRef.current.anchors;
+        if (selectedConstructionLineRef.current)
+          return selectedConstructionLineRef.current.anchors;
+        if (selectedSectionCutRef.current) return selectedSectionCutRef.current.anchors;
         if (selectedReferenceRef.current) return selectedReferenceRef.current.anchors;
         return selectedCountRef.current === 1 ? (selectedRef.current?.anchors ?? null) : null;
       },
@@ -451,50 +600,10 @@ export default function App() {
       previewAnchors: (anchors) => {
         draggingRef.current = true;
         renderer.setEditGizmo(anchors);
-        const axisSel = selectedGridAxisRef.current;
-        if (axisSel) {
-          try {
-            const next = apexSetGridAxisPlacement(axisSel.id, anchors, 0, false);
-            renderer.setScene({
-              positions: toFloatArray(next.positions),
-              normals: toFloatArray(next.normals),
-              indices: toUint32Array(next.indices),
-              pickIds: next.pick_ids,
-              edgePositions: next.edge_positions ? toFloatArray(next.edge_positions) : [],
-              selectedPickIds: selectedPickIds(next),
-              fitCamera: false,
-            });
-            syncGridAxisGizmos(next.grid_axes ?? []);
-            setScene(next);
-          } catch {
-            /* keep dragging */
-          }
-          return;
-        }
-        const refSel = selectedReferenceRef.current;
-        if (refSel) {
-          try {
-            const next = apexSetReferencePlacement(refSel.id, anchors, 0, false);
-            renderer.setScene({
-              positions: toFloatArray(next.positions),
-              normals: toFloatArray(next.normals),
-              indices: toUint32Array(next.indices),
-              pickIds: next.pick_ids,
-              edgePositions: next.edge_positions ? toFloatArray(next.edge_positions) : [],
-              selectedPickIds: selectedPickIds(next),
-              fitCamera: false,
-            });
-            syncReferenceGizmos(next.references ?? []);
-            setScene(next);
-          } catch {
-            /* keep dragging */
-          }
-          return;
-        }
-        const sel = selectedRef.current;
-        if (!sel) return;
-        try {
-          const next = apexSetElementPlacement(sel.id, anchors, 0, false);
+        const applyLive = (
+          next: SceneDto,
+          sync: (scene: SceneDto) => void,
+        ) => {
           renderer.setScene({
             positions: toFloatArray(next.positions),
             normals: toFloatArray(next.normals),
@@ -504,7 +613,57 @@ export default function App() {
             selectedPickIds: selectedPickIds(next),
             fitCamera: false,
           });
+          sync(next);
           setScene(next);
+        };
+        const axisSel = selectedGridAxisRef.current;
+        if (axisSel) {
+          try {
+            applyLive(apexSetGridAxisPlacement(axisSel.id, anchors, 0, false), (next) =>
+              syncGridAxisGizmos(next.grid_axes ?? []),
+            );
+          } catch {
+            /* keep dragging */
+          }
+          return;
+        }
+        const lineSel = selectedConstructionLineRef.current;
+        if (lineSel) {
+          try {
+            applyLive(apexSetConstructionLinePlacement(lineSel.id, anchors, 0, false), (next) =>
+              syncConstructionLineOverlays(next.construction_lines ?? []),
+            );
+          } catch {
+            /* keep dragging */
+          }
+          return;
+        }
+        const cutSel = selectedSectionCutRef.current;
+        if (cutSel) {
+          try {
+            applyLive(apexSetSectionCutPlacement(cutSel.id, anchors, 0, false), (next) =>
+              syncSectionCutOverlays(next.section_cuts ?? []),
+            );
+          } catch {
+            /* keep dragging */
+          }
+          return;
+        }
+        const refSel = selectedReferenceRef.current;
+        if (refSel) {
+          try {
+            applyLive(apexSetReferencePlacement(refSel.id, anchors, 0, false), (next) =>
+              syncReferenceGizmos(next.references ?? []),
+            );
+          } catch {
+            /* keep dragging */
+          }
+          return;
+        }
+        const sel = selectedRef.current;
+        if (!sel) return;
+        try {
+          applyLive(apexSetElementPlacement(sel.id, anchors, 0, false), () => undefined);
         } catch {
           /* keep dragging */
         }
@@ -520,6 +679,28 @@ export default function App() {
           } catch (e) {
             setError(e instanceof Error ? e.message : String(e));
             syncEditGizmo(null, null, axisSel);
+          }
+          return;
+        }
+        const lineSel = selectedConstructionLineRef.current;
+        if (lineSel) {
+          try {
+            applyScene(apexSetConstructionLinePlacement(lineSel.id, anchors, 0, true));
+            setError(null);
+          } catch (e) {
+            setError(e instanceof Error ? e.message : String(e));
+            syncEditGizmo(null, null, null, lineSel);
+          }
+          return;
+        }
+        const cutSel = selectedSectionCutRef.current;
+        if (cutSel) {
+          try {
+            applyScene(apexSetSectionCutPlacement(cutSel.id, anchors, 0, true));
+            setError(null);
+          } catch (e) {
+            setError(e instanceof Error ? e.message : String(e));
+            syncEditGizmo(null, null, null, null, cutSel);
           }
           return;
         }
@@ -572,6 +753,26 @@ export default function App() {
             },
           ];
         }
+        const lineSel = selectedConstructionLineRef.current;
+        if (lineSel) {
+          return [
+            {
+              kind: 'construction_line' as const,
+              id: lineSel.id,
+              anchors: lineSel.anchors.map((p) => [...p] as Vec3),
+            },
+          ];
+        }
+        const cutSel = selectedSectionCutRef.current;
+        if (cutSel) {
+          return [
+            {
+              kind: 'section_cut' as const,
+              id: cutSel.id,
+              anchors: cutSel.anchors.map((p) => [...p] as Vec3),
+            },
+          ];
+        }
         const refSel = selectedReferenceRef.current;
         if (refSel) {
           return [
@@ -605,6 +806,8 @@ export default function App() {
               fitCamera: false,
             });
             syncGridAxisGizmos(next.grid_axes ?? []);
+            syncConstructionLineOverlays(next.construction_lines ?? []);
+            syncSectionCutOverlays(next.section_cuts ?? []);
             syncReferenceGizmos(next.references ?? []);
             setScene(next);
           }
@@ -669,7 +872,15 @@ export default function App() {
       setPending,
       setTouchOrbitEnabled: (enabled) => renderer.setTouchOrbitEnabled(enabled),
     };
-  }, [applyScene, resolvePoint, syncEditGizmo, syncGridAxisGizmos, syncReferenceGizmos]);
+  }, [
+    applyScene,
+    resolvePoint,
+    syncConstructionLineOverlays,
+    syncEditGizmo,
+    syncGridAxisGizmos,
+    syncReferenceGizmos,
+    syncSectionCutOverlays,
+  ]);
 
   const cancelGesture = useCallback(() => {
     if (!rendererRef.current) return;
@@ -690,6 +901,8 @@ export default function App() {
           selectedRef.current,
           selectedReferenceRef.current,
           selectedGridAxisRef.current,
+          selectedConstructionLineRef.current,
+          selectedSectionCutRef.current,
         );
       }
       else rendererRef.current?.setEditGizmo(null);
@@ -763,12 +976,16 @@ export default function App() {
     }
     try {
       applyScene(apexSelectGridAxis(null));
+      applyScene(apexSelectConstructionLine(null));
+      applyScene(apexSelectSectionCut(null));
       applyScene(apexSelectReference(null));
     } catch {
       rendererRef.current?.setEditGizmo(null);
       setSelected(null);
       setSelectedReference(null);
       setSelectedGridAxis(null);
+      setSelectedConstructionLine(null);
+      setSelectedSectionCut(null);
     }
   }, [applyScene, cancelGesture]);
 
@@ -793,6 +1010,24 @@ export default function App() {
           e.preventDefault();
           try {
             applyScene(apexDeleteSelectedGridAxis());
+          } catch {
+            /* ignore */
+          }
+          return;
+        }
+        if (selectedConstructionLineRef.current) {
+          e.preventDefault();
+          try {
+            applyScene(apexDeleteSelectedConstructionLine());
+          } catch {
+            /* ignore */
+          }
+          return;
+        }
+        if (selectedSectionCutRef.current) {
+          e.preventDefault();
+          try {
+            applyScene(apexDeleteSelectedSectionCut());
           } catch {
             /* ignore */
           }
@@ -1047,6 +1282,16 @@ export default function App() {
     applyScene(apexSelectGridAxis(id));
   };
 
+  const onSelectConstructionLineFromTree = (id: string) => {
+    activateTool(ToolRegistry.selectId);
+    applyScene(apexSelectConstructionLine(id));
+  };
+
+  const onSelectSectionCutFromTree = (id: string) => {
+    activateTool(ToolRegistry.selectId);
+    applyScene(apexSelectSectionCut(id));
+  };
+
   const onSelectLevel = (id: string) => {
     setSelectedLevelId(id);
     try {
@@ -1097,6 +1342,26 @@ export default function App() {
     if (!selectedGridAxis) return;
     try {
       applyScene(apexUpdateGridAxis(selectedGridAxis.id, params));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const onUpdateConstructionLineParams = (params: Record<string, ParamValue>) => {
+    if (!selectedConstructionLine) return;
+    try {
+      applyScene(apexUpdateConstructionLine(selectedConstructionLine.id, params));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const onUpdateSectionCutParams = (params: Record<string, ParamValue>) => {
+    if (!selectedSectionCut) return;
+    try {
+      applyScene(apexUpdateSectionCut(selectedSectionCut.id, params));
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -1196,11 +1461,18 @@ export default function App() {
       selected={selected}
       selectedCount={selectedIds.length}
       selectedGridAxis={selectedGridAxis}
+      selectedConstructionLine={selectedConstructionLine}
+      selectedSectionCut={selectedSectionCut}
       component={selectedComponent}
       profiles={profiles}
       references={scene?.references ?? []}
       selectedLevel={
-        selectedIds.length === 0 && !placementComponent && !selectedGridAxis && !selectedReference
+        selectedIds.length === 0 &&
+        !placementComponent &&
+        !selectedGridAxis &&
+        !selectedConstructionLine &&
+        !selectedSectionCut &&
+        !selectedReference
           ? selectedLevel
           : null
       }
@@ -1211,12 +1483,16 @@ export default function App() {
       }
       onUpdate={onUpdateParams}
       onUpdateGridAxis={onUpdateGridAxisParams}
+      onUpdateConstructionLine={onUpdateConstructionLineParams}
+      onUpdateSectionCut={onUpdateSectionCutParams}
       onPlacementChange={onPlacementChange}
       onEditType={onEditType}
       onNewProfile={onNewProfile}
       onUpdateLevelElevation={onUpdateLevelElevation}
       onDelete={onDelete}
       onDeleteGridAxis={() => applyScene(apexDeleteSelectedGridAxis())}
+      onDeleteConstructionLine={() => applyScene(apexDeleteSelectedConstructionLine())}
+      onDeleteSectionCut={() => applyScene(apexDeleteSelectedSectionCut())}
     />
   );
 
@@ -1320,15 +1596,21 @@ export default function App() {
             elements={elements}
             references={scene?.references ?? []}
             gridAxes={scene?.grid_axes ?? []}
+            constructionLines={scene?.construction_lines ?? []}
+            sectionCuts={scene?.section_cuts ?? []}
             profiles={profiles}
             levels={levels}
             selectedIds={selectedIds}
             selectedProfileId={profileEditor?.originalId ?? profileEditor?.profile.id ?? null}
             selectedRefId={scene?.selected_ref_id ?? null}
             selectedGridAxisId={scene?.selected_grid_axis_id ?? null}
+            selectedConstructionLineId={scene?.selected_construction_line_id ?? null}
+            selectedSectionCutId={scene?.selected_section_cut_id ?? null}
             onSelectInstance={(id, multi) => onSelectFromTree(id, multi)}
             onSelectReference={onSelectReferenceFromTree}
             onSelectGridAxis={onSelectGridAxisFromTree}
+            onSelectConstructionLine={onSelectConstructionLineFromTree}
+            onSelectSectionCut={onSelectSectionCutFromTree}
             onSelectType={onSelectType}
             onNewProfile={() => onNewProfile('wall')}
           />
@@ -1391,12 +1673,16 @@ export default function App() {
                 elements={elements}
                 references={scene?.references ?? []}
                 gridAxes={scene?.grid_axes ?? []}
+                constructionLines={scene?.construction_lines ?? []}
+                sectionCuts={scene?.section_cuts ?? []}
                 profiles={profiles}
                 levels={levels}
                 selectedIds={selectedIds}
                 selectedProfileId={profileEditor?.originalId ?? profileEditor?.profile.id ?? null}
                 selectedRefId={scene?.selected_ref_id ?? null}
                 selectedGridAxisId={scene?.selected_grid_axis_id ?? null}
+                selectedConstructionLineId={scene?.selected_construction_line_id ?? null}
+                selectedSectionCutId={scene?.selected_section_cut_id ?? null}
                 onSelectInstance={(id, multi) => {
                   onSelectFromTree(id, multi);
                   if (!multi) closeMobileMenu();
@@ -1407,6 +1693,14 @@ export default function App() {
                 }}
                 onSelectGridAxis={(id) => {
                   onSelectGridAxisFromTree(id);
+                  closeMobileMenu();
+                }}
+                onSelectConstructionLine={(id) => {
+                  onSelectConstructionLineFromTree(id);
+                  closeMobileMenu();
+                }}
+                onSelectSectionCut={(id) => {
+                  onSelectSectionCutFromTree(id);
                   closeMobileMenu();
                 }}
                 onSelectType={(profileId) => {

@@ -10,6 +10,9 @@ use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
 use crate::component::{ComponentDefinition, ComponentSource, ProfileType};
+use crate::construction_line::{
+    construction_line_param_specs, ConstructionLine, ConstructionLineId,
+};
 use crate::document::Document;
 use crate::element::{Element, ElementId};
 use crate::grid_axis::{grid_axis_param_specs, GridAxis, GridAxisId};
@@ -19,6 +22,7 @@ use crate::param::{ParamMap, ParamValue};
 use crate::placement::{Placement, PlacementKind};
 use crate::reference::{RefId, Reference, ReferenceKind};
 use crate::registry::{ComponentRegistry, RegistryError};
+use crate::section_cut::{section_cut_param_specs, SectionCut, SectionCutId};
 
 /// Fallback storey height when a level has no level above it.
 const DEFAULT_STOREY_RISE: f32 = 3.0;
@@ -75,6 +79,8 @@ pub struct Project {
     /// Per-reference-kind counters, so names read "Ref point 1", "Ref plane 2".
     ref_counters: BTreeMap<String, u32>,
     grid_axis_counter: u32,
+    construction_line_counter: u32,
+    section_cut_counter: u32,
     level_counter: u32,
     history: History,
 }
@@ -93,6 +99,8 @@ impl Project {
             counters: Default::default(),
             ref_counters: Default::default(),
             grid_axis_counter: 0,
+            construction_line_counter: 0,
+            section_cut_counter: 0,
             level_counter: 0,
             history: History::default(),
         }
@@ -483,6 +491,225 @@ impl Project {
             self.history.record_before(before);
         }
         removed
+    }
+
+    /// Turn raw picks into a two-point line on the active work plane.
+    pub fn placement_for_construction_line(
+        &self,
+        points: &[Vec3],
+        rotation: f32,
+    ) -> Result<Placement, crate::placement::PlacementError> {
+        PlacementKind::TwoPoint.build(points, rotation, &self.active_work_plane())
+    }
+
+    pub fn create_construction_line(
+        &mut self,
+        placement: Placement,
+        params: ParamMap,
+    ) -> Result<ConstructionLineId, RegistryError> {
+        let before = self.export_snapshot();
+        let level_id = self
+            .document
+            .active_level_id()
+            .ok_or_else(|| RegistryError::Unknown("no active level".to_string()))?;
+        let name = self.next_construction_line_name();
+        let elevation = self.work_plane(level_id).origin.y;
+        let placement = placement.with_elevation(elevation);
+        let params = params.resolve(&construction_line_param_specs())?;
+        let line = ConstructionLine::new(name, level_id, placement, params);
+        let id = line.id;
+        self.document.upsert_construction_line(line);
+        self.history.record_before(before);
+        Ok(id)
+    }
+
+    pub fn update_construction_line(
+        &mut self,
+        id: ConstructionLineId,
+        params: Option<ParamMap>,
+        placement: Option<Placement>,
+        record: bool,
+    ) -> Result<(), RegistryError> {
+        let before = if record && !self.history.has_pending() {
+            Some(self.export_snapshot())
+        } else {
+            None
+        };
+        let mut line = self
+            .document
+            .get_construction_line(id)
+            .cloned()
+            .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
+        if let Some(patch) = params {
+            line.params = line.params.merged(&patch);
+        }
+        if let Some(placement) = placement {
+            let elevation = self.work_plane(line.level_id).origin.y;
+            line.placement = placement.with_elevation(elevation);
+        }
+        line.params = line.params.resolve(&construction_line_param_specs())?;
+        self.document.upsert_construction_line(line);
+        if record {
+            self.finish_recorded_edit(before);
+        }
+        Ok(())
+    }
+
+    pub fn delete_construction_line(&mut self, id: ConstructionLineId) -> bool {
+        if self.document.get_construction_line(id).is_none() {
+            return false;
+        }
+        let before = self.export_snapshot();
+        let removed = self.document.remove_construction_line(id).is_some();
+        if removed {
+            self.history.record_before(before);
+        }
+        removed
+    }
+
+    pub fn translate_construction_line(
+        &mut self,
+        id: ConstructionLineId,
+        delta: Vec3,
+        record: bool,
+    ) -> Result<(), RegistryError> {
+        let line = self
+            .document
+            .get_construction_line(id)
+            .cloned()
+            .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
+        let placement = line.placement.translated(delta);
+        self.update_construction_line(id, None, Some(placement), record)
+    }
+
+    pub fn copy_construction_line(
+        &mut self,
+        id: ConstructionLineId,
+        delta: Vec3,
+    ) -> Result<ConstructionLineId, RegistryError> {
+        let before = self.export_snapshot();
+        let source = self
+            .document
+            .get_construction_line(id)
+            .cloned()
+            .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
+        let name = self.next_construction_line_name();
+        let placement = source.placement.translated(delta);
+        let params = source.params.resolve(&construction_line_param_specs())?;
+        let line = ConstructionLine::new(name, source.level_id, placement, params);
+        let new_id = line.id;
+        self.document.upsert_construction_line(line);
+        self.history.record_before(before);
+        Ok(new_id)
+    }
+
+    pub fn placement_for_section_cut(
+        &self,
+        points: &[Vec3],
+        rotation: f32,
+    ) -> Result<Placement, crate::placement::PlacementError> {
+        PlacementKind::TwoPoint.build(points, rotation, &self.active_work_plane())
+    }
+
+    pub fn create_section_cut(
+        &mut self,
+        placement: Placement,
+        params: ParamMap,
+    ) -> Result<SectionCutId, RegistryError> {
+        let before = self.export_snapshot();
+        let level_id = self
+            .document
+            .active_level_id()
+            .ok_or_else(|| RegistryError::Unknown("no active level".to_string()))?;
+        let name = self.next_section_cut_name();
+        let elevation = self.work_plane(level_id).origin.y;
+        let placement = placement.with_elevation(elevation);
+        let params = params.resolve(&section_cut_param_specs())?;
+        let cut = SectionCut::new(name, level_id, placement, params);
+        let id = cut.id;
+        self.document.upsert_section_cut(cut);
+        self.history.record_before(before);
+        Ok(id)
+    }
+
+    pub fn update_section_cut(
+        &mut self,
+        id: SectionCutId,
+        params: Option<ParamMap>,
+        placement: Option<Placement>,
+        record: bool,
+    ) -> Result<(), RegistryError> {
+        let before = if record && !self.history.has_pending() {
+            Some(self.export_snapshot())
+        } else {
+            None
+        };
+        let mut cut = self
+            .document
+            .get_section_cut(id)
+            .cloned()
+            .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
+        if let Some(patch) = params {
+            cut.params = cut.params.merged(&patch);
+        }
+        if let Some(placement) = placement {
+            let elevation = self.work_plane(cut.level_id).origin.y;
+            cut.placement = placement.with_elevation(elevation);
+        }
+        cut.params = cut.params.resolve(&section_cut_param_specs())?;
+        self.document.upsert_section_cut(cut);
+        if record {
+            self.finish_recorded_edit(before);
+        }
+        Ok(())
+    }
+
+    pub fn delete_section_cut(&mut self, id: SectionCutId) -> bool {
+        if self.document.get_section_cut(id).is_none() {
+            return false;
+        }
+        let before = self.export_snapshot();
+        let removed = self.document.remove_section_cut(id).is_some();
+        if removed {
+            self.history.record_before(before);
+        }
+        removed
+    }
+
+    pub fn translate_section_cut(
+        &mut self,
+        id: SectionCutId,
+        delta: Vec3,
+        record: bool,
+    ) -> Result<(), RegistryError> {
+        let cut = self
+            .document
+            .get_section_cut(id)
+            .cloned()
+            .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
+        let placement = cut.placement.translated(delta);
+        self.update_section_cut(id, None, Some(placement), record)
+    }
+
+    pub fn copy_section_cut(
+        &mut self,
+        id: SectionCutId,
+        delta: Vec3,
+    ) -> Result<SectionCutId, RegistryError> {
+        let before = self.export_snapshot();
+        let source = self
+            .document
+            .get_section_cut(id)
+            .cloned()
+            .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
+        let name = self.next_section_cut_name();
+        let placement = source.placement.translated(delta);
+        let params = source.params.resolve(&section_cut_param_specs())?;
+        let cut = SectionCut::new(name, source.level_id, placement, params);
+        let new_id = cut.id;
+        self.document.upsert_section_cut(cut);
+        self.history.record_before(before);
+        Ok(new_id)
     }
 
     pub fn delete_element(&mut self, id: ElementId) -> bool {
@@ -996,6 +1223,16 @@ impl Project {
         format!("Grid {}", self.grid_axis_counter)
     }
 
+    fn next_construction_line_name(&mut self) -> String {
+        self.construction_line_counter += 1;
+        format!("Construction line {}", self.construction_line_counter)
+    }
+
+    fn next_section_cut_name(&mut self) -> String {
+        self.section_cut_counter += 1;
+        format!("Section {}", self.section_cut_counter)
+    }
+
     /// Serializable project: levels, elements, profiles, and extra components.
     /// Meshes are rebuilt on load.
     pub fn export_snapshot(&self) -> ProjectSnapshot {
@@ -1027,6 +1264,13 @@ impl Project {
         let mut grid_axes: Vec<GridAxis> = self.document.grid_axes().cloned().collect();
         grid_axes.sort_by(|a, b| a.name.cmp(&b.name));
 
+        let mut construction_lines: Vec<ConstructionLine> =
+            self.document.construction_lines().cloned().collect();
+        construction_lines.sort_by(|a, b| a.name.cmp(&b.name));
+
+        let mut section_cuts: Vec<SectionCut> = self.document.section_cuts().cloned().collect();
+        section_cuts.sort_by(|a, b| a.name.cmp(&b.name));
+
         ProjectSnapshot {
             format: PROJECT_FORMAT,
             levels,
@@ -1034,11 +1278,15 @@ impl Project {
             elements,
             references,
             grid_axes,
+            construction_lines,
+            section_cuts,
             profiles,
             components,
             counters: self.counters.clone(),
             ref_counters: self.ref_counters.clone(),
             grid_axis_counter: self.grid_axis_counter,
+            construction_line_counter: self.construction_line_counter,
+            section_cut_counter: self.section_cut_counter,
             level_counter: self.level_counter,
         }
     }
@@ -1052,10 +1300,12 @@ impl Project {
     fn restore_snapshot(&mut self, snap: ProjectSnapshot) -> Result<(), RegistryError> {
         // Format 3 predates element parentage; `parent_id` defaults to None on
         // load, so a format 3 file imports as a flat document.
+        // Format ≤4 predates construction lines / section cuts (empty via default).
         let known = snap.format == PROJECT_FORMAT
             || snap.format == 1
             || snap.format == 2
-            || snap.format == 3;
+            || snap.format == 3
+            || snap.format == 4;
         if !known {
             return Err(RegistryError::Unknown(format!(
                 "unsupported project format {}",
@@ -1068,6 +1318,8 @@ impl Project {
         next.counters = snap.counters;
         next.ref_counters = snap.ref_counters;
         next.grid_axis_counter = snap.grid_axis_counter;
+        next.construction_line_counter = snap.construction_line_counter;
+        next.section_cut_counter = snap.section_cut_counter;
         next.level_counter = snap.level_counter;
 
         for profile in snap.profiles {
@@ -1083,6 +1335,8 @@ impl Project {
             snap.elements,
             snap.references,
             snap.grid_axes,
+            snap.construction_lines,
+            snap.section_cuts,
         );
 
         let ids: Vec<ElementId> = next.document.elements().map(|element| element.id).collect();
@@ -1096,7 +1350,7 @@ impl Project {
 }
 
 /// On-disk / download format. Bump [`PROJECT_FORMAT`] when the shape changes.
-pub const PROJECT_FORMAT: u32 = 4;
+pub const PROJECT_FORMAT: u32 = 5;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectSnapshot {
@@ -1108,6 +1362,10 @@ pub struct ProjectSnapshot {
     pub references: Vec<Reference>,
     #[serde(default)]
     pub grid_axes: Vec<GridAxis>,
+    #[serde(default)]
+    pub construction_lines: Vec<ConstructionLine>,
+    #[serde(default)]
+    pub section_cuts: Vec<SectionCut>,
     pub profiles: Vec<ProfileType>,
     #[serde(default)]
     pub components: Vec<ComponentDefinition>,
@@ -1117,6 +1375,10 @@ pub struct ProjectSnapshot {
     pub ref_counters: BTreeMap<String, u32>,
     #[serde(default)]
     pub grid_axis_counter: u32,
+    #[serde(default)]
+    pub construction_line_counter: u32,
+    #[serde(default)]
+    pub section_cut_counter: u32,
     #[serde(default)]
     pub level_counter: u32,
 }
@@ -1913,6 +2175,60 @@ mod tests {
                 .text("label"),
             Some("A")
         );
+    }
+
+    #[test]
+    fn construction_lines_and_section_cuts_round_trip() {
+        let mut project = Project::new();
+        let line_id = project
+            .create_construction_line(
+                Placement::line(Vec3::ZERO, Vec3::new(5.0, 0.0, 0.0)),
+                ParamMap::new().with("label", ParamValue::Text("CL".into())),
+            )
+            .expect("create line");
+        let cut_id = project
+            .create_section_cut(
+                Placement::line(Vec3::new(0.0, 0.0, 2.0), Vec3::new(4.0, 0.0, 2.0)),
+                ParamMap::new().with("label", ParamValue::Text("A".into())),
+            )
+            .expect("create cut");
+        assert_eq!(project.document().construction_lines().count(), 1);
+        assert_eq!(project.document().section_cuts().count(), 1);
+
+        let snap = project.export_snapshot();
+        assert_eq!(snap.format, PROJECT_FORMAT);
+        assert_eq!(snap.construction_lines.len(), 1);
+        assert_eq!(snap.section_cuts.len(), 1);
+
+        let mut restored = Project::new();
+        restored.import_snapshot(snap).expect("import");
+        assert_eq!(
+            restored
+                .document()
+                .get_construction_line(line_id)
+                .unwrap()
+                .params
+                .text("label"),
+            Some("CL")
+        );
+        assert_eq!(
+            restored
+                .document()
+                .get_section_cut(cut_id)
+                .unwrap()
+                .params
+                .text("label"),
+            Some("A")
+        );
+
+        // Older formats import with empty annotation lists.
+        let mut legacy = project.export_snapshot();
+        legacy.format = 4;
+        legacy.construction_lines.clear();
+        legacy.section_cuts.clear();
+        restored.import_snapshot(legacy).expect("format 4");
+        assert_eq!(restored.document().construction_lines().count(), 0);
+        assert_eq!(restored.document().section_cuts().count(), 0);
     }
 
     #[test]

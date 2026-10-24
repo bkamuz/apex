@@ -8,9 +8,11 @@ use std::cell::RefCell;
 use std::str::FromStr;
 
 use apex_core::{
-    grid_axis_param_specs, ComponentDefinition, ComponentRegistry, Element, ElementId, GridAxis,
-    GridAxisId, LevelId, ParamKind, ParamMap, ParamSpec, PlacementKind, ProfileSpec, ProfileType,
-    Project, ProjectSnapshot, RefId, Reference, ReferenceKind, SceneBuffers,
+    construction_line_param_specs, grid_axis_param_specs, section_cut_param_specs,
+    ComponentDefinition, ComponentRegistry, ConstructionLine, ConstructionLineId, Element,
+    ElementId, GridAxis, GridAxisId, LevelId, ParamKind, ParamMap, ParamSpec, PlacementKind,
+    ProfileSpec, ProfileType, Project, ProjectSnapshot, RefId, Reference, ReferenceKind,
+    SceneBuffers, SectionCut, SectionCutId,
 };
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
@@ -100,6 +102,9 @@ thread_local! {
     static SELECTION: RefCell<Selection> = RefCell::new(Selection::default());
     static SELECTED_REF: RefCell<Option<RefId>> = const { RefCell::new(None) };
     static SELECTED_GRID_AXIS: RefCell<Option<GridAxisId>> = const { RefCell::new(None) };
+    static SELECTED_CONSTRUCTION_LINE: RefCell<Option<ConstructionLineId>> =
+        const { RefCell::new(None) };
+    static SELECTED_SECTION_CUT: RefCell<Option<SectionCutId>> = const { RefCell::new(None) };
 }
 
 fn with_selection<R>(f: impl FnOnce(&mut Selection) -> R) -> R {
@@ -192,6 +197,37 @@ struct GridAxisDto {
 }
 
 #[derive(Serialize)]
+struct AnnotationLabelDto {
+    position: [f32; 3],
+    text: String,
+}
+
+#[derive(Serialize)]
+struct ConstructionLineDto {
+    id: String,
+    name: String,
+    level_id: String,
+    anchors: Vec<[f32; 3]>,
+    line_segments: Vec<[f32; 3]>,
+    labels: Vec<AnnotationLabelDto>,
+    params: ParamMap,
+    param_specs: Vec<ParamSpec>,
+}
+
+#[derive(Serialize)]
+struct SectionCutDto {
+    id: String,
+    name: String,
+    level_id: String,
+    anchors: Vec<[f32; 3]>,
+    line_segments: Vec<[f32; 3]>,
+    fill_segments: Vec<[f32; 3]>,
+    labels: Vec<AnnotationLabelDto>,
+    params: ParamMap,
+    param_specs: Vec<ParamSpec>,
+}
+
+#[derive(Serialize)]
 struct SceneDto {
     positions: Vec<f32>,
     normals: Vec<f32>,
@@ -202,6 +238,8 @@ struct SceneDto {
     elements: Vec<ElementListDto>,
     references: Vec<ReferenceDto>,
     grid_axes: Vec<GridAxisDto>,
+    construction_lines: Vec<ConstructionLineDto>,
+    section_cuts: Vec<SectionCutDto>,
     levels: Vec<LevelDto>,
     active_level_id: Option<String>,
     version: u64,
@@ -209,6 +247,8 @@ struct SceneDto {
     selected_id: Option<String>,
     selected_ref_id: Option<String>,
     selected_grid_axis_id: Option<String>,
+    selected_construction_line_id: Option<String>,
+    selected_section_cut_id: Option<String>,
     can_undo: bool,
     can_redo: bool,
 }
@@ -298,6 +338,75 @@ fn grid_axis_dto(project: &Project, axis: &GridAxis) -> GridAxisDto {
     }
 }
 
+fn construction_line_dto(project: &Project, line: &ConstructionLine) -> ConstructionLineDto {
+    let work_plane = project.work_plane(line.level_id);
+    let overlay = line.overlay_geometry(&work_plane).unwrap_or_default();
+    let params = line.resolved_params();
+    ConstructionLineDto {
+        id: line.id.to_string(),
+        name: line.name.clone(),
+        level_id: line.level_id.to_string(),
+        anchors: line
+            .placement
+            .anchors()
+            .into_iter()
+            .map(|p| p.to_array())
+            .collect(),
+        line_segments: overlay
+            .line_segments
+            .into_iter()
+            .map(|p| p.to_array())
+            .collect(),
+        labels: overlay
+            .labels
+            .into_iter()
+            .map(|label| AnnotationLabelDto {
+                position: label.position.to_array(),
+                text: label.text,
+            })
+            .collect(),
+        params,
+        param_specs: construction_line_param_specs(),
+    }
+}
+
+fn section_cut_dto(project: &Project, cut: &SectionCut) -> SectionCutDto {
+    let work_plane = project.work_plane(cut.level_id);
+    let overlay = cut.overlay_geometry(&work_plane).unwrap_or_default();
+    let params = cut.resolved_params();
+    SectionCutDto {
+        id: cut.id.to_string(),
+        name: cut.name.clone(),
+        level_id: cut.level_id.to_string(),
+        anchors: cut
+            .placement
+            .anchors()
+            .into_iter()
+            .map(|p| p.to_array())
+            .collect(),
+        line_segments: overlay
+            .line_segments
+            .into_iter()
+            .map(|p| p.to_array())
+            .collect(),
+        fill_segments: overlay
+            .fill_segments
+            .into_iter()
+            .map(|p| p.to_array())
+            .collect(),
+        labels: overlay
+            .labels
+            .into_iter()
+            .map(|label| AnnotationLabelDto {
+                position: label.position.to_array(),
+                text: label.text,
+            })
+            .collect(),
+        params,
+        param_specs: section_cut_param_specs(),
+    }
+}
+
 fn reference_dto(project: &Project, reference: &Reference) -> ReferenceDto {
     let work_plane = project.work_plane(reference.level_id);
     let gizmo_segments = reference
@@ -375,6 +484,10 @@ fn scene_dto(project: &Project) -> SceneDto {
     let selected_ref_id = SELECTED_REF.with(|cell| cell.borrow().map(|id| id.to_string()));
     let selected_grid_axis_id =
         SELECTED_GRID_AXIS.with(|cell| cell.borrow().map(|id| id.to_string()));
+    let selected_construction_line_id =
+        SELECTED_CONSTRUCTION_LINE.with(|cell| cell.borrow().map(|id| id.to_string()));
+    let selected_section_cut_id =
+        SELECTED_SECTION_CUT.with(|cell| cell.borrow().map(|id| id.to_string()));
     let mut references: Vec<_> = project
         .document()
         .references()
@@ -388,6 +501,20 @@ fn scene_dto(project: &Project) -> SceneDto {
         .map(|axis| grid_axis_dto(project, axis))
         .collect();
     grid_axes.sort_by(|a, b| a.name.cmp(&b.name));
+
+    let mut construction_lines: Vec<_> = project
+        .document()
+        .construction_lines()
+        .map(|line| construction_line_dto(project, line))
+        .collect();
+    construction_lines.sort_by(|a, b| a.name.cmp(&b.name));
+
+    let mut section_cuts: Vec<_> = project
+        .document()
+        .section_cuts()
+        .map(|cut| section_cut_dto(project, cut))
+        .collect();
+    section_cuts.sort_by(|a, b| a.name.cmp(&b.name));
 
     SceneDto {
         positions: buffers.positions,
@@ -429,6 +556,8 @@ fn scene_dto(project: &Project) -> SceneDto {
             .collect(),
         references,
         grid_axes,
+        construction_lines,
+        section_cuts,
         levels: sorted_levels(project),
         active_level_id: project
             .document()
@@ -439,6 +568,8 @@ fn scene_dto(project: &Project) -> SceneDto {
         selected_ids,
         selected_ref_id,
         selected_grid_axis_id,
+        selected_construction_line_id,
+        selected_section_cut_id,
         can_undo: project.can_undo(),
         can_redo: project.can_redo(),
     }
@@ -468,8 +599,32 @@ fn clear_grid_axis_selection() {
     SELECTED_GRID_AXIS.with(|cell| *cell.borrow_mut() = None);
 }
 
+fn clear_construction_line_selection() {
+    SELECTED_CONSTRUCTION_LINE.with(|cell| *cell.borrow_mut() = None);
+}
+
+fn clear_section_cut_selection() {
+    SELECTED_SECTION_CUT.with(|cell| *cell.borrow_mut() = None);
+}
+
+/// Clear every non-element selection (refs + plan annotations).
+fn clear_datum_selections() {
+    clear_ref_selection();
+    clear_grid_axis_selection();
+    clear_construction_line_selection();
+    clear_section_cut_selection();
+}
+
 fn grid_axis_id(id: &str) -> Result<GridAxisId, JsValue> {
     GridAxisId::from_str(id).map_err(|e| err(format!("bad grid axis id: {e}")))
+}
+
+fn construction_line_id(id: &str) -> Result<ConstructionLineId, JsValue> {
+    ConstructionLineId::from_str(id).map_err(|e| err(format!("bad construction line id: {e}")))
+}
+
+fn section_cut_id(id: &str) -> Result<SectionCutId, JsValue> {
+    SectionCutId::from_str(id).map_err(|e| err(format!("bad section cut id: {e}")))
 }
 
 fn scene(project: &Project) -> Result<JsValue, JsValue> {
@@ -839,6 +994,14 @@ pub fn translate_selection(delta_json: &str, record_history: bool) -> Result<JsV
             project
                 .translate_grid_axis(axis_id, delta, record_history)
                 .map_err(err)?;
+        } else if let Some(line_id) = SELECTED_CONSTRUCTION_LINE.with(|cell| *cell.borrow()) {
+            project
+                .translate_construction_line(line_id, delta, record_history)
+                .map_err(err)?;
+        } else if let Some(cut_id) = SELECTED_SECTION_CUT.with(|cell| *cell.borrow()) {
+            project
+                .translate_section_cut(cut_id, delta, record_history)
+                .map_err(err)?;
         } else {
             let ids = with_selection(|s| s.0.clone());
             if ids.is_empty() {
@@ -860,21 +1023,32 @@ pub fn copy_selection(delta_json: &str) -> Result<JsValue, JsValue> {
         if let Some(ref_id) = SELECTED_REF.with(|cell| *cell.borrow()) {
             let new_id = project.copy_reference(ref_id, delta).map_err(err)?;
             clear_element_selection();
-            clear_grid_axis_selection();
+            clear_datum_selections();
             SELECTED_REF.with(|cell| *cell.borrow_mut() = Some(new_id));
         } else if let Some(axis_id) = SELECTED_GRID_AXIS.with(|cell| *cell.borrow()) {
             let new_id = project.copy_grid_axis(axis_id, delta).map_err(err)?;
             clear_element_selection();
-            clear_ref_selection();
+            clear_datum_selections();
             SELECTED_GRID_AXIS.with(|cell| *cell.borrow_mut() = Some(new_id));
+        } else if let Some(line_id) = SELECTED_CONSTRUCTION_LINE.with(|cell| *cell.borrow()) {
+            let new_id = project
+                .copy_construction_line(line_id, delta)
+                .map_err(err)?;
+            clear_element_selection();
+            clear_datum_selections();
+            SELECTED_CONSTRUCTION_LINE.with(|cell| *cell.borrow_mut() = Some(new_id));
+        } else if let Some(cut_id) = SELECTED_SECTION_CUT.with(|cell| *cell.borrow()) {
+            let new_id = project.copy_section_cut(cut_id, delta).map_err(err)?;
+            clear_element_selection();
+            clear_datum_selections();
+            SELECTED_SECTION_CUT.with(|cell| *cell.borrow_mut() = Some(new_id));
         } else {
             let ids = with_selection(|s| s.0.clone());
             if ids.is_empty() {
                 return Err(err("Nothing selected to copy"));
             }
             let new_ids = project.copy_elements(&ids, delta).map_err(err)?;
-            clear_ref_selection();
-            clear_grid_axis_selection();
+            clear_datum_selections();
             with_selection(|s| {
                 s.0.clear();
                 s.0.extend(new_ids);
@@ -939,8 +1113,7 @@ pub fn select_element(id: &str) -> Result<JsValue, JsValue> {
             if project.document().get_element(element).is_none() {
                 return Err(err("Element not found"));
             }
-            clear_ref_selection();
-            clear_grid_axis_selection();
+            clear_datum_selections();
             with_selection(|s| s.set(Some(element)));
         }
         scene(project)
@@ -958,8 +1131,7 @@ pub fn select_reference(id: &str) -> Result<JsValue, JsValue> {
                 return Err(err("Reference not found"));
             }
             clear_element_selection();
-            clear_ref_selection();
-            clear_grid_axis_selection();
+            clear_datum_selections();
             SELECTED_REF.with(|cell| *cell.borrow_mut() = Some(reference));
         }
         scene(project)
@@ -977,9 +1149,44 @@ pub fn select_grid_axis(id: &str) -> Result<JsValue, JsValue> {
                 return Err(err("Grid axis not found"));
             }
             clear_element_selection();
-            clear_ref_selection();
-            clear_grid_axis_selection();
+            clear_datum_selections();
             SELECTED_GRID_AXIS.with(|cell| *cell.borrow_mut() = Some(axis));
+        }
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = selectConstructionLine)]
+pub fn select_construction_line(id: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        if id.is_empty() {
+            clear_construction_line_selection();
+        } else {
+            let line = construction_line_id(id)?;
+            if project.document().get_construction_line(line).is_none() {
+                return Err(err("Construction line not found"));
+            }
+            clear_element_selection();
+            clear_datum_selections();
+            SELECTED_CONSTRUCTION_LINE.with(|cell| *cell.borrow_mut() = Some(line));
+        }
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = selectSectionCut)]
+pub fn select_section_cut(id: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        if id.is_empty() {
+            clear_section_cut_selection();
+        } else {
+            let cut = section_cut_id(id)?;
+            if project.document().get_section_cut(cut).is_none() {
+                return Err(err("Section cut not found"));
+            }
+            clear_element_selection();
+            clear_datum_selections();
+            SELECTED_SECTION_CUT.with(|cell| *cell.borrow_mut() = Some(cut));
         }
         scene(project)
     })
@@ -1013,6 +1220,34 @@ pub fn get_selected_grid_axis() -> Result<JsValue, JsValue> {
     })
 }
 
+#[wasm_bindgen(js_name = getSelectedConstructionLine)]
+pub fn get_selected_construction_line() -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let selected = SELECTED_CONSTRUCTION_LINE.with(|cell| *cell.borrow());
+        let Some(id) = selected else {
+            return Ok(JsValue::NULL);
+        };
+        match project.document().get_construction_line(id) {
+            Some(line) => to_js(&construction_line_dto(project, line)),
+            None => Ok(JsValue::NULL),
+        }
+    })
+}
+
+#[wasm_bindgen(js_name = getSelectedSectionCut)]
+pub fn get_selected_section_cut() -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let selected = SELECTED_SECTION_CUT.with(|cell| *cell.borrow());
+        let Some(id) = selected else {
+            return Ok(JsValue::NULL);
+        };
+        match project.document().get_section_cut(id) {
+            Some(cut) => to_js(&section_cut_dto(project, cut)),
+            None => Ok(JsValue::NULL),
+        }
+    })
+}
+
 #[wasm_bindgen(js_name = toggleSelectElement)]
 pub fn toggle_select_element(id: &str) -> Result<JsValue, JsValue> {
     with_project(|project| {
@@ -1031,8 +1266,7 @@ pub fn pick_by_id(pick_id: f64) -> Result<JsValue, JsValue> {
     with_project(|project| {
         let found = find_by_pick_id(project, pick_id);
         if found.is_some() {
-            clear_ref_selection();
-            clear_grid_axis_selection();
+            clear_datum_selections();
         }
         with_selection(|s| s.set(found));
         scene(project)
@@ -1074,7 +1308,7 @@ pub fn create_reference(kind: &str, points_json: &str, rotation: f32) -> Result<
             .map_err(err)?;
         let id = project.create_reference(kind, placement).map_err(err)?;
         clear_element_selection();
-        clear_grid_axis_selection();
+        clear_datum_selections();
         SELECTED_REF.with(|cell| *cell.borrow_mut() = Some(id));
         scene(project)
     })
@@ -1094,8 +1328,7 @@ pub fn create_grid_axis(
             .map_err(err)?;
         let id = project.create_grid_axis(placement, params).map_err(err)?;
         clear_element_selection();
-        clear_ref_selection();
-        clear_grid_axis_selection();
+        clear_datum_selections();
         SELECTED_GRID_AXIS.with(|cell| *cell.borrow_mut() = Some(id));
         scene(project)
     })
@@ -1143,6 +1376,142 @@ pub fn delete_selected_grid_axis() -> Result<JsValue, JsValue> {
         let id = SELECTED_GRID_AXIS.with(|cell| cell.borrow_mut().take());
         if let Some(id) = id {
             project.delete_grid_axis(id);
+        }
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = createConstructionLine)]
+pub fn create_construction_line(
+    points_json: &str,
+    params_json: &str,
+    rotation: f32,
+) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let points = points_from_json(points_json)?;
+        let params = parse_params(params_json)?;
+        let placement = project
+            .placement_for_construction_line(&points, rotation)
+            .map_err(err)?;
+        let id = project
+            .create_construction_line(placement, params)
+            .map_err(err)?;
+        clear_element_selection();
+        clear_datum_selections();
+        SELECTED_CONSTRUCTION_LINE.with(|cell| *cell.borrow_mut() = Some(id));
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = setConstructionLinePlacement)]
+pub fn set_construction_line_placement(
+    id: &str,
+    points_json: &str,
+    rotation: f32,
+    record_history: bool,
+) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let line = construction_line_id(id)?;
+        let existing = project
+            .document()
+            .get_construction_line(line)
+            .ok_or_else(|| err("Construction line not found"))?;
+        let points = points_from_json(points_json)?;
+        let placement = PlacementKind::TwoPoint
+            .build(&points, rotation, &project.work_plane(existing.level_id))
+            .map_err(|e| err(e.to_string()))?;
+        project
+            .update_construction_line(line, None, Some(placement), record_history)
+            .map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = updateConstructionLine)]
+pub fn update_construction_line(id: &str, params_json: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let line = construction_line_id(id)?;
+        let params = parse_params(params_json)?;
+        project
+            .update_construction_line(line, Some(params), None, true)
+            .map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = deleteSelectedConstructionLine)]
+pub fn delete_selected_construction_line() -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let id = SELECTED_CONSTRUCTION_LINE.with(|cell| cell.borrow_mut().take());
+        if let Some(id) = id {
+            project.delete_construction_line(id);
+        }
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = createSectionCut)]
+pub fn create_section_cut(
+    points_json: &str,
+    params_json: &str,
+    rotation: f32,
+) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let points = points_from_json(points_json)?;
+        let params = parse_params(params_json)?;
+        let placement = project
+            .placement_for_section_cut(&points, rotation)
+            .map_err(err)?;
+        let id = project.create_section_cut(placement, params).map_err(err)?;
+        clear_element_selection();
+        clear_datum_selections();
+        SELECTED_SECTION_CUT.with(|cell| *cell.borrow_mut() = Some(id));
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = setSectionCutPlacement)]
+pub fn set_section_cut_placement(
+    id: &str,
+    points_json: &str,
+    rotation: f32,
+    record_history: bool,
+) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let cut = section_cut_id(id)?;
+        let existing = project
+            .document()
+            .get_section_cut(cut)
+            .ok_or_else(|| err("Section cut not found"))?;
+        let points = points_from_json(points_json)?;
+        let placement = PlacementKind::TwoPoint
+            .build(&points, rotation, &project.work_plane(existing.level_id))
+            .map_err(|e| err(e.to_string()))?;
+        project
+            .update_section_cut(cut, None, Some(placement), record_history)
+            .map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = updateSectionCut)]
+pub fn update_section_cut(id: &str, params_json: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let cut = section_cut_id(id)?;
+        let params = parse_params(params_json)?;
+        project
+            .update_section_cut(cut, Some(params), None, true)
+            .map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = deleteSelectedSectionCut)]
+pub fn delete_selected_section_cut() -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let id = SELECTED_SECTION_CUT.with(|cell| cell.borrow_mut().take());
+        if let Some(id) = id {
+            project.delete_section_cut(id);
         }
         scene(project)
     })
@@ -1251,8 +1620,7 @@ pub fn import_project(json: &str) -> Result<JsValue, JsValue> {
         let snap: ProjectSnapshot = parse_json("project", json)?;
         project.import_snapshot(snap).map_err(err)?;
         with_selection(|s| s.set(None));
-        clear_ref_selection();
-        clear_grid_axis_selection();
+        clear_datum_selections();
         scene(project)
     })
 }
@@ -1262,8 +1630,7 @@ pub fn import_project(json: &str) -> Result<JsValue, JsValue> {
 pub fn new_project() -> Result<JsValue, JsValue> {
     PROJECT.with(|cell| *cell.borrow_mut() = Some(Project::new()));
     with_selection(|s| s.set(None));
-    clear_ref_selection();
-    clear_grid_axis_selection();
+    clear_datum_selections();
     with_project(|project| scene(project))
 }
 

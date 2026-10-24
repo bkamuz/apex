@@ -182,6 +182,29 @@ export interface GridAxisDto {
   param_specs: ParamSpecDto[];
 }
 
+export interface ConstructionLineDto {
+  id: string;
+  name: string;
+  level_id: string;
+  anchors: Vec3[];
+  line_segments: Vec3[];
+  labels: GridAxisLabelDto[];
+  params: Record<string, ParamValue>;
+  param_specs: ParamSpecDto[];
+}
+
+export interface SectionCutDto {
+  id: string;
+  name: string;
+  level_id: string;
+  anchors: Vec3[];
+  line_segments: Vec3[];
+  fill_segments: Vec3[];
+  labels: GridAxisLabelDto[];
+  params: Record<string, ParamValue>;
+  param_specs: ParamSpecDto[];
+}
+
 export interface LevelDto {
   id: string;
   name: string;
@@ -204,6 +227,8 @@ export interface SceneDto {
   elements: ElementListDto[];
   references?: ReferenceDto[];
   grid_axes?: GridAxisDto[];
+  construction_lines?: ConstructionLineDto[];
+  section_cuts?: SectionCutDto[];
   levels: LevelDto[];
   active_level_id: string | null;
   version: number;
@@ -212,6 +237,8 @@ export interface SceneDto {
   selected_id: string | null;
   selected_ref_id?: string | null;
   selected_grid_axis_id?: string | null;
+  selected_construction_line_id?: string | null;
+  selected_section_cut_id?: string | null;
   can_undo?: boolean;
   can_redo?: boolean;
 }

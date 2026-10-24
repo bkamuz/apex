@@ -3,10 +3,12 @@ use std::collections::HashMap;
 use apex_geometry::TriangleMesh;
 use serde::{Deserialize, Serialize};
 
+use crate::construction_line::{ConstructionLine, ConstructionLineId, ConstructionLineLibrary};
 use crate::element::{ComponentId, Element, ElementId};
 use crate::grid_axis::{GridAxis, GridAxisId, GridAxisLibrary};
 use crate::level::{Level, LevelId};
 use crate::reference::{RefId, Reference, ReferenceLibrary};
+use crate::section_cut::{SectionCut, SectionCutId, SectionCutLibrary};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -17,6 +19,8 @@ pub enum DocumentChangeKind {
     LevelChanged,
     ReferenceChanged,
     GridAxisChanged,
+    ConstructionLineChanged,
+    SectionCutChanged,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -34,6 +38,8 @@ pub struct Document {
     meshes: HashMap<ElementId, TriangleMesh>,
     references: ReferenceLibrary,
     grid_axes: GridAxisLibrary,
+    construction_lines: ConstructionLineLibrary,
+    section_cuts: SectionCutLibrary,
     version: u64,
     /// Level used for new placements (active work plane).
     active_level: Option<LevelId>,
@@ -320,6 +326,44 @@ impl Document {
         Some(self.bump(DocumentChangeKind::GridAxisChanged, vec![]))
     }
 
+    pub fn construction_lines(&self) -> impl Iterator<Item = &ConstructionLine> {
+        self.construction_lines.values()
+    }
+
+    pub fn get_construction_line(&self, id: ConstructionLineId) -> Option<&ConstructionLine> {
+        self.construction_lines.get(&id)
+    }
+
+    pub fn upsert_construction_line(&mut self, line: ConstructionLine) -> DocumentChange {
+        let id = line.id;
+        self.construction_lines.insert(id, line);
+        self.bump(DocumentChangeKind::ConstructionLineChanged, vec![])
+    }
+
+    pub fn remove_construction_line(&mut self, id: ConstructionLineId) -> Option<DocumentChange> {
+        self.construction_lines.remove(&id)?;
+        Some(self.bump(DocumentChangeKind::ConstructionLineChanged, vec![]))
+    }
+
+    pub fn section_cuts(&self) -> impl Iterator<Item = &SectionCut> {
+        self.section_cuts.values()
+    }
+
+    pub fn get_section_cut(&self, id: SectionCutId) -> Option<&SectionCut> {
+        self.section_cuts.get(&id)
+    }
+
+    pub fn upsert_section_cut(&mut self, cut: SectionCut) -> DocumentChange {
+        let id = cut.id;
+        self.section_cuts.insert(id, cut);
+        self.bump(DocumentChangeKind::SectionCutChanged, vec![])
+    }
+
+    pub fn remove_section_cut(&mut self, id: SectionCutId) -> Option<DocumentChange> {
+        self.section_cuts.remove(&id)?;
+        Some(self.bump(DocumentChangeKind::SectionCutChanged, vec![]))
+    }
+
     pub fn upsert_element(&mut self, element: Element, mesh: TriangleMesh) -> DocumentChange {
         let id = element.id;
         self.elements.insert(id, element);
@@ -373,6 +417,7 @@ impl Document {
     }
 
     /// Replace levels and elements. Meshes must be rebuilt by the caller.
+    #[allow(clippy::too_many_arguments)]
     pub fn load_contents(
         &mut self,
         mut levels: Vec<Level>,
@@ -380,6 +425,8 @@ impl Document {
         elements: Vec<Element>,
         references: Vec<Reference>,
         grid_axes: Vec<GridAxis>,
+        construction_lines: Vec<ConstructionLine>,
+        section_cuts: Vec<SectionCut>,
     ) {
         if levels.is_empty() {
             levels.push(Level::new("Level 0", 0.0));
@@ -394,6 +441,11 @@ impl Document {
             .map(|reference| (reference.id, reference))
             .collect();
         self.grid_axes = grid_axes.into_iter().map(|axis| (axis.id, axis)).collect();
+        self.construction_lines = construction_lines
+            .into_iter()
+            .map(|line| (line.id, line))
+            .collect();
+        self.section_cuts = section_cuts.into_iter().map(|cut| (cut.id, cut)).collect();
         self.meshes.clear();
         self.active_level = active_level.filter(|id| self.levels.contains_key(id));
         if self.active_level.is_none() {

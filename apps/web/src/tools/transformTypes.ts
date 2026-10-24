@@ -1,7 +1,12 @@
 import type { Vec3 } from '../viewport/ViewportRenderer';
 
 /** What can be moved or copied with the transform tools. */
-export type TransformTargetKind = 'element' | 'reference' | 'grid_axis';
+export type TransformTargetKind =
+  | 'element'
+  | 'reference'
+  | 'grid_axis'
+  | 'construction_line'
+  | 'section_cut';
 
 /** Placement anchors captured before a transform gesture begins. */
 export interface TransformOriginal {

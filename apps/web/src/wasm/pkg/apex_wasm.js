@@ -73,6 +73,24 @@ export function copySelection(delta_json) {
 }
 
 /**
+ * @param {string} points_json
+ * @param {string} params_json
+ * @param {number} rotation
+ * @returns {any}
+ */
+export function createConstructionLine(points_json, params_json, rotation) {
+    const ptr0 = passStringToWasm0(points_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(params_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.createConstructionLine(ptr0, len0, ptr1, len1, rotation);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * Place a component from the raw picks the user made.
  *
  * The component's own `PlacementKind` decides how the points are interpreted
@@ -181,11 +199,40 @@ export function createReference(kind, points_json, rotation) {
 }
 
 /**
+ * @param {string} points_json
+ * @param {string} params_json
+ * @param {number} rotation
+ * @returns {any}
+ */
+export function createSectionCut(points_json, params_json, rotation) {
+    const ptr0 = passStringToWasm0(points_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(params_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.createSectionCut(ptr0, len0, ptr1, len1, rotation);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * Delete every selected element.
  * @returns {any}
  */
 export function deleteSelected() {
     const ret = wasm.deleteSelected();
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @returns {any}
+ */
+export function deleteSelectedConstructionLine() {
+    const ret = wasm.deleteSelectedConstructionLine();
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -208,6 +255,17 @@ export function deleteSelectedGridAxis() {
  */
 export function deleteSelectedReference() {
     const ret = wasm.deleteSelectedReference();
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @returns {any}
+ */
+export function deleteSelectedSectionCut() {
+    const ret = wasm.deleteSelectedSectionCut();
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -322,6 +380,17 @@ export function getSelected() {
 }
 
 /**
+ * @returns {any}
+ */
+export function getSelectedConstructionLine() {
+    const ret = wasm.getSelectedConstructionLine();
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * Every currently selected element, with full placement detail.
  * @returns {any}
  */
@@ -349,6 +418,17 @@ export function getSelectedGridAxis() {
  */
 export function getSelectedReference() {
     const ret = wasm.getSelectedReference();
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @returns {any}
+ */
+export function getSelectedSectionCut() {
+    const ret = wasm.getSelectedSectionCut();
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -536,6 +616,20 @@ export function registerProfile(definition_json) {
  * @param {string} id
  * @returns {any}
  */
+export function selectConstructionLine(id) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.selectConstructionLine(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {string} id
+ * @returns {any}
+ */
 export function selectElement(id) {
     const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
@@ -578,10 +672,43 @@ export function selectReference(id) {
  * @param {string} id
  * @returns {any}
  */
+export function selectSectionCut(id) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.selectSectionCut(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {string} id
+ * @returns {any}
+ */
 export function setActiveLevel(id) {
     const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
     const ret = wasm.setActiveLevel(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {string} id
+ * @param {string} points_json
+ * @param {number} rotation
+ * @param {boolean} record_history
+ * @returns {any}
+ */
+export function setConstructionLinePlacement(id, points_json, rotation, record_history) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(points_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.setConstructionLinePlacement(ptr0, len0, ptr1, len1, rotation, record_history);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -687,6 +814,25 @@ export function setReferencePlacement(id, points_json, rotation, record_history)
 }
 
 /**
+ * @param {string} id
+ * @param {string} points_json
+ * @param {number} rotation
+ * @param {boolean} record_history
+ * @returns {any}
+ */
+export function setSectionCutPlacement(id, points_json, rotation, record_history) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(points_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.setSectionCutPlacement(ptr0, len0, ptr1, len1, rotation, record_history);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * @param {number} pick_id
  * @returns {any}
  */
@@ -740,6 +886,23 @@ export function undo() {
 }
 
 /**
+ * @param {string} id
+ * @param {string} params_json
+ * @returns {any}
+ */
+export function updateConstructionLine(id, params_json) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(params_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.updateConstructionLine(ptr0, len0, ptr1, len1);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * Patch an element's parameters. Omitted parameters keep their current value.
  * @param {string} id
  * @param {string} params_json
@@ -786,6 +949,23 @@ export function updateProfileType(id, params_json) {
     const ptr1 = passStringToWasm0(params_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len1 = WASM_VECTOR_LEN;
     const ret = wasm.updateProfileType(ptr0, len0, ptr1, len1);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {string} id
+ * @param {string} params_json
+ * @returns {any}
+ */
+export function updateSectionCut(id, params_json) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(params_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.updateSectionCut(ptr0, len0, ptr1, len1);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }

@@ -3,6 +3,7 @@
 mod annotation;
 mod builders;
 mod component;
+mod construction_line;
 mod document;
 mod element;
 mod expr;
@@ -14,6 +15,7 @@ mod placement;
 mod project;
 mod reference;
 mod registry;
+mod section_cut;
 mod sketch;
 
 pub use annotation::{AnnotationLabel, PlanAnnotation};
@@ -21,6 +23,10 @@ pub use component::{
     evaluate_recipe, ComponentDefinition, ComponentSource, DefinitionError, FrameSource,
     GeometryRecipe, HostCutSpec, MeshBuilder, ModuleId, PlacementOptions, ProfileId,
     ProfileLibrary, ProfileSpec, ProfileType, RecipeContext, RecipeError,
+};
+pub use construction_line::{
+    construction_line_param_specs, ConstructionLine, ConstructionLineError, ConstructionLineId,
+    ConstructionLineLibrary, ConstructionLineOverlay,
 };
 pub use document::{Document, DocumentChange, DocumentChangeKind, ElementSceneEntry, SceneBuffers};
 pub use element::{ComponentId, Element, ElementId};
@@ -38,6 +44,10 @@ pub use reference::{
     RefId, Reference, ReferenceError, ReferenceFilter, ReferenceKind, ReferenceLibrary,
 };
 pub use registry::{builtin_components, ComponentRegistry, RegistryError};
+pub use section_cut::{
+    section_cut_param_specs, SectionCut, SectionCutError, SectionCutId, SectionCutLibrary,
+    SectionCutOverlay,
+};
 pub use sketch::{ProfileSketch, SketchConstraint, SketchDimension, SketchError};
 
 /// Geometry primitives the document is expressed in, re-exported for convenience.
