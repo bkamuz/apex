@@ -11,6 +11,7 @@ mod grid_axis;
 mod history;
 mod level;
 mod param;
+mod path_join;
 mod placement;
 mod project;
 mod reference;
@@ -39,6 +40,10 @@ pub use grid_axis::{
 pub use history::History;
 pub use level::{Level, LevelId};
 pub use param::{ParamBinding, ParamError, ParamId, ParamKind, ParamMap, ParamSpec, ParamValue};
+pub use path_join::{
+    joinable_segment, peers_for, plan_joins, profile_half_width, JoinUpdate, JoinableSegment,
+    PATH_JOIN_SNAP,
+};
 pub use placement::{Placement, PlacementError, PlacementKind};
 pub use project::Project;
 pub use project::ProjectSnapshot;

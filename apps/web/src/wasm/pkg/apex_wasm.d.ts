@@ -124,6 +124,14 @@ export function importProject(json: string): any;
 export function initApp(): void;
 
 /**
+ * Recompute path joins for a joinable element (corners / T-junctions).
+ *
+ * Auto-join already runs on place for `joinable` components; plugins call this
+ * after a placement edit. One undo step.
+ */
+export function joinPaths(id: string): any;
+
+/**
  * Every installed component. The UI builds its toolbar and inspector from this.
  */
 export function listComponents(): any;
@@ -285,6 +293,7 @@ export interface InitOutput {
     readonly getSelectedSpace: () => [number, number, number];
     readonly importProject: (a: number, b: number) => [number, number, number];
     readonly initApp: () => [number, number];
+    readonly joinPaths: (a: number, b: number) => [number, number, number];
     readonly listComponents: () => [number, number, number];
     readonly listElements: () => [number, number, number];
     readonly listProfiles: (a: number, b: number) => [number, number, number];

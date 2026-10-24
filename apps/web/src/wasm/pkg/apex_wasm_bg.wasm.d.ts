@@ -36,6 +36,7 @@ export const getSelectedSectionCut: () => [number, number, number];
 export const getSelectedSpace: () => [number, number, number];
 export const importProject: (a: number, b: number) => [number, number, number];
 export const initApp: () => [number, number];
+export const joinPaths: (a: number, b: number) => [number, number, number];
 export const listComponents: () => [number, number, number];
 export const listElements: () => [number, number, number];
 export const listProfiles: (a: number, b: number) => [number, number, number];

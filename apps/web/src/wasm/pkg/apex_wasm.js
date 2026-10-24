@@ -513,6 +513,24 @@ export function initApp() {
 }
 
 /**
+ * Recompute path joins for a joinable element (corners / T-junctions).
+ *
+ * Auto-join already runs on place for `joinable` components; plugins call this
+ * after a placement edit. One undo step.
+ * @param {string} id
+ * @returns {any}
+ */
+export function joinPaths(id) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.joinPaths(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * Every installed component. The UI builds its toolbar and inspector from this.
  * @returns {any}
  */

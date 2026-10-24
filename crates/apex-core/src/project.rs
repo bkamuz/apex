@@ -19,6 +19,7 @@ use crate::grid_axis::{grid_axis_param_specs, GridAxis, GridAxisId};
 use crate::history::History;
 use crate::level::{Level, LevelId};
 use crate::param::{ParamMap, ParamValue};
+use crate::path_join::{joinable_segment, peers_for, plan_joins};
 use crate::placement::{Placement, PlacementKind};
 use crate::reference::{RefId, Reference, ReferenceKind};
 use crate::registry::{ComponentRegistry, RegistryError};
@@ -228,6 +229,9 @@ impl Project {
     }
 
     /// Place a new element, optionally parenting it (openings host-cut their parent).
+    ///
+    /// Joinable path components auto-join with peers of the same component id
+    /// on the level (corner miters / T-junctions). Create + joins are one undo step.
     pub fn create_element_with_parent(
         &mut self,
         component_id: &str,
@@ -235,6 +239,11 @@ impl Project {
         params: ParamMap,
         parent: Option<ElementId>,
     ) -> Result<ElementId, RegistryError> {
+        let definition = self.registry.require(component_id)?.clone();
+        let auto_join = definition.joinable && !self.history.has_pending();
+        if auto_join {
+            self.begin_undo_group();
+        }
         let before = self.export_snapshot();
         let level_id = if let Some(parent_id) = parent {
             self.document
@@ -246,7 +255,6 @@ impl Project {
                 .active_level_id()
                 .ok_or_else(|| RegistryError::Unknown("no active level".to_string()))?
         };
-        let definition = self.registry.require(component_id)?.clone();
         let display_name = definition.display_name.clone();
         let name = self.next_name(component_id, &display_name);
 
@@ -277,7 +285,96 @@ impl Project {
             }
         }
         self.history.record_before(before);
+
+        if definition.joinable {
+            let _ = self.apply_path_joins(id, false)?;
+        }
+        if auto_join {
+            self.commit_undo_group();
+        }
         Ok(id)
+    }
+
+    /// Recompute path joins for a joinable element against peers on its level.
+    ///
+    /// Plugins can call this after a manual placement edit. Returns how many
+    /// elements had their placement rewritten. One undo step when `record`.
+    pub fn join_paths(&mut self, id: ElementId) -> Result<usize, RegistryError> {
+        self.apply_path_joins(id, true)
+    }
+
+    fn apply_path_joins(&mut self, id: ElementId, record: bool) -> Result<usize, RegistryError> {
+        let element = self
+            .document
+            .get_element(id)
+            .cloned()
+            .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
+        let Some(new_seg) = joinable_segment(&self.registry, &element) else {
+            return Ok(0);
+        };
+        let peers: Vec<_> = peers_for(&self.registry, self.document.elements(), &element);
+        let updates = plan_joins(&new_seg, &peers);
+        if updates.is_empty() {
+            return Ok(0);
+        }
+
+        let started = record && !self.history.has_pending();
+        if started {
+            self.begin_undo_group();
+        }
+        let mut count = 0usize;
+        for update in updates {
+            self.apply_join_update(update, false)?;
+            count += 1;
+        }
+        if started {
+            self.commit_undo_group();
+        }
+        Ok(count)
+    }
+
+    fn apply_join_update(
+        &mut self,
+        update: crate::path_join::JoinUpdate,
+        record: bool,
+    ) -> Result<(), RegistryError> {
+        let before = if record && !self.history.has_pending() {
+            Some(self.export_snapshot())
+        } else {
+            None
+        };
+        let mut element = self
+            .document
+            .get_element(update.id)
+            .cloned()
+            .ok_or_else(|| RegistryError::Unknown(update.id.to_string()))?;
+
+        if let Some(placement) = update.placement {
+            let seat = self
+                .registry
+                .get(&element.component_id)
+                .map(|def| def.placement_options.seat_on_level)
+                .unwrap_or(true);
+            let level_id = self
+                .document
+                .effective_level_id(update.id)
+                .unwrap_or(element.level_id);
+            element.placement = if seat {
+                let elevation = self.work_plane(level_id).origin.y;
+                placement.with_elevation(elevation)
+            } else {
+                placement
+            };
+        }
+        element.join_start = update.join_start;
+        element.join_end = update.join_end;
+
+        let mesh = self.build_element_mesh_with_cuts(&element)?;
+        self.document.update_element(element, mesh);
+        if let Some(snap) = before {
+            self.history.record_before(snap);
+        }
+        Ok(())
     }
 
     /// Apply a parameter patch and/or a new placement, then rebuild the mesh.
@@ -2432,6 +2529,108 @@ mod tests {
         assert_eq!(restored.document().construction_lines().count(), 0);
         assert_eq!(restored.document().section_cuts().count(), 0);
         assert_eq!(restored.document().spaces().count(), 0);
+    }
+
+    #[test]
+    fn joinable_walls_miter_at_corner_on_place() {
+        let mut project = Project::new();
+        let a = project
+            .create_element(
+                "apex.wall",
+                Placement::line(Vec3::ZERO, Vec3::new(5.0, 0.0, 0.0)),
+                ParamMap::new(),
+            )
+            .expect("wall a");
+        let b = project
+            .create_element(
+                "apex.wall",
+                Placement::line(Vec3::new(5.0, 0.0, 0.0), Vec3::new(5.0, 0.0, 4.0)),
+                ParamMap::new(),
+            )
+            .expect("wall b");
+
+        let ea = project.document().get_element(a).unwrap();
+        let eb = project.document().get_element(b).unwrap();
+        assert!(
+            (ea.join_end - 0.1).abs() < 0.02,
+            "a join_end={}",
+            ea.join_end
+        );
+        assert!(
+            (eb.join_start - 0.1).abs() < 0.02,
+            "b join_start={}",
+            eb.join_start
+        );
+        // Centerlines stay at the picked corner.
+        assert!((ea.placement.curve().unwrap().end().x - 5.0).abs() < 1e-4);
+        assert!((eb.placement.curve().unwrap().start().x - 5.0).abs() < 1e-4);
+
+        // Create + join is one undo step.
+        assert!(project.can_undo());
+        project.undo().expect("undo b");
+        assert!(project.document().get_element(b).is_none());
+        let ea = project.document().get_element(a).unwrap();
+        assert_eq!(ea.join_end, 0.0, "peer's join cleared with undo of b");
+    }
+
+    #[test]
+    fn joinable_walls_t_junction_splits_host_and_trims_stem() {
+        let mut project = Project::new();
+        let host = project
+            .create_element(
+                "apex.wall",
+                Placement::line(Vec3::ZERO, Vec3::new(10.0, 0.0, 0.0)),
+                ParamMap::new(),
+            )
+            .expect("host");
+        let stem = project
+            .create_element(
+                "apex.wall",
+                Placement::line(Vec3::new(5.0, 0.0, 3.0), Vec3::new(5.0, 0.0, 0.0)),
+                ParamMap::new(),
+            )
+            .expect("stem");
+
+        let host_el = project.document().get_element(host).unwrap();
+        match host_el.placement.curve().unwrap() {
+            apex_geometry::Curve::Polyline { points } => {
+                assert_eq!(points.len(), 3);
+                assert!((points[1].x - 5.0).abs() < 0.05);
+            }
+            other => panic!("host should split to polyline, got {other:?}"),
+        }
+        let stem_el = project.document().get_element(stem).unwrap();
+        assert!(
+            (stem_el.join_end + 0.1).abs() < 0.03,
+            "stem join_end={}",
+            stem_el.join_end
+        );
+    }
+
+    #[test]
+    fn joinable_beams_miter_like_walls() {
+        let mut project = Project::new();
+        project
+            .create_element(
+                "apex.beam",
+                Placement::line(Vec3::new(0.0, 3.0, 0.0), Vec3::new(4.0, 3.0, 0.0)),
+                ParamMap::new(),
+            )
+            .expect("beam a");
+        let b = project
+            .create_element(
+                "apex.beam",
+                Placement::line(Vec3::new(4.0, 3.0, 0.0), Vec3::new(4.0, 3.0, 3.0)),
+                ParamMap::new(),
+            )
+            .expect("beam b");
+        let eb = project.document().get_element(b).unwrap();
+        // Default beam width 0.2 → half 0.1
+        assert!(
+            (eb.join_start - 0.1).abs() < 0.02,
+            "beam join_start={}",
+            eb.join_start
+        );
     }
 
     #[test]
