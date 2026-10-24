@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { ProjectionMode } from '../viewport/ViewportRenderer';
 import type { Tool } from '../tools/Tool';
 import {
@@ -31,11 +31,13 @@ function ToolButton({
   className?: string;
 }) {
   const classes = [className, active ? 'active' : ''].filter(Boolean).join(' ');
+  const title = tool.shortcut ? `${tool.label} (${tool.shortcut})` : tool.label;
   return (
     <button
       type="button"
       className={classes || undefined}
-      title={tool.shortcut ? `${tool.label} (${tool.shortcut})` : tool.label}
+      aria-label={tool.label}
+      title={title}
       onClick={() => onActivate(tool.id)}
     >
       <ToolIconGlyph icon={tool.icon} />
@@ -44,9 +46,17 @@ function ToolButton({
   );
 }
 
-function ToolGroup({ children, label }: { children: ReactNode; label: string }) {
+function ToolGroup({
+  children,
+  label,
+  className,
+}: {
+  children: ReactNode;
+  label: string;
+  className?: string;
+}) {
   return (
-    <div className="tools-grp" role="group" aria-label={label}>
+    <div className={['tools-grp', className].filter(Boolean).join(' ')} role="group" aria-label={label}>
       {children}
     </div>
   );
@@ -75,6 +85,18 @@ export function ToolsToolbar({
   const freeCreateTools = useMemo(() => untabbedCreateTools(tools), [tools]);
 
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
+  const toolsScrollRef = useRef<HTMLDivElement>(null);
+  const [scrollHints, setScrollHints] = useState({ left: false, right: false });
+
+  const updateScrollHints = useCallback(() => {
+    const el = toolsScrollRef.current;
+    if (!el) return;
+    const canLeft = el.scrollLeft > 2;
+    const canRight = el.scrollLeft + el.clientWidth < el.scrollWidth - 2;
+    setScrollHints((prev) =>
+      prev.left === canLeft && prev.right === canRight ? prev : { left: canLeft, right: canRight },
+    );
+  }, []);
 
   useEffect(() => {
     if (tabs.length === 0) {
@@ -92,6 +114,19 @@ export function ToolsToolbar({
     if (tabId) setActiveTabId(tabId);
   }, [activeTool?.tab?.id, activeToolId]);
 
+  useEffect(() => {
+    updateScrollHints();
+    const el = toolsScrollRef.current;
+    if (!el) return;
+    el.addEventListener('scroll', updateScrollHints, { passive: true });
+    const observer = new ResizeObserver(updateScrollHints);
+    observer.observe(el);
+    return () => {
+      el.removeEventListener('scroll', updateScrollHints);
+      observer.disconnect();
+    };
+  }, [updateScrollHints, tools, activeTabId, activeToolId, drawMode]);
+
   const tabTools = activeTabId ? toolsInTab(tools, activeTabId) : [];
   const createTools = [...tabTools, ...freeCreateTools];
   const modes = activeTool?.modes ?? [];
@@ -99,6 +134,14 @@ export function ToolsToolbar({
   const showModes =
     modes.length > 0 &&
     (!activeTool?.tab || createTools.some((tool) => tool.id === activeToolId));
+
+  const scrollClass = [
+    'tools-scroll',
+    scrollHints.left ? 'can-scroll-left' : '',
+    scrollHints.right ? 'can-scroll-right' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
 
   return (
     <>
@@ -121,79 +164,83 @@ export function ToolsToolbar({
         </div>
       ) : null}
 
-      <div className="tools" role="toolbar" aria-label="Tools">
-        {selectTools.length > 0 ? (
-          <ToolGroup label="Select">
-            {selectTools.map((tool) => (
-              <ToolButton
-                key={tool.id}
-                tool={tool}
-                active={activeToolId === tool.id}
-                onActivate={onActivateTool}
-              />
-            ))}
-          </ToolGroup>
-        ) : null}
+      <div className={scrollClass}>
+        <div className="tools" ref={toolsScrollRef} role="toolbar" aria-label="Tools">
+          {selectTools.length > 0 ? (
+            <ToolGroup label="Select">
+              {selectTools.map((tool) => (
+                <ToolButton
+                  key={tool.id}
+                  tool={tool}
+                  active={activeToolId === tool.id}
+                  onActivate={onActivateTool}
+                />
+              ))}
+            </ToolGroup>
+          ) : null}
 
-        {transformTools.length > 0 ? (
-          <ToolGroup label="Transform">
-            {transformTools.map((tool) => (
-              <ToolButton
-                key={tool.id}
-                tool={tool}
-                active={activeToolId === tool.id}
-                onActivate={onActivateTool}
-              />
-            ))}
-          </ToolGroup>
-        ) : null}
+          {transformTools.length > 0 ? (
+            <ToolGroup label="Transform">
+              {transformTools.map((tool) => (
+                <ToolButton
+                  key={tool.id}
+                  tool={tool}
+                  active={activeToolId === tool.id}
+                  onActivate={onActivateTool}
+                />
+              ))}
+            </ToolGroup>
+          ) : null}
 
-        {createTools.length > 0 ? (
-          <ToolGroup label="Create">
-            {createTools.map((tool) => (
-              <ToolButton
-                key={tool.id}
-                tool={tool}
-                active={activeToolId === tool.id}
-                onActivate={onActivateTool}
-              />
-            ))}
-          </ToolGroup>
-        ) : null}
+          {createTools.length > 0 ? (
+            <ToolGroup label="Create">
+              {createTools.map((tool) => (
+                <ToolButton
+                  key={tool.id}
+                  tool={tool}
+                  active={activeToolId === tool.id}
+                  onActivate={onActivateTool}
+                />
+              ))}
+            </ToolGroup>
+          ) : null}
 
-        {showModes ? (
-          <ToolGroup label="Draw mode">
-            {modes.map((mode) => (
-              <button
-                key={mode.id}
-                type="button"
-                className={`mode${drawMode === mode.id ? ' active' : ''}`}
-                onClick={() => onActivateDrawMode(mode.id)}
-              >
-                {mode.label}
-              </button>
-            ))}
-          </ToolGroup>
-        ) : null}
+          {showModes ? (
+            <ToolGroup label="Draw mode" className="tools-grp-modes">
+              {modes.map((mode) => (
+                <button
+                  key={mode.id}
+                  type="button"
+                  className={`mode${drawMode === mode.id ? ' active' : ''}`}
+                  aria-label={mode.label}
+                  title={mode.label}
+                  onClick={() => onActivateDrawMode(mode.id)}
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </ToolGroup>
+          ) : null}
 
-        <ToolGroup label="Projection">
-          <button
-            type="button"
-            className={projection === 'orthographic' ? 'active' : ''}
-            onClick={() => onSetProjection('orthographic')}
-            title="Parallel (axonometric) projection"
-          >
-            Ortho
-          </button>
-          <button
-            type="button"
-            className={projection === 'perspective' ? 'active' : ''}
-            onClick={() => onSetProjection('perspective')}
-            title="Perspective projection"
-          >
-            Persp
-          </button>
-        </ToolGroup>
+          <ToolGroup label="Projection">
+            <button
+              type="button"
+              className={projection === 'orthographic' ? 'active' : ''}
+              onClick={() => onSetProjection('orthographic')}
+              title="Parallel (axonometric) projection"
+            >
+              Ortho
+            </button>
+            <button
+              type="button"
+              className={projection === 'perspective' ? 'active' : ''}
+              onClick={() => onSetProjection('perspective')}
+              title="Perspective projection"
+            >
+              Persp
+            </button>
+          </ToolGroup>
+        </div>
       </div>
     </>
   );

@@ -8,6 +8,7 @@ export const exportIfcPlugin: Plugin = {
     host.registerExporter({
       id: 'apex.ifc',
       label: 'IFC',
+      title: 'Export building model as IFC4 (.ifc)',
       filename: 'apex-export.ifc',
       export: () => apexExportIfc(),
     });

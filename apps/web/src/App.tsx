@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   apexAbortUndoGroup,
   apexBeginUndoGroup,
+  apexClearDatumSelections,
   apexCopySelection,
   apexCreateElement,
   apexCreateElementWithParent,
@@ -930,6 +931,13 @@ export default function App() {
       cancelGesture();
       setToolId(id);
       const next = registryRef.current.get(id);
+      if (next?.group === 'create') {
+        try {
+          applyScene(apexClearDatumSelections());
+        } catch {
+          /* selection sync falls back on next scene apply */
+        }
+      }
       setDrawMode(next?.getMode?.() ?? null);
       if (id === ToolRegistry.selectId) {
         syncEditGizmo(
@@ -954,7 +962,7 @@ export default function App() {
         setPlacementDraft({});
       }
     },
-    [cancelGesture, components, profiles, syncEditGizmo],
+    [applyScene, cancelGesture, components, profiles, syncEditGizmo],
   );
 
   const activateDrawMode = useCallback(
@@ -1011,11 +1019,8 @@ export default function App() {
       active.blur();
     }
     try {
-      applyScene(apexSelectGridAxis(null));
-      applyScene(apexSelectConstructionLine(null));
-      applyScene(apexSelectSectionCut(null));
-      applyScene(apexSelectSpace(null));
-      applyScene(apexSelectReference(null));
+      applyScene(apexClearDatumSelections());
+      applyScene(apexSelectElement(null));
     } catch {
       rendererRef.current?.setEditGizmo(null);
       setSelected(null);
@@ -1537,6 +1542,12 @@ export default function App() {
   };
 
   const onNewProject = () => {
+    if (scene?.can_undo) {
+      const ok = window.confirm(
+        'Start a new empty project? Unsaved changes in this document will be cleared.',
+      );
+      if (!ok) return;
+    }
     try {
       const next = apexNewProject();
       clearStoredProject();
@@ -1635,6 +1646,7 @@ export default function App() {
                 key={exporter.id}
                 type="button"
                 data-testid={`export-${exporter.id}`}
+                title={exporter.title}
                 onClick={() => {
                   try {
                     const text = exporter.export();

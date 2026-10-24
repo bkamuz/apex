@@ -5,6 +5,8 @@ import type { Tool } from '../tools/Tool';
 export interface Exporter {
   readonly id: string;
   readonly label: string;
+  /** Optional native tooltip on the export button in the doc bar. */
+  readonly title?: string;
   /** File name suggestion, e.g. `project.ifc`. */
   readonly filename: string;
   /** Produce file contents. May throw; the shell surfaces the message. */

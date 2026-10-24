@@ -10,6 +10,7 @@ import type {
   SectionCutDto,
   SpaceDto,
 } from '../types';
+import { categoryDisplayLabel } from './categoryLabels';
 import { isUserAuthoredComponent } from './componentModel';
 import { profileLabel } from './profileModel';
 
@@ -102,7 +103,11 @@ function storePrefs(prefs: BrowserPrefs): void {
   }
 }
 
-function groupKey(item: BrowserItem, groupBy: BrowserGroupBy): string {
+function groupKey(
+  item: BrowserItem,
+  groupBy: BrowserGroupBy,
+  components: readonly ComponentDto[],
+): string {
   switch (groupBy) {
     case 'kind':
       if (item.kind === 'component_def') return 'User components';
@@ -114,7 +119,7 @@ function groupKey(item: BrowserItem, groupBy: BrowserGroupBy): string {
       if (item.kind === 'space') return 'Spaces';
       return 'Placed elements';
     case 'category':
-      return item.category || 'uncategorized';
+      return categoryDisplayLabel(item.category || 'uncategorized', components);
     case 'level':
       return item.kind === 'type' ? 'Types (not on a level)' : item.levelName;
     case 'profile':
@@ -154,6 +159,7 @@ function isGroupExpanded(
 
 interface BrowserTreeItemProps {
   item: BrowserItem;
+  components: readonly ComponentDto[];
   isSelected: boolean;
   depth?: number;
   onSelectInstance: (id: string, multi: boolean) => void;
@@ -238,6 +244,7 @@ function orderWithParentHierarchy(items: BrowserItem[]): { item: BrowserItem; de
 
 function BrowserTreeItem({
   item,
+  components,
   isSelected,
   depth = 0,
   onSelectInstance,
@@ -282,7 +289,11 @@ function BrowserTreeItem({
         <span className={`kind-badge kind-${item.kind}`}>{kindBadge(item.kind, depth)}</span>
       </span>
       <span className="cat">
-        {isType || isComponentDef ? item.category : isDatum ? item.levelName : item.profileName}
+        {isType || isComponentDef
+          ? categoryDisplayLabel(item.category, components)
+          : isDatum
+            ? item.levelName
+            : item.profileName}
       </span>
     </li>
   );
@@ -326,6 +337,7 @@ function isItemSelected(
 interface BrowserTreeGroupProps {
   label: string;
   items: BrowserItem[];
+  components: readonly ComponentDto[];
   expanded: boolean;
   onToggle: () => void;
   selected: Set<string>;
@@ -349,6 +361,7 @@ interface BrowserTreeGroupProps {
 function BrowserTreeGroup({
   label,
   items,
+  components,
   expanded,
   onToggle,
   selected,
@@ -389,6 +402,7 @@ function BrowserTreeGroup({
             <BrowserTreeItem
               key={item.key}
               item={item}
+              components={components}
               depth={depth}
               isSelected={isItemSelected(
                 item,
@@ -524,7 +538,7 @@ export function ProjectBrowser({
       levelName: levelName(element.effective_level_id),
       profileName: element.profile_id
         ? profileLabel(profiles, element.profile_id)
-        : element.category,
+        : categoryDisplayLabel(element.category, components),
       parentId: element.parent_id ?? null,
     }));
     const refs: BrowserItem[] = references.map((reference) => ({
@@ -603,18 +617,30 @@ export function ProjectBrowser({
     }
     all.sort((a, b) => compareItems(a, b, sortBy));
     return all;
-  }, [elements, references, gridAxes, constructionLines, sectionCuts, spaces, profiles, components, levels, filter, sortBy]);
+  }, [
+    elements,
+    references,
+    gridAxes,
+    constructionLines,
+    sectionCuts,
+    spaces,
+    profiles,
+    components,
+    levels,
+    filter,
+    sortBy,
+  ]);
 
   const groups = useMemo(() => {
     const map = new Map<string, BrowserItem[]>();
     for (const item of items) {
-      const key = groupKey(item, groupBy);
+      const key = groupKey(item, groupBy, components);
       const list = map.get(key) ?? [];
       list.push(item);
       map.set(key, list);
     }
     return [...map.entries()];
-  }, [items, groupBy]);
+  }, [items, groupBy, components]);
 
   const selected = new Set(selectedIds);
 
@@ -702,6 +728,7 @@ export function ProjectBrowser({
               <BrowserTreeItem
                 key={item.key}
                 item={item}
+                components={components}
                 depth={depth}
                 isSelected={isItemSelected(
                   item,
@@ -732,6 +759,7 @@ export function ProjectBrowser({
                 key={label}
                 label={label}
                 items={groupItems}
+                components={components}
                 expanded={isGroupExpanded(groupBy, label, collapsed)}
                 onToggle={() => toggleGroup(label)}
                 selected={selected}
