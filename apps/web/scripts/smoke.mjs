@@ -81,6 +81,15 @@ const elementCount = () => page.locator('[data-kind="instance"]').count();
 const toolbarNames = () =>
   page.locator('.tools button').evaluateAll((els) => els.map((e) => e.textContent.trim()));
 
+async function toolbarHasTool(name) {
+  for (const tab of await page.locator('.tools-tab').all()) {
+    await tab.click();
+    await page.waitForTimeout(50);
+    if ((await toolbarNames()).includes(name)) return true;
+  }
+  return false;
+}
+
 // --- 1. Each first-party tool is a plugin; wall and column are one tool -----
 console.log('\n[1] toolbar from plugins, one tool per type');
 const basicsTab = page.getByTestId('tools-tab-apex.basics');
@@ -838,8 +847,50 @@ if ((await toolHeight.count()) > 0) {
 }
 await page.screenshot({ path: `${OUT}/apex-06-profile-editor.png`, fullPage: true });
 
+// --- Visual component editor (create → place → edit → save/reload) --------
+console.log('\n[10] visual component editor');
+await page.getByTestId('browser-new-component').click();
+await page.waitForSelector('[data-testid="component-editor"]');
+check('component editor opened', (await page.locator('[data-testid="component-editor"]').count()) === 1);
+await page.getByTestId('template-box').click();
+const compIdField = page.locator('[data-testid="component-editor"] input[type="text"]').first();
+await compIdField.fill('user.smoke.box');
+const compNameField = page.locator('[data-testid="component-editor"] input[type="text"]').nth(1);
+await compNameField.fill('Smoke box');
+await page.locator('[data-testid="component-param-default-height"]').fill('1.5');
+await page.waitForTimeout(400);
+check(
+  'component preview canvas rendered',
+  (await page.locator('[data-testid="component-preview"]').count()) === 1,
+);
+await page.getByTestId('save-component').click();
+await page.waitForTimeout(400);
+check(
+  'component editor closed after save',
+  (await page.locator('[data-testid="component-editor"]').count()) === 0,
+);
+check('Smoke box tool on toolbar', (await toolbarNames()).includes('Smoke box'));
+const beforeSmokeBox = await elementCount();
+await useTool('Smoke box');
+await clickCanvas(0.52, 0.52);
+const afterSmokeBox = await elementCount();
+check('visual component placed', afterSmokeBox > beforeSmokeBox, `count ${afterSmokeBox}`);
+await useTool('Select');
+await page.locator('[data-kind="instance"]', { hasText: 'Smoke box' }).first().click();
+await page.waitForTimeout(250);
+const smokeHeight = page.locator('[data-section="instance"] input[type="number"]').first();
+if ((await smokeHeight.count()) > 0) {
+  await smokeHeight.fill('2.0');
+  check('instance param edited on placed smoke box', Number(await smokeHeight.inputValue()) === 2);
+}
+await page.locator('[data-kind="component_def"]', { hasText: 'Smoke box' }).click();
+await page.waitForTimeout(200);
+check('user component opens in editor from browser', (await page.locator('[data-testid="component-editor"]').count()) === 1);
+await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+await page.screenshot({ path: `${OUT}/apex-08-component-editor.png`, fullPage: true });
+
 // --- 9. Project browser grouping and save/load ----------------------------
-console.log('\n[10] project browser and persistence');
+console.log('\n[11] project browser and persistence');
 check(
   'browser is present',
   (await page.locator('[data-testid="project-browser"]').count()) >= 1,
@@ -869,6 +920,7 @@ check(
   afterReload === beforeReload,
   `before ${beforeReload} after ${afterReload}`,
 );
+check('user component tool survived reload', await toolbarHasTool('Smoke box'));
 await page.screenshot({ path: `${OUT}/apex-07-browser-save.png`, fullPage: true });
 
 // --- Parent / Detach (after undo-sensitive sections so history stays clean) ---

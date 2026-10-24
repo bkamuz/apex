@@ -324,6 +324,58 @@ impl ComponentRegistry {
         };
         Ok(evaluate_recipe(&definition.recipe, &ctx, &self.builders)?)
     }
+
+    /// Merge params for a definition that may not be registered yet (editor preview).
+    pub fn eval_params_for_definition(
+        &self,
+        definition: &ComponentDefinition,
+        raw: &ParamMap,
+    ) -> Result<ParamMap, RegistryError> {
+        let component_params = definition.resolve_params(raw)?;
+        let Some(param_id) = definition.profile_param_id() else {
+            return Ok(component_params);
+        };
+        let Some(profile_id) = component_params.text(param_id) else {
+            return Ok(component_params);
+        };
+        let profile = self.require_profile(profile_id)?;
+        let merged = profile.merge_eval_params(raw)?;
+        Ok(merged.merged(&component_params))
+    }
+
+    /// Build mesh for an arbitrary definition without registering it (visual editor preview).
+    pub fn preview_definition_mesh<'a>(
+        &self,
+        definition: &ComponentDefinition,
+        placement: &Placement,
+        raw_params: &ParamMap,
+        work_plane: Frame,
+        references: impl IntoIterator<Item = &'a Reference>,
+    ) -> Result<TriangleMesh, RegistryError> {
+        definition.validate()?;
+        if !definition.placement.accepts(placement) {
+            return Err(RegistryError::PlacementMismatch {
+                component: definition.id.clone(),
+                expected: definition.placement.as_str(),
+                actual: placement.family(),
+            });
+        }
+        let params = self.eval_params_for_definition(definition, raw_params)?;
+        let reference_library = references
+            .into_iter()
+            .map(|reference| (reference.id, reference.clone()))
+            .collect();
+        let ctx = RecipeContext {
+            placement,
+            params: &params,
+            work_plane,
+            profiles: &self.profiles,
+            references: &reference_library,
+            path_join_start: 0.0,
+            path_join_end: 0.0,
+        };
+        Ok(evaluate_recipe(&definition.recipe, &ctx, &self.builders)?)
+    }
 }
 
 /// Profiles every project starts with. Type vs instance lives here, not on the component.

@@ -73,6 +73,34 @@ export interface HostCutSpecDto {
   host_categories: string[];
 }
 
+/** Mirrors `FrameSource` in apex-core. */
+export type FrameSourceDto =
+  | { from: 'work_plane' }
+  | { from: 'placement_curve'; t: ExprDto }
+  | { from: 'ref'; id: string }
+  | { from: 'ref_param'; param: string; t?: ExprDto };
+
+/** Mirrors sweep justification in apex-geometry. */
+export type JustificationDto = 'center' | 'base_center' | 'top_center';
+
+/** Mirrors `GeometryRecipe` in apex-core. */
+export type GeometryRecipeDto =
+  | {
+      op: 'sweep';
+      profile: ProfileSpecDto;
+      justification?: JustificationDto;
+      start_offset?: ExprDto;
+      end_offset?: ExprDto;
+    }
+  | {
+      op: 'extrude';
+      profile: ProfileSpecDto;
+      frame?: FrameSourceDto;
+      height: ExprDto;
+    }
+  | { op: 'group'; steps: GeometryRecipeDto[] }
+  | { op: 'custom'; builder_id: string };
+
 /** A reusable section: shape plus type/instance parameters. */
 export interface ProfileTypeDto {
     id: string;
@@ -116,8 +144,7 @@ export interface ComponentDto {
   placement: PlacementKind;
   placement_options?: PlacementOptionsDto;
   params: ParamSpecDto[];
-  /** Opaque here: only the core evaluates recipes. */
-  recipe: unknown;
+  recipe: GeometryRecipeDto;
   host_cut?: HostCutSpecDto | null;
   level_height_params?: string[];
   ifc_entity?: string | null;
