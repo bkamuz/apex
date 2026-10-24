@@ -11,6 +11,7 @@ import {
   apexCreateReference,
   apexCreateSectionCut,
   apexCreateSpace,
+  apexDetectRoomsFromWalls,
   apexDeleteSelected,
   apexDeleteSelectedConstructionLine,
   apexDeleteSelectedGridAxis,
@@ -468,6 +469,15 @@ export default function App() {
       createSpace: (points) => {
         try {
           applyScene(apexCreateSpace(points));
+          setError(null);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+        }
+      },
+
+      detectRoomsFromWalls: () => {
+        try {
+          applyScene(apexDetectRoomsFromWalls());
           setError(null);
         } catch (e) {
           setError(e instanceof Error ? e.message : String(e));

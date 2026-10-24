@@ -33,6 +33,7 @@ export const TOOL_ICONS = {
   constructionLine: 'construction-line',
   sectionCut: 'section-cut',
   space: 'space',
+  detectRooms: 'detect-rooms',
 } as const;
 
 export type ToolIconName = (typeof TOOL_ICONS)[keyof typeof TOOL_ICONS];
@@ -87,6 +88,8 @@ const CATALOG_SVG: Readonly<Record<string, string>> = {
     '<path d="M2.5 11.5L11.5 2.5" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/><path d="M4 4.5h3.5v3.5" fill="none" stroke="currentColor" stroke-width="1.15" stroke-linejoin="round"/>',
   space:
     '<path d="M3 3.5h8v7H3z" fill="none" stroke="currentColor" stroke-width="1.25"/><path d="M5 6.5h4M7 4.5v4" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>',
+  'detect-rooms':
+    '<path d="M2.5 3.5h4v4h-4zM7.5 3.5h4v4h-4zM2.5 8.5h9v3h-9z" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M4.5 5.5h0.01M9.5 5.5h0.01M7 10h0.01" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
 };
 
 /** Map built-in component ids → catalog icon names. */

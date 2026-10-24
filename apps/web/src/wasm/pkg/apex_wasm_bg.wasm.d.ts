@@ -22,6 +22,7 @@ export const deleteSelectedReference: () => [number, number, number];
 export const deleteSelectedSectionCut: () => [number, number, number];
 export const deleteSelectedSpace: () => [number, number, number];
 export const descendantsOf: (a: number, b: number) => [number, number, number];
+export const detectRoomsFromWalls: () => [number, number, number];
 export const effectiveLevelOf: (a: number, b: number) => [number, number, number, number];
 export const exportIfc: (a: number, b: number) => [number, number, number, number];
 export const exportProject: () => [number, number, number, number];

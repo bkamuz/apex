@@ -1691,6 +1691,27 @@ pub fn delete_selected_space() -> Result<JsValue, JsValue> {
     })
 }
 
+/// Detect enclosed rooms from walls on the active level; refresh auto spaces.
+#[wasm_bindgen(js_name = detectRoomsFromWalls)]
+pub fn detect_rooms_from_walls() -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let created = project.detect_rooms_from_walls().map_err(err)?;
+        // Prefer selecting a newly created auto space when present.
+        if created > 0 {
+            clear_element_selection();
+            clear_datum_selections();
+            let auto_id = project
+                .document()
+                .spaces()
+                .filter(|space| space.resolved_params().bool("auto").unwrap_or(false))
+                .map(|space| space.id)
+                .max_by(|a, b| a.to_string().cmp(&b.to_string()));
+            SELECTED_SPACE.with(|cell| *cell.borrow_mut() = auto_id);
+        }
+        scene(project)
+    })
+}
+
 #[wasm_bindgen(js_name = setReferencePlacement)]
 pub fn set_reference_placement(
     id: &str,

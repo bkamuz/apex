@@ -317,6 +317,18 @@ export function descendantsOf(id) {
 }
 
 /**
+ * Detect enclosed rooms from walls on the active level; refresh auto spaces.
+ * @returns {any}
+ */
+export function detectRoomsFromWalls() {
+    const ret = wasm.detectRoomsFromWalls();
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * The level an element actually sits on, following parent inheritance.
  * @param {string} id
  * @returns {string | undefined}

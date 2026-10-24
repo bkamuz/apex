@@ -72,7 +72,23 @@ pub fn space_param_specs() -> Vec<ParamSpec> {
         },
         // Stored for a future 3D volume; unused for mesh / solid fill this phase.
         ParamSpec::length("height", "Height", 2.5),
+        // True when created/refreshed by Detect rooms; manual spaces stay false.
+        ParamSpec {
+            id: "auto".to_string(),
+            label: "Auto-detected".to_string(),
+            kind: ParamKind::Bool,
+            default: ParamValue::Bool(false),
+            min: None,
+            max: None,
+            unit: None,
+            binding: ParamBinding::Instance,
+        },
     ]
+}
+
+/// Whether this space was produced by automatic wall-loop detection.
+pub fn space_is_auto(space: &Space) -> bool {
+    space.resolved_params().bool("auto").unwrap_or(false)
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

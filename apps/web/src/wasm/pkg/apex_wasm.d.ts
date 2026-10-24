@@ -72,6 +72,11 @@ export function deleteSelectedSpace(): any;
 export function descendantsOf(id: string): any;
 
 /**
+ * Detect enclosed rooms from walls on the active level; refresh auto spaces.
+ */
+export function detectRoomsFromWalls(): any;
+
+/**
  * The level an element actually sits on, following parent inheritance.
  */
 export function effectiveLevelOf(id: string): string | undefined;
@@ -266,6 +271,7 @@ export interface InitOutput {
     readonly deleteSelectedSectionCut: () => [number, number, number];
     readonly deleteSelectedSpace: () => [number, number, number];
     readonly descendantsOf: (a: number, b: number) => [number, number, number];
+    readonly detectRoomsFromWalls: () => [number, number, number];
     readonly effectiveLevelOf: (a: number, b: number) => [number, number, number, number];
     readonly exportIfc: (a: number, b: number) => [number, number, number, number];
     readonly exportProject: () => [number, number, number, number];

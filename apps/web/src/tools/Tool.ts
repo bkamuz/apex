@@ -33,6 +33,8 @@ export interface ToolContext {
   createSectionCut(points: Vec3[]): void;
   /** Commit picks as a closed plan space (≥3 points). */
   createSpace(points: Vec3[]): void;
+  /** Detect closed wall loops on the active level; refresh auto spaces. */
+  detectRoomsFromWalls(): void;
   /** Add a level +3 m above the highest (same rise as LevelList). */
   createLevel(): void;
   /** Ghost geometry, built by the same recipe the committed element will use. */
