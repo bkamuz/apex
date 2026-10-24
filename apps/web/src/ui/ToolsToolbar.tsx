@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { ProjectionMode } from '../viewport/ViewportRenderer';
+import type { ProjectionMode, ViewNavigationMode } from '../viewport/ViewportRenderer';
 import type { Tool } from '../tools/Tool';
 import {
   collectToolTabs,
@@ -14,9 +14,12 @@ export interface ToolsToolbarProps {
   activeToolId: string;
   drawMode: string | null;
   projection: ProjectionMode;
+  viewNavigation: ViewNavigationMode;
   onActivateTool: (id: string) => void;
   onActivateDrawMode: (id: string) => void;
   onSetProjection: (mode: ProjectionMode) => void;
+  onSetViewNavigation: (mode: ViewNavigationMode) => void;
+  onFitView: () => void;
 }
 
 function ToolButton({
@@ -71,9 +74,12 @@ export function ToolsToolbar({
   activeToolId,
   drawMode,
   projection,
+  viewNavigation,
   onActivateTool,
   onActivateDrawMode,
   onSetProjection,
+  onSetViewNavigation,
+  onFitView,
 }: ToolsToolbarProps) {
   const activeTool = useMemo(
     () => tools.find((tool) => tool.id === activeToolId),
@@ -222,18 +228,49 @@ export function ToolsToolbar({
             </ToolGroup>
           ) : null}
 
+          <ToolGroup label="View">
+            <button
+              type="button"
+              className={viewNavigation === '3d' ? 'active' : ''}
+              onClick={() => onSetViewNavigation('3d')}
+              title="3D view (3)"
+              data-testid="view-3d"
+            >
+              3D
+            </button>
+            <button
+              type="button"
+              className={viewNavigation === 'plan' ? 'active' : ''}
+              onClick={() => onSetViewNavigation('plan')}
+              title="Plan view — top-down cut (P)"
+              data-testid="view-plan"
+            >
+              Plan
+            </button>
+            <button
+              type="button"
+              onClick={onFitView}
+              title="Fit view / zoom extents (F)"
+              data-testid="fit-view"
+            >
+              Fit
+            </button>
+          </ToolGroup>
+
           <ToolGroup label="Projection">
             <button
               type="button"
               className={projection === 'orthographic' ? 'active' : ''}
+              disabled={viewNavigation === 'plan'}
               onClick={() => onSetProjection('orthographic')}
-              title="Parallel (axonometric) projection"
+              title="Parallel axonometric projection"
             >
-              Ortho
+              Axon
             </button>
             <button
               type="button"
               className={projection === 'perspective' ? 'active' : ''}
+              disabled={viewNavigation === 'plan'}
               onClick={() => onSetProjection('perspective')}
               title="Perspective projection"
             >

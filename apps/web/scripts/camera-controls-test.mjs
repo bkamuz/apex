@@ -90,6 +90,23 @@ check(
   Math.abs(yawAfterChord - yawOrbitStart) > 0.05,
 );
 
+// Plan view: RMB pans, no orbit (yaw locked).
+await page.getByTestId('view-plan').click();
+await page.waitForTimeout(300);
+const planBefore = await getCamera();
+await page.mouse.move(cx, cy);
+await page.mouse.down({ button: 'right' });
+await page.mouse.move(cx + 100, cy + 60, { steps: 10 });
+await page.mouse.up({ button: 'right' });
+await page.waitForTimeout(200);
+const planAfter = await getCamera();
+check('Plan RMB does not change yaw', Math.abs(planAfter.yaw - planBefore.yaw) < 0.001);
+check(
+  'Plan RMB pans target',
+  Math.hypot(planAfter.target[0] - planBefore.target[0], planAfter.target[2] - planBefore.target[2]) >
+    0.001,
+);
+
 await browser.close();
 
 if (failures.length > 0) {

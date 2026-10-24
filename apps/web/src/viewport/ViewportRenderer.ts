@@ -37,6 +37,9 @@ export interface CameraState {
 
 export type ProjectionMode = 'perspective' | 'orthographic';
 
+/** Scene navigation: turntable 3D vs locked top-down plan (work plane XZ, Y up). */
+export type ViewNavigationMode = '3d' | 'plan';
+
 const DEFAULT_CAMERA: CameraState = {
   target: [0, 1.2, 0],
   distance: 18,
@@ -101,6 +104,9 @@ uniform int uSelectedCount;
 uniform bool uPickPass;
 uniform float uOpacity;
 uniform int uSelectionMode; // 0=all, 1=opaque others, 2=selected only
+uniform int uPlanMode;
+uniform float uCutY;
+uniform float uCutFade;
 out vec4 outColor;
 
 bool isSelectedPick(float pick) {
@@ -131,8 +137,19 @@ void main(){
   vec3 ambient = mix(uGroundColor, uSkyColor, hemi);
   float wrap = ndl * 0.65 + 0.35;
   vec3 base = selected ? vec3(0.86, 0.52, 0.22) : vec3(0.72, 0.76, 0.80);
+  float alpha = uOpacity;
+  if (uPlanMode != 0) {
+    float above = vWorld.y - uCutY;
+    if (above > uCutFade) discard;
+    if (above > 0.0) {
+      alpha *= 1.0 - clamp(above / max(uCutFade, 1e-4), 0.0, 0.92);
+    }
+    if (abs(vWorld.y - uCutY) < 0.12) {
+      base = mix(base, vec3(0.12, 0.13, 0.15), 0.55);
+    }
+  }
   vec3 color = base * (ambient * 0.45 + vec3(wrap) * 0.7);
-  outColor = vec4(color, uOpacity);
+  outColor = vec4(color, alpha);
 }`;
 
 const LINE_VERT = `#version 300 es
@@ -274,6 +291,9 @@ type MeshUniforms = {
   uPickPass: WebGLUniformLocation | null;
   uOpacity: WebGLUniformLocation | null;
   uSelectionMode: WebGLUniformLocation | null;
+  uPlanMode: WebGLUniformLocation | null;
+  uCutY: WebGLUniformLocation | null;
+  uCutFade: WebGLUniformLocation | null;
 };
 
 type LineUniforms = {
@@ -314,8 +334,22 @@ function meshUniforms(gl: WebGL2RenderingContext, prog: WebGLProgram): MeshUnifo
     uPickPass: gl.getUniformLocation(prog, 'uPickPass'),
     uOpacity: gl.getUniformLocation(prog, 'uOpacity'),
     uSelectionMode: gl.getUniformLocation(prog, 'uSelectionMode'),
+    uPlanMode: gl.getUniformLocation(prog, 'uPlanMode'),
+    uCutY: gl.getUniformLocation(prog, 'uCutY'),
+    uCutFade: gl.getUniformLocation(prog, 'uCutFade'),
   };
 }
+
+/** Grid bubble circles are 24 segments × 2 endpoints. */
+const GRID_BUBBLE_SEGMENTS = 24;
+const GRID_BUBBLE_FLOATS = GRID_BUBBLE_SEGMENTS * 2 * 3;
+/** Target on-screen bubble radius in CSS pixels (plan view rescale). */
+const PLAN_BUBBLE_RADIUS_PX = 14;
+
+type Saved3DView = {
+  camera: CameraState;
+  projection: ProjectionMode;
+};
 
 function lineUniforms(gl: WebGL2RenderingContext, prog: WebGLProgram): LineUniforms {
   return {
@@ -753,6 +787,15 @@ export class ViewportRenderer {
   };
   /** CAD default: parallel projection (axonometric when pitched/yawed). */
   private projection: ProjectionMode = 'orthographic';
+  private viewNavigation: ViewNavigationMode = '3d';
+  private saved3dView: Saved3DView | null = null;
+  /** Horizontal plan cut height (world Y); defaults with active level elevation. */
+  private planCutY = 0;
+  private planCutFade = 0.35;
+  private sceneAabb: { min: [number, number, number]; max: [number, number, number] } | null =
+    null;
+  private gridAxisBubbleRaw: Float32Array | null = null;
+  private lastPlanBubbleDistance = -1;
   private sceneExtent = 10;
   private selectedPickIds: number[] = [];
   /** Locked for the whole gesture so MMB never falls through into orbit/zoom. */
@@ -978,17 +1021,100 @@ export class ViewportRenderer {
   }
 
   setProjection(mode: ProjectionMode): void {
+    if (this.viewNavigation === 'plan') return;
     this.projection = mode;
+  }
+
+  getViewNavigation(): ViewNavigationMode {
+    return this.viewNavigation;
+  }
+
+  setPlanCutHeight(elevation: number, fadeBand = 0.35): void {
+    this.planCutY = elevation;
+    this.planCutFade = Math.max(fadeBand, 0.05);
+  }
+
+  /**
+   * Enter locked top-down plan (orthographic, −Y view) or restore the saved 3D camera.
+   */
+  setViewNavigation(mode: ViewNavigationMode): void {
+    if (mode === this.viewNavigation) return;
+    if (mode === 'plan') {
+      this.saved3dView = {
+        camera: {
+          target: [...this.camera.target] as [number, number, number],
+          distance: this.camera.distance,
+          yaw: this.camera.yaw,
+          pitch: this.camera.pitch,
+        },
+        projection: this.projection,
+      };
+      this.projection = 'orthographic';
+      this.viewNavigation = 'plan';
+      this.camera.yaw = 0;
+      this.camera.pitch = PITCH_LIMIT;
+      this.camera.target[1] = this.planCutY;
+      this.touchOrbitEnabled = false;
+      this.refreshPlanBubbleGeometry(true);
+      this.frameMats = null;
+      return;
+    }
+    this.viewNavigation = '3d';
+    this.touchOrbitEnabled = true;
+    if (this.saved3dView) {
+      const saved = this.saved3dView;
+      this.saved3dView = null;
+      this.camera = {
+        target: [...saved.camera.target] as [number, number, number],
+        distance: saved.camera.distance,
+        yaw: saved.camera.yaw,
+        pitch: saved.camera.pitch,
+      };
+      this.projection = saved.projection;
+    }
+    this.uploadGridAxisBubbles(this.gridAxisBubbleRaw);
+    this.frameMats = null;
+  }
+
+  /** Fit the camera to the current scene bounds (3D) or XZ extents at the cut (plan). */
+  fitViewExtents(): void {
+    if (!this.sceneAabb) return;
+    const { min, max } = this.sceneAabb;
+    if (this.viewNavigation === 'plan') {
+      const cx = (min[0] + max[0]) * 0.5;
+      const cz = (min[2] + max[2]) * 0.5;
+      const sx = Math.max(max[0] - min[0], 2);
+      const sz = Math.max(max[2] - min[2], 2);
+      this.camera.target = [cx, this.planCutY, cz];
+      this.camera.yaw = 0;
+      this.camera.pitch = PITCH_LIMIT;
+      const aspect = this.canvas.clientWidth / Math.max(1, this.canvas.clientHeight);
+      const span = Math.max(sx / aspect, sz, 2);
+      this.camera.distance = Math.max(span * 0.55, 4);
+      this.frameMats = null;
+      this.refreshPlanBubbleGeometry(true);
+      return;
+    }
+    this.fitToAabb(min, max);
   }
 
   /** Restore the default home camera pose (keeps projection mode). */
   resetCamera(): void {
+    if (this.viewNavigation === 'plan') {
+      this.camera.yaw = 0;
+      this.camera.pitch = PITCH_LIMIT;
+      this.camera.target[1] = this.planCutY;
+      this.fitViewExtents();
+      this.frameMats = null;
+      return;
+    }
     this.camera = {
       target: [...DEFAULT_CAMERA.target] as [number, number, number],
       distance: DEFAULT_CAMERA.distance,
       yaw: DEFAULT_CAMERA.yaw,
       pitch: DEFAULT_CAMERA.pitch,
     };
+    this.frameMats = null;
   }
 
   setScene(data: SceneMeshData): void {
@@ -1031,6 +1157,7 @@ export class ViewportRenderer {
 
     const aabb = aabbFromPositions(positions);
     if (aabb) {
+      this.sceneAabb = { min: aabb.min, max: aabb.max };
       const sx = aabb.max[0] - aabb.min[0];
       const sy = aabb.max[1] - aabb.min[1];
       const sz = aabb.max[2] - aabb.min[2];
@@ -1038,9 +1165,11 @@ export class ViewportRenderer {
       this.expandGridToInclude(aabb.min[0], aabb.max[0], aabb.min[2], aabb.max[2]);
       // Opt-in only — never yank the camera unless the caller asked.
       if (data.fitCamera === true) {
-        this.fitToAabb(aabb.min, aabb.max);
+        if (this.viewNavigation === 'plan') this.fitViewExtents();
+        else this.fitToAabb(aabb.min, aabb.max);
       }
     } else {
+      this.sceneAabb = null;
       this.sceneExtent = 10;
     }
   }
@@ -1246,11 +1375,39 @@ export class ViewportRenderer {
       );
     }
     if (!bubbles || bubbles.length < 2) {
+      this.gridAxisBubbleRaw = null;
       this.gridAxisBubbleCount = 0;
       return;
     }
     this.includePoints(bubbles);
-    this.gridAxisBubbleCount = this.uploadThickLines(this.gridAxisBubbleBuf, flatten(bubbles));
+    this.gridAxisBubbleRaw = flatten(bubbles);
+    this.uploadGridAxisBubbles(this.gridAxisBubbleRaw);
+  }
+
+  private uploadGridAxisBubbles(data: Float32Array | null): void {
+    if (!data || data.length < 6) {
+      this.gridAxisBubbleCount = 0;
+      return;
+    }
+    this.gridAxisBubbleCount = this.uploadThickLines(this.gridAxisBubbleBuf, data);
+  }
+
+  /** Rescale grid bubble circles to a constant screen size in plan view. */
+  private refreshPlanBubbleGeometry(force = false): void {
+    if (this.viewNavigation !== 'plan' || !this.gridAxisBubbleRaw) return;
+    if (
+      !force &&
+      Math.abs(this.lastPlanBubbleDistance - this.camera.distance) <
+        this.camera.distance * 0.002
+    ) {
+      return;
+    }
+    this.lastPlanBubbleDistance = this.camera.distance;
+    const halfH = this.camera.distance * Math.tan(CAMERA_FOVY / 2);
+    const worldR =
+      (PLAN_BUBBLE_RADIUS_PX / Math.max(this.canvas.clientHeight, 1)) * 2 * halfH;
+    const scaled = rescaleGridBubbleSegments(this.gridAxisBubbleRaw, worldR);
+    this.uploadGridAxisBubbles(scaled);
   }
 
   /** Construction lines — olive, distinct from pink grids and cyan refs. */
@@ -1580,9 +1737,11 @@ export class ViewportRenderer {
         return;
       }
       if (e.button === 2) {
-        // Alt+RMB pans (same as MMB); plain RMB orbits.
+        // Plan: always pan. 3D: Alt+RMB pans; plain RMB orbits.
         e.preventDefault();
-        this.beginDrag(e.altKey ? 'pan' : 'orbit', e);
+        const mode =
+          this.viewNavigation === 'plan' || e.altKey ? 'pan' : 'orbit';
+        this.beginDrag(mode, e);
         return;
       }
     }, opt);
@@ -1676,7 +1835,7 @@ export class ViewportRenderer {
       'wheel',
       (e) => {
         e.preventDefault();
-        this.applyZoomFactor(1 + e.deltaY * 0.001);
+        this.applyWheelZoom(e.clientX, e.clientY, 1 + e.deltaY * 0.001);
       },
       passiveFalse,
     );
@@ -1798,6 +1957,22 @@ export class ViewportRenderer {
       minDist,
       Math.min(maxDist, this.camera.distance * factor),
     );
+    this.frameMats = null;
+  }
+
+  /** Wheel zoom anchored on the world point under the cursor. */
+  private applyWheelZoom(clientX: number, clientY: number, factor: number): void {
+    if (Math.abs(factor - 1) < 1e-6) return;
+    this.frameMats = null;
+    const anchor = this.unprojectOnViewPlane(clientX, clientY);
+    this.applyZoomFactor(factor);
+    if (!anchor) return;
+    const after = this.unprojectOnViewPlane(clientX, clientY);
+    if (!after) return;
+    this.camera.target[0] += anchor[0] - after[0];
+    this.camera.target[1] += anchor[1] - after[1];
+    this.camera.target[2] += anchor[2] - after[2];
+    this.frameMats = null;
   }
 
   private beginDrag(mode: 'pan' | 'orbit', e: PointerEvent): void {
@@ -1870,6 +2045,11 @@ export class ViewportRenderer {
 
   private buildCameraMatrices(): CameraMatrices {
     this.resize();
+    if (this.viewNavigation === 'plan') {
+      this.camera.yaw = 0;
+      this.camera.pitch = PITCH_LIMIT;
+      this.refreshPlanBubbleGeometry();
+    }
     const aspect = this.canvas.clientWidth / Math.max(1, this.canvas.clientHeight);
     // Depth range follows the view (and a soft scene cap), never the raw grid
     // AABB — kilometre walls used to force enormous near/far and trash precision.
@@ -1986,6 +2166,9 @@ export class ViewportRenderer {
     gl.uniform1i(u.uSelectedCount, this.selectedPickIds.length);
     gl.uniform1f(u.uSelectedPick, this.selectedPickIds[0] ?? 0);
     gl.uniform1i(u.uPickPass, pickPass ? 1 : 0);
+    gl.uniform1i(u.uPlanMode, this.viewNavigation === 'plan' ? 1 : 0);
+    gl.uniform1f(u.uCutY, this.planCutY);
+    gl.uniform1f(u.uCutFade, this.planCutFade);
 
     gl.bindVertexArray(this.vao);
     gl.enable(gl.DEPTH_TEST);
@@ -2051,6 +2234,9 @@ export class ViewportRenderer {
     gl.uniform1i(u.uPickPass, 0);
     gl.uniform1i(u.uSelectionMode, 0);
     gl.uniform1f(u.uOpacity, 0.35);
+    gl.uniform1i(u.uPlanMode, this.viewNavigation === 'plan' ? 1 : 0);
+    gl.uniform1f(u.uCutY, this.planCutY);
+    gl.uniform1f(u.uCutFade, this.planCutFade);
 
     gl.bindVertexArray(this.ghostVao);
     gl.vertexAttrib1f(2, 0);
@@ -2199,7 +2385,12 @@ export class ViewportRenderer {
     this.drawLines(this.gridVao, this.gridCount, [0.44, 0.43, 0.40, 0.38], 0.8);
     this.drawMeshes(false);
     // Outlines at true depth; solids were polygon-offset back.
-    this.drawLines(this.edgeVao, this.edgeCount, [0.08, 0.09, 0.1, 1], 2.0);
+    const plan = this.viewNavigation === 'plan';
+    const edgeWidth = plan ? 3.2 : 2.0;
+    const edgeColor: [number, number, number, number] = plan
+      ? [0.04, 0.05, 0.06, 1]
+      : [0.08, 0.09, 0.1, 1];
+    this.drawLines(this.edgeVao, this.edgeCount, edgeColor, edgeWidth);
     this.drawGhost();
     // Level contours (inactive dim, active brighter) — double-click to activate.
     this.drawLines(this.contourVao, this.contourCount, [0.5, 0.56, 0.64, 0.45], 2.0, true);
@@ -2232,6 +2423,45 @@ export class ViewportRenderer {
     this.drawSnapMarker();
     this.frameMats = null;
   };
+}
+
+/** Scale each grid bubble circle (24 segments) to a target world radius. */
+function rescaleGridBubbleSegments(raw: Float32Array, targetRadius: number): Float32Array {
+  const out = new Float32Array(raw.length);
+  const r = Math.max(targetRadius, 0.05);
+  if (raw.length < GRID_BUBBLE_FLOATS) {
+    return raw.slice();
+  }
+  for (let offset = 0; offset + GRID_BUBBLE_FLOATS <= raw.length; offset += GRID_BUBBLE_FLOATS) {
+    let cx = 0;
+    let cy = 0;
+    let cz = 0;
+    let count = 0;
+    for (let i = offset; i < offset + GRID_BUBBLE_FLOATS; i += 3) {
+      cx += raw[i];
+      cy += raw[i + 1];
+      cz += raw[i + 2];
+      count += 1;
+    }
+    if (count === 0) continue;
+    cx /= count;
+    cy /= count;
+    cz /= count;
+    let avgR = 0;
+    for (let i = offset; i < offset + GRID_BUBBLE_FLOATS; i += 3) {
+      const dx = raw[i] - cx;
+      const dz = raw[i + 2] - cz;
+      avgR += Math.hypot(dx, dz);
+    }
+    avgR /= count;
+    const scale = avgR > 1e-6 ? r / avgR : 1;
+    for (let i = offset; i < offset + GRID_BUBBLE_FLOATS; i += 3) {
+      out[i] = cx + (raw[i] - cx) * scale;
+      out[i + 1] = cy + (raw[i + 1] - cy) * scale;
+      out[i + 2] = cz + (raw[i + 2] - cz) * scale;
+    }
+  }
+  return out;
 }
 
 function invertMat4(m: Float32Array): Float32Array | null {
