@@ -801,8 +801,30 @@ input[type="radio"] {
 .kind-badge.kind-instance,
 .kind-badge.kind-reference,
 .kind-badge.kind-construction_line,
-.kind-badge.kind-section_cut {
+.kind-badge.kind-section_cut,
+.kind-badge.kind-space {
   color: var(--chrome-muted);
+}
+
+.kind-badge.kind-instance:is([data-depth]:not([data-depth='0']) .kind-badge),
+.browser-tree-items li[data-depth]:not([data-depth='0']) .kind-badge.kind-instance {
+  color: var(--chrome-muted);
+  opacity: 0.9;
+}
+
+.browser-tree-items li[data-depth]:not([data-depth='0']) {
+  position: relative;
+}
+
+.browser-tree-items li[data-depth]:not([data-depth='0'])::before {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--chrome-border, #3a3a3a);
+  opacity: 0.55;
 }
 
 /* Domain color for grid axes (viewport overlay uses the same family). */
