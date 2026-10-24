@@ -1,4 +1,5 @@
 import { apexSetElementParent } from '../wasm/apex';
+import { ApexIcons } from './icons';
 import type { Tool } from './Tool';
 
 export const PARENT_TOOL_ID = 'apex.parent';
@@ -19,6 +20,7 @@ export function createParentTool(): Tool {
     id: PARENT_TOOL_ID,
     label: 'Parent',
     group: 'transform',
+    icon: ApexIcons.parent,
     shortcut: 'P',
 
     hint() {
@@ -74,6 +76,7 @@ export function createDetachTool(): Tool {
     id: DETACH_TOOL_ID,
     label: 'Detach',
     group: 'transform',
+    icon: ApexIcons.detach,
 
     hint() {
       return 'Select one element, then click Detach';

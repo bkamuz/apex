@@ -65,11 +65,13 @@ Two consequences worth remembering:
 - Implement a tool by satisfying `Tool` in `apps/web/src/tools/Tool.ts` and registering it from a plugin's `install(host)` or at runtime via the SDK.
 - `ToolContext` is the only bridge to WASM/React — tools hold no React state. Extend `ToolContext` when a new gesture family needs core support (see transform: `getTransformSelection`, `previewTransform`, `commitTransform`; openings: `createElementWithParent`).
 - Toolbar groups: `select` | `transform` | `create` (visual separators). Transform tools (Move `M`, Copy `C`) live in the `transform` group.
-- Create tools may declare `tab: ApexTabs.building` (or another `TOOL_TABS` / `window.apex.tabs` entry). Tabs are data-driven: first tool with a given id creates the chip (first registration wins for label); unknown `{ id, label }` creates a new tab. Catalog is guidance, not an allowlist. Empty tabs are hidden.
+- Create tools may declare `tab: ApexTabs.building` / `ApexTabs.basics` (or another `TOOL_TABS` / `window.apex.tabs` entry). Select/transform stay pinned (no tab). Tabs are data-driven: first tool with a given id creates the chip (first registration wins for label); unknown `{ id, label }` creates a new tab. Catalog is guidance, not an allowlist. Empty tabs are hidden.
+- Optional `icon`: prefer `ApexIcons.*` / `window.apex.icons.*`; custom `{ svg: string }` allowed; omit or unknown name → label-only.
 - Minimal third-party stub: `examples/custom-tool.ts`. Document shape:
 
 ```ts
 import type { Tool } from './apps/web/src/tools/Tool';
+import { ApexIcons } from './apps/web/src/tools/icons';
 import { ApexTabs } from './apps/web/src/tools/tabs';
 
 export const myTool: Tool = {
@@ -78,6 +80,7 @@ export const myTool: Tool = {
   group: 'create',
   // Prefer catalog; custom { id, label } creates a new tab.
   tab: ApexTabs.building,
+  icon: ApexIcons.wall, // or { svg: '…' }; omit for label-only
   shortcut: 'T',
   hint: () => 'Status line while active',
   onClick(e, ctx) { /* use ctx.resolvePoint, ctx.setError, … */ },

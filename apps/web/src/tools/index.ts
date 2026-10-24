@@ -1,4 +1,5 @@
 export type { Tool, ToolContext, ToolGroup, ToolMode, ToolTab, ResolvedToolTab, PointerInfo } from './Tool';
+export type { ToolIcon, ToolIconName } from './icons';
 export type {
   TransformMode,
   TransformOriginal,
@@ -19,3 +20,10 @@ export {
   untabbedCreateTools,
   toolsInGroup,
 } from './tabs';
+export {
+  ApexIcons,
+  TOOL_ICONS,
+  COMPONENT_ICON_BY_ID,
+  catalogIconByName,
+  resolveToolIconSvg,
+} from './icons';

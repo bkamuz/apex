@@ -23,6 +23,10 @@ export const firstPartyPlugins: Plugin[] = [
   movePlugin,
   copyPlugin,
   parentPlugin,
+  // Basics tab tools first so `apex.basics` appears before building constructions.
+  refPointPlugin,
+  refPlanePlugin,
+  gridAxisPlugin,
   wallPlugin,
   componentPlugin('apex.column'),
   componentPlugin('apex.beam'),
@@ -36,8 +40,5 @@ export const firstPartyPlugins: Plugin[] = [
   componentPlugin('apex.pipe'),
   componentPlugin('apex.duct'),
   componentPlugin('apex.cable_tray'),
-  refPointPlugin,
-  refPlanePlugin,
-  gridAxisPlugin,
   exportIfcPlugin,
 ];

@@ -8,6 +8,11 @@ import type { Tool, ToolTab, ResolvedToolTab } from './Tool';
  * the catalog is guidance and stable ids, not an allowlist.
  */
 export const TOOL_TABS = {
+  /** Drafting / reference tools (grid, ref points & planes). Levels stay in the doc row. */
+  basics: {
+    id: 'apex.basics',
+    label: 'Basics',
+  },
   building: {
     id: 'apex.building',
     label: 'Building constructions',

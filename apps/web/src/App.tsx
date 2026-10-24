@@ -1223,7 +1223,7 @@ export default function App() {
   return (
     <div className="app">
       <header className="topbar">
-        <div className="topbar-row">
+        <div className="topbar-doc">
           <div className="brand">APEX</div>
           <div className="file-actions">
             <button
@@ -1288,9 +1288,8 @@ export default function App() {
               }}
             />
           </div>
-          <div className="hint">
-            {tool.hint(pending.length)}
-            {activeLevel ? ` · ${activeLevel.name}` : ''}
+          <div className="topbar-level" data-testid="topbar-level">
+            <em>{activeLevel?.name ?? '—'}</em>
           </div>
         </div>
         <ToolsToolbar
@@ -1302,6 +1301,10 @@ export default function App() {
           onActivateDrawMode={activateDrawMode}
           onSetProjection={setProjectionMode}
         />
+        <div className="topbar-hint" data-testid="topbar-hint">
+          <b>INFO</b>
+          <span>{tool.hint(pending.length)}</span>
+        </div>
       </header>
 
       {!isMobile ? (

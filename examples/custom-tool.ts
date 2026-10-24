@@ -9,15 +9,22 @@
  *   window.apex.registerExporter(exporter)
  *
  * Toolbar tabs: prefer a catalog entry (`window.apex.tabs.building` /
- * `ApexTabs.building`). A custom `{ id, label }` not in the catalog creates a
- * new tab automatically. Omit `label` only for catalog ids — the default label
- * is filled in. Select/transform tools usually omit `tab`.
+ * `ApexTabs.building` / `ApexTabs.basics`). A custom `{ id, label }` not in
+ * the catalog creates a new tab automatically. Omit `label` only for catalog
+ * ids — the default label is filled in. Select/transform tools usually omit
+ * `tab` (always pinned).
+ *
+ * Toolbar icons (optional): prefer a catalog name (`window.apex.icons.wall` /
+ * `ApexIcons.wall`). Pass `{ svg: '<svg>…</svg>' }` (or path markup) for a
+ * custom glyph. Omit `icon` — or use an unknown name — for a label-only
+ * button (never a broken image).
  */
 import type { Tool } from '../apps/web/src/tools/Tool';
+import { ApexIcons } from '../apps/web/src/tools/icons';
 import { ApexTabs } from '../apps/web/src/tools/tabs';
 import type { Exporter } from '../apps/web/src/plugins/types';
 
-/** Example: a no-op tool that only logs clicks. */
+/** Example: a no-op tool that only logs clicks (no icon → label only). */
 export const helloTool: Tool = {
   id: 'acme.hello',
   label: 'Hello',
@@ -30,18 +37,33 @@ export const helloTool: Tool = {
 };
 
 /**
- * Example: join the first-party Building constructions tab via the catalog.
- * Prefer `ApexTabs.building` (or `window.apex.tabs.building`); a custom id
- * creates a new tab.
+ * Example: join the first-party Building constructions tab via the catalog,
+ * with a catalog icon.
  */
 export const planterTool: Tool = {
   id: 'acme.planter-place',
   label: 'Planter place',
   group: 'create',
   tab: ApexTabs.building,
+  icon: ApexIcons.slab,
   hint: () => 'Demo tool on the Building constructions tab',
   onClick(_e, ctx) {
-    ctx.setError('Planter place — prefer ApexTabs; custom { id, label } creates a new tab');
+    ctx.setError('Planter place — prefer ApexTabs / ApexIcons; custom icon via { svg }');
+  },
+};
+
+/** Example: Basics tab + custom inline SVG icon. */
+export const stakeTool: Tool = {
+  id: 'acme.stake',
+  label: 'Stake',
+  group: 'create',
+  tab: ApexTabs.basics,
+  icon: {
+    svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14" width="14" height="14"><path d="M7 2v10M4 11h6" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/></svg>',
+  },
+  hint: () => 'Demo Basics-tab tool with a custom SVG icon',
+  onClick(_e, ctx) {
+    ctx.setError('Custom { svg } icon on ApexTabs.basics');
   },
 };
 
@@ -67,8 +89,9 @@ export const helloExporter: Exporter = {
 
 // In the browser console after the app loads:
 //   import('/examples/custom-tool.ts').then((m) => {
-//     window.apex.registerTool(m.helloTool)
-//     window.apex.registerTool(m.planterTool) // catalog tab
+//     window.apex.registerTool(m.helloTool)   // label-only
+//     window.apex.registerTool(m.planterTool) // catalog tab + icon
+//     window.apex.registerTool(m.stakeTool)   // basics + custom svg
 //     window.apex.registerTool(m.spacesTool)  // custom tab
 //     window.apex.registerExporter(m.helloExporter)
 //   })

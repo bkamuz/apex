@@ -1,6 +1,9 @@
 import type { Vec3 } from '../viewport/ViewportRenderer';
 import type { ComponentDto, PlacementKind, ReferenceKind } from '../types';
+import type { ToolIcon } from './icons';
 import type { TransformMode, TransformOriginal } from './transformTypes';
+
+export type { ToolIcon, ToolIconName } from './icons';
 
 /**
  * Services a tool may use. The app supplies a fresh context per event, so a
@@ -114,10 +117,17 @@ export interface Tool {
   readonly group?: ToolGroup;
   /**
    * When set, the tool's button lives under this tab instead of the flat
-   * create row. Prefer `ApexTabs.building` (or another catalog entry); a custom
-   * `{ id, label }` creates a new tab. Select/transform tools usually omit it.
+   * create row. Prefer `ApexTabs.building` / `ApexTabs.basics` (or another
+   * catalog entry); a custom `{ id, label }` creates a new tab.
+   * Select/transform tools usually omit it (always pinned).
    */
   readonly tab?: ToolTab;
+  /**
+   * Optional toolbar glyph. Prefer a catalog name (`ApexIcons.wall` /
+   * `window.apex.icons.wall`). Pass `{ svg: string }` for a custom glyph.
+   * Omit or use an unknown name → label-only (no broken image).
+   */
+  readonly icon?: ToolIcon;
   /** Letter hotkey shown in the button tooltip, when set. */
   readonly shortcut?: string;
   /** Component this tool places, for placement tools. */

@@ -1,5 +1,6 @@
 import type { ComponentDto, PlacementKind } from '../types';
 import type { Vec3 } from '../viewport/ViewportRenderer';
+import { COMPONENT_ICON_BY_ID, type ToolIcon } from './icons';
 import {
   requiredPoints,
   toolIdForComponent,
@@ -22,6 +23,8 @@ export interface PlacementToolOptions {
   defaultMode?: string;
   /** Prefer `ApexTabs.building`; custom `{ id, label }` creates a new tab. */
   tab?: ToolTab;
+  /** Prefer `ApexIcons.*`; falls back to the component→icon map when omitted. */
+  icon?: ToolIcon;
 }
 
 /**
@@ -67,6 +70,7 @@ export function createPlacementTool(
     label: component.display_name,
     group: 'create',
     tab: options.tab,
+    icon: options.icon ?? COMPONENT_ICON_BY_ID[component.id],
     componentId: component.id,
     modes: modes.length > 0 ? modes : undefined,
     getMode: modes.length > 0 ? () => modeId ?? modes[0].id : undefined,
