@@ -92,6 +92,34 @@ export function createElement(component_id, points_json, rotation, params_json, 
 }
 
 /**
+ * Place a component and attach it to a parent in one undo step (openings).
+ * @param {string} component_id
+ * @param {string} points_json
+ * @param {number} rotation
+ * @param {string} params_json
+ * @param {string} placement_kind
+ * @param {string} parent_id
+ * @returns {any}
+ */
+export function createElementWithParent(component_id, points_json, rotation, params_json, placement_kind, parent_id) {
+    const ptr0 = passStringToWasm0(component_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(points_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passStringToWasm0(params_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ptr3 = passStringToWasm0(placement_kind, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len3 = WASM_VECTOR_LEN;
+    const ptr4 = passStringToWasm0(parent_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len4 = WASM_VECTOR_LEN;
+    const ret = wasm.createElementWithParent(ptr0, len0, ptr1, len1, rotation, ptr2, len2, ptr3, len3, ptr4, len4);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * @param {string} points_json
  * @param {string} params_json
  * @param {number} rotation
@@ -209,6 +237,32 @@ export function effectiveLevelOf(id) {
         wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
     }
     return v2;
+}
+
+/**
+ * IFC4 STEP export. `mapping_json` is an optional `{ componentId: IfcEntity }` object.
+ * @param {string} mapping_json
+ * @returns {string}
+ */
+export function exportIfc(mapping_json) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(mapping_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.exportIfc(ptr0, len0);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
 }
 
 /**

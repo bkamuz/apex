@@ -133,15 +133,31 @@ npm run dev                                # then, in another shell:
 npm run test:smoke                         # Playwright end-to-end
 ```
 
+### Plugin-first extensibility
+
+Every toolbar tool is a plugin (`apps/web/src/plugins/`). New object types are
+`ComponentDefinition` data (params + recipe + optional `placement_options`,
+`host_cut`, `ifc_entity`). File formats register through `registerExporter`.
+Do not add per-type branches in `App.tsx` / `apex-wasm` — extend a seam instead.
+
+```js
+window.apex.defineComponent({ /* … */ });
+window.apex.registerTool(tool);
+window.apex.registerExporter({ id, label, filename, export: () => '…' });
+```
+
+**IFC:** the first-party Export **IFC** button writes IFC4 with tessellated
+meshes; type → entity mapping comes from each definition's `ifc_entity`.
+
 ## Roadmap (not in this MVP)
 
 - Full associativity when a reference moves (dependents follow automatically)
 - A visual component editor, so components can be built without JSON
-- Undo/redo
 - A full CAD constraint solver (the sketch editor is polyline + labeled edge lengths)
-- csgrs / full CSG booleans (blocked on crates.io WASM packaging)
+- csgrs / full CSG booleans (blocked on crates.io WASM packaging; openings use AABB punch)
 - IFC import, Views / Sheets
 - Desktop via Tauri
+- Rotate / mirror / array transforms; richer MEP fittings (tees)
 
 ## License
 

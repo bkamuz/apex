@@ -34,11 +34,17 @@ export function createPlacementTool(
   const modes = options.modes ?? [];
   let modeId = options.defaultMode ?? modes[0]?.id;
   const picks: Vec3[] = [];
+  /** Extra world-Y for free-elevation routes (MEP risers). */
+  let elevationOffset = 0;
+  const freeElevation = component.placement_options?.seat_on_level === false;
 
   const activeKind = (): PlacementKind =>
     modes.find((mode) => mode.id === modeId)?.placement ?? component.placement;
 
   const modeLabel = (): string | undefined => modes.find((mode) => mode.id === modeId)?.label;
+
+  const applyElevation = (point: Vec3): Vec3 =>
+    freeElevation ? [point[0], point[1] + elevationOffset, point[2]] : point;
 
   const reset = (ctx: ToolContext) => {
     picks.length = 0;
@@ -71,25 +77,32 @@ export function createPlacementTool(
     hint(pendingCount) {
       const needed = requiredPoints(activeKind());
       const name = toolName();
+      const elev =
+        freeElevation && elevationOffset !== 0
+          ? ` · elev ${elevationOffset >= 0 ? '+' : ''}${elevationOffset.toFixed(2)}`
+          : freeElevation
+            ? ' · PgUp/PgDn elev'
+            : '';
       if (needed === null) {
         return pendingCount === 0
-          ? `${name}: click to start · double-click to finish`
-          : `${name}: ${pendingCount} picked · double-click to finish`;
+          ? `${name}: click to start · double-click to finish${elev}`
+          : `${name}: ${pendingCount} picked · double-click to finish${elev}`;
       }
       const remaining = needed - pendingCount;
       return remaining <= 0
         ? `${name}: placing…`
-        : `${name}: ${remaining} more click${remaining === 1 ? '' : 's'} · Shift snap · Esc`;
+        : `${name}: ${remaining} more click${remaining === 1 ? '' : 's'} · Shift snap · Esc${elev}`;
     },
 
     onClick(e, ctx) {
       const needed = requiredPoints(activeKind());
       const anchor = picks.length > 0 ? picks[picks.length - 1] : null;
-      const point = ctx.resolvePoint(e.clientX, e.clientY, e.shift, anchor);
-      if (!point) return;
+      const resolved = ctx.resolvePoint(e.clientX, e.clientY, e.shift, anchor);
+      if (!resolved) return;
+      const point = applyElevation(resolved);
 
       // A repeated pick would only produce a degenerate placement.
-      if (anchor && !farEnough(anchor, point)) {
+      if (anchor && !farEnough(anchor, point) && Math.abs(anchor[1] - point[1]) < MIN_PICK_SPACING) {
         ctx.setError(`Pick farther than ${MIN_PICK_SPACING} m from the previous point.`);
         return;
       }
@@ -110,11 +123,12 @@ export function createPlacementTool(
     onPointerMove(e, ctx) {
       const needed = requiredPoints(activeKind());
       const anchor = picks.length > 0 ? picks[picks.length - 1] : null;
-      const point = ctx.resolvePoint(e.clientX, e.clientY, e.shift, anchor);
-      if (!point) {
+      const resolved = ctx.resolvePoint(e.clientX, e.clientY, e.shift, anchor);
+      if (!resolved) {
         ctx.showSnapMarker(null, e.shift);
         return;
       }
+      const point = applyElevation(resolved);
       ctx.showSnapMarker(point, e.shift);
       if (picks.length === 0) return;
 
@@ -133,13 +147,24 @@ export function createPlacementTool(
     cancel(ctx) {
       reset(ctx);
     },
+
+    nudgeElevation: freeElevation
+      ? (delta) => {
+          elevationOffset = Math.round((elevationOffset + delta) * 100) / 100;
+        }
+      : undefined,
   };
 }
 
 /** Finish a variable-length gesture (polyline) on double-click. */
-export function finishOpenGesture(tool: Tool, picks: Vec3[], ctx: ToolContext): boolean {
+export function finishOpenGesture(
+  tool: Tool,
+  picks: Vec3[],
+  ctx: ToolContext,
+  component?: ComponentDto | null,
+): boolean {
   if (!tool.componentId || picks.length < 2) return false;
-  const min = tool.componentId === 'apex.slab' ? 3 : 2;
+  const min = finishMinPoints(component ?? null);
   if (picks.length < min) {
     ctx.setError(`Need at least ${min} points to finish.`);
     return false;
@@ -147,4 +172,12 @@ export function finishOpenGesture(tool: Tool, picks: Vec3[], ctx: ToolContext): 
   ctx.createElement(tool.componentId, picks, tool.placementKind?.());
   tool.cancel?.(ctx);
   return true;
+}
+
+/** Minimum picks for an open gesture, from definition metadata (never by id). */
+export function finishMinPoints(component: ComponentDto | null | undefined): number {
+  const options = component?.placement_options;
+  if (options?.min_points != null) return options.min_points;
+  if (options?.closed) return 3;
+  return 2;
 }

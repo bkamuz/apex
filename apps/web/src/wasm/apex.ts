@@ -1,5 +1,6 @@
 import initWasm, {
   createElement,
+  createElementWithParent,
   createLevel,
   deleteSelected,
   getScene,
@@ -26,6 +27,7 @@ import initWasm, {
   updateElement,
   updateProfileType,
   exportProject,
+  exportIfc,
   importProject,
   newProject,
   undo,
@@ -129,6 +131,30 @@ export function apexCreateElement(
       placementKind ?? '',
     ),
   );
+}
+
+export function apexCreateElementWithParent(
+  componentId: string,
+  points: Vec3[],
+  parentId: string,
+  params?: Record<string, ParamValue>,
+  rotation = 0,
+  placementKind?: PlacementKind,
+): SceneDto {
+  return asScene(
+    createElementWithParent(
+      componentId,
+      encodePoints(points),
+      rotation,
+      encodeParams(params),
+      placementKind ?? '',
+      parentId,
+    ),
+  );
+}
+
+export function apexExportIfc(mapping?: Record<string, string>): string {
+  return exportIfc(mapping ? JSON.stringify(mapping) : '');
 }
 
 export function apexUpdateElement(

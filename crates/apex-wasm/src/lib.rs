@@ -639,6 +639,36 @@ pub fn create_element(
     })
 }
 
+/// Place a component and attach it to a parent in one undo step (openings).
+#[wasm_bindgen(js_name = createElementWithParent)]
+pub fn create_element_with_parent(
+    component_id: &str,
+    points_json: &str,
+    rotation: f32,
+    params_json: &str,
+    placement_kind: &str,
+    parent_id: &str,
+) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let points = points_from_json(points_json)?;
+        let params = parse_params(params_json)?;
+        let kind = parse_placement_kind(placement_kind)?;
+        let placement = project
+            .placement_from_gesture(component_id, kind, &points, rotation)
+            .map_err(err)?;
+        let parent = if parent_id.trim().is_empty() {
+            None
+        } else {
+            Some(element_id(parent_id)?)
+        };
+        let id = project
+            .create_element_with_parent(component_id, placement, params, parent)
+            .map_err(err)?;
+        with_selection(|s| s.set(Some(id)));
+        scene(project)
+    })
+}
+
 /// Patch an element's parameters. Omitted parameters keep their current value.
 #[wasm_bindgen(js_name = updateElement)]
 pub fn update_element(id: &str, params_json: &str) -> Result<JsValue, JsValue> {
@@ -1198,6 +1228,19 @@ pub fn set_level_elevation(id: &str, elevation: f32) -> Result<JsValue, JsValue>
 pub fn export_project() -> Result<String, JsValue> {
     with_project(|project| {
         serde_json::to_string(&project.export_snapshot()).map_err(|e| err(e.to_string()))
+    })
+}
+
+/// IFC4 STEP export. `mapping_json` is an optional `{ componentId: IfcEntity }` object.
+#[wasm_bindgen(js_name = exportIfc)]
+pub fn export_ifc(mapping_json: &str) -> Result<String, JsValue> {
+    with_project(|project| {
+        let mapping: apex_ifc::IfcMapping = if mapping_json.trim().is_empty() {
+            Default::default()
+        } else {
+            parse_json("ifc mapping", mapping_json)?
+        };
+        Ok(apex_ifc::export_ifc4(project, &mapping))
     })
 }
 

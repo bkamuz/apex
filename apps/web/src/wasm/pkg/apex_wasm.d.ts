@@ -29,6 +29,11 @@ export function copySelection(delta_json: string): any;
  */
 export function createElement(component_id: string, points_json: string, rotation: number, params_json: string, placement_kind: string): any;
 
+/**
+ * Place a component and attach it to a parent in one undo step (openings).
+ */
+export function createElementWithParent(component_id: string, points_json: string, rotation: number, params_json: string, placement_kind: string, parent_id: string): any;
+
 export function createGridAxis(points_json: string, params_json: string, rotation: number): any;
 
 export function createLevel(name: string, elevation: number): any;
@@ -53,6 +58,11 @@ export function descendantsOf(id: string): any;
  * The level an element actually sits on, following parent inheritance.
  */
 export function effectiveLevelOf(id: string): string | undefined;
+
+/**
+ * IFC4 STEP export. `mapping_json` is an optional `{ componentId: IfcEntity }` object.
+ */
+export function exportIfc(mapping_json: string): string;
 
 /**
  * JSON snapshot of the document, profiles, and extra components.
@@ -200,6 +210,7 @@ export interface InitOutput {
     readonly childrenOf: (a: number, b: number) => [number, number, number];
     readonly copySelection: (a: number, b: number) => [number, number, number];
     readonly createElement: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
+    readonly createElementWithParent: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number) => [number, number, number];
     readonly createGridAxis: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly createLevel: (a: number, b: number, c: number) => [number, number, number];
     readonly createReference: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
@@ -208,6 +219,7 @@ export interface InitOutput {
     readonly deleteSelectedReference: () => [number, number, number];
     readonly descendantsOf: (a: number, b: number) => [number, number, number];
     readonly effectiveLevelOf: (a: number, b: number) => [number, number, number, number];
+    readonly exportIfc: (a: number, b: number) => [number, number, number, number];
     readonly exportProject: () => [number, number, number, number];
     readonly getScene: () => [number, number, number];
     readonly getSelected: () => [number, number, number];

@@ -9,10 +9,11 @@ use std::collections::BTreeMap;
 use apex_geometry::{Frame, Justification, TriangleMesh};
 use thiserror::Error;
 
+use crate::builders::{pitched_roof, stair_run};
 use crate::component::{
     evaluate_recipe, ComponentDefinition, ComponentSource, DefinitionError, FrameSource,
-    GeometryRecipe, MeshBuilder, ProfileLibrary, ProfileSpec, ProfileType, RecipeContext,
-    RecipeError,
+    GeometryRecipe, HostCutSpec, MeshBuilder, PlacementOptions, ProfileLibrary, ProfileSpec,
+    ProfileType, RecipeContext, RecipeError,
 };
 use crate::element::{ComponentId, Element};
 use crate::expr::Expr;
@@ -61,6 +62,8 @@ impl ComponentRegistry {
     /// A registry preloaded with the shipped components.
     pub fn with_builtins() -> Self {
         let mut registry = Self::new();
+        registry.register_builder("apex.stair.run", Box::new(stair_run));
+        registry.register_builder("apex.roof.pitched", Box::new(pitched_roof));
         for profile in builtin_profiles() {
             registry
                 .upsert_profile(profile)
@@ -374,6 +377,57 @@ fn builtin_profiles() -> Vec<ProfileType> {
             formulas: Default::default(),
             sketch: None,
         },
+        ProfileType {
+            id: "apex.pipe.round".into(),
+            display_name: "Round pipe".into(),
+            category: "mep.pipe".into(),
+            params: vec![
+                ParamSpec::length("diameter", "Diameter", 0.1).as_type(),
+                ParamSpec::length("wall", "Wall", 0.003).as_type(),
+            ],
+            spec: ProfileSpec::HollowCircle {
+                radius: Expr::param("diameter") / Expr::constant(2.0),
+                wall: Expr::param("wall"),
+                segments: 24,
+            },
+            type_values: ParamMap::new(),
+            formulas: Default::default(),
+            sketch: None,
+        },
+        ProfileType {
+            id: "apex.duct.rect".into(),
+            display_name: "Rectangular duct".into(),
+            category: "mep.duct".into(),
+            params: vec![
+                ParamSpec::length("width", "Width", 0.4).as_type(),
+                ParamSpec::length("height", "Height", 0.25).as_type(),
+                ParamSpec::length("wall", "Wall", 0.01).as_type(),
+            ],
+            spec: ProfileSpec::HollowRectangle {
+                width: Expr::param("width"),
+                height: Expr::param("height"),
+                wall: Expr::param("wall"),
+            },
+            type_values: ParamMap::new(),
+            formulas: Default::default(),
+            sketch: None,
+        },
+        ProfileType {
+            id: "apex.tray.rect".into(),
+            display_name: "Cable tray".into(),
+            category: "mep.tray".into(),
+            params: vec![
+                ParamSpec::length("width", "Width", 0.3).as_type(),
+                ParamSpec::length("height", "Height", 0.08).as_type(),
+            ],
+            spec: ProfileSpec::Rectangle {
+                width: Expr::param("width"),
+                height: Expr::param("height"),
+            },
+            type_values: ParamMap::new(),
+            formulas: Default::default(),
+            sketch: None,
+        },
     ]
 }
 
@@ -382,9 +436,24 @@ fn builtin_profiles() -> Vec<ProfileType> {
 /// There is no wall-specific, column-specific or beam-specific geometry code
 /// anywhere: each is a profile plus a sweep or an extrude. Variants of a type
 /// (rectangular vs round column, straight vs arc wall) are a parameter or a
-/// draw mode, not a second type.
+/// draw mode, not a second type. Stairs/roof use registered Custom builders
+/// the same way a module would.
 pub fn builtin_components() -> Vec<ComponentDefinition> {
-    vec![wall(), column(), beam(), slab()]
+    vec![
+        wall(),
+        column(),
+        beam(),
+        slab(),
+        door(),
+        window(),
+        slab_opening(),
+        stair(),
+        roof_flat(),
+        roof_pitched(),
+        pipe(),
+        duct(),
+        cable_tray(),
+    ]
 }
 
 /// A wall is a profile swept along a path, seated on the level.
@@ -398,6 +467,7 @@ fn wall() -> ComponentDefinition {
         category: "wall".to_string(),
         source: ComponentSource::BuiltIn,
         placement: PlacementKind::Path,
+        placement_options: PlacementOptions::default(),
         params: vec![ParamSpec::profile(
             "profile",
             "Profile",
@@ -412,6 +482,9 @@ fn wall() -> ComponentDefinition {
             start_offset: Expr::zero(),
             end_offset: Expr::zero(),
         },
+        host_cut: None,
+        level_height_params: vec!["height".into()],
+        ifc_entity: Some("IfcWall".into()),
     }
 }
 
@@ -424,6 +497,7 @@ fn column() -> ComponentDefinition {
         category: "column".to_string(),
         source: ComponentSource::BuiltIn,
         placement: PlacementKind::Point,
+        placement_options: PlacementOptions::default(),
         params: vec![
             ParamSpec::profile("profile", "Profile", "apex.rect", &[]),
             ParamSpec::length("height", "Height", 3.0),
@@ -439,6 +513,9 @@ fn column() -> ComponentDefinition {
             },
             height: Expr::param("height"),
         },
+        host_cut: None,
+        level_height_params: vec!["height".into()],
+        ifc_entity: Some("IfcColumn".into()),
     }
 }
 
@@ -450,6 +527,7 @@ fn beam() -> ComponentDefinition {
         category: "beam".to_string(),
         source: ComponentSource::BuiltIn,
         placement: PlacementKind::TwoPoint,
+        placement_options: PlacementOptions::default(),
         params: vec![ParamSpec::profile(
             "profile",
             "Profile",
@@ -464,6 +542,9 @@ fn beam() -> ComponentDefinition {
             start_offset: Expr::zero(),
             end_offset: Expr::zero(),
         },
+        host_cut: None,
+        level_height_params: vec![],
+        ifc_entity: Some("IfcBeam".into()),
     }
 }
 
@@ -475,12 +556,240 @@ fn slab() -> ComponentDefinition {
         category: "slab".to_string(),
         source: ComponentSource::BuiltIn,
         placement: PlacementKind::Polyline,
+        placement_options: PlacementOptions::closed_boundary(),
         params: vec![ParamSpec::length("thickness", "Thickness", 0.2)],
         recipe: GeometryRecipe::Extrude {
             profile: ProfileSpec::FromPlacement,
             frame: FrameSource::WorkPlane,
             height: Expr::param("thickness"),
         },
+        host_cut: None,
+        level_height_params: vec![],
+        ifc_entity: Some("IfcSlab".into()),
+    }
+}
+
+fn door() -> ComponentDefinition {
+    ComponentDefinition {
+        id: "apex.door".to_string(),
+        display_name: "Door".to_string(),
+        category: "opening".to_string(),
+        source: ComponentSource::BuiltIn,
+        placement: PlacementKind::Point,
+        placement_options: PlacementOptions::default(),
+        params: vec![
+            ParamSpec::length("width", "Width", 0.9),
+            ParamSpec::length("height", "Height", 2.1),
+            ParamSpec::length("sill", "Sill", 0.0).with_range(Some(0.0), None),
+            ParamSpec::length("thickness", "Thickness", 0.05),
+        ],
+        recipe: GeometryRecipe::Extrude {
+            profile: ProfileSpec::Rectangle {
+                width: Expr::param("width"),
+                height: Expr::param("thickness"),
+            },
+            frame: FrameSource::WorkPlane,
+            height: Expr::param("height"),
+        },
+        host_cut: Some(HostCutSpec {
+            host_categories: vec!["wall".into()],
+        }),
+        level_height_params: vec![],
+        ifc_entity: Some("IfcDoor".into()),
+    }
+}
+
+fn window() -> ComponentDefinition {
+    ComponentDefinition {
+        id: "apex.window".to_string(),
+        display_name: "Window".to_string(),
+        category: "opening".to_string(),
+        source: ComponentSource::BuiltIn,
+        placement: PlacementKind::Point,
+        placement_options: PlacementOptions::default(),
+        params: vec![
+            ParamSpec::length("width", "Width", 1.2),
+            ParamSpec::length("height", "Height", 1.4),
+            ParamSpec::length("sill", "Sill", 0.9).with_range(Some(0.0), None),
+            ParamSpec::length("thickness", "Thickness", 0.05),
+        ],
+        recipe: GeometryRecipe::Extrude {
+            profile: ProfileSpec::Rectangle {
+                width: Expr::param("width"),
+                height: Expr::param("thickness"),
+            },
+            frame: FrameSource::WorkPlane,
+            height: Expr::param("height"),
+        },
+        host_cut: Some(HostCutSpec {
+            host_categories: vec!["wall".into()],
+        }),
+        level_height_params: vec![],
+        ifc_entity: Some("IfcWindow".into()),
+    }
+}
+
+fn slab_opening() -> ComponentDefinition {
+    ComponentDefinition {
+        id: "apex.slab_opening".to_string(),
+        display_name: "Slab opening".to_string(),
+        category: "opening".to_string(),
+        source: ComponentSource::BuiltIn,
+        placement: PlacementKind::Polyline,
+        placement_options: PlacementOptions::closed_boundary(),
+        params: vec![ParamSpec::length("depth", "Depth", 0.5)],
+        recipe: GeometryRecipe::Extrude {
+            profile: ProfileSpec::FromPlacement,
+            frame: FrameSource::WorkPlane,
+            height: Expr::param("depth"),
+        },
+        host_cut: Some(HostCutSpec {
+            host_categories: vec!["slab".into()],
+        }),
+        level_height_params: vec![],
+        ifc_entity: Some("IfcOpeningElement".into()),
+    }
+}
+
+fn stair() -> ComponentDefinition {
+    ComponentDefinition {
+        id: "apex.stair".to_string(),
+        display_name: "Stair".to_string(),
+        category: "stair".to_string(),
+        source: ComponentSource::BuiltIn,
+        placement: PlacementKind::TwoPoint,
+        placement_options: PlacementOptions::default(),
+        params: vec![
+            ParamSpec::length("width", "Width", 1.0),
+            ParamSpec::length("riser", "Riser", 0.17),
+            ParamSpec::length("tread", "Tread", 0.28),
+        ],
+        recipe: GeometryRecipe::Custom {
+            builder_id: "apex.stair.run".into(),
+        },
+        host_cut: None,
+        level_height_params: vec![],
+        ifc_entity: Some("IfcStair".into()),
+    }
+}
+
+fn roof_flat() -> ComponentDefinition {
+    ComponentDefinition {
+        id: "apex.roof".to_string(),
+        display_name: "Roof".to_string(),
+        category: "roof".to_string(),
+        source: ComponentSource::BuiltIn,
+        placement: PlacementKind::Polyline,
+        placement_options: PlacementOptions::closed_boundary(),
+        params: vec![ParamSpec::length("thickness", "Thickness", 0.2)],
+        recipe: GeometryRecipe::Extrude {
+            profile: ProfileSpec::FromPlacement,
+            frame: FrameSource::WorkPlane,
+            height: Expr::param("thickness"),
+        },
+        host_cut: None,
+        level_height_params: vec![],
+        ifc_entity: Some("IfcRoof".into()),
+    }
+}
+
+fn roof_pitched() -> ComponentDefinition {
+    ComponentDefinition {
+        id: "apex.roof.pitched".to_string(),
+        display_name: "Pitched roof".to_string(),
+        category: "roof".to_string(),
+        source: ComponentSource::BuiltIn,
+        placement: PlacementKind::TwoPoint,
+        placement_options: PlacementOptions::default(),
+        params: vec![
+            ParamSpec::length("width", "Width", 8.0),
+            ParamSpec::length("rise", "Rise", 1.8),
+            ParamSpec::length("thickness", "Thickness", 0.15),
+        ],
+        recipe: GeometryRecipe::Custom {
+            builder_id: "apex.roof.pitched".into(),
+        },
+        host_cut: None,
+        level_height_params: vec![],
+        ifc_entity: Some("IfcRoof".into()),
+    }
+}
+
+fn pipe() -> ComponentDefinition {
+    ComponentDefinition {
+        id: "apex.pipe".to_string(),
+        display_name: "Pipe".to_string(),
+        category: "mep.pipe".to_string(),
+        source: ComponentSource::BuiltIn,
+        placement: PlacementKind::Path,
+        placement_options: PlacementOptions::free_elevation(),
+        params: vec![
+            ParamSpec::profile("profile", "Profile", "apex.pipe.round", &[]),
+            ParamSpec::text("system", "System", "P-1"),
+        ],
+        recipe: GeometryRecipe::Sweep {
+            profile: ProfileSpec::FromParam {
+                param: "profile".into(),
+            },
+            justification: Justification::Center,
+            start_offset: Expr::zero(),
+            end_offset: Expr::zero(),
+        },
+        host_cut: None,
+        level_height_params: vec![],
+        ifc_entity: Some("IfcFlowSegment".into()),
+    }
+}
+
+fn duct() -> ComponentDefinition {
+    ComponentDefinition {
+        id: "apex.duct".to_string(),
+        display_name: "Duct".to_string(),
+        category: "mep.duct".to_string(),
+        source: ComponentSource::BuiltIn,
+        placement: PlacementKind::Path,
+        placement_options: PlacementOptions::free_elevation(),
+        params: vec![
+            ParamSpec::profile("profile", "Profile", "apex.duct.rect", &[]),
+            ParamSpec::text("system", "System", "S-1"),
+        ],
+        recipe: GeometryRecipe::Sweep {
+            profile: ProfileSpec::FromParam {
+                param: "profile".into(),
+            },
+            justification: Justification::Center,
+            start_offset: Expr::zero(),
+            end_offset: Expr::zero(),
+        },
+        host_cut: None,
+        level_height_params: vec![],
+        ifc_entity: Some("IfcFlowSegment".into()),
+    }
+}
+
+fn cable_tray() -> ComponentDefinition {
+    ComponentDefinition {
+        id: "apex.cable_tray".to_string(),
+        display_name: "Cable tray".to_string(),
+        category: "mep.tray".to_string(),
+        source: ComponentSource::BuiltIn,
+        placement: PlacementKind::Path,
+        placement_options: PlacementOptions::free_elevation(),
+        params: vec![
+            ParamSpec::profile("profile", "Profile", "apex.tray.rect", &[]),
+            ParamSpec::text("system", "System", "E-1"),
+        ],
+        recipe: GeometryRecipe::Sweep {
+            profile: ProfileSpec::FromParam {
+                param: "profile".into(),
+            },
+            justification: Justification::Center,
+            start_offset: Expr::zero(),
+            end_offset: Expr::zero(),
+        },
+        host_cut: None,
+        level_height_params: vec![],
+        ifc_entity: Some("IfcCableCarrierSegment".into()),
     }
 }
 
@@ -504,7 +813,7 @@ mod tests {
     #[test]
     fn every_builtin_validates_and_registers() {
         let registry = ComponentRegistry::with_builtins();
-        assert_eq!(registry.len(), 4);
+        assert_eq!(registry.len(), builtin_components().len());
         for id in ["apex.wall", "apex.column", "apex.beam", "apex.slab"] {
             let def = registry.get(id).unwrap_or_else(|| panic!("missing {id}"));
             assert_eq!(def.source, ComponentSource::BuiltIn);
@@ -874,6 +1183,10 @@ mod tests {
             category: "generic".into(),
             source: ComponentSource::Visual,
             placement: PlacementKind::Point,
+            placement_options: PlacementOptions::default(),
+            host_cut: None,
+            level_height_params: vec![],
+            ifc_entity: None,
             params: vec![],
             recipe: GeometryRecipe::Extrude {
                 profile: ProfileSpec::Circle {
@@ -905,6 +1218,10 @@ mod tests {
                 id: "acme.furniture".into(),
             },
             placement: PlacementKind::Point,
+            placement_options: PlacementOptions::default(),
+            host_cut: None,
+            level_height_params: vec![],
+            ifc_entity: None,
             params: vec![
                 ParamSpec::length("radius", "Radius", 0.6),
                 ParamSpec::length("thickness", "Top thickness", 0.05),
@@ -932,7 +1249,7 @@ mod tests {
         let size = size_of(&mesh);
         assert!((size[0] - 1.2).abs() < 1e-2, "diameter {}", size[0]);
         assert!((size[1] - 0.05).abs() < EPS);
-        assert_eq!(registry.len(), 5);
+        assert_eq!(registry.len(), builtin_components().len() + 1);
     }
 
     #[test]
@@ -1000,6 +1317,10 @@ mod tests {
                 category: "annotation".into(),
                 source: ComponentSource::Module { id: "acme".into() },
                 placement: PlacementKind::Point,
+                placement_options: PlacementOptions::default(),
+                host_cut: None,
+                level_height_params: vec![],
+                ifc_entity: None,
                 params: vec![],
                 recipe: GeometryRecipe::Custom {
                     builder_id: "acme.marker".into(),

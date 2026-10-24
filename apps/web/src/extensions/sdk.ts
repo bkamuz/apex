@@ -1,10 +1,12 @@
 import { apexListComponents, apexRegisterComponent } from '../wasm/apex';
 import { createPlacementTool } from '../tools/placementTool';
 import type { Tool } from '../tools/Tool';
+import type { Exporter } from '../plugins/types';
 
 /** Re-export the tool surface third-party modules implement. */
 export type { Tool, ToolContext, ToolGroup, ToolMode } from '../tools/Tool';
 export type { TransformOriginal, TransformMode } from '../tools/transformTypes';
+export type { Exporter } from '../plugins/types';
 
 type Listener = () => void;
 
@@ -12,11 +14,13 @@ type Listener = () => void;
  * Runtime extension surface for modules.
  *
  * A module is a plugin: it installs a component (data the core validates) and
- * a default placement tool. `registerTool` is for a genuinely new gesture.
+ * a default placement tool. `registerTool` / `registerExporter` are for
+ * gestures and formats the generated helpers cannot express.
  */
 class ExtensionHost {
   private listeners = new Set<Listener>();
   private tools: Tool[] = [];
+  private exporters: Exporter[] = [];
 
   /** Install a component and give it a placement tool, like a first-party plugin. */
   defineComponent(definition: unknown): void {
@@ -38,8 +42,25 @@ class ExtensionHost {
     this.emit();
   }
 
+  registerExporter(exporter: Exporter): void {
+    this.exporters = [
+      ...this.exporters.filter((item) => item.id !== exporter.id),
+      exporter,
+    ];
+    this.emit();
+  }
+
   customTools(): Tool[] {
     return this.tools;
+  }
+
+  customExporters(): Exporter[] {
+    return this.exporters;
+  }
+
+  /** Tell the app to re-sync the component catalog after a host.registerComponent. */
+  notifyCatalogChanged(): void {
+    this.emit();
   }
 
   subscribe(listener: Listener): () => void {
@@ -63,6 +84,7 @@ export const extensions = new ExtensionHost();
 export interface ApexGlobal {
   defineComponent(definition: unknown): void;
   registerTool(tool: Tool): void;
+  registerExporter(exporter: Exporter): void;
 }
 
 declare global {
@@ -76,5 +98,6 @@ export function installGlobalSdk(): void {
   window.apex = {
     defineComponent: (definition) => extensions.defineComponent(definition),
     registerTool: (tool) => extensions.registerTool(tool),
+    registerExporter: (exporter) => extensions.registerExporter(exporter),
   };
 }
