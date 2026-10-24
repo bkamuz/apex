@@ -1,12 +1,16 @@
 import type { ComponentDto } from '../types';
 import type { Vec3 } from '../viewport/ViewportRenderer';
-import { toolIdForComponent, type Tool, type ToolContext } from './Tool';
+import { toolIdForComponent, type Tool, type ToolContext, type ToolTab } from './Tool';
+import { ApexTabs } from './tabs';
 
 /**
  * Place an opening on a host element: first click picks the host, second click
  * places the opening and parents it so the host-cut seam punches a void.
  */
-export function createHostedPlacementTool(component: ComponentDto): Tool {
+export function createHostedPlacementTool(
+  component: ComponentDto,
+  tab: ToolTab = ApexTabs.building,
+): Tool {
   let hostId: string | null = null;
   let hostPoint: Vec3 | null = null;
 
@@ -23,6 +27,7 @@ export function createHostedPlacementTool(component: ComponentDto): Tool {
     id: toolIdForComponent(component),
     label: component.display_name,
     group: 'create',
+    tab,
     componentId: component.id,
     placementKind: () => 'point',
 

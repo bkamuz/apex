@@ -71,6 +71,26 @@ export interface ToolContext {
 /** Toolbar clusters: select, transform (move/copy/…), then create tools. */
 export type ToolGroup = 'select' | 'transform' | 'create';
 
+/**
+ * Toolbar tab a tool may declare.
+ *
+ * Prefer a catalog entry from `ApexTabs` / `TOOL_TABS` (stable id + default
+ * label). `label` may be omitted when `id` is in the catalog — the catalog
+ * default is used. A custom id not in the catalog creates a new tab; supply a
+ * label (otherwise the id is shown). First registration wins for the resolved
+ * label when several tools share an id. Empty tabs are never shown.
+ */
+export interface ToolTab {
+  id: string;
+  label?: string;
+}
+
+/** Tab after catalog / fallback resolution (always has a display label). */
+export interface ResolvedToolTab {
+  id: string;
+  label: string;
+}
+
 /** A drawable sub-mode of a create tool (e.g. wall line / arc / polyline). */
 export interface ToolMode {
   id: string;
@@ -90,6 +110,12 @@ export interface Tool {
   readonly label: string;
   /** Toolbar cluster. Select and transform sit before create tools. */
   readonly group?: ToolGroup;
+  /**
+   * When set, the tool's button lives under this tab instead of the flat
+   * create row. Prefer `ApexTabs.building` (or another catalog entry); a custom
+   * `{ id, label }` creates a new tab. Select/transform tools usually omit it.
+   */
+  readonly tab?: ToolTab;
   /** Letter hotkey shown in the button tooltip, when set. */
   readonly shortcut?: string;
   /** Component this tool places, for placement tools. */

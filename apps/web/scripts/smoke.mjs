@@ -75,8 +75,13 @@ const toolbarNames = () =>
 
 // --- 1. Each first-party tool is a plugin; wall and column are one tool -----
 console.log('\n[1] toolbar from plugins, one tool per type');
+const buildingTab = page.getByTestId('tools-tab-apex.building');
+check('Building constructions tab exists', (await buildingTab.count()) === 1);
+await buildingTab.click();
+await page.waitForTimeout(80);
 const tools = await toolbarNames();
 console.log('  toolbar:', tools.join(' | '));
+check('Building constructions tab label', tools.includes('Building constructions'));
 for (const expected of [
   'Select',
   'Move',

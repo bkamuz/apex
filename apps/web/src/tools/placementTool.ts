@@ -6,6 +6,7 @@ import {
   type Tool,
   type ToolContext,
   type ToolMode,
+  type ToolTab,
 } from './Tool';
 
 /** Below this the picks are effectively the same spot and the core will reject them. */
@@ -19,6 +20,8 @@ export interface PlacementToolOptions {
   /** Drawable modes. When set, the tool is one toolbar button with a switcher. */
   modes?: ToolMode[];
   defaultMode?: string;
+  /** Prefer `ApexTabs.building`; custom `{ id, label }` creates a new tab. */
+  tab?: ToolTab;
 }
 
 /**
@@ -63,6 +66,7 @@ export function createPlacementTool(
     id: toolIdForComponent(component),
     label: component.display_name,
     group: 'create',
+    tab: options.tab,
     componentId: component.id,
     modes: modes.length > 0 ? modes : undefined,
     getMode: modes.length > 0 ? () => modeId ?? modes[0].id : undefined,
