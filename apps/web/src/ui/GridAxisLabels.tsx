@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import type { GridAxisDto } from '../types';
+import type { GridAxisDto, SpaceDto } from '../types';
 import type { ViewportRenderer } from '../viewport/ViewportRenderer';
 
 interface LabelPos {
@@ -7,15 +7,17 @@ interface LabelPos {
   text: string;
   left: number;
   top: number;
+  kind: 'grid' | 'space';
 }
 
 interface Props {
   axes: GridAxisDto[];
+  spaces?: SpaceDto[];
   renderer: ViewportRenderer | null;
 }
 
-/** Screen-space labels for grid axis bubbles (simple text until a full 2D annotation system exists). */
-export function GridAxisLabels({ axes, renderer }: Props) {
+/** Screen-space labels for grid bubbles and space centroids. */
+export function GridAxisLabels({ axes, spaces = [], renderer }: Props) {
   const [labels, setLabels] = useState<LabelPos[]>([]);
 
   useEffect(() => {
@@ -35,6 +37,20 @@ export function GridAxisLabels({ axes, renderer }: Props) {
             text: label.text,
             left: screen[0],
             top: screen[1],
+            kind: 'grid',
+          });
+        }
+      }
+      for (const space of spaces) {
+        for (const label of space.labels ?? []) {
+          const screen = renderer.worldToClient(label.position);
+          if (!screen) continue;
+          next.push({
+            key: `space:${space.id}:${label.text}:${label.position.join(',')}`,
+            text: label.text,
+            left: screen[0],
+            top: screen[1],
+            kind: 'space',
           });
         }
       }
@@ -43,7 +59,7 @@ export function GridAxisLabels({ axes, renderer }: Props) {
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [axes, renderer]);
+  }, [axes, spaces, renderer]);
 
   if (labels.length === 0) return null;
 
@@ -52,7 +68,7 @@ export function GridAxisLabels({ axes, renderer }: Props) {
       {labels.map((label) => (
         <div
           key={label.key}
-          className="grid-axis-label"
+          className={label.kind === 'space' ? 'space-label' : 'grid-axis-label'}
           style={{ left: label.left, top: label.top }}
         >
           {label.text}

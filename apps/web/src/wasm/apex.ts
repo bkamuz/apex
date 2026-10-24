@@ -57,6 +57,12 @@ import initWasm, {
   setSectionCutPlacement,
   updateSectionCut,
   deleteSelectedSectionCut,
+  createSpace,
+  selectSpace,
+  getSelectedSpace,
+  setSpacePlacement,
+  updateSpace,
+  deleteSelectedSpace,
   getSelectedElements,
   translateSelection,
   copySelection,
@@ -75,6 +81,7 @@ import type {
   ReferenceKind,
   SceneDto,
   SectionCutDto,
+  SpaceDto,
   Vec3,
 } from '../types';
 
@@ -430,6 +437,37 @@ export function apexUpdateSectionCut(id: string, params: Record<string, ParamVal
 
 export function apexDeleteSelectedSectionCut(): SceneDto {
   return asScene(deleteSelectedSectionCut());
+}
+
+export function apexCreateSpace(points: Vec3[], params?: Record<string, ParamValue>): SceneDto {
+  return asScene(createSpace(encodePoints(points), encodeParams(params), 0));
+}
+
+export function apexSelectSpace(id: string | null): SceneDto {
+  return asScene(selectSpace(id ?? ''));
+}
+
+export function apexGetSelectedSpace(): SpaceDto | null {
+  const value = getSelectedSpace();
+  if (value === null || value === undefined) return null;
+  return value as SpaceDto;
+}
+
+export function apexSetSpacePlacement(
+  id: string,
+  points: Vec3[],
+  rotation = 0,
+  recordHistory = true,
+): SceneDto {
+  return asScene(setSpacePlacement(id, encodePoints(points), rotation, recordHistory));
+}
+
+export function apexUpdateSpace(id: string, params: Record<string, ParamValue>): SceneDto {
+  return asScene(updateSpace(id, encodeParams(params)));
+}
+
+export function apexDeleteSelectedSpace(): SceneDto {
+  return asScene(deleteSelectedSpace());
 }
 
 export function apexGetSelectedElements(): ElementDto[] {

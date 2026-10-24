@@ -10,6 +10,7 @@ import type {
   ProfileTypeDto,
   ReferenceDto,
   SectionCutDto,
+  SpaceDto,
 } from '../types';
 import {
   applyProfileChange,
@@ -27,6 +28,7 @@ interface Props {
   selectedGridAxis: GridAxisDto | null;
   selectedConstructionLine: ConstructionLineDto | null;
   selectedSectionCut: SectionCutDto | null;
+  selectedSpace: SpaceDto | null;
   /** Definition of the selected element's component, which supplies the schema. */
   component: ComponentDto | null;
   profiles: ProfileTypeDto[];
@@ -38,6 +40,7 @@ interface Props {
   onUpdateGridAxis: (params: Record<string, ParamValue>) => void;
   onUpdateConstructionLine: (params: Record<string, ParamValue>) => void;
   onUpdateSectionCut: (params: Record<string, ParamValue>) => void;
+  onUpdateSpace: (params: Record<string, ParamValue>) => void;
   onPlacementChange: (params: Record<string, ParamValue>) => void;
   onEditType: (profileId: string) => void;
   onNewProfile: (category: string) => void;
@@ -46,6 +49,7 @@ interface Props {
   onDeleteGridAxis: () => void;
   onDeleteConstructionLine: () => void;
   onDeleteSectionCut: () => void;
+  onDeleteSpace: () => void;
 }
 
 function stepFor(spec: ParamSpecDto): number {
@@ -288,6 +292,7 @@ export function PropertiesPanel({
   selectedGridAxis,
   selectedConstructionLine,
   selectedSectionCut,
+  selectedSpace,
   component,
   profiles,
   references,
@@ -297,6 +302,7 @@ export function PropertiesPanel({
   onUpdateGridAxis,
   onUpdateConstructionLine,
   onUpdateSectionCut,
+  onUpdateSpace,
   onPlacementChange,
   onEditType,
   onNewProfile,
@@ -305,11 +311,13 @@ export function PropertiesPanel({
   onDeleteGridAxis,
   onDeleteConstructionLine,
   onDeleteSectionCut,
+  onDeleteSpace,
 }: Props) {
   const [draft, setDraft] = useState<Record<string, ParamValue>>({});
   const [gridDraft, setGridDraft] = useState<Record<string, ParamValue>>({});
   const [lineDraft, setLineDraft] = useState<Record<string, ParamValue>>({});
   const [cutDraft, setCutDraft] = useState<Record<string, ParamValue>>({});
+  const [spaceDraft, setSpaceDraft] = useState<Record<string, ParamValue>>({});
   const [elevation, setElevation] = useState(0);
 
   useEffect(() => {
@@ -327,6 +335,10 @@ export function PropertiesPanel({
   useEffect(() => {
     setCutDraft(selectedSectionCut ? { ...selectedSectionCut.params } : {});
   }, [selectedSectionCut]);
+
+  useEffect(() => {
+    setSpaceDraft(selectedSpace ? { ...selectedSpace.params } : {});
+  }, [selectedSpace]);
 
   useEffect(() => {
     if (!selectedLevel) return;
@@ -474,6 +486,41 @@ export function PropertiesPanel({
           />
         </div>
         <button type="button" className="danger" onClick={onDeleteSectionCut}>
+          Delete
+        </button>
+      </div>
+    );
+  }
+
+  if (selectedSpace) {
+    const applySpace = (patch: Record<string, ParamValue> = {}) => {
+      const next = { ...spaceDraft, ...patch };
+      setSpaceDraft(next);
+      onUpdateSpace(next);
+    };
+    return (
+      <div className="inspector-body shell-scroll">
+        <div className="field">
+          <label>Name</label>
+          <div>{selectedSpace.name}</div>
+        </div>
+        <div className="field">
+          <label>Type</label>
+          <div>Space</div>
+        </div>
+        <div className="inspector-section" data-section="instance">
+          <div className="section-title">This space</div>
+          <SchemaFields
+            specs={selectedSpace.param_specs}
+            values={spaceDraft}
+            profiles={profiles}
+            references={references}
+            live
+            onDraft={(id, value) => setSpaceDraft((prev) => ({ ...prev, [id]: value }))}
+            onCommit={(patch) => applySpace(patch)}
+          />
+        </div>
+        <button type="button" className="danger" onClick={onDeleteSpace}>
           Delete
         </button>
       </div>

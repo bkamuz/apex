@@ -6,7 +6,8 @@ export type TransformTargetKind =
   | 'reference'
   | 'grid_axis'
   | 'construction_line'
-  | 'section_cut';
+  | 'section_cut'
+  | 'space';
 
 /** Placement anchors captured before a transform gesture begins. */
 export interface TransformOriginal {

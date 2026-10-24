@@ -31,6 +31,8 @@ export interface ToolContext {
   createConstructionLine(points: Vec3[]): void;
   /** Commit picks as a new section-cut MVP. */
   createSectionCut(points: Vec3[]): void;
+  /** Commit picks as a closed plan space (≥3 points). */
+  createSpace(points: Vec3[]): void;
   /** Add a level +3 m above the highest (same rise as LevelList). */
   createLevel(): void;
   /** Ghost geometry, built by the same recipe the committed element will use. */
@@ -124,8 +126,8 @@ export interface Tool {
   /**
    * When set, the tool's button lives under this tab instead of the flat
    * create row. Prefer `ApexTabs.building` / `ApexTabs.basics` /
-   * `ApexTabs.engineering` (or another catalog entry); a custom
-   * `{ id, label }` creates a new tab.
+   * `ApexTabs.engineering` / `ApexTabs.spaces` (or another catalog
+   * entry); a custom `{ id, label }` creates a new tab.
    * Select/transform tools usually omit it (always pinned).
    */
   readonly tab?: ToolTab;
@@ -154,6 +156,11 @@ export interface Tool {
   onPointerUp?(e: PointerInfo, ctx: ToolContext): void;
   /** Escape, tool switch, or anything else that abandons the gesture. */
   cancel?(ctx: ToolContext): void;
+  /**
+   * Finish a variable-length gesture (polyline) on Enter / double-click.
+   * Return true when the finish was handled (even if rejected for too few picks).
+   */
+  finishGesture?(picks: Vec3[], ctx: ToolContext): boolean;
   /** Adjust pick elevation for free-elevation path tools (MEP). */
   nudgeElevation?(delta: number): void;
 }

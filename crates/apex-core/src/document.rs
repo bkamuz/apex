@@ -9,6 +9,7 @@ use crate::grid_axis::{GridAxis, GridAxisId, GridAxisLibrary};
 use crate::level::{Level, LevelId};
 use crate::reference::{RefId, Reference, ReferenceLibrary};
 use crate::section_cut::{SectionCut, SectionCutId, SectionCutLibrary};
+use crate::space::{Space, SpaceId, SpaceLibrary};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -21,6 +22,7 @@ pub enum DocumentChangeKind {
     GridAxisChanged,
     ConstructionLineChanged,
     SectionCutChanged,
+    SpaceChanged,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -40,6 +42,7 @@ pub struct Document {
     grid_axes: GridAxisLibrary,
     construction_lines: ConstructionLineLibrary,
     section_cuts: SectionCutLibrary,
+    spaces: SpaceLibrary,
     version: u64,
     /// Level used for new placements (active work plane).
     active_level: Option<LevelId>,
@@ -364,6 +367,25 @@ impl Document {
         Some(self.bump(DocumentChangeKind::SectionCutChanged, vec![]))
     }
 
+    pub fn spaces(&self) -> impl Iterator<Item = &Space> {
+        self.spaces.values()
+    }
+
+    pub fn get_space(&self, id: SpaceId) -> Option<&Space> {
+        self.spaces.get(&id)
+    }
+
+    pub fn upsert_space(&mut self, space: Space) -> DocumentChange {
+        let id = space.id;
+        self.spaces.insert(id, space);
+        self.bump(DocumentChangeKind::SpaceChanged, vec![])
+    }
+
+    pub fn remove_space(&mut self, id: SpaceId) -> Option<DocumentChange> {
+        self.spaces.remove(&id)?;
+        Some(self.bump(DocumentChangeKind::SpaceChanged, vec![]))
+    }
+
     pub fn upsert_element(&mut self, element: Element, mesh: TriangleMesh) -> DocumentChange {
         let id = element.id;
         self.elements.insert(id, element);
@@ -427,6 +449,7 @@ impl Document {
         grid_axes: Vec<GridAxis>,
         construction_lines: Vec<ConstructionLine>,
         section_cuts: Vec<SectionCut>,
+        spaces: Vec<Space>,
     ) {
         if levels.is_empty() {
             levels.push(Level::new("Level 0", 0.0));
@@ -446,6 +469,7 @@ impl Document {
             .map(|line| (line.id, line))
             .collect();
         self.section_cuts = section_cuts.into_iter().map(|cut| (cut.id, cut)).collect();
+        self.spaces = spaces.into_iter().map(|space| (space.id, space)).collect();
         self.meshes.clear();
         self.active_level = active_level.filter(|id| self.levels.contains_key(id));
         if self.active_level.is_none() {

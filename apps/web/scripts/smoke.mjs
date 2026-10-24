@@ -95,6 +95,9 @@ check(
 );
 check('Engineering tab exists', (await engineeringTab.count()) === 1);
 check('Engineering tab label', ((await engineeringTab.textContent()) ?? '').trim() === 'Engineering');
+const spacesTab = page.getByTestId('tools-tab-apex.spaces');
+check('Spaces tab exists', (await spacesTab.count()) === 1);
+check('Spaces tab label', ((await spacesTab.textContent()) ?? '').trim() === 'Spaces');
 
 await buildingTab.click();
 await page.waitForTimeout(80);
@@ -300,6 +303,34 @@ check('section cut auto-selected', await isTreeItemSelected('section_cut', 0));
 await page.getByTestId('browser-filter-annotations').click({ force: true });
 check('annotations filter lists lines/cuts', (await clineCount()) + (await cutCount()) >= 2);
 await page.getByTestId('browser-filter-all').click({ force: true });
+
+// --- 3e. Spaces tab + closed polyline space --------------------------------
+console.log('\n[3e] Spaces: place closed space');
+await spacesTab.click();
+await page.waitForTimeout(80);
+const spacesTools = await toolbarNames();
+console.log('  spaces toolbar:', spacesTools.join(' | '));
+check('"Space" on Spaces tab', spacesTools.includes('Space'));
+check('Wall is not on Spaces tab', !spacesTools.includes('Wall'));
+const spaceCount = () => page.locator('[data-kind="space"]').count();
+await useTool('Space');
+await clickCanvas(0.30, 0.40);
+await clickCanvas(0.48, 0.40);
+await clickCanvas(0.48, 0.55);
+await clickCanvas(0.30, 0.55);
+await canvas.dblclick({ position: { x: box.width * 0.30, y: box.height * 0.55 } });
+await page.waitForTimeout(400);
+check('space created', (await spaceCount()) >= 1);
+check('space auto-selected', await isTreeItemSelected('space', 0));
+const spaceLabelField = page.locator('[data-section="instance"] input[type="text"]').first();
+await spaceLabelField.fill('Kitchen');
+await spaceLabelField.press('Enter');
+await page.waitForTimeout(200);
+check(
+  'space label editable in inspector',
+  (await page.locator('.space-label').filter({ hasText: 'Kitchen' }).count()) >= 1,
+);
+await page.screenshot({ path: `${OUT}/apex-spaces-placed.png`, fullPage: true });
 
 // --- 4. Point, two-point and three-point gestures all work -----------------
 console.log('\n[4] every other built-in gesture');

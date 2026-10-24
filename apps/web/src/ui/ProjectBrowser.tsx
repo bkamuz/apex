@@ -7,6 +7,7 @@ import type {
   ProfileTypeDto,
   ReferenceDto,
   SectionCutDto,
+  SpaceDto,
 } from '../types';
 import { profileLabel } from './profileModel';
 
@@ -20,6 +21,7 @@ interface Props {
   gridAxes: GridAxisDto[];
   constructionLines: ConstructionLineDto[];
   sectionCuts: SectionCutDto[];
+  spaces: SpaceDto[];
   profiles: ProfileTypeDto[];
   levels: LevelDto[];
   selectedIds: string[];
@@ -28,18 +30,20 @@ interface Props {
   selectedGridAxisId: string | null;
   selectedConstructionLineId: string | null;
   selectedSectionCutId: string | null;
+  selectedSpaceId: string | null;
   onSelectInstance: (id: string, multi: boolean) => void;
   onSelectReference: (id: string) => void;
   onSelectGridAxis: (id: string) => void;
   onSelectConstructionLine: (id: string) => void;
   onSelectSectionCut: (id: string) => void;
+  onSelectSpace: (id: string) => void;
   onSelectType: (profileId: string) => void;
   onNewProfile: () => void;
 }
 
 interface BrowserItem {
   key: string;
-  kind: 'type' | 'instance' | 'reference' | 'grid_axis' | 'construction_line' | 'section_cut';
+  kind: 'type' | 'instance' | 'reference' | 'grid_axis' | 'construction_line' | 'section_cut' | 'space';
   id: string;
   name: string;
   category: string;
@@ -90,6 +94,7 @@ function groupKey(item: BrowserItem, groupBy: BrowserGroupBy): string {
       if (item.kind === 'grid_axis') return 'Grid axes';
       if (item.kind === 'construction_line') return 'Construction lines';
       if (item.kind === 'section_cut') return 'Section cuts';
+      if (item.kind === 'space') return 'Spaces';
       return 'Placed elements';
     case 'category':
       return item.category || 'uncategorized';
@@ -138,6 +143,7 @@ interface BrowserTreeItemProps {
   onSelectGridAxis: (id: string) => void;
   onSelectConstructionLine: (id: string) => void;
   onSelectSectionCut: (id: string) => void;
+  onSelectSpace: (id: string) => void;
   onSelectType: (profileId: string) => void;
 }
 
@@ -153,6 +159,8 @@ function kindBadge(kind: BrowserItem['kind']): string {
       return 'line';
     case 'section_cut':
       return 'cut';
+    case 'space':
+      return 'space';
     case 'instance':
       return 'instance';
     default: {
@@ -170,6 +178,7 @@ function BrowserTreeItem({
   onSelectGridAxis,
   onSelectConstructionLine,
   onSelectSectionCut,
+  onSelectSpace,
   onSelectType,
 }: BrowserTreeItemProps) {
   const isType = item.kind === 'type';
@@ -177,7 +186,8 @@ function BrowserTreeItem({
     item.kind === 'reference' ||
     item.kind === 'grid_axis' ||
     item.kind === 'construction_line' ||
-    item.kind === 'section_cut';
+    item.kind === 'section_cut' ||
+    item.kind === 'space';
 
   return (
     <li
@@ -190,6 +200,7 @@ function BrowserTreeItem({
         else if (item.kind === 'grid_axis') onSelectGridAxis(item.id);
         else if (item.kind === 'construction_line') onSelectConstructionLine(item.id);
         else if (item.kind === 'section_cut') onSelectSectionCut(item.id);
+        else if (item.kind === 'space') onSelectSpace(item.id);
         else onSelectInstance(item.id, event.ctrlKey || event.metaKey);
       }}
     >
@@ -210,6 +221,7 @@ function isItemSelected(
   selectedGridAxisId: string | null,
   selectedConstructionLineId: string | null,
   selectedSectionCutId: string | null,
+  selectedSpaceId: string | null,
 ): boolean {
   switch (item.kind) {
     case 'type':
@@ -222,6 +234,8 @@ function isItemSelected(
       return selectedConstructionLineId === item.id;
     case 'section_cut':
       return selectedSectionCutId === item.id;
+    case 'space':
+      return selectedSpaceId === item.id;
     case 'instance':
       return selected.has(item.id);
     default: {
@@ -242,11 +256,13 @@ interface BrowserTreeGroupProps {
   selectedGridAxisId: string | null;
   selectedConstructionLineId: string | null;
   selectedSectionCutId: string | null;
+  selectedSpaceId: string | null;
   onSelectInstance: (id: string, multi: boolean) => void;
   onSelectReference: (id: string) => void;
   onSelectGridAxis: (id: string) => void;
   onSelectConstructionLine: (id: string) => void;
   onSelectSectionCut: (id: string) => void;
+  onSelectSpace: (id: string) => void;
   onSelectType: (profileId: string) => void;
 }
 
@@ -261,11 +277,13 @@ function BrowserTreeGroup({
   selectedGridAxisId,
   selectedConstructionLineId,
   selectedSectionCutId,
+  selectedSpaceId,
   onSelectInstance,
   onSelectReference,
   onSelectGridAxis,
   onSelectConstructionLine,
   onSelectSectionCut,
+  onSelectSpace,
   onSelectType,
 }: BrowserTreeGroupProps) {
   return (
@@ -297,12 +315,14 @@ function BrowserTreeGroup({
                 selectedGridAxisId,
                 selectedConstructionLineId,
                 selectedSectionCutId,
+                selectedSpaceId,
               )}
               onSelectInstance={onSelectInstance}
               onSelectReference={onSelectReference}
               onSelectGridAxis={onSelectGridAxis}
               onSelectConstructionLine={onSelectConstructionLine}
               onSelectSectionCut={onSelectSectionCut}
+              onSelectSpace={onSelectSpace}
               onSelectType={onSelectType}
             />
           ))}
@@ -318,6 +338,7 @@ export function ProjectBrowser({
   gridAxes,
   constructionLines,
   sectionCuts,
+  spaces,
   profiles,
   levels,
   selectedIds,
@@ -326,11 +347,13 @@ export function ProjectBrowser({
   selectedGridAxisId,
   selectedConstructionLineId,
   selectedSectionCutId,
+  selectedSpaceId,
   onSelectInstance,
   onSelectReference,
   onSelectGridAxis,
   onSelectConstructionLine,
   onSelectSectionCut,
+  onSelectSpace,
   onSelectType,
   onNewProfile,
 }: Props) {
@@ -441,7 +464,16 @@ export function ProjectBrowser({
       levelName: levelName(cut.level_id),
       profileName: String(cut.params.label ?? '—'),
     }));
-    let all = [...types, ...instances, ...refs, ...grids, ...lines, ...cuts];
+    const spaceItems: BrowserItem[] = spaces.map((space) => ({
+      key: `space:${space.id}`,
+      kind: 'space',
+      id: space.id,
+      name: space.name,
+      category: 'space',
+      levelName: levelName(space.level_id),
+      profileName: String(space.params.label ?? '—'),
+    }));
+    let all = [...types, ...instances, ...refs, ...grids, ...lines, ...cuts, ...spaceItems];
     switch (filter) {
       case 'all':
         break;
@@ -459,7 +491,10 @@ export function ProjectBrowser({
         break;
       case 'annotations':
         all = all.filter(
-          (item) => item.kind === 'construction_line' || item.kind === 'section_cut',
+          (item) =>
+            item.kind === 'construction_line' ||
+            item.kind === 'section_cut' ||
+            item.kind === 'space',
         );
         break;
       default: {
@@ -469,7 +504,7 @@ export function ProjectBrowser({
     }
     all.sort((a, b) => compareItems(a, b, sortBy));
     return all;
-  }, [elements, references, gridAxes, constructionLines, sectionCuts, profiles, levels, filter, sortBy]);
+  }, [elements, references, gridAxes, constructionLines, sectionCuts, spaces, profiles, levels, filter, sortBy]);
 
   const groups = useMemo(() => {
     const map = new Map<string, BrowserItem[]>();
@@ -568,12 +603,14 @@ export function ProjectBrowser({
                   selectedGridAxisId,
                   selectedConstructionLineId,
                   selectedSectionCutId,
+                  selectedSpaceId,
                 )}
                 onSelectInstance={onSelectInstance}
                 onSelectReference={onSelectReference}
                 onSelectGridAxis={onSelectGridAxis}
                 onSelectConstructionLine={onSelectConstructionLine}
                 onSelectSectionCut={onSelectSectionCut}
+                onSelectSpace={onSelectSpace}
                 onSelectType={onSelectType}
               />
             ))}
@@ -593,11 +630,13 @@ export function ProjectBrowser({
                 selectedGridAxisId={selectedGridAxisId}
                 selectedConstructionLineId={selectedConstructionLineId}
                 selectedSectionCutId={selectedSectionCutId}
+                selectedSpaceId={selectedSpaceId}
                 onSelectInstance={onSelectInstance}
                 onSelectReference={onSelectReference}
                 onSelectGridAxis={onSelectGridAxis}
                 onSelectConstructionLine={onSelectConstructionLine}
                 onSelectSectionCut={onSelectSectionCut}
+                onSelectSpace={onSelectSpace}
                 onSelectType={onSelectType}
               />
             ))}

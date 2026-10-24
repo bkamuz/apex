@@ -217,6 +217,24 @@ export function createSectionCut(points_json, params_json, rotation) {
 }
 
 /**
+ * @param {string} points_json
+ * @param {string} params_json
+ * @param {number} rotation
+ * @returns {any}
+ */
+export function createSpace(points_json, params_json, rotation) {
+    const ptr0 = passStringToWasm0(points_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(params_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.createSpace(ptr0, len0, ptr1, len1, rotation);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * Delete every selected element.
  * @returns {any}
  */
@@ -266,6 +284,17 @@ export function deleteSelectedReference() {
  */
 export function deleteSelectedSectionCut() {
     const ret = wasm.deleteSelectedSectionCut();
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @returns {any}
+ */
+export function deleteSelectedSpace() {
+    const ret = wasm.deleteSelectedSpace();
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -429,6 +458,17 @@ export function getSelectedReference() {
  */
 export function getSelectedSectionCut() {
     const ret = wasm.getSelectedSectionCut();
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @returns {any}
+ */
+export function getSelectedSpace() {
+    const ret = wasm.getSelectedSpace();
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -686,6 +726,20 @@ export function selectSectionCut(id) {
  * @param {string} id
  * @returns {any}
  */
+export function selectSpace(id) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.selectSpace(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {string} id
+ * @returns {any}
+ */
 export function setActiveLevel(id) {
     const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
@@ -833,6 +887,25 @@ export function setSectionCutPlacement(id, points_json, rotation, record_history
 }
 
 /**
+ * @param {string} id
+ * @param {string} points_json
+ * @param {number} rotation
+ * @param {boolean} record_history
+ * @returns {any}
+ */
+export function setSpacePlacement(id, points_json, rotation, record_history) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(points_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.setSpacePlacement(ptr0, len0, ptr1, len1, rotation, record_history);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * @param {number} pick_id
  * @returns {any}
  */
@@ -966,6 +1039,23 @@ export function updateSectionCut(id, params_json) {
     const ptr1 = passStringToWasm0(params_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len1 = WASM_VECTOR_LEN;
     const ret = wasm.updateSectionCut(ptr0, len0, ptr1, len1);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {string} id
+ * @param {string} params_json
+ * @returns {any}
+ */
+export function updateSpace(id, params_json) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(params_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.updateSpace(ptr0, len0, ptr1, len1);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
