@@ -1,4 +1,5 @@
 import { createPlacementTool } from '../tools/placementTool';
+import { ApexTabs } from '../tools/tabs';
 import type { Plugin } from './types';
 
 /**
@@ -12,6 +13,7 @@ export const wallPlugin: Plugin = {
     if (!definition) return;
     host.registerTool(
       createPlacementTool(definition, {
+        tab: ApexTabs.building,
         modes: [
           { id: 'line', label: 'Line', placement: 'two_point' },
           { id: 'arc', label: 'Arc', placement: 'three_point_arc' },

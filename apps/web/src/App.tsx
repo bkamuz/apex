@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   apexBeginUndoGroup,
   apexCopySelection,
@@ -68,6 +68,7 @@ import { MobileMenuSheet, type MobileMenuTab } from './ui/MobileMenuSheet';
 import { ProfileEditor } from './ui/ProfileEditor';
 import { ProjectBrowser } from './ui/ProjectBrowser';
 import { PropertiesPanel } from './ui/PropertiesPanel';
+import { ToolsToolbar } from './ui/ToolsToolbar';
 import { defaultNewProfile, defaultPlacementParams, nextProfileId } from './ui/profileModel';
 import { clearStoredProject, downloadText, loadStoredProject, storeProject } from './persist';
 import { useMediaQuery } from './hooks/useMediaQuery';
@@ -1277,57 +1278,15 @@ export default function App() {
             {activeLevel ? ` · ${activeLevel.name}` : ''}
           </div>
         </div>
-        <div className="tools" role="toolbar" aria-label="Tools">
-          {tools.map((t, i) => {
-            const prev = tools[i - 1];
-            const sep = prev && (prev.group ?? 'create') !== (t.group ?? 'create');
-            return (
-              <Fragment key={t.id}>
-                {sep ? <span className="tools-sep" aria-hidden="true" /> : null}
-                <button
-                  type="button"
-                  className={toolId === t.id ? 'active' : ''}
-                  title={t.shortcut ? `${t.label} (${t.shortcut})` : t.label}
-                  onClick={() => activateTool(t.id)}
-                >
-                  {t.label}
-                </button>
-              </Fragment>
-            );
-          })}
-          {tool.modes && tool.modes.length > 0 ? (
-            <>
-              <span className="tools-sep" aria-hidden="true" />
-              {tool.modes.map((mode) => (
-                <button
-                  key={mode.id}
-                  type="button"
-                  className={`mode${drawMode === mode.id ? ' active' : ''}`}
-                  onClick={() => activateDrawMode(mode.id)}
-                >
-                  {mode.label}
-                </button>
-              ))}
-            </>
-          ) : null}
-          <span className="tools-sep" aria-hidden="true" />
-          <button
-            type="button"
-            className={projection === 'orthographic' ? 'active' : ''}
-            onClick={() => setProjectionMode('orthographic')}
-            title="Parallel (axonometric) projection"
-          >
-            Ortho
-          </button>
-          <button
-            type="button"
-            className={projection === 'perspective' ? 'active' : ''}
-            onClick={() => setProjectionMode('perspective')}
-            title="Perspective projection"
-          >
-            Persp
-          </button>
-        </div>
+        <ToolsToolbar
+          tools={tools}
+          activeToolId={toolId}
+          drawMode={drawMode}
+          projection={projection}
+          onActivateTool={activateTool}
+          onActivateDrawMode={activateDrawMode}
+          onSetProjection={setProjectionMode}
+        />
       </header>
 
       {!isMobile ? (

@@ -1,6 +1,7 @@
 import type { ReferenceKind } from '../types';
 import type { Vec3 } from '../viewport/ViewportRenderer';
-import type { Tool, ToolContext } from './Tool';
+import type { Tool, ToolContext, ToolTab } from './Tool';
+import { ApexTabs } from './tabs';
 
 const MIN_PICK_SPACING = 0.1;
 
@@ -9,7 +10,11 @@ function farEnough(a: Vec3, b: Vec3): boolean {
 }
 
 /** Place a document reference point or plane on the active level. */
-export function createReferenceTool(kind: ReferenceKind, label: string): Tool {
+export function createReferenceTool(
+  kind: ReferenceKind,
+  label: string,
+  tab: ToolTab = ApexTabs.building,
+): Tool {
   const required = kind === 'point' ? 1 : 2;
   const picks: Vec3[] = [];
 
@@ -25,6 +30,7 @@ export function createReferenceTool(kind: ReferenceKind, label: string): Tool {
     id: kind === 'point' ? 'ref-point' : 'ref-plane',
     label,
     group: 'create',
+    tab,
 
     hint(pendingCount) {
       const remaining = required - pendingCount;

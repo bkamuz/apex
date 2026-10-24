@@ -1,5 +1,6 @@
 import type { Vec3 } from '../viewport/ViewportRenderer';
-import type { Tool, ToolContext } from './Tool';
+import type { Tool, ToolContext, ToolTab } from './Tool';
+import { ApexTabs } from './tabs';
 
 const MIN_PICK_SPACING = 0.1;
 
@@ -8,7 +9,7 @@ function farEnough(a: Vec3, b: Vec3): boolean {
 }
 
 /** Place a plan grid axis with two clicks on the active level. */
-export function createGridAxisTool(): Tool {
+export function createGridAxisTool(tab: ToolTab = ApexTabs.building): Tool {
   const picks: Vec3[] = [];
 
   const reset = (ctx: ToolContext) => {
@@ -23,6 +24,7 @@ export function createGridAxisTool(): Tool {
     id: 'grid-axis',
     label: 'Grid axis',
     group: 'create',
+    tab,
 
     hint(pendingCount) {
       const remaining = 2 - pendingCount;
