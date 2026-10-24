@@ -259,7 +259,15 @@ impl ComponentRegistry {
         work_plane: Frame,
         references: impl IntoIterator<Item = &'a Reference>,
     ) -> Result<TriangleMesh, RegistryError> {
-        self.eval_mesh(component_id, placement, raw_params, work_plane, references, 0.0, 0.0)
+        self.eval_mesh(
+            component_id,
+            placement,
+            raw_params,
+            work_plane,
+            references,
+            0.0,
+            0.0,
+        )
     }
 
     /// Build the mesh for an existing element (includes path-join extensions).
