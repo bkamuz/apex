@@ -68,6 +68,19 @@ pub struct Element {
     pub parent_id: Option<ElementId>,
     pub placement: Placement,
     pub params: ParamMap,
+    /// Sweep start extension from path joins (metres; positive lengthens).
+    ///
+    /// Kept off the centerline so room-detect and user anchors stay at the
+    /// picked path while the mesh miters / trims at ends.
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub join_start: f32,
+    /// Sweep end extension from path joins (metres; negative shortens / trims).
+    #[serde(default, skip_serializing_if = "is_zero_f32")]
+    pub join_end: f32,
+}
+
+fn is_zero_f32(v: &f32) -> bool {
+    *v == 0.0
 }
 
 impl Element {
@@ -86,6 +99,8 @@ impl Element {
             parent_id: None,
             placement,
             params,
+            join_start: 0.0,
+            join_end: 0.0,
         }
     }
 

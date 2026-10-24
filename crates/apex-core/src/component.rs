@@ -420,6 +420,10 @@ pub struct RecipeContext<'a> {
     pub work_plane: Frame,
     pub profiles: &'a ProfileLibrary,
     pub references: &'a ReferenceLibrary,
+    /// Extra start extension from path joins (added to recipe `start_offset`).
+    pub path_join_start: f32,
+    /// Extra end extension from path joins (added to recipe `end_offset`).
+    pub path_join_end: f32,
 }
 
 /// A mesh generator supplied by a module, reached through `GeometryRecipe::Custom`.
@@ -453,8 +457,8 @@ pub fn evaluate_recipe(
             let profile = profile.evaluate(ctx.params, ctx.profiles)?;
             let options = SweepOptions {
                 justification: *justification,
-                start_extension: start_offset.eval_f32(ctx.params)?,
-                end_extension: end_offset.eval_f32(ctx.params)?,
+                start_extension: start_offset.eval_f32(ctx.params)? + ctx.path_join_start,
+                end_extension: end_offset.eval_f32(ctx.params)? + ctx.path_join_end,
                 up: ctx.work_plane.z,
                 ..SweepOptions::default()
             };
@@ -611,6 +615,14 @@ pub struct ComponentDefinition {
     /// Optional IFC entity type hint for exporters (`IfcWall`, `IfcFlowSegment`, …).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ifc_entity: Option<String>,
+    /// Opt into universal path joins (corner miters / T-junctions).
+    ///
+    /// When true, placing an instance auto-joins it with other instances of the
+    /// **same component id** on the same level. Geometry stays BIM-agnostic:
+    /// joins operate on path placements + profile half-width only. Plugins set
+    /// this on their definition — no `apex.wall` branches in App or geometry.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub joinable: bool,
 }
 
 impl ComponentDefinition {
@@ -877,6 +889,8 @@ mod tests {
             work_plane: Frame::horizontal(0.0),
             profiles,
             references,
+            path_join_start: 0.0,
+            path_join_end: 0.0,
         }
     }
 
@@ -1311,6 +1325,7 @@ mod tests {
             host_cut: None,
             level_height_params: vec![],
             ifc_entity: None,
+            joinable: false,
             params: vec![ParamSpec::length("height", "Height", 3.0)],
             recipe: GeometryRecipe::Sweep {
                 profile: ProfileSpec::Rectangle {
@@ -1345,6 +1360,7 @@ mod tests {
             host_cut: None,
             level_height_params: vec![],
             ifc_entity: None,
+            joinable: false,
             params: vec![
                 ParamSpec::length("height", "Height", 3.0),
                 ParamSpec::length("height", "Height again", 4.0),
@@ -1387,6 +1403,7 @@ mod tests {
             host_cut: None,
             level_height_params: vec![],
             ifc_entity: None,
+            joinable: false,
             params: vec![ParamSpec::length("height", "Height", 0.75)],
             recipe: GeometryRecipe::Extrude {
                 profile: ProfileSpec::Circle {
@@ -1460,6 +1477,7 @@ mod tests {
             host_cut: None,
             level_height_params: vec![],
             ifc_entity: None,
+            joinable: false,
             params: vec![ParamSpec {
                 id: "style".into(),
                 label: "Style".into(),

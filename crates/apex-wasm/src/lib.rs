@@ -138,6 +138,9 @@ struct ElementDto {
     /// Resolved type-level values of that profile. Inspector must not write these
     /// through `updateElement`.
     type_values: ParamMap,
+    /// Path-join sweep extensions (metres). Zero when not joined.
+    join_start: f32,
+    join_end: f32,
 }
 
 #[derive(Serialize)]
@@ -313,6 +316,8 @@ fn element_dto(project: &Project, element: &Element) -> ElementDto {
         params,
         profile_id,
         type_values,
+        join_start: element.join_start,
+        join_end: element.join_end,
     }
 }
 
@@ -1687,6 +1692,19 @@ pub fn delete_selected_space() -> Result<JsValue, JsValue> {
         if let Some(id) = id {
             project.delete_space(id);
         }
+        scene(project)
+    })
+}
+
+/// Recompute path joins for a joinable element (corners / T-junctions).
+///
+/// Auto-join already runs on place for `joinable` components; plugins call this
+/// after a placement edit. One undo step.
+#[wasm_bindgen(js_name = joinPaths)]
+pub fn join_paths(id: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let element = element_id(id)?;
+        project.join_paths(element).map_err(err)?;
         scene(project)
     })
 }

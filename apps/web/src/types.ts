@@ -121,6 +121,8 @@ export interface ComponentDto {
   host_cut?: HostCutSpecDto | null;
   level_height_params?: string[];
   ifc_entity?: string | null;
+  /** Opt into universal path joins (corner miters / T-junctions). */
+  joinable?: boolean;
 }
 
 export interface ElementDto {
@@ -142,6 +144,9 @@ export interface ElementDto {
   params: Record<string, ParamValue>;
   profile_id?: string | null;
   type_values?: Record<string, ParamValue>;
+  /** Path-join sweep extensions (metres). */
+  join_start?: number;
+  join_end?: number;
 }
 
 export interface ElementListDto {

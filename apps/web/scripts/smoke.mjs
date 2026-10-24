@@ -209,6 +209,37 @@ for (let i = 0; i < corners.length; i++) {
 }
 const afterWalls = await elementCount();
 check('four walls placed', afterWalls === 4, `got ${afterWalls}`);
+// Rectangle corners auto-join (miter extensions). Capture joined room mesh.
+await page.screenshot({ path: `${OUT}/apex-path-joins-room-corners.png`, fullPage: true });
+
+// --- 2b. Explicit L-corner + T-junction for join visuals -------------------
+console.log('\n[2b] universal path joins (L-corner + T)');
+const beforeJoins = await elementCount();
+await useTool('Wall');
+await page.getByRole('button', { name: 'Line', exact: true }).click();
+// L-corner (two walls meeting at a right angle)
+await clickCanvas(0.18, 0.28);
+await clickCanvas(0.38, 0.28);
+await clickCanvas(0.38, 0.28);
+await clickCanvas(0.38, 0.48);
+await page.waitForTimeout(250);
+check('L-corner walls placed', (await elementCount()) === beforeJoins + 2);
+await page.screenshot({ path: `${OUT}/apex-path-joins-l-corner.png`, fullPage: true });
+
+// T-junction: host span + stem into mid-edge
+await clickCanvas(0.15, 0.72);
+await clickCanvas(0.45, 0.72);
+await clickCanvas(0.30, 0.58);
+await clickCanvas(0.30, 0.72);
+await page.waitForTimeout(250);
+check('T-junction walls placed', (await elementCount()) === beforeJoins + 4);
+await page.screenshot({ path: `${OUT}/apex-path-joins-t-junction.png`, fullPage: true });
+// Undo the four join-demo walls so later absolute element counts stay stable.
+for (let i = 0; i < 4; i++) {
+  await page.getByTestId('undo').click();
+  await page.waitForTimeout(120);
+}
+check('join demo walls undone for clean slate', (await elementCount()) === beforeJoins);
 
 // --- 3. Reference point and plane tools ------------------------------------
 console.log('\n[3] reference points and planes');

@@ -59,6 +59,7 @@ import initWasm, {
   deleteSelectedSectionCut,
   createSpace,
   detectRoomsFromWalls,
+  joinPaths,
   selectSpace,
   getSelectedSpace,
   setSpacePlacement,
@@ -446,6 +447,11 @@ export function apexCreateSpace(points: Vec3[], params?: Record<string, ParamVal
 
 export function apexDetectRoomsFromWalls(): SceneDto {
   return asScene(detectRoomsFromWalls());
+}
+
+/** Recompute path joins for a joinable element (also runs automatically on place). */
+export function apexJoinPaths(id: string): SceneDto {
+  return asScene(joinPaths(id));
 }
 
 export function apexSelectSpace(id: string | null): SceneDto {

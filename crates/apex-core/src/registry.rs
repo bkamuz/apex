@@ -259,6 +259,46 @@ impl ComponentRegistry {
         work_plane: Frame,
         references: impl IntoIterator<Item = &'a Reference>,
     ) -> Result<TriangleMesh, RegistryError> {
+        self.eval_mesh(
+            component_id,
+            placement,
+            raw_params,
+            work_plane,
+            references,
+            0.0,
+            0.0,
+        )
+    }
+
+    /// Build the mesh for an existing element (includes path-join extensions).
+    pub fn build_element_mesh<'a>(
+        &self,
+        element: &Element,
+        work_plane: Frame,
+        references: impl IntoIterator<Item = &'a Reference>,
+    ) -> Result<TriangleMesh, RegistryError> {
+        self.eval_mesh(
+            &element.component_id,
+            &element.placement,
+            &element.params,
+            work_plane,
+            references,
+            element.join_start,
+            element.join_end,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn eval_mesh<'a>(
+        &self,
+        component_id: &str,
+        placement: &Placement,
+        raw_params: &ParamMap,
+        work_plane: Frame,
+        references: impl IntoIterator<Item = &'a Reference>,
+        path_join_start: f32,
+        path_join_end: f32,
+    ) -> Result<TriangleMesh, RegistryError> {
         let definition = self.require(component_id)?;
         if !definition.placement.accepts(placement) {
             return Err(RegistryError::PlacementMismatch {
@@ -279,24 +319,10 @@ impl ComponentRegistry {
             work_plane,
             profiles: &self.profiles,
             references: &reference_library,
+            path_join_start,
+            path_join_end,
         };
         Ok(evaluate_recipe(&definition.recipe, &ctx, &self.builders)?)
-    }
-
-    /// Build the mesh for an existing element.
-    pub fn build_element_mesh<'a>(
-        &self,
-        element: &Element,
-        work_plane: Frame,
-        references: impl IntoIterator<Item = &'a Reference>,
-    ) -> Result<TriangleMesh, RegistryError> {
-        self.build_mesh(
-            &element.component_id,
-            &element.placement,
-            &element.params,
-            work_plane,
-            references,
-        )
     }
 }
 
@@ -485,6 +511,7 @@ fn wall() -> ComponentDefinition {
         host_cut: None,
         level_height_params: vec!["height".into()],
         ifc_entity: Some("IfcWall".into()),
+        joinable: true,
     }
 }
 
@@ -516,6 +543,7 @@ fn column() -> ComponentDefinition {
         host_cut: None,
         level_height_params: vec!["height".into()],
         ifc_entity: Some("IfcColumn".into()),
+        joinable: false,
     }
 }
 
@@ -545,6 +573,7 @@ fn beam() -> ComponentDefinition {
         host_cut: None,
         level_height_params: vec![],
         ifc_entity: Some("IfcBeam".into()),
+        joinable: true,
     }
 }
 
@@ -566,6 +595,7 @@ fn slab() -> ComponentDefinition {
         host_cut: None,
         level_height_params: vec![],
         ifc_entity: Some("IfcSlab".into()),
+        joinable: false,
     }
 }
 
@@ -596,6 +626,7 @@ fn door() -> ComponentDefinition {
         }),
         level_height_params: vec![],
         ifc_entity: Some("IfcDoor".into()),
+        joinable: false,
     }
 }
 
@@ -626,6 +657,7 @@ fn window() -> ComponentDefinition {
         }),
         level_height_params: vec![],
         ifc_entity: Some("IfcWindow".into()),
+        joinable: false,
     }
 }
 
@@ -648,6 +680,7 @@ fn slab_opening() -> ComponentDefinition {
         }),
         level_height_params: vec![],
         ifc_entity: Some("IfcOpeningElement".into()),
+        joinable: false,
     }
 }
 
@@ -670,6 +703,7 @@ fn stair() -> ComponentDefinition {
         host_cut: None,
         level_height_params: vec![],
         ifc_entity: Some("IfcStair".into()),
+        joinable: false,
     }
 }
 
@@ -690,6 +724,7 @@ fn roof_flat() -> ComponentDefinition {
         host_cut: None,
         level_height_params: vec![],
         ifc_entity: Some("IfcRoof".into()),
+        joinable: false,
     }
 }
 
@@ -712,6 +747,7 @@ fn roof_pitched() -> ComponentDefinition {
         host_cut: None,
         level_height_params: vec![],
         ifc_entity: Some("IfcRoof".into()),
+        joinable: false,
     }
 }
 
@@ -738,6 +774,7 @@ fn pipe() -> ComponentDefinition {
         host_cut: None,
         level_height_params: vec![],
         ifc_entity: Some("IfcFlowSegment".into()),
+        joinable: false,
     }
 }
 
@@ -764,6 +801,7 @@ fn duct() -> ComponentDefinition {
         host_cut: None,
         level_height_params: vec![],
         ifc_entity: Some("IfcFlowSegment".into()),
+        joinable: false,
     }
 }
 
@@ -790,6 +828,7 @@ fn cable_tray() -> ComponentDefinition {
         host_cut: None,
         level_height_params: vec![],
         ifc_entity: Some("IfcCableCarrierSegment".into()),
+        joinable: false,
     }
 }
 
@@ -1187,6 +1226,7 @@ mod tests {
             host_cut: None,
             level_height_params: vec![],
             ifc_entity: None,
+            joinable: false,
             params: vec![],
             recipe: GeometryRecipe::Extrude {
                 profile: ProfileSpec::Circle {
@@ -1222,6 +1262,7 @@ mod tests {
             host_cut: None,
             level_height_params: vec![],
             ifc_entity: None,
+            joinable: false,
             params: vec![
                 ParamSpec::length("radius", "Radius", 0.6),
                 ParamSpec::length("thickness", "Top thickness", 0.05),
@@ -1321,6 +1362,7 @@ mod tests {
                 host_cut: None,
                 level_height_params: vec![],
                 ifc_entity: None,
+                joinable: false,
                 params: vec![],
                 recipe: GeometryRecipe::Custom {
                     builder_id: "acme.marker".into(),
