@@ -1,3 +1,4 @@
+import { ApexTabs } from '../tools/tabs';
 import { componentPlugin } from './componentPlugin';
 import { constructionLinePlugin } from './constructionLine';
 import { copyPlugin } from './copy';
@@ -44,8 +45,9 @@ export const firstPartyPlugins: Plugin[] = [
   componentPlugin('apex.stair'),
   componentPlugin('apex.roof'),
   componentPlugin('apex.roof.pitched'),
-  componentPlugin('apex.pipe'),
-  componentPlugin('apex.duct'),
-  componentPlugin('apex.cable_tray'),
+  // Engineering tab (after Building so tab chips stay Basics → Building → Engineering).
+  componentPlugin('apex.pipe', { tab: ApexTabs.engineering }),
+  componentPlugin('apex.duct', { tab: ApexTabs.engineering }),
+  componentPlugin('apex.cable_tray', { tab: ApexTabs.engineering }),
   exportIfcPlugin,
 ];

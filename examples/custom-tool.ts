@@ -9,10 +9,10 @@
  *   window.apex.registerExporter(exporter)
  *
  * Toolbar tabs: prefer a catalog entry (`window.apex.tabs.building` /
- * `ApexTabs.building` / `ApexTabs.basics`). A custom `{ id, label }` not in
- * the catalog creates a new tab automatically. Omit `label` only for catalog
- * ids — the default label is filled in. Select/transform tools usually omit
- * `tab` (always pinned).
+ * `ApexTabs.building` / `ApexTabs.basics` / `ApexTabs.engineering`). A custom
+ * `{ id, label }` not in the catalog creates a new tab automatically. Omit
+ * `label` only for catalog ids — the default label is filled in.
+ * Select/transform tools usually omit `tab` (always pinned).
  *
  * Toolbar icons (optional): prefer a catalog name (`window.apex.icons.wall` /
  * `ApexIcons.wall`). Pass `{ svg: '<svg>…</svg>' }` (or path markup) for a
@@ -67,6 +67,19 @@ export const stakeTool: Tool = {
   },
 };
 
+/** Example: Engineering tab (MEP / services) via the catalog. */
+export const conduitTool: Tool = {
+  id: 'acme.conduit',
+  label: 'Conduit',
+  group: 'create',
+  tab: ApexTabs.engineering,
+  icon: ApexIcons.pipe,
+  hint: () => 'Demo tool on the Engineering tab',
+  onClick(_e, ctx) {
+    ctx.setError('Conduit — prefer ApexTabs.engineering for MEP create tools');
+  },
+};
+
 /** Example: open-world tab — not in the catalog, so supply a label. */
 export const spacesTool: Tool = {
   id: 'acme.space',
@@ -92,6 +105,7 @@ export const helloExporter: Exporter = {
 //     window.apex.registerTool(m.helloTool)   // label-only
 //     window.apex.registerTool(m.planterTool) // catalog tab + icon
 //     window.apex.registerTool(m.stakeTool)   // basics + custom svg
+//     window.apex.registerTool(m.conduitTool) // engineering tab
 //     window.apex.registerTool(m.spacesTool)  // custom tab
 //     window.apex.registerExporter(m.helloExporter)
 //   })

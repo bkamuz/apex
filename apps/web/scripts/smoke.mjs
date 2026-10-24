@@ -85,6 +85,7 @@ const toolbarNames = () =>
 console.log('\n[1] toolbar from plugins, one tool per type');
 const basicsTab = page.getByTestId('tools-tab-apex.basics');
 const buildingTab = page.getByTestId('tools-tab-apex.building');
+const engineeringTab = page.getByTestId('tools-tab-apex.engineering');
 check('Basics tab exists', (await basicsTab.count()) === 1);
 check('Basics tab label', ((await basicsTab.textContent()) ?? '').trim() === 'Basics');
 check('Building constructions tab exists', (await buildingTab.count()) === 1);
@@ -92,6 +93,8 @@ check(
   'Building constructions tab label',
   ((await buildingTab.textContent()) ?? '').trim() === 'Building constructions',
 );
+check('Engineering tab exists', (await engineeringTab.count()) === 1);
+check('Engineering tab label', ((await engineeringTab.textContent()) ?? '').trim() === 'Engineering');
 
 await buildingTab.click();
 await page.waitForTimeout(80);
@@ -114,14 +117,24 @@ for (const expected of [
   'Stair',
   'Roof',
   'Pitched roof',
-  'Pipe',
-  'Duct',
-  'Cable tray',
 ]) {
   check(`"${expected}" on Building tab`, buildingTools.includes(expected));
 }
 check('Ref point is not on Building tab', !buildingTools.includes('Ref point'));
 check('Grid axis is not on Building tab', !buildingTools.includes('Grid axis'));
+check('Pipe is not on Building tab', !buildingTools.includes('Pipe'));
+check('Duct is not on Building tab', !buildingTools.includes('Duct'));
+check('Cable tray is not on Building tab', !buildingTools.includes('Cable tray'));
+
+await engineeringTab.click();
+await page.waitForTimeout(80);
+const engineeringTools = await toolbarNames();
+console.log('  engineering toolbar:', engineeringTools.join(' | '));
+for (const expected of ['Select', 'Move', 'Copy', 'Parent', 'Detach', 'Pipe', 'Duct', 'Cable tray']) {
+  check(`"${expected}" on Engineering tab`, engineeringTools.includes(expected));
+}
+check('Wall is not on Engineering tab', !engineeringTools.includes('Wall'));
+check('Ref point is not on Engineering tab', !engineeringTools.includes('Ref point'));
 
 await basicsTab.click();
 await page.waitForTimeout(80);
@@ -143,13 +156,31 @@ for (const expected of [
   check(`"${expected}" on Basics tab`, basicsTools.includes(expected));
 }
 check('Wall is not on Basics tab', !basicsTools.includes('Wall'));
-check('commons stay pinned across tabs', buildingTools.includes('Select') && basicsTools.includes('Select'));
+check('Pipe is not on Basics tab', !basicsTools.includes('Pipe'));
+check(
+  'commons stay pinned across tabs',
+  buildingTools.includes('Select') &&
+    basicsTools.includes('Select') &&
+    engineeringTools.includes('Select'),
+);
 check('no second point tool on Basics', !basicsTools.includes('Point'));
 
 check('IFC export button exists', (await page.getByTestId('export-apex.ifc').count()) === 1);
 check('arc wall is not a second tool', !buildingTools.includes('Arc wall'));
 check('round is not a second column tool', !buildingTools.includes('Round column'));
 check('draw modes hide until Wall is active', !buildingTools.includes('Line') && !buildingTools.includes('Arc'));
+
+// Light MEP placement from the Engineering tab, then undo so later counts stay stable.
+const beforePipe = await elementCount();
+await useTool('Pipe');
+await clickCanvas(0.22, 0.35);
+await clickCanvas(0.38, 0.35);
+await canvas.dblclick({ position: { x: box.width * 0.38, y: box.height * 0.35 } });
+await page.waitForTimeout(300);
+check('pipe placed from Engineering tab', (await elementCount()) === beforePipe + 1);
+await page.getByTestId('undo').click();
+await page.waitForTimeout(300);
+check('pipe placement undone for clean slate', (await elementCount()) === beforePipe);
 
 // --- 2. Place a room with the two-point Wall / Line gesture ----------------
 console.log('\n[2] wall placement (line mode)');
