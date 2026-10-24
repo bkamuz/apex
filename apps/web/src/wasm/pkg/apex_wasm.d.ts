@@ -2,6 +2,11 @@
 /* eslint-disable */
 
 /**
+ * Drop an open undo group without recording (cancelled gesture).
+ */
+export function abortUndoGroup(): void;
+
+/**
  * Open a coalesced undo group (e.g. at the start of an anchor drag).
  */
 export function beginUndoGroup(): void;
@@ -204,6 +209,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
+    readonly abortUndoGroup: () => [number, number];
     readonly beginUndoGroup: () => [number, number];
     readonly canRedo: () => [number, number, number];
     readonly canUndo: () => [number, number, number];

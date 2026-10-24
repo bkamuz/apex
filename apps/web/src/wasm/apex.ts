@@ -33,6 +33,7 @@ import initWasm, {
   undo,
   redo,
   beginUndoGroup,
+  abortUndoGroup,
   createReference,
   selectReference,
   getSelectedReference,
@@ -282,6 +283,10 @@ export function apexRedo(): SceneDto {
 
 export function apexBeginUndoGroup(): void {
   beginUndoGroup();
+}
+
+export function apexAbortUndoGroup(): void {
+  abortUndoGroup();
 }
 
 export function apexCreateReference(kind: ReferenceKind, points: Vec3[]): SceneDto {

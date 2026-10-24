@@ -1,5 +1,5 @@
 import type { Vec3 } from '../viewport/ViewportRenderer';
-import type { Tool } from './Tool';
+import type { Tool, ToolContext } from './Tool';
 import { deltaVec3, type TransformMode, type TransformOriginal } from './transformTypes';
 
 export const MOVE_TOOL_ID = 'apex.move';
@@ -9,15 +9,27 @@ export const COPY_TOOL_ID = 'apex.copy';
  * Classic CAD move / copy: base point → target point.
  *
  * Move previews live geometry; copy shows a construction line until confirm.
+ * Only Move opens an undo group (so live preview edits coalesce). Copy must
+ * not — an open group makes `record_before` a no-op and leaves the copy
+ * immediately un-undoable.
  */
 export function createTransformTool(mode: TransformMode): Tool {
   let base: Vec3 | null = null;
   let originals: TransformOriginal[] | null = null;
   let previewing = false;
+  let undoGroupOpen = false;
 
   const id = mode === 'move' ? MOVE_TOOL_ID : COPY_TOOL_ID;
   const label = mode === 'move' ? 'Move' : 'Copy';
   const verb = mode === 'move' ? 'move' : 'copy';
+
+  const clearGesture = (ctx: ToolContext) => {
+    base = null;
+    originals = null;
+    previewing = false;
+    ctx.setPending([]);
+    ctx.showPreviewLine(null);
+  };
 
   return {
     id,
@@ -45,18 +57,18 @@ export function createTransformTool(mode: TransformMode): Tool {
         base = point;
         originals = selection;
         ctx.setPending([base]);
-        ctx.beginUndoGroup();
+        if (mode === 'move') {
+          ctx.beginUndoGroup();
+          undoGroupOpen = true;
+        }
         ctx.setError(null);
         return;
       }
 
       const delta = deltaVec3(base, point);
       ctx.commitTransform(originals!, delta, mode);
-      base = null;
-      originals = null;
-      previewing = false;
-      ctx.setPending([]);
-      ctx.showPreviewLine(null);
+      undoGroupOpen = false;
+      clearGesture(ctx);
     },
 
     onPointerMove(e, ctx) {
@@ -82,11 +94,11 @@ export function createTransformTool(mode: TransformMode): Tool {
       if (previewing && originals) {
         ctx.restoreTransformOriginals(originals);
       }
-      base = null;
-      originals = null;
-      previewing = false;
-      ctx.setPending([]);
-      ctx.showPreviewLine(null);
+      if (undoGroupOpen) {
+        ctx.abortUndoGroup();
+        undoGroupOpen = false;
+      }
+      clearGesture(ctx);
     },
   };
 }

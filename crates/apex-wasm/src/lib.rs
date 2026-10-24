@@ -1307,3 +1307,12 @@ pub fn begin_undo_group() -> Result<(), JsValue> {
         Ok(())
     })
 }
+
+/// Drop an open undo group without recording (cancelled gesture).
+#[wasm_bindgen(js_name = abortUndoGroup)]
+pub fn abort_undo_group() -> Result<(), JsValue> {
+    with_project(|project| {
+        project.abort_undo_group();
+        Ok(())
+    })
+}

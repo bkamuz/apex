@@ -86,6 +86,8 @@ for (const expected of [
   'Select',
   'Move',
   'Copy',
+  'Parent',
+  'Detach',
   'Wall',
   'Column',
   'Beam',
@@ -261,27 +263,92 @@ await page.screenshot({ path: `${OUT}/apex-02-all-components.png`, fullPage: tru
 
 // --- 4c. Move and Copy transform tools ------------------------------------
 console.log('\n[4c] move and copy transforms');
+
+async function firstColumnState() {
+  return page.evaluate(async () => {
+    const mod = await import('/src/wasm/apex.ts');
+    const col = mod.apexListElements().find((e) => e.component_id === 'apex.column');
+    if (!col) return null;
+    return {
+      id: col.id,
+      anchor: col.anchors?.[0] ?? null,
+      parent_id: col.parent_id ?? null,
+    };
+  });
+}
+
+async function columnIds() {
+  return page.evaluate(async () => {
+    const mod = await import('/src/wasm/apex.ts');
+    return mod
+      .apexListElements()
+      .filter((e) => e.component_id === 'apex.column')
+      .map((e) => e.id)
+      .sort();
+  });
+}
+
 const countBeforeMove = await elementCount();
 await useTool('Select');
 await page.locator('[data-kind="instance"]').filter({ hasText: /^Column \d+/ }).first().click();
 await page.waitForTimeout(200);
+const beforeMove = await firstColumnState();
+check('column selected for move', !!beforeMove?.anchor);
+
 await useTool('Move');
 await clickCanvas(0.42, 0.6);
+// Nudge the pointer so live preview mutates the document before commit.
+await page.mouse.move(box.x + box.width * 0.48, box.y + box.height * 0.6);
+await page.waitForTimeout(80);
 await clickCanvas(0.52, 0.6);
 await page.waitForTimeout(300);
 check('move keeps element count', (await elementCount()) === countBeforeMove);
+const afterMove = await firstColumnState();
+const movedDx = Math.abs((afterMove?.anchor?.[0] ?? 0) - (beforeMove?.anchor?.[0] ?? 0));
+const movedDz = Math.abs((afterMove?.anchor?.[2] ?? 0) - (beforeMove?.anchor?.[2] ?? 0));
+check(
+  'move changes column position',
+  !!afterMove && afterMove.id === beforeMove.id && (movedDx > 0.05 || movedDz > 0.05),
+  `before=${JSON.stringify(beforeMove?.anchor)} after=${JSON.stringify(afterMove?.anchor)}`,
+);
 await page.getByTestId('undo').click();
 await page.waitForTimeout(300);
 check('undo reverts move', (await elementCount()) === countBeforeMove);
+const afterUndoMove = await firstColumnState();
+check(
+  'undo restores column position',
+  !!afterUndoMove &&
+    afterUndoMove.id === beforeMove.id &&
+    Math.hypot(
+      (afterUndoMove.anchor?.[0] ?? 0) - (beforeMove.anchor?.[0] ?? 0),
+      (afterUndoMove.anchor?.[2] ?? 0) - (beforeMove.anchor?.[2] ?? 0),
+    ) < 0.05,
+  `restored=${JSON.stringify(afterUndoMove?.anchor)}`,
+);
 
+const idsBeforeCopy = await columnIds();
+await useTool('Select');
+await page.locator('[data-kind="instance"]').filter({ hasText: /^Column \d+/ }).first().click();
+await page.waitForTimeout(120);
 await useTool('Copy');
 await clickCanvas(0.42, 0.6);
 await clickCanvas(0.48, 0.66);
 await page.waitForTimeout(300);
-check('copy adds one column', (await elementCount()) === countBeforeMove + 1);
+const idsAfterCopy = await columnIds();
+check('copy adds one column', idsAfterCopy.length === idsBeforeCopy.length + 1);
+const copiedId = idsAfterCopy.find((id) => !idsBeforeCopy.includes(id));
+check('copy introduced a new column id', !!copiedId);
+check('undo enabled after copy', await page.getByTestId('undo').isEnabled());
 await page.getByTestId('undo').click();
 await page.waitForTimeout(300);
-check('undo removes copy', (await elementCount()) === countBeforeMove);
+const idsAfterUndoCopy = await columnIds();
+check(
+  'undo removes the copied column',
+  idsAfterUndoCopy.length === idsBeforeCopy.length &&
+    !idsAfterUndoCopy.includes(copiedId) &&
+    idsAfterUndoCopy.join(',') === idsBeforeCopy.join(','),
+  `before=${idsBeforeCopy} afterUndo=${idsAfterUndoCopy} copied=${copiedId}`,
+);
 
 await page.keyboard.press('m');
 await page.waitForTimeout(120);
@@ -292,8 +359,11 @@ await page.waitForTimeout(120);
 // --- 4. Schema-driven inspector -------------------------------------------
 console.log('\n[5] inspector generated from the parameter schema');
 await useTool('Select');
+await page.getByTestId('browser-filter-all').click();
 // Elements are listed by id, so pick the wall by name rather than by position.
-await page.locator('[data-kind="instance"]').filter({ hasText: /^Wall \d+/ }).first().click();
+const wallRow = page.locator('[data-kind="instance"]').filter({ hasText: /^Wall \d+/ }).first();
+await wallRow.scrollIntoViewIfNeeded();
+await wallRow.click();
 await page.waitForTimeout(300);
 
 const labels = await page
@@ -592,6 +662,40 @@ check(
   `before ${beforeReload} after ${afterReload}`,
 );
 await page.screenshot({ path: `${OUT}/apex-07-browser-save.png`, fullPage: true });
+
+// --- Parent / Detach (after undo-sensitive sections so history stays clean) ---
+// Toolbar buttons are asserted in [1]. Folded here from the old orphan
+// apps/web/parent-e2e.cjs (removed).
+console.log('\n[parent] parent and detach');
+const parentRoundTrip = await page.evaluate(async () => {
+  const mod = await import('/src/wasm/apex.ts');
+  const els = mod.apexListElements();
+  const wall = els.find((e) => e.component_id === 'apex.wall');
+  const col = els.find((e) => e.component_id === 'apex.column');
+  if (!wall || !col) return { ok: false, reason: 'missing wall or column' };
+  mod.apexSetElementParent(col.id, wall.id);
+  const attached = mod.apexListElements().find((e) => e.id === col.id)?.parent_id ?? null;
+  mod.apexSetElementParent(col.id, null);
+  const detached = mod.apexListElements().find((e) => e.id === col.id)?.parent_id ?? null;
+  return {
+    ok: true,
+    attached: attached === wall.id,
+    detached: detached === null,
+  };
+});
+check(
+  'parent attaches column to wall',
+  parentRoundTrip.ok && parentRoundTrip.attached,
+  parentRoundTrip.reason || '',
+);
+check('detach clears parent_id', parentRoundTrip.ok && parentRoundTrip.detached);
+await useTool('Detach');
+check(
+  'Detach tool activates',
+  (await page.getByRole('button', { name: 'Detach', exact: true }).getAttribute('class'))?.includes(
+    'active',
+  ),
+);
 
 const badge = await page.locator('.viewport-badge').textContent();
 console.log('\nbadge:', badge);
