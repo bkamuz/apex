@@ -1,4 +1,5 @@
 import { apexListComponents, apexRegisterComponent } from '../wasm/apex';
+import { TOOL_ICONS } from '../tools/icons';
 import { createPlacementTool } from '../tools/placementTool';
 import { ApexTabs, TOOL_TABS } from '../tools/tabs';
 import type { Tool } from '../tools/Tool';
@@ -6,9 +7,11 @@ import type { Exporter } from '../plugins/types';
 
 /** Re-export the tool surface third-party modules implement. */
 export type { Tool, ToolContext, ToolGroup, ToolMode, ToolTab, ResolvedToolTab } from '../tools/Tool';
+export type { ToolIcon, ToolIconName } from '../tools/icons';
 export type { TransformOriginal, TransformMode } from '../tools/transformTypes';
 export type { Exporter } from '../plugins/types';
 export { ApexTabs, TOOL_TABS, catalogTabById, resolveToolTab } from '../tools/tabs';
+export { ApexIcons, TOOL_ICONS, catalogIconByName, resolveToolIconSvg } from '../tools/icons';
 
 type Listener = () => void;
 
@@ -90,6 +93,8 @@ export interface ApexGlobal {
   registerExporter(exporter: Exporter): void;
   /** Known toolbar tabs — prefer these; a custom `{ id, label }` still creates a new tab. */
   tabs: typeof TOOL_TABS;
+  /** Known toolbar icon names — prefer these; omit icon or use `{ svg }` for custom. */
+  icons: typeof TOOL_ICONS;
 }
 
 declare global {
@@ -105,5 +110,6 @@ export function installGlobalSdk(): void {
     registerTool: (tool) => extensions.registerTool(tool),
     registerExporter: (exporter) => extensions.registerExporter(exporter),
     tabs: TOOL_TABS,
+    icons: TOOL_ICONS,
   };
 }

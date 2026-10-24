@@ -56,7 +56,15 @@ async function clickCanvas(nx, ny) {
 }
 
 async function useTool(name) {
-  await page.getByRole('button', { name, exact: true }).click();
+  const btn = page.getByRole('button', { name, exact: true });
+  if ((await btn.count()) === 0 || !(await btn.first().isVisible())) {
+    for (const tab of await page.locator('.tools-tab').all()) {
+      await tab.click();
+      await page.waitForTimeout(50);
+      if ((await btn.count()) > 0 && (await btn.first().isVisible())) break;
+    }
+  }
+  await btn.click();
   await page.waitForTimeout(120);
 }
 
@@ -75,13 +83,21 @@ const toolbarNames = () =>
 
 // --- 1. Each first-party tool is a plugin; wall and column are one tool -----
 console.log('\n[1] toolbar from plugins, one tool per type');
+const basicsTab = page.getByTestId('tools-tab-apex.basics');
 const buildingTab = page.getByTestId('tools-tab-apex.building');
+check('Basics tab exists', (await basicsTab.count()) === 1);
+check('Basics tab label', ((await basicsTab.textContent()) ?? '').trim() === 'Basics');
 check('Building constructions tab exists', (await buildingTab.count()) === 1);
+check(
+  'Building constructions tab label',
+  ((await buildingTab.textContent()) ?? '').trim() === 'Building constructions',
+);
+
 await buildingTab.click();
 await page.waitForTimeout(80);
-const tools = await toolbarNames();
-console.log('  toolbar:', tools.join(' | '));
-check('Building constructions tab label', tools.includes('Building constructions'));
+const buildingTools = await toolbarNames();
+console.log('  building toolbar:', buildingTools.join(' | '));
+check('tab label is not a tool button', !buildingTools.includes('Building constructions'));
 for (const expected of [
   'Select',
   'Move',
@@ -101,16 +117,26 @@ for (const expected of [
   'Pipe',
   'Duct',
   'Cable tray',
-  'Ref point',
-  'Ref plane',
-  'Grid axis',
 ]) {
-  check(`"${expected}" button exists`, tools.includes(expected));
+  check(`"${expected}" on Building tab`, buildingTools.includes(expected));
 }
+check('Ref point is not on Building tab', !buildingTools.includes('Ref point'));
+check('Grid axis is not on Building tab', !buildingTools.includes('Grid axis'));
+
+await basicsTab.click();
+await page.waitForTimeout(80);
+const basicsTools = await toolbarNames();
+console.log('  basics toolbar:', basicsTools.join(' | '));
+for (const expected of ['Select', 'Move', 'Copy', 'Parent', 'Detach', 'Ref point', 'Ref plane', 'Grid axis']) {
+  check(`"${expected}" on Basics tab`, basicsTools.includes(expected));
+}
+check('Wall is not on Basics tab', !basicsTools.includes('Wall'));
+check('commons stay pinned across tabs', buildingTools.includes('Select') && basicsTools.includes('Select'));
+
 check('IFC export button exists', (await page.getByTestId('export-apex.ifc').count()) === 1);
-check('arc wall is not a second tool', !tools.includes('Arc wall'));
-check('round is not a second column tool', !tools.includes('Round column'));
-check('draw modes hide until Wall is active', !tools.includes('Line') && !tools.includes('Arc'));
+check('arc wall is not a second tool', !buildingTools.includes('Arc wall'));
+check('round is not a second column tool', !buildingTools.includes('Round column'));
+check('draw modes hide until Wall is active', !buildingTools.includes('Line') && !buildingTools.includes('Arc'));
 
 // --- 2. Place a room with the two-point Wall / Line gesture ----------------
 console.log('\n[2] wall placement (line mode)');

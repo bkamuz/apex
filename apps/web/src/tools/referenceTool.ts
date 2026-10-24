@@ -1,5 +1,6 @@
 import type { ReferenceKind } from '../types';
 import type { Vec3 } from '../viewport/ViewportRenderer';
+import { ApexIcons } from './icons';
 import type { Tool, ToolContext, ToolTab } from './Tool';
 import { ApexTabs } from './tabs';
 
@@ -13,7 +14,7 @@ function farEnough(a: Vec3, b: Vec3): boolean {
 export function createReferenceTool(
   kind: ReferenceKind,
   label: string,
-  tab: ToolTab = ApexTabs.building,
+  tab: ToolTab = ApexTabs.basics,
 ): Tool {
   const required = kind === 'point' ? 1 : 2;
   const picks: Vec3[] = [];
@@ -31,6 +32,7 @@ export function createReferenceTool(
     label,
     group: 'create',
     tab,
+    icon: kind === 'point' ? ApexIcons.refPoint : ApexIcons.refPlane,
 
     hint(pendingCount) {
       const remaining = required - pendingCount;

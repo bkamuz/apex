@@ -1,5 +1,6 @@
 import type { ComponentDto } from '../types';
 import type { Vec3 } from '../viewport/ViewportRenderer';
+import { COMPONENT_ICON_BY_ID } from './icons';
 import { toolIdForComponent, type Tool, type ToolContext, type ToolTab } from './Tool';
 import { ApexTabs } from './tabs';
 
@@ -28,6 +29,7 @@ export function createHostedPlacementTool(
     label: component.display_name,
     group: 'create',
     tab,
+    icon: COMPONENT_ICON_BY_ID[component.id],
     componentId: component.id,
     placementKind: () => 'point',
 

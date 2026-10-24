@@ -1,4 +1,5 @@
 import type { Vec3 } from '../viewport/ViewportRenderer';
+import { ApexIcons } from './icons';
 import type { Tool, ToolContext } from './Tool';
 import { deltaVec3, type TransformMode, type TransformOriginal } from './transformTypes';
 
@@ -35,6 +36,7 @@ export function createTransformTool(mode: TransformMode): Tool {
     id,
     label,
     group: 'transform',
+    icon: mode === 'move' ? ApexIcons.move : ApexIcons.copy,
     shortcut: mode === 'move' ? 'M' : 'C',
 
     hint(pendingCount) {
