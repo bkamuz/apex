@@ -2195,13 +2195,7 @@ mod tests {
         )
         .expect("parse");
         let mesh = project
-            .preview_definition(
-                &definition,
-                None,
-                &[Vec3::ZERO],
-                0.0,
-                &ParamMap::new(),
-            )
+            .preview_definition(&definition, None, &[Vec3::ZERO], 0.0, &ParamMap::new())
             .expect("preview");
         let (_min, max) = mesh.aabb().unwrap();
         assert!((max[1] - 1.2).abs() < EPS);
