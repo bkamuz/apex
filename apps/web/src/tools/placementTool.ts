@@ -21,7 +21,7 @@ export interface PlacementToolOptions {
   /** Drawable modes. When set, the tool is one toolbar button with a switcher. */
   modes?: ToolMode[];
   defaultMode?: string;
-  /** Prefer `ApexTabs.building`; custom `{ id, label }` creates a new tab. */
+  /** Prefer `ApexTabs.building` / `ApexTabs.engineering`; custom `{ id, label }` creates a new tab. */
   tab?: ToolTab;
   /** Prefer `ApexIcons.*`; falls back to the component→icon map when omitted. */
   icon?: ToolIcon;

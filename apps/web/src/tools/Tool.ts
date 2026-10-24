@@ -123,8 +123,9 @@ export interface Tool {
   readonly group?: ToolGroup;
   /**
    * When set, the tool's button lives under this tab instead of the flat
-   * create row. Prefer `ApexTabs.building` / `ApexTabs.basics` (or another
-   * catalog entry); a custom `{ id, label }` creates a new tab.
+   * create row. Prefer `ApexTabs.building` / `ApexTabs.basics` /
+   * `ApexTabs.engineering` (or another catalog entry); a custom
+   * `{ id, label }` creates a new tab.
    * Select/transform tools usually omit it (always pinned).
    */
   readonly tab?: ToolTab;

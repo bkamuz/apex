@@ -20,9 +20,14 @@ export const TOOL_TABS = {
     id: 'apex.building',
     label: 'Building constructions',
   },
+  /** MEP routes (pipe, duct, cable tray). */
+  engineering: {
+    id: 'apex.engineering',
+    label: 'Engineering',
+  },
 } as const satisfies Record<string, ResolvedToolTab>;
 
-/** Alias preferred in SDK / examples (`ApexTabs.building`). */
+/** Alias preferred in SDK / examples (`ApexTabs.building` / `ApexTabs.engineering`). */
 export const ApexTabs = TOOL_TABS;
 
 /** @deprecated Prefer `ApexTabs.building` / `TOOL_TABS.building`. */
