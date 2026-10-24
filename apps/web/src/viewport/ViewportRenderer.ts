@@ -2195,7 +2195,8 @@ export class ViewportRenderer {
     gl.clearColor(28 / 255, 28 / 255, 28 / 255, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     // Active level grid (semi-transparent) — no separate Y=0 ground grid.
-    this.drawLines(this.gridVao, this.gridCount, [0.42, 0.55, 0.68, 0.35], 0.8);
+    // Warm/neutral charcoal on #1c1c1c clear (not cool blue).
+    this.drawLines(this.gridVao, this.gridCount, [0.44, 0.43, 0.40, 0.38], 0.8);
     this.drawMeshes(false);
     // Outlines at true depth; solids were polygon-offset back.
     this.drawLines(this.edgeVao, this.edgeCount, [0.08, 0.09, 0.1, 1], 2.0);
