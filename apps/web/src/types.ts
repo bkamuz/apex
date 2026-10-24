@@ -52,11 +52,26 @@ export type ExprDto =
 /** Mirrors `ProfileSpec` in apex-core. */
 export type ProfileSpecDto =
   | { shape: 'rectangle'; width: ExprDto; height: ExprDto }
+  | { shape: 'hollow_rectangle'; width: ExprDto; height: ExprDto; wall: ExprDto }
   | { shape: 'circle'; radius: ExprDto; segments?: number }
+  | { shape: 'hollow_circle'; radius: ExprDto; wall: ExprDto; segments?: number }
   | { shape: 'polygon'; points: [ExprDto, ExprDto][] }
   | { shape: 'named'; id: string }
   | { shape: 'from_param'; param: string }
   | { shape: 'from_placement' };
+
+/** Mirrors `PlacementOptions` in apex-core. */
+export interface PlacementOptionsDto {
+  min_points?: number;
+  closed?: boolean;
+  /** Default true — MEP 3D routes set false. */
+  seat_on_level?: boolean;
+}
+
+/** Mirrors `HostCutSpec` in apex-core. */
+export interface HostCutSpecDto {
+  host_categories: string[];
+}
 
 /** A reusable section: shape plus type/instance parameters. */
 export interface ProfileTypeDto {
@@ -99,9 +114,13 @@ export interface ComponentDto {
   category: string;
   source: 'built_in' | 'visual' | { module: { id: string } };
   placement: PlacementKind;
+  placement_options?: PlacementOptionsDto;
   params: ParamSpecDto[];
   /** Opaque here: only the core evaluates recipes. */
   recipe: unknown;
+  host_cut?: HostCutSpecDto | null;
+  level_height_params?: string[];
+  ifc_entity?: string | null;
 }
 
 export interface ElementDto {

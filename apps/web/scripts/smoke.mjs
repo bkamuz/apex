@@ -85,12 +85,22 @@ for (const expected of [
   'Column',
   'Beam',
   'Slab',
+  'Door',
+  'Window',
+  'Slab opening',
+  'Stair',
+  'Roof',
+  'Pitched roof',
+  'Pipe',
+  'Duct',
+  'Cable tray',
   'Ref point',
   'Ref plane',
   'Grid axis',
 ]) {
   check(`"${expected}" button exists`, tools.includes(expected));
 }
+check('IFC export button exists', (await page.getByTestId('export-apex.ifc').count()) === 1);
 check('arc wall is not a second tool', !tools.includes('Arc wall'));
 check('round is not a second column tool', !tools.includes('Round column'));
 check('draw modes hide until Wall is active', !tools.includes('Line') && !tools.includes('Arc'));

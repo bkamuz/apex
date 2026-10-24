@@ -1,0 +1,14 @@
+[package]
+name = "apex-ifc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "IFC4 export for Apex projects (tessellated geometry)"
+
+[dependencies]
+apex-core = { workspace = true }
+apex-geometry = { workspace = true }
+glam = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+uuid = { workspace = true }

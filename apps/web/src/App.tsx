@@ -3,6 +3,7 @@ import {
   apexBeginUndoGroup,
   apexCopySelection,
   apexCreateElement,
+  apexCreateElementWithParent,
   apexCreateLevel,
   apexCreateGridAxis,
   apexCreateReference,
@@ -79,7 +80,7 @@ import {
   type TransformOriginal,
 } from './tools/transformTypes';
 import { extensions, installGlobalSdk } from './extensions/sdk';
-import { installPlugins } from './plugins';
+import { exporterRegistry, installPlugins } from './plugins';
 
 const DEFAULT_LEVEL_RISE = 3;
 
@@ -163,6 +164,7 @@ export default function App() {
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [components, setComponents] = useState<ComponentDto[]>([]);
+  const [exporters, setExporters] = useState(() => exporterRegistry.list());
   const [profiles, setProfiles] = useState<ProfileTypeDto[]>([]);
   const [placementDraft, setPlacementDraft] = useState<Record<string, ParamValue>>({});
   const [profileEditor, setProfileEditor] = useState<{
@@ -262,6 +264,7 @@ export default function App() {
     installPlugins(registryRef.current, installed);
     setComponents(installed);
     setProfiles(apexListProfiles());
+    setExporters(exporterRegistry.list());
   }, []);
 
   const applyScene = useCallback(
@@ -327,6 +330,29 @@ export default function App() {
         } catch (e) {
           setError(e instanceof Error ? e.message : String(e));
         }
+      },
+
+      createElementWithParent: (componentId, points, parentId, placementKind) => {
+        try {
+          applyScene(
+            apexCreateElementWithParent(
+              componentId,
+              points,
+              parentId,
+              placementParamsRef.current,
+              0,
+              placementKind,
+            ),
+          );
+          setError(null);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+        }
+      },
+
+      elementCategory: (id) => {
+        const element = sceneRef.current?.elements.find((item) => item.id === id);
+        return element?.category ?? null;
       },
 
       createReference: (kind: ReferenceKind, points) => {
@@ -795,6 +821,14 @@ export default function App() {
       if (!typing && !mod && e.key.toLowerCase() === 'c') {
         e.preventDefault();
         activateTool('apex.copy');
+        return;
+      }
+      if (!typing && !mod && (e.key === 'PageUp' || e.key === 'PageDown')) {
+        const activeTool = toolRef.current;
+        if (activeTool.nudgeElevation) {
+          e.preventDefault();
+          activeTool.nudgeElevation(e.key === 'PageUp' ? 0.5 : -0.5);
+        }
       }
     };
     const onKeyUp = (e: KeyboardEvent) => {
@@ -955,7 +989,10 @@ export default function App() {
       tool.placementKind?.() ??
       (tool.componentId ? placementKindOf(tool.componentId) : 'point');
     if (tool.componentId && requiredPoints(kind) === null) {
-      if (finishOpenGesture(tool, pending, toolContext())) {
+      const component = tool.componentId
+        ? (components.find((item) => item.id === tool.componentId) ?? null)
+        : null;
+      if (finishOpenGesture(tool, pending, toolContext(), component)) {
         setPending([]);
         return;
       }
@@ -1194,6 +1231,24 @@ export default function App() {
             <button type="button" onClick={onSaveProject} data-testid="save-project">
               Save
             </button>
+            {exporters.map((exporter) => (
+              <button
+                key={exporter.id}
+                type="button"
+                data-testid={`export-${exporter.id}`}
+                onClick={() => {
+                  try {
+                    const text = exporter.export();
+                    downloadText(exporter.filename, text);
+                    setError(null);
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : String(err));
+                  }
+                }}
+              >
+                {exporter.label}
+              </button>
+            ))}
             <button
               type="button"
               onClick={() => fileRef.current?.click()}

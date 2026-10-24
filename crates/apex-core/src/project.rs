@@ -15,10 +15,57 @@ use crate::element::{Element, ElementId};
 use crate::grid_axis::{grid_axis_param_specs, GridAxis, GridAxisId};
 use crate::history::History;
 use crate::level::{Level, LevelId};
-use crate::param::ParamMap;
+use crate::param::{ParamMap, ParamValue};
 use crate::placement::{Placement, PlacementKind};
 use crate::reference::{RefId, Reference, ReferenceKind};
 use crate::registry::{ComponentRegistry, RegistryError};
+
+/// Fallback storey height when a level has no level above it.
+const DEFAULT_STOREY_RISE: f32 = 3.0;
+
+/// Axis-aligned void for a hosted opening, used by [`TriangleMesh::punch_aabbs`].
+fn opening_void_aabb(
+    opening: &Element,
+    definition: &ComponentDefinition,
+) -> Option<([f32; 3], [f32; 3])> {
+    let params = definition.resolve_params(&opening.params).ok()?;
+    let origin = opening.placement.origin();
+    if definition.placement == PlacementKind::Polyline {
+        let anchors = opening.placement.anchors();
+        if anchors.len() < 3 {
+            return None;
+        }
+        let depth = params.number("depth").unwrap_or(0.5) as f32;
+        let mut min = anchors[0].to_array();
+        let mut max = min;
+        for p in &anchors {
+            let a = p.to_array();
+            for i in 0..3 {
+                min[i] = min[i].min(a[i]);
+                max[i] = max[i].max(a[i]);
+            }
+        }
+        min[1] -= 0.05;
+        max[1] += depth + 0.05;
+        return Some((min, max));
+    }
+    let width = params.number("width").unwrap_or(0.9) as f32;
+    let height = params.number("height").unwrap_or(2.1) as f32;
+    let sill = params.number("sill").unwrap_or(0.0) as f32;
+    // Generous depth so the punch clears typical wall thickness.
+    let depth = 1.2_f32;
+    let min = [
+        origin.x - width * 0.5,
+        origin.y + sill - 0.02,
+        origin.z - depth * 0.5,
+    ];
+    let max = [
+        origin.x + width * 0.5,
+        origin.y + sill + height + 0.02,
+        origin.z + depth * 0.5,
+    ];
+    Some((min, max))
+}
 
 pub struct Project {
     document: Document,
@@ -160,29 +207,58 @@ impl Project {
         placement: Placement,
         params: ParamMap,
     ) -> Result<ElementId, RegistryError> {
+        self.create_element_with_parent(component_id, placement, params, None)
+    }
+
+    /// Place a new element, optionally parenting it (openings host-cut their parent).
+    pub fn create_element_with_parent(
+        &mut self,
+        component_id: &str,
+        placement: Placement,
+        params: ParamMap,
+        parent: Option<ElementId>,
+    ) -> Result<ElementId, RegistryError> {
         let before = self.export_snapshot();
-        let level_id = self
-            .document
-            .active_level_id()
-            .ok_or_else(|| RegistryError::Unknown("no active level".to_string()))?;
-        let display_name = self.registry.require(component_id)?.display_name.clone();
+        let level_id = if let Some(parent_id) = parent {
+            self.document
+                .effective_level_id(parent_id)
+                .or_else(|| self.document.active_level_id())
+                .ok_or_else(|| RegistryError::Unknown("no active level".to_string()))?
+        } else {
+            self.document
+                .active_level_id()
+                .ok_or_else(|| RegistryError::Unknown("no active level".to_string()))?
+        };
+        let definition = self.registry.require(component_id)?.clone();
+        let display_name = definition.display_name.clone();
         let name = self.next_name(component_id, &display_name);
 
-        // Seat the placement on the level so a pick from any view lands right.
-        let elevation = self.work_plane(level_id).origin.y;
-        let placement = placement.with_elevation(elevation);
+        let placement = if definition.placement_options.seat_on_level {
+            let elevation = self.work_plane(level_id).origin.y;
+            placement.with_elevation(elevation)
+        } else {
+            placement
+        };
 
-        let params = self.registry.persistable_params(component_id, &params)?;
-        let mesh = self.registry.build_mesh(
-            component_id,
-            &placement,
-            &params,
-            self.work_plane(level_id),
-            self.document.references(),
-        )?;
-        let element = Element::new(name, component_id, level_id, placement, params);
+        let raw_params = params;
+        let mut params = self
+            .registry
+            .persistable_params(component_id, &raw_params)?;
+        self.apply_level_height_defaults(component_id, level_id, &mut params, &raw_params);
+
+        let mut element = Element::new(name, component_id, level_id, placement, params);
+        if let Some(parent_id) = parent {
+            element.parent_id = Some(parent_id);
+        }
         let id = element.id;
+        let mesh = self.build_element_mesh_with_cuts(&element)?;
         self.document.upsert_element(element, mesh);
+        if parent.is_some() {
+            // Host must rebuild so the new opening punches through.
+            if let Some(parent_id) = parent {
+                self.rebuild_element(parent_id)?;
+            }
+        }
         self.history.record_before(before);
         Ok(id)
     }
@@ -219,19 +295,35 @@ impl Project {
             .effective_level_id(id)
             .unwrap_or(element.level_id);
         if let Some(placement) = placement {
-            let elevation = self.work_plane(level_id).origin.y;
-            element.placement = placement.with_elevation(elevation);
+            let seat = self
+                .registry
+                .get(&element.component_id)
+                .map(|def| def.placement_options.seat_on_level)
+                .unwrap_or(true);
+            element.placement = if seat {
+                let elevation = self.work_plane(level_id).origin.y;
+                placement.with_elevation(elevation)
+            } else {
+                placement
+            };
         }
         element.params = self
             .registry
             .persistable_params(&element.component_id, &element.params)?;
 
-        let mesh = self.registry.build_element_mesh(
-            &element,
-            self.work_plane(level_id),
-            self.document.references(),
-        )?;
+        let is_opening = self
+            .registry
+            .get(&element.component_id)
+            .and_then(|d| d.host_cut.as_ref())
+            .is_some();
+        let parent_id = element.parent_id;
+        let mesh = self.build_element_mesh_with_cuts(&element)?;
         self.document.update_element(element, mesh);
+        if is_opening {
+            if let Some(parent_id) = parent_id {
+                let _ = self.rebuild_element(parent_id);
+            }
+        }
         if record {
             self.finish_recorded_edit(before);
         }
@@ -413,12 +505,20 @@ impl Project {
         parent: Option<ElementId>,
     ) -> Result<Vec<ElementId>, RegistryError> {
         let before = self.export_snapshot();
+        let previous_parent = self.document.get_element(id).and_then(|e| e.parent_id);
         let changed = self
             .document
             .set_parent(id, parent)
             .map_err(RegistryError::Document)?;
         for element_id in &changed {
             self.rebuild_element(*element_id)?;
+        }
+        // Opening host-cuts depend on parentage — rebuild both old and new hosts.
+        if let Some(old) = previous_parent {
+            let _ = self.rebuild_element(old);
+        }
+        if let Some(new_parent) = parent {
+            let _ = self.rebuild_element(new_parent);
         }
         self.history.record_before(before);
         Ok(changed)
@@ -631,6 +731,24 @@ impl Project {
             .set_level_elevation(id, elevation)
             .map_err(RegistryError::Unknown)?;
         for element_id in moved {
+            self.sync_level_height_params(element_id)?;
+            self.rebuild_element(element_id)?;
+        }
+        // Levels below this one also change their rise-to-next.
+        let below: Vec<ElementId> = self
+            .document
+            .elements()
+            .filter(|element| {
+                self.document.effective_level_id(element.id) != Some(id)
+                    && self
+                        .registry
+                        .get(&element.component_id)
+                        .is_some_and(|def| !def.level_height_params.is_empty())
+            })
+            .map(|element| element.id)
+            .collect();
+        for element_id in below {
+            self.sync_level_height_params(element_id)?;
             self.rebuild_element(element_id)?;
         }
         self.history.record_before(before);
@@ -730,6 +848,129 @@ impl Project {
             });
         }
         Ok(placement)
+    }
+
+    /// Distance from `level_id` up to the next higher level, or a default rise.
+    pub fn storey_rise(&self, level_id: LevelId) -> f32 {
+        let Some(level) = self.document.get_level(level_id) else {
+            return DEFAULT_STOREY_RISE;
+        };
+        let mut next = None;
+        for other in self.document.levels() {
+            if other.elevation > level.elevation + 1e-4 {
+                match next {
+                    None => next = Some(other.elevation),
+                    Some(elev) if other.elevation < elev => next = Some(other.elevation),
+                    _ => {}
+                }
+            }
+        }
+        next.map(|elev| elev - level.elevation)
+            .unwrap_or(DEFAULT_STOREY_RISE)
+    }
+
+    fn apply_level_height_defaults(
+        &self,
+        component_id: &str,
+        level_id: LevelId,
+        params: &mut ParamMap,
+        raw: &ParamMap,
+    ) {
+        let Some(definition) = self.registry.get(component_id) else {
+            return;
+        };
+        if definition.level_height_params.is_empty() {
+            return;
+        }
+        let rise = self.storey_rise(level_id) as f64;
+        for param_id in &definition.level_height_params {
+            // Honour an explicit authoring value; otherwise seed from storey rise.
+            if raw.get(param_id).is_none() {
+                params.set(param_id.clone(), ParamValue::Length(rise));
+            }
+        }
+    }
+
+    fn sync_level_height_params(&mut self, id: ElementId) -> Result<(), RegistryError> {
+        let Some(element) = self.document.get_element(id).cloned() else {
+            return Ok(());
+        };
+        let Some(definition) = self.registry.get(&element.component_id) else {
+            return Ok(());
+        };
+        if definition.level_height_params.is_empty() {
+            return Ok(());
+        }
+        let level_id = self
+            .document
+            .effective_level_id(id)
+            .unwrap_or(element.level_id);
+        let rise = self.storey_rise(level_id) as f64;
+        let mut params = element.params.clone();
+        for param_id in &definition.level_height_params {
+            params.set(param_id.clone(), ParamValue::Length(rise));
+        }
+        // Write through document without a nested undo step.
+        let mut updated = element;
+        updated.params = self
+            .registry
+            .persistable_params(&updated.component_id, &params)?;
+        let mesh = self.build_element_mesh_with_cuts(&updated)?;
+        self.document.update_element(updated, mesh);
+        Ok(())
+    }
+
+    fn build_element_mesh_with_cuts(
+        &self,
+        element: &Element,
+    ) -> Result<TriangleMesh, RegistryError> {
+        let level_id = self
+            .document
+            .effective_level_id(element.id)
+            .unwrap_or(element.level_id);
+        let mut mesh = self.registry.build_element_mesh(
+            element,
+            self.work_plane(level_id),
+            self.document.references(),
+        )?;
+        let voids = self.host_cut_voids(element.id);
+        if !voids.is_empty() {
+            mesh = mesh.punch_aabbs(&voids);
+        }
+        Ok(mesh)
+    }
+
+    /// AABB voids from child openings that declare a matching host_cut.
+    pub(crate) fn host_cut_voids(&self, host_id: ElementId) -> Vec<([f32; 3], [f32; 3])> {
+        let Some(host) = self.document.get_element(host_id) else {
+            return Vec::new();
+        };
+        let Some(host_def) = self.registry.get(&host.component_id) else {
+            return Vec::new();
+        };
+        let mut voids = Vec::new();
+        for child_id in self.document.children_of(host_id) {
+            let Some(child) = self.document.get_element(child_id) else {
+                continue;
+            };
+            let Some(child_def) = self.registry.get(&child.component_id) else {
+                continue;
+            };
+            let Some(cut) = &child_def.host_cut else {
+                continue;
+            };
+            if !cut
+                .host_categories
+                .iter()
+                .any(|category| category == &host_def.category)
+            {
+                continue;
+            }
+            if let Some(aabb) = opening_void_aabb(child, child_def) {
+                voids.push(aabb);
+            }
+        }
+        voids
     }
 
     fn next_name(&mut self, component_id: &str, display_name: &str) -> String {
@@ -890,7 +1131,10 @@ mod tests {
     #[test]
     fn a_new_project_ships_with_the_builtin_components() {
         let project = Project::new();
-        assert_eq!(project.registry().len(), 4);
+        assert_eq!(
+            project.registry().len(),
+            crate::registry::builtin_components().len()
+        );
         assert!(project.document().active_level_id().is_some());
     }
 
@@ -2005,5 +2249,95 @@ mod tests {
             None,
             "one undo must detach again"
         );
+    }
+}
+
+#[cfg(test)]
+mod plugin_first_tests {
+    use super::*;
+    use crate::param::ParamValue;
+    use glam::Vec3;
+
+    #[test]
+    fn free_elevation_paths_keep_picked_heights() {
+        let mut project = Project::new();
+        let id = project
+            .create_element(
+                "apex.duct",
+                Placement::line(Vec3::new(0.0, 1.5, 0.0), Vec3::new(3.0, 1.5, 0.0)),
+                ParamMap::new(),
+            )
+            .expect("duct");
+        let element = project.document().get_element(id).unwrap();
+        let anchors = element.placement.anchors();
+        assert!((anchors[0].y - 1.5).abs() < 1e-4);
+        assert!((anchors[1].y - 1.5).abs() < 1e-4);
+    }
+
+    #[test]
+    fn door_on_wall_punches_a_host_void() {
+        let mut project = Project::new();
+        let wall = project
+            .create_element(
+                "apex.wall",
+                Placement::line(Vec3::ZERO, Vec3::new(5.0, 0.0, 0.0)),
+                ParamMap::new(),
+            )
+            .expect("wall");
+        let before = project
+            .document()
+            .get_mesh(wall)
+            .map(|m| m.triangle_count())
+            .unwrap_or(0);
+        let _door = project
+            .create_element_with_parent(
+                "apex.door",
+                Placement::point(Vec3::new(2.5, 0.0, 0.0)),
+                ParamMap::new()
+                    .with("width", ParamValue::Length(1.0))
+                    .with("height", ParamValue::Length(2.0)),
+                Some(wall),
+            )
+            .expect("door");
+        let voids = project.host_cut_voids(wall);
+        assert!(
+            !voids.is_empty(),
+            "expected at least one host-cut void, got {voids:?}"
+        );
+        let after = project
+            .document()
+            .get_mesh(wall)
+            .map(|m| m.triangle_count())
+            .unwrap_or(0);
+        assert!(
+            after < before,
+            "host mesh should lose triangles inside the opening void ({after} vs {before}, voids={voids:?})"
+        );
+        assert_eq!(
+            project.document().get_element(_door).unwrap().parent_id,
+            Some(wall)
+        );
+    }
+
+    #[test]
+    fn storey_rise_seeds_wall_height_when_unspecified() {
+        let mut project = Project::new();
+        let ground = project.document().active_level_id().unwrap();
+        project.add_level("Level 1", 3.5);
+        let wall = project
+            .create_element(
+                "apex.wall",
+                Placement::line(Vec3::ZERO, Vec3::new(2.0, 0.0, 0.0)),
+                ParamMap::new(),
+            )
+            .expect("wall");
+        let height = project
+            .document()
+            .get_element(wall)
+            .unwrap()
+            .params
+            .number("height");
+        assert_eq!(height, Some(3.5));
+        assert!((project.storey_rise(ground) - 3.5).abs() < 1e-4);
     }
 }

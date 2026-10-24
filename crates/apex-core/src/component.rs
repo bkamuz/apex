@@ -156,8 +156,21 @@ pub enum ProfileSpec {
         width: Expr,
         height: Expr,
     },
+    /// Rectangle with a concentric rectangular hole (sheet-metal duct).
+    HollowRectangle {
+        width: Expr,
+        height: Expr,
+        wall: Expr,
+    },
     Circle {
         radius: Expr,
+        #[serde(default = "default_segments")]
+        segments: u32,
+    },
+    /// Annular section (pipe wall thickness).
+    HollowCircle {
+        radius: Expr,
+        wall: Expr,
         #[serde(default = "default_segments")]
         segments: u32,
     },
@@ -202,8 +215,40 @@ impl ProfileSpec {
                 width.eval_f32(params)?,
                 height.eval_f32(params)?,
             )?),
+            Self::HollowRectangle {
+                width,
+                height,
+                wall,
+            } => {
+                let w = width.eval_f32(params)?;
+                let h = height.eval_f32(params)?;
+                let t = wall.eval_f32(params)?;
+                let outer = Profile::rectangle(w, h)?;
+                let inner_w = (w - 2.0 * t).max(1e-4);
+                let inner_h = (h - 2.0 * t).max(1e-4);
+                let hole = Profile::rectangle(inner_w, inner_h)?;
+                Ok(Profile::new(
+                    outer.outer().to_vec(),
+                    vec![hole.outer().to_vec()],
+                )?)
+            }
             Self::Circle { radius, segments } => {
                 Ok(Profile::circle(radius.eval_f32(params)?, *segments)?)
+            }
+            Self::HollowCircle {
+                radius,
+                wall,
+                segments,
+            } => {
+                let r = radius.eval_f32(params)?;
+                let t = wall.eval_f32(params)?;
+                let outer = Profile::circle(r, *segments)?;
+                let inner_r = (r - t).max(1e-4);
+                let hole = Profile::circle(inner_r, *segments)?;
+                Ok(Profile::new(
+                    outer.outer().to_vec(),
+                    vec![hole.outer().to_vec()],
+                )?)
             }
             Self::Polygon { points } => {
                 let evaluated = points
@@ -258,7 +303,20 @@ impl ProfileSpec {
                 out.extend(width.referenced_params());
                 out.extend(height.referenced_params());
             }
+            Self::HollowRectangle {
+                width,
+                height,
+                wall,
+            } => {
+                out.extend(width.referenced_params());
+                out.extend(height.referenced_params());
+                out.extend(wall.referenced_params());
+            }
             Self::Circle { radius, .. } => out.extend(radius.referenced_params()),
+            Self::HollowCircle { radius, wall, .. } => {
+                out.extend(radius.referenced_params());
+                out.extend(wall.referenced_params());
+            }
             Self::Polygon { points } => {
                 for [u, v] in points {
                     out.extend(u.referenced_params());
@@ -457,6 +515,74 @@ pub enum DefinitionError {
     SketchTooSmall { profile: ProfileId, count: usize },
 }
 
+/// Tooling hints for a placement gesture. Keeps finish rules on the definition
+/// so the UI never hardcodes a component id.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlacementOptions {
+    /// Minimum picks before a variable-length gesture may finish.
+    /// When omitted, open gestures need 2 picks (3 when [`Self::closed`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_points: Option<u32>,
+    /// Closed boundary (e.g. slab outline). Implies a higher default min_points.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub closed: bool,
+    /// When true, flatten placement Y to the element's level elevation.
+    /// MEP 3D centerlines set this false so risers keep their picked heights.
+    #[serde(default = "default_true", skip_serializing_if = "is_true")]
+    pub seat_on_level: bool,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+fn is_true(value: &bool) -> bool {
+    *value
+}
+
+impl Default for PlacementOptions {
+    fn default() -> Self {
+        Self {
+            min_points: None,
+            closed: false,
+            seat_on_level: true,
+        }
+    }
+}
+
+impl PlacementOptions {
+    /// Minimum picks required to finish an open (polyline/path) gesture.
+    pub fn finish_min_points(&self) -> u32 {
+        self.min_points.unwrap_or(if self.closed { 3 } else { 2 })
+    }
+
+    pub fn closed_boundary() -> Self {
+        Self {
+            min_points: Some(3),
+            closed: true,
+            seat_on_level: true,
+        }
+    }
+
+    pub fn free_elevation() -> Self {
+        Self {
+            min_points: None,
+            closed: false,
+            seat_on_level: false,
+        }
+    }
+}
+
+/// Declares that instances of this component cut a void in their parent host.
+///
+/// The void is an axis-aligned box from `width` / `height` / optional `sill`
+/// params (and wall thickness from the host), centered on the opening origin.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HostCutSpec {
+    /// Host categories this opening may attach to (`wall`, `slab`, …).
+    pub host_categories: Vec<String>,
+}
+
 /// The complete description of an object type.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ComponentDefinition {
@@ -467,9 +593,24 @@ pub struct ComponentDefinition {
     #[serde(default)]
     pub source: ComponentSource,
     pub placement: PlacementKind,
+    /// Gesture finish / seating rules. Defaults keep older definitions working.
+    #[serde(default)]
+    pub placement_options: PlacementOptions,
     #[serde(default)]
     pub params: Vec<ParamSpec>,
     pub recipe: GeometryRecipe,
+    /// When set, this type punches a void in its parent after the host rebuilds.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_cut: Option<HostCutSpec>,
+    /// Instance or profile params whose length tracks the rise to the next level.
+    ///
+    /// Applied when building geometry so walls grow with storey height without
+    /// a per-type UI branch.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub level_height_params: Vec<ParamId>,
+    /// Optional IFC entity type hint for exporters (`IfcWall`, `IfcFlowSegment`, …).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ifc_entity: Option<String>,
 }
 
 impl ComponentDefinition {
@@ -1166,6 +1307,10 @@ mod tests {
             category: "generic".into(),
             source: ComponentSource::Visual,
             placement: PlacementKind::TwoPoint,
+            placement_options: PlacementOptions::default(),
+            host_cut: None,
+            level_height_params: vec![],
+            ifc_entity: None,
             params: vec![ParamSpec::length("height", "Height", 3.0)],
             recipe: GeometryRecipe::Sweep {
                 profile: ProfileSpec::Rectangle {
@@ -1196,6 +1341,10 @@ mod tests {
             category: "generic".into(),
             source: ComponentSource::Visual,
             placement: PlacementKind::Point,
+            placement_options: PlacementOptions::default(),
+            host_cut: None,
+            level_height_params: vec![],
+            ifc_entity: None,
             params: vec![
                 ParamSpec::length("height", "Height", 3.0),
                 ParamSpec::length("height", "Height again", 4.0),
@@ -1234,6 +1383,10 @@ mod tests {
                 id: "acme.furniture".into(),
             },
             placement: PlacementKind::Point,
+            placement_options: PlacementOptions::default(),
+            host_cut: None,
+            level_height_params: vec![],
+            ifc_entity: None,
             params: vec![ParamSpec::length("height", "Height", 0.75)],
             recipe: GeometryRecipe::Extrude {
                 profile: ProfileSpec::Circle {
@@ -1303,6 +1456,10 @@ mod tests {
             category: "generic".into(),
             source: ComponentSource::Visual,
             placement: PlacementKind::Point,
+            placement_options: PlacementOptions::default(),
+            host_cut: None,
+            level_height_params: vec![],
+            ifc_entity: None,
             params: vec![ParamSpec {
                 id: "style".into(),
                 label: "Style".into(),

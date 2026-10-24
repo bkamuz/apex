@@ -1,6 +1,7 @@
 //! Apex document model: elements, levels, and change notifications.
 
 mod annotation;
+mod builders;
 mod component;
 mod document;
 mod element;
@@ -18,8 +19,8 @@ mod sketch;
 pub use annotation::{AnnotationLabel, PlanAnnotation};
 pub use component::{
     evaluate_recipe, ComponentDefinition, ComponentSource, DefinitionError, FrameSource,
-    GeometryRecipe, MeshBuilder, ModuleId, ProfileId, ProfileLibrary, ProfileSpec, ProfileType,
-    RecipeContext, RecipeError,
+    GeometryRecipe, HostCutSpec, MeshBuilder, ModuleId, PlacementOptions, ProfileId,
+    ProfileLibrary, ProfileSpec, ProfileType, RecipeContext, RecipeError,
 };
 pub use document::{Document, DocumentChange, DocumentChangeKind, ElementSceneEntry, SceneBuffers};
 pub use element::{ComponentId, Element, ElementId};

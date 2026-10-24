@@ -32,11 +32,24 @@ dependencies = [
 ]
 
 [[package]]
+name = "apex-ifc"
+version = "0.1.0"
+dependencies = [
+ "apex-core",
+ "apex-geometry",
+ "glam",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "apex-wasm"
 version = "0.1.0"
 dependencies = [
  "apex-core",
  "apex-geometry",
+ "apex-ifc",
  "console_error_panic_hook",
  "getrandom 0.2.17",
  "glam",

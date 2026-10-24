@@ -59,9 +59,11 @@ Two consequences worth remembering:
 
 ### Tools and plugins
 
-- One plugin = one toolbar button (`apps/web/src/plugins/`). `installPlugins()` rebuilds `ToolRegistry` from `firstPartyPlugins` plus any runtime tools from `window.apex.registerTool`.
+- One plugin = one toolbar contribution (`apps/web/src/plugins/`). `installPlugins()` rebuilds `ToolRegistry` and the exporter registry from `firstPartyPlugins` plus runtime `window.apex.registerTool` / `registerExporter`.
+- `PluginHost` can `registerTool`, `registerComponent`, and `registerExporter`. Domain packs (architecture, MEP, IFC) install through that host — never via `if (componentId === …)` in `App.tsx`.
+- Placement finish rules live on `ComponentDefinition.placement_options` (`min_points`, `closed`, `seat_on_level`). Openings declare `host_cut`; MEP 3D routes set `seat_on_level: false` (PgUp/PgDn nudges elevation while placing).
 - Implement a tool by satisfying `Tool` in `apps/web/src/tools/Tool.ts` and registering it from a plugin's `install(host)` or at runtime via the SDK.
-- `ToolContext` is the only bridge to WASM/React — tools hold no React state. Extend `ToolContext` when a new gesture family needs core support (see transform: `getTransformSelection`, `previewTransform`, `commitTransform`).
+- `ToolContext` is the only bridge to WASM/React — tools hold no React state. Extend `ToolContext` when a new gesture family needs core support (see transform: `getTransformSelection`, `previewTransform`, `commitTransform`; openings: `createElementWithParent`).
 - Toolbar groups: `select` | `transform` | `create` (visual separators). Transform tools (Move `M`, Copy `C`) live in the `transform` group.
 - Minimal third-party stub: `examples/custom-tool.ts`. Document shape:
 

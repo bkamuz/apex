@@ -11,6 +11,15 @@ export interface ToolContext {
   resolvePoint(clientX: number, clientY: number, shift: boolean, anchor: Vec3 | null): Vec3 | null;
   /** Commit picks as a new element of `componentId`. */
   createElement(componentId: string, points: Vec3[], placementKind?: PlacementKind): void;
+  /** Commit picks as a child of `parentId` (openings / host cuts). */
+  createElementWithParent(
+    componentId: string,
+    points: Vec3[],
+    parentId: string,
+    placementKind?: PlacementKind,
+  ): void;
+  /** Category of an element, for host-cut eligibility checks. */
+  elementCategory(id: string): string | null;
   /** Commit picks as a new document reference. */
   createReference(kind: ReferenceKind, points: Vec3[]): void;
   /** Commit picks as a new plan grid axis. */
@@ -100,6 +109,8 @@ export interface Tool {
   onPointerUp?(e: PointerInfo, ctx: ToolContext): void;
   /** Escape, tool switch, or anything else that abandons the gesture. */
   cancel?(ctx: ToolContext): void;
+  /** Adjust pick elevation for free-elevation path tools (MEP). */
+  nudgeElevation?(delta: number): void;
 }
 
 /** How many picks a gesture needs; null means "until the user says stop". */

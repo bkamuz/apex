@@ -330,6 +330,19 @@ impl ParamSpec {
         }
     }
 
+    pub fn text(id: &str, label: &str, default: &str) -> Self {
+        Self {
+            id: id.to_string(),
+            label: label.to_string(),
+            kind: ParamKind::Text,
+            default: ParamValue::Text(default.to_string()),
+            min: None,
+            max: None,
+            unit: None,
+            binding: ParamBinding::Instance,
+        }
+    }
+
     pub fn profile(id: &str, label: &str, default: &str, options: &[&str]) -> Self {
         Self {
             id: id.to_string(),
