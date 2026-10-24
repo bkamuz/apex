@@ -5,23 +5,30 @@
   --chrome-bg-tabs: #262626;
   --chrome-bg-tools: #2a2a2a;
   --chrome-bg-hint: #1c1c1c;
+  /* Viewport clear matches shell hint so the canvas is not a cool gray island. */
+  --chrome-viewport: #1c1c1c;
   --chrome-line: #111;
   --chrome-border: #3a3a3a;
   --chrome-hover: #353535;
   --chrome-muted: #9a9a9a;
+  --chrome-text: #e8eaef;
   --chrome-active: #5a7d4e;
   --chrome-active-border: #6f9460;
   --chrome-active-text: #e8f0e4;
   --chrome-info: #b8860b;
   --chrome-radius: 0;
   --chrome-active-soft: #2a3528;
+  /* Form controls: dark fields + light text (UA defaults paint black otherwise). */
+  --chrome-field: var(--chrome-bg-hint);
+  --chrome-field-text: var(--chrome-text);
+  --chrome-placeholder: #7a7a7a;
 
   /* Semantic aliases map the shell to the same industrial language. */
   --bg: var(--chrome-bg-hint);
   --bg-panel: var(--chrome-bg);
   --bg-elevated: var(--chrome-bg-tools);
   --border: var(--chrome-border);
-  --text: #e8eaef;
+  --text: var(--chrome-text);
   --text-muted: var(--chrome-muted);
   --accent: var(--chrome-active);
   --accent-soft: var(--chrome-active-soft);
@@ -29,6 +36,8 @@
   --font: "IBM Plex Sans", system-ui, sans-serif;
   --mono: "IBM Plex Mono", ui-monospace, monospace;
   --radius: var(--chrome-radius);
+
+  color-scheme: dark;
 }
 
 *,
@@ -53,7 +62,9 @@ body,
 }
 
 button,
-input {
+input,
+select,
+textarea {
   font: inherit;
   color: inherit;
 }
@@ -64,6 +75,7 @@ button {
   background: var(--bg-elevated);
   border-radius: var(--radius);
   padding: 5px 10px;
+  color: var(--chrome-text);
 }
 
 button:hover {
@@ -80,28 +92,71 @@ button.active {
 button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
+  color: var(--chrome-muted);
 }
 
+/* Global dark form controls — selects omit color:inherit in some UAs. */
 input[type="number"],
 input[type="text"],
-select {
+input[type="search"],
+input[type="email"],
+input[type="url"],
+input[type="password"],
+input:not([type]),
+select,
+textarea {
   width: 100%;
-  background: var(--bg);
-  border: 1px solid var(--border);
+  background: var(--chrome-field);
+  color: var(--chrome-field-text);
+  border: 1px solid var(--chrome-border);
   border-radius: var(--radius);
   padding: 6px 8px;
+  caret-color: var(--chrome-field-text);
+  /* Chromium otherwise keeps CanvasText (black) on dark author backgrounds. */
+  -webkit-text-fill-color: var(--chrome-field-text);
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--chrome-placeholder);
+  opacity: 1;
+  -webkit-text-fill-color: var(--chrome-placeholder);
+}
+
+select {
+  /* Keep native chevron readable on dark fields. */
+  color-scheme: dark;
+}
+
+select option,
+select optgroup {
+  background: var(--chrome-bg-tools);
+  color: var(--chrome-field-text);
 }
 
 input:disabled,
-select:disabled {
-  opacity: 0.7;
+select:disabled,
+textarea:disabled {
+  opacity: 0.55;
   cursor: not-allowed;
+  color: var(--chrome-muted);
+  -webkit-text-fill-color: var(--chrome-muted);
 }
 
 input:focus,
+select:focus,
+textarea:focus,
 button:focus-visible {
   outline: 1px solid var(--chrome-active);
   outline-offset: 0;
+}
+
+input[type="checkbox"],
+input[type="radio"] {
+  width: auto;
+  accent-color: var(--chrome-active);
+  color-scheme: dark;
+  -webkit-text-fill-color: unset;
 }
 
 /* Themed scrollbars for panel scroll areas (browser, inspector, levels). */
@@ -580,8 +635,10 @@ button:focus-visible {
 .browser-toolbar select {
   border-radius: var(--chrome-radius);
   padding: 4px 6px;
-  background: var(--chrome-bg-hint);
+  background: var(--chrome-field);
+  color: var(--chrome-field-text);
   border-color: var(--chrome-border);
+  -webkit-text-fill-color: var(--chrome-field-text);
 }
 
 .browser-filter {
@@ -807,7 +864,8 @@ button:focus-visible {
   touch-action: none;
   overscroll-behavior: none;
   -webkit-touch-callout: none;
-  background: var(--chrome-bg-hint);
+  /* Same token as WebGL clearColor — continuous industrial shell, not an island. */
+  background: var(--chrome-viewport);
 }
 
 .viewport-wrap canvas {
@@ -850,11 +908,29 @@ button:focus-visible {
 
 .inspector-body input[type="number"],
 .inspector-body input[type="text"],
-.inspector-body select {
+.inspector-body select,
+.inspector-body textarea {
   border-radius: var(--chrome-radius);
-  background: var(--chrome-bg-hint);
+  background: var(--chrome-field);
+  color: var(--chrome-field-text);
   border-color: var(--chrome-border);
   padding: 5px 7px;
+  -webkit-text-fill-color: var(--chrome-field-text);
+}
+
+.profile-editor-form input[type="number"],
+.profile-editor-form input[type="text"],
+.profile-editor-form select,
+.profile-editor-form textarea,
+.profile-dim-row input,
+.profile-dim-row select,
+.profile-param-row input,
+.profile-param-row select {
+  background: var(--chrome-field);
+  color: var(--chrome-field-text);
+  border-color: var(--chrome-border);
+  border-radius: var(--chrome-radius);
+  -webkit-text-fill-color: var(--chrome-field-text);
 }
 
 .field label {
