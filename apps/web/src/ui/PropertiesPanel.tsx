@@ -282,7 +282,11 @@ function emptyComponent(): ComponentDto {
     source: 'visual',
     placement: 'point',
     params: [],
-    recipe: null,
+    recipe: {
+      op: 'extrude',
+      profile: { shape: 'rectangle', width: { op: 'const', value: 1 }, height: { op: 'const', value: 1 } },
+      height: { op: 'const', value: 1 },
+    },
   };
 }
 

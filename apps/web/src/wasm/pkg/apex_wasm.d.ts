@@ -157,6 +157,11 @@ export function newProject(): any;
 export function pickById(pick_id: number): any;
 
 /**
+ * Mesh preview for a component definition before it is registered (visual editor).
+ */
+export function previewComponentDefinition(definition_json: string, points_json: string, rotation: number, params_json: string, placement_kind: string): any;
+
+/**
  * Geometry for a placement that has not been committed yet.
  *
  * The preview and the real element come from the same recipe, so a ghost can
@@ -299,6 +304,7 @@ export interface InitOutput {
     readonly listProfiles: (a: number, b: number) => [number, number, number];
     readonly newProject: () => [number, number, number];
     readonly pickById: (a: number) => [number, number, number];
+    readonly previewComponentDefinition: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
     readonly previewElement: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
     readonly previewProfile: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly redo: () => [number, number, number];

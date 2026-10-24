@@ -4,6 +4,7 @@ import type { ComponentDto } from '../types';
 import type { ToolRegistry } from '../tools/registry';
 import { firstPartyPlugins } from './catalog';
 import { exporterRegistry } from './exporters';
+import { registerUserComponentTools } from './userComponentTools';
 import type { PluginHost } from './types';
 
 export type { Plugin, PluginHost, Exporter } from './types';
@@ -29,6 +30,9 @@ export function installPlugins(registry: ToolRegistry, components: ComponentDto[
     registerExporter: (exporter) => exporterRegistry.register(exporter),
   };
   for (const plugin of firstPartyPlugins) plugin.install(host);
-  for (const tool of extensions.customTools()) host.registerTool(tool);
+  registerUserComponentTools(registry, components);
+  for (const tool of extensions.customTools()) {
+    if (!registry.get(tool.id)) host.registerTool(tool);
+  }
   for (const exporter of extensions.customExporters()) host.registerExporter(exporter);
 }

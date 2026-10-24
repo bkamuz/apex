@@ -1253,7 +1253,8 @@ input[type="radio"] {
   padding: 24px;
 }
 
-.profile-editor {
+.profile-editor,
+.component-editor {
   width: min(1180px, 100%);
   height: min(860px, 100%);
   max-height: min(860px, 100%);
@@ -1430,6 +1431,56 @@ input[type="radio"] {
 
 .profile-editor-error {
   padding: 0 16px 8px;
+}
+
+.component-preview-canvas {
+  flex: 1;
+  min-height: 280px;
+  width: 100%;
+  background: #0e1016;
+  border: 1px solid var(--chrome-line);
+  border-radius: var(--chrome-radius);
+}
+
+.component-editor-json {
+  flex: 1;
+  min-height: 0;
+  padding: 12px;
+  display: flex;
+}
+
+.component-editor-json textarea {
+  flex: 1;
+  font-family: var(--mono);
+  font-size: 12px;
+  resize: none;
+  background: #0e1016;
+  color: var(--text);
+  border: 1px solid var(--chrome-line);
+  border-radius: var(--chrome-radius);
+  padding: 10px;
+}
+
+.component-editor-json-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--chrome-muted);
+}
+
+.component-flag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  margin-bottom: 6px;
+  color: var(--chrome-muted);
+}
+
+.kind-component_def {
+  background: rgba(212, 137, 58, 0.2);
+  color: #d4893a;
 }
 
 @media (max-width: 900px) {

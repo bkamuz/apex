@@ -595,6 +595,31 @@ export function pickById(pick_id) {
 }
 
 /**
+ * Mesh preview for a component definition before it is registered (visual editor).
+ * @param {string} definition_json
+ * @param {string} points_json
+ * @param {number} rotation
+ * @param {string} params_json
+ * @param {string} placement_kind
+ * @returns {any}
+ */
+export function previewComponentDefinition(definition_json, points_json, rotation, params_json, placement_kind) {
+    const ptr0 = passStringToWasm0(definition_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(points_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passStringToWasm0(params_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ptr3 = passStringToWasm0(placement_kind, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len3 = WASM_VECTOR_LEN;
+    const ret = wasm.previewComponentDefinition(ptr0, len0, ptr1, len1, rotation, ptr2, len2, ptr3, len3);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * Geometry for a placement that has not been committed yet.
  *
  * The preview and the real element come from the same recipe, so a ghost can

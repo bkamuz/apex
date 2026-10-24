@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from 'react';
 import type {
+  ComponentDto,
   ConstructionLineDto,
   ElementListDto,
   GridAxisDto,
@@ -9,6 +10,7 @@ import type {
   SectionCutDto,
   SpaceDto,
 } from '../types';
+import { isUserAuthoredComponent } from './componentModel';
 import { profileLabel } from './profileModel';
 
 export type BrowserGroupBy = 'kind' | 'category' | 'level' | 'profile' | 'none';
@@ -23,9 +25,11 @@ interface Props {
   sectionCuts: SectionCutDto[];
   spaces: SpaceDto[];
   profiles: ProfileTypeDto[];
+  components: ComponentDto[];
   levels: LevelDto[];
   selectedIds: string[];
   selectedProfileId: string | null;
+  selectedComponentId: string | null;
   selectedRefId: string | null;
   selectedGridAxisId: string | null;
   selectedConstructionLineId: string | null;
@@ -38,12 +42,22 @@ interface Props {
   onSelectSectionCut: (id: string) => void;
   onSelectSpace: (id: string) => void;
   onSelectType: (profileId: string) => void;
+  onSelectComponent: (componentId: string) => void;
   onNewProfile: () => void;
+  onNewComponent: () => void;
 }
 
 interface BrowserItem {
   key: string;
-  kind: 'type' | 'instance' | 'reference' | 'grid_axis' | 'construction_line' | 'section_cut' | 'space';
+  kind:
+    | 'type'
+    | 'component_def'
+    | 'instance'
+    | 'reference'
+    | 'grid_axis'
+    | 'construction_line'
+    | 'section_cut'
+    | 'space';
   id: string;
   name: string;
   category: string;
@@ -91,6 +105,7 @@ function storePrefs(prefs: BrowserPrefs): void {
 function groupKey(item: BrowserItem, groupBy: BrowserGroupBy): string {
   switch (groupBy) {
     case 'kind':
+      if (item.kind === 'component_def') return 'User components';
       if (item.kind === 'type') return 'Shared types';
       if (item.kind === 'reference') return 'References';
       if (item.kind === 'grid_axis') return 'Grid axes';
@@ -148,10 +163,13 @@ interface BrowserTreeItemProps {
   onSelectSectionCut: (id: string) => void;
   onSelectSpace: (id: string) => void;
   onSelectType: (profileId: string) => void;
+  onSelectComponent: (componentId: string) => void;
 }
 
 function kindBadge(kind: BrowserItem['kind'], depth = 0): string {
   switch (kind) {
+    case 'component_def':
+      return 'comp';
     case 'type':
       return 'type';
     case 'reference':
@@ -229,8 +247,10 @@ function BrowserTreeItem({
   onSelectSectionCut,
   onSelectSpace,
   onSelectType,
+  onSelectComponent,
 }: BrowserTreeItemProps) {
   const isType = item.kind === 'type';
+  const isComponentDef = item.kind === 'component_def';
   const isDatum =
     item.kind === 'reference' ||
     item.kind === 'grid_axis' ||
@@ -248,6 +268,7 @@ function BrowserTreeItem({
       style={depth > 0 ? { paddingLeft: 10 + depth * 14 } : undefined}
       onClick={(event) => {
         if (isType) onSelectType(item.id);
+        else if (isComponentDef) onSelectComponent(item.id);
         else if (item.kind === 'reference') onSelectReference(item.id);
         else if (item.kind === 'grid_axis') onSelectGridAxis(item.id);
         else if (item.kind === 'construction_line') onSelectConstructionLine(item.id);
@@ -260,7 +281,9 @@ function BrowserTreeItem({
         {item.name}
         <span className={`kind-badge kind-${item.kind}`}>{kindBadge(item.kind, depth)}</span>
       </span>
-      <span className="cat">{isType ? item.category : isDatum ? item.levelName : item.profileName}</span>
+      <span className="cat">
+        {isType || isComponentDef ? item.category : isDatum ? item.levelName : item.profileName}
+      </span>
     </li>
   );
 }
@@ -269,6 +292,7 @@ function isItemSelected(
   item: BrowserItem,
   selected: Set<string>,
   selectedProfileId: string | null,
+  selectedComponentId: string | null,
   selectedRefId: string | null,
   selectedGridAxisId: string | null,
   selectedConstructionLineId: string | null,
@@ -278,6 +302,8 @@ function isItemSelected(
   switch (item.kind) {
     case 'type':
       return selectedProfileId === item.id;
+    case 'component_def':
+      return selectedComponentId === item.id;
     case 'reference':
       return selectedRefId === item.id;
     case 'grid_axis':
@@ -304,6 +330,7 @@ interface BrowserTreeGroupProps {
   onToggle: () => void;
   selected: Set<string>;
   selectedProfileId: string | null;
+  selectedComponentId: string | null;
   selectedRefId: string | null;
   selectedGridAxisId: string | null;
   selectedConstructionLineId: string | null;
@@ -316,6 +343,7 @@ interface BrowserTreeGroupProps {
   onSelectSectionCut: (id: string) => void;
   onSelectSpace: (id: string) => void;
   onSelectType: (profileId: string) => void;
+  onSelectComponent: (componentId: string) => void;
 }
 
 function BrowserTreeGroup({
@@ -325,6 +353,7 @@ function BrowserTreeGroup({
   onToggle,
   selected,
   selectedProfileId,
+  selectedComponentId,
   selectedRefId,
   selectedGridAxisId,
   selectedConstructionLineId,
@@ -337,6 +366,7 @@ function BrowserTreeGroup({
   onSelectSectionCut,
   onSelectSpace,
   onSelectType,
+  onSelectComponent,
 }: BrowserTreeGroupProps) {
   return (
     <div className="browser-tree-group">
@@ -364,6 +394,7 @@ function BrowserTreeGroup({
                 item,
                 selected,
                 selectedProfileId,
+                selectedComponentId,
                 selectedRefId,
                 selectedGridAxisId,
                 selectedConstructionLineId,
@@ -377,6 +408,7 @@ function BrowserTreeGroup({
               onSelectSectionCut={onSelectSectionCut}
               onSelectSpace={onSelectSpace}
               onSelectType={onSelectType}
+              onSelectComponent={onSelectComponent}
             />
           ))}
         </ul>
@@ -393,9 +425,11 @@ export function ProjectBrowser({
   sectionCuts,
   spaces,
   profiles,
+  components,
   levels,
   selectedIds,
   selectedProfileId,
+  selectedComponentId,
   selectedRefId,
   selectedGridAxisId,
   selectedConstructionLineId,
@@ -408,7 +442,9 @@ export function ProjectBrowser({
   onSelectSectionCut,
   onSelectSpace,
   onSelectType,
+  onSelectComponent,
   onNewProfile,
+  onNewComponent,
 }: Props) {
   const initial = loadPrefs();
   const [groupBy, setGroupBy] = useState<BrowserGroupBy>(initial.groupBy);
@@ -469,6 +505,15 @@ export function ProjectBrowser({
       levelName: '',
       profileName: profile.display_name,
     }));
+    const componentDefs: BrowserItem[] = components.filter(isUserAuthoredComponent).map((def) => ({
+      key: `component:${def.id}`,
+      kind: 'component_def' as const,
+      id: def.id,
+      name: def.display_name,
+      category: def.category,
+      levelName: '',
+      profileName: def.placement,
+    }));
     const instances: BrowserItem[] = elements.map((element) => ({
       key: `instance:${element.id}`,
       kind: 'instance',
@@ -527,12 +572,12 @@ export function ProjectBrowser({
       levelName: levelName(space.level_id),
       profileName: String(space.params.label ?? '—'),
     }));
-    let all = [...types, ...instances, ...refs, ...grids, ...lines, ...cuts, ...spaceItems];
+    let all = [...componentDefs, ...types, ...instances, ...refs, ...grids, ...lines, ...cuts, ...spaceItems];
     switch (filter) {
       case 'all':
         break;
       case 'types':
-        all = all.filter((item) => item.kind === 'type');
+        all = all.filter((item) => item.kind === 'type' || item.kind === 'component_def');
         break;
       case 'instances':
         all = all.filter((item) => item.kind === 'instance');
@@ -558,7 +603,7 @@ export function ProjectBrowser({
     }
     all.sort((a, b) => compareItems(a, b, sortBy));
     return all;
-  }, [elements, references, gridAxes, constructionLines, sectionCuts, spaces, profiles, levels, filter, sortBy]);
+  }, [elements, references, gridAxes, constructionLines, sectionCuts, spaces, profiles, components, levels, filter, sortBy]);
 
   const groups = useMemo(() => {
     const map = new Map<string, BrowserItem[]>();
@@ -577,6 +622,14 @@ export function ProjectBrowser({
     <div className="project-browser" data-testid="project-browser">
       <div className="panel-title-row">
         <div className="panel-title">Project</div>
+        <button
+          type="button"
+          className="panel-action"
+          onClick={onNewComponent}
+          data-testid="browser-new-component"
+        >
+          + Component
+        </button>
         <button
           type="button"
           className="panel-action"
@@ -654,6 +707,7 @@ export function ProjectBrowser({
                   item,
                   selected,
                   selectedProfileId,
+                  selectedComponentId,
                   selectedRefId,
                   selectedGridAxisId,
                   selectedConstructionLineId,
@@ -667,6 +721,7 @@ export function ProjectBrowser({
                 onSelectSectionCut={onSelectSectionCut}
                 onSelectSpace={onSelectSpace}
                 onSelectType={onSelectType}
+                onSelectComponent={onSelectComponent}
               />
             ))}
           </ul>
@@ -681,6 +736,7 @@ export function ProjectBrowser({
                 onToggle={() => toggleGroup(label)}
                 selected={selected}
                 selectedProfileId={selectedProfileId}
+                selectedComponentId={selectedComponentId}
                 selectedRefId={selectedRefId}
                 selectedGridAxisId={selectedGridAxisId}
                 selectedConstructionLineId={selectedConstructionLineId}
@@ -693,6 +749,7 @@ export function ProjectBrowser({
                 onSelectSectionCut={onSelectSectionCut}
                 onSelectSpace={onSelectSpace}
                 onSelectType={onSelectType}
+                onSelectComponent={onSelectComponent}
               />
             ))}
           </div>

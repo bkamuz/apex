@@ -35,6 +35,7 @@ import {
   apexPickById,
   apexPreviewElement,
   apexRedo,
+  apexRegisterComponent,
   apexRegisterProfile,
   apexSelectElement,
   apexSelectConstructionLine,
@@ -88,7 +89,9 @@ import type {
 import { GridAxisLabels } from './ui/GridAxisLabels';
 import { LevelList } from './ui/LevelList';
 import { MobileMenuSheet, type MobileMenuTab } from './ui/MobileMenuSheet';
+import { ComponentEditor } from './ui/ComponentEditor';
 import { ProfileEditor } from './ui/ProfileEditor';
+import { defaultNewComponent, isUserAuthoredComponent, nextComponentId } from './ui/componentModel';
 import { ProjectBrowser } from './ui/ProjectBrowser';
 import { PropertiesPanel } from './ui/PropertiesPanel';
 import { ToolsToolbar } from './ui/ToolsToolbar';
@@ -174,6 +177,10 @@ export default function App() {
   const [placementDraft, setPlacementDraft] = useState<Record<string, ParamValue>>({});
   const [profileEditor, setProfileEditor] = useState<{
     profile: ProfileTypeDto;
+    originalId: string | null;
+  } | null>(null);
+  const [componentEditor, setComponentEditor] = useState<{
+    component: ComponentDto;
     originalId: string | null;
   } | null>(null);
   const [toolId, setToolId] = useState<string>(ToolRegistry.selectId);
@@ -1446,12 +1453,38 @@ export default function App() {
   const onEditType = (profileId: string) => {
     const profile = profiles.find((item) => item.id === profileId);
     if (!profile) return;
+    setComponentEditor(null);
     setProfileEditor({ profile, originalId: profile.id });
   };
 
   const onNewProfile = (category: string) => {
     const id = nextProfileId(profiles, category);
+    setComponentEditor(null);
     setProfileEditor({ profile: defaultNewProfile(category, id), originalId: null });
+  };
+
+  const onEditComponent = (componentId: string) => {
+    const component = components.find((item) => item.id === componentId);
+    if (!component || !isUserAuthoredComponent(component)) return;
+    setProfileEditor(null);
+    setComponentEditor({ component, originalId: component.id });
+  };
+
+  const onNewComponent = (template: 'box' | 'beam' = 'box') => {
+    const id = nextComponentId(components, template === 'beam' ? 'beam' : 'custom');
+    setProfileEditor(null);
+    setComponentEditor({
+      component: defaultNewComponent(id, template),
+      originalId: null,
+    });
+  };
+
+  const onSaveComponent = (component: ComponentDto) => {
+    const next = apexRegisterComponent(component);
+    applyScene(next);
+    syncCatalog();
+    setComponentEditor(null);
+    setError(null);
   };
 
   const onSaveProfile = (profile: ProfileTypeDto) => {
@@ -1674,9 +1707,13 @@ export default function App() {
             sectionCuts={scene?.section_cuts ?? []}
             spaces={scene?.spaces ?? []}
             profiles={profiles}
+            components={components}
             levels={levels}
             selectedIds={selectedIds}
             selectedProfileId={profileEditor?.originalId ?? profileEditor?.profile.id ?? null}
+            selectedComponentId={
+              componentEditor?.originalId ?? componentEditor?.component.id ?? null
+            }
             selectedRefId={scene?.selected_ref_id ?? null}
             selectedGridAxisId={scene?.selected_grid_axis_id ?? null}
             selectedConstructionLineId={scene?.selected_construction_line_id ?? null}
@@ -1689,7 +1726,9 @@ export default function App() {
             onSelectSectionCut={onSelectSectionCutFromTree}
             onSelectSpace={onSelectSpaceFromTree}
             onSelectType={onSelectType}
+            onSelectComponent={onEditComponent}
             onNewProfile={() => onNewProfile('wall')}
+            onNewComponent={() => onNewComponent('box')}
           />
         </aside>
       ) : null}
@@ -1755,9 +1794,13 @@ export default function App() {
                 sectionCuts={scene?.section_cuts ?? []}
                 spaces={scene?.spaces ?? []}
                 profiles={profiles}
+                components={components}
                 levels={levels}
                 selectedIds={selectedIds}
                 selectedProfileId={profileEditor?.originalId ?? profileEditor?.profile.id ?? null}
+                selectedComponentId={
+                  componentEditor?.originalId ?? componentEditor?.component.id ?? null
+                }
                 selectedRefId={scene?.selected_ref_id ?? null}
                 selectedGridAxisId={scene?.selected_grid_axis_id ?? null}
                 selectedConstructionLineId={scene?.selected_construction_line_id ?? null}
@@ -1791,7 +1834,12 @@ export default function App() {
                   onSelectType(profileId);
                   closeMobileMenu();
                 }}
+                onSelectComponent={(componentId) => {
+                  onEditComponent(componentId);
+                  closeMobileMenu();
+                }}
                 onNewProfile={() => onNewProfile('wall')}
+                onNewComponent={() => onNewComponent('box')}
               />
             }
             properties={inspector}
@@ -1812,6 +1860,15 @@ export default function App() {
           originalId={profileEditor.originalId}
           onSave={onSaveProfile}
           onClose={() => setProfileEditor(null)}
+        />
+      ) : null}
+      {componentEditor ? (
+        <ComponentEditor
+          initial={componentEditor.component}
+          originalId={componentEditor.originalId}
+          profiles={profiles}
+          onSave={onSaveComponent}
+          onClose={() => setComponentEditor(null)}
         />
       ) : null}
     </div>

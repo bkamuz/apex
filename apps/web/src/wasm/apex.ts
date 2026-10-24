@@ -15,6 +15,7 @@ import initWasm, {
   listProfiles,
   pickById,
   previewElement,
+  previewComponentDefinition,
   previewProfile,
   registerComponent,
   registerProfile,
@@ -137,6 +138,21 @@ export function apexPreviewProfile(
   params?: Record<string, ParamValue>,
 ): ProfilePreviewDto {
   return previewProfile(JSON.stringify(profile), encodeParams(params)) as ProfilePreviewDto;
+}
+
+export function apexPreviewComponentDefinition(
+  definition: unknown,
+  points: Vec3[],
+  params?: Record<string, ParamValue>,
+  placementKind?: PlacementKind,
+): MeshDto {
+  return previewComponentDefinition(
+    JSON.stringify(definition),
+    encodePoints(points),
+    0,
+    encodeParams(params),
+    placementKind ?? '',
+  ) as MeshDto;
 }
 
 export function apexCreateElement(

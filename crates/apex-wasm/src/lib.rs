@@ -833,6 +833,32 @@ pub fn register_component(definition_json: &str) -> Result<JsValue, JsValue> {
     })
 }
 
+/// Mesh preview for a component definition before it is registered (visual editor).
+#[wasm_bindgen(js_name = previewComponentDefinition)]
+pub fn preview_component_definition(
+    definition_json: &str,
+    points_json: &str,
+    rotation: f32,
+    params_json: &str,
+    placement_kind: &str,
+) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let definition: ComponentDefinition = parse_json("component", definition_json)?;
+        let points = points_from_json(points_json)?;
+        let params = parse_params(params_json)?;
+        let kind = parse_placement_kind(placement_kind)?;
+        let mesh = project
+            .preview_definition(&definition, kind, &points, rotation, &params)
+            .map_err(err)?;
+        to_js(&MeshDto {
+            positions: mesh.positions,
+            normals: mesh.normals,
+            indices: mesh.indices,
+            edge_positions: mesh.edges,
+        })
+    })
+}
+
 // ---------------------------------------------------------------------------
 // Elements
 // ---------------------------------------------------------------------------

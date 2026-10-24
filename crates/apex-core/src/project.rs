@@ -1372,6 +1372,49 @@ impl Project {
         Ok(placement)
     }
 
+    /// Like [`Self::placement_from_gesture`], but uses an in-memory definition (editor preview).
+    pub fn placement_from_definition(
+        &self,
+        definition: &ComponentDefinition,
+        kind: Option<PlacementKind>,
+        points: &[Vec3],
+        rotation: f32,
+    ) -> Result<Placement, RegistryError> {
+        let gesture = kind.unwrap_or(definition.placement);
+        let placement = gesture
+            .build(points, rotation, &self.active_work_plane())
+            .map_err(|e| RegistryError::Recipe(e.into()))?;
+        if !definition.placement.accepts(&placement) {
+            return Err(RegistryError::PlacementMismatch {
+                component: definition.id.clone(),
+                expected: definition.placement.as_str(),
+                actual: placement.family(),
+            });
+        }
+        Ok(placement)
+    }
+
+    /// Preview mesh for a component definition that is not registered yet.
+    pub fn preview_definition(
+        &self,
+        definition: &ComponentDefinition,
+        kind: Option<PlacementKind>,
+        points: &[Vec3],
+        rotation: f32,
+        raw_params: &ParamMap,
+    ) -> Result<TriangleMesh, RegistryError> {
+        let placement = self.placement_from_definition(definition, kind, points, rotation)?;
+        let elevation = self.active_work_plane().origin.y;
+        let placement = placement.with_elevation(elevation);
+        self.registry.preview_definition_mesh(
+            definition,
+            &placement,
+            raw_params,
+            self.active_work_plane(),
+            self.document.references(),
+        )
+    }
+
     /// Distance from `level_id` up to the next higher level, or a default rise.
     pub fn storey_rise(&self, level_id: LevelId) -> f32 {
         let Some(level) = self.document.get_level(level_id) else {
@@ -2123,6 +2166,46 @@ mod tests {
             project.document().get_element(id).unwrap().name,
             "Bollard 1"
         );
+    }
+
+    #[test]
+    fn preview_definition_does_not_require_registration() {
+        let project = Project::new();
+        let definition: ComponentDefinition = serde_json::from_str(
+            r#"{
+            "id": "user.preview.box",
+            "display_name": "Preview box",
+            "category": "custom",
+            "source": "visual",
+            "placement": "point",
+            "params": [
+                {"id": "width", "label": "Width", "kind": "length", "default": 0.5, "binding": "type"},
+                {"id": "height", "label": "Height", "kind": "length", "default": 1.2}
+            ],
+            "recipe": {
+                "op": "extrude",
+                "profile": {
+                    "shape": "rectangle",
+                    "width": {"op": "param", "id": "width"},
+                    "height": {"op": "param", "id": "width"}
+                },
+                "height": {"op": "param", "id": "height"}
+            }
+        }"#,
+        )
+        .expect("parse");
+        let mesh = project
+            .preview_definition(
+                &definition,
+                None,
+                &[Vec3::ZERO],
+                0.0,
+                &ParamMap::new(),
+            )
+            .expect("preview");
+        let (_min, max) = mesh.aabb().unwrap();
+        assert!((max[1] - 1.2).abs() < EPS);
+        assert_eq!(project.registry().get("user.preview.box"), None);
     }
 
     #[test]
