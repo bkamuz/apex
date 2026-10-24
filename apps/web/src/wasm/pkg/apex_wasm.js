@@ -1,6 +1,16 @@
 /* @ts-self-types="./apex_wasm.d.ts" */
 
 /**
+ * Drop an open undo group without recording (cancelled gesture).
+ */
+export function abortUndoGroup() {
+    const ret = wasm.abortUndoGroup();
+    if (ret[1]) {
+        throw takeFromExternrefTable0(ret[0]);
+    }
+}
+
+/**
  * Open a coalesced undo group (e.g. at the start of an anchor drag).
  */
 export function beginUndoGroup() {

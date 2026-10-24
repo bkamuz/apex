@@ -121,6 +121,11 @@ impl Project {
         self.history.commit_transaction();
     }
 
+    /// Discard an open undo group without recording (cancelled gesture).
+    pub fn abort_undo_group(&mut self) {
+        self.history.abort_transaction();
+    }
+
     /// Restore the previous project state. Returns `false` when the stack is empty.
     pub fn undo(&mut self) -> Result<bool, RegistryError> {
         let Some(prev) = self.history.pop_undo() else {
@@ -1332,6 +1337,81 @@ mod tests {
         assert_eq!(project.document().elements().count(), 2);
         let copy = project.document().get_element(copies[0]).expect("copy");
         assert!((copy.placement.origin().x - 3.0).abs() < EPS);
+    }
+
+    /// UI move preview mutates to `original+delta` with history off; commit must
+    /// restore then translate once so the final position is one delta, not two.
+    #[test]
+    fn move_preview_then_restore_then_translate_ends_at_one_delta() {
+        let mut project = Project::new();
+        let id = project
+            .create_element("apex.column", Placement::point(Vec3::ZERO), ParamMap::new())
+            .expect("create");
+        project.clear_history();
+
+        let delta = Vec3::new(2.0, 0.0, 0.0);
+        project.begin_undo_group();
+        // Live preview path (App.tsx applyTransformPlacements).
+        project
+            .update_element(id, None, Some(Placement::point(delta)), false)
+            .expect("preview");
+        assert!(
+            (project.document().get_element(id).unwrap().placement.origin().x - 2.0).abs() < EPS
+        );
+        // Commit path: restore captured originals, then translate once.
+        project
+            .update_element(id, None, Some(Placement::point(Vec3::ZERO)), false)
+            .expect("restore");
+        project
+            .translate_elements(&[id], delta, true)
+            .expect("commit");
+
+        let origin = project.document().get_element(id).unwrap().placement.origin();
+        assert!(
+            (origin.x - 2.0).abs() < EPS,
+            "final must be original+delta (x=2), got {origin:?}"
+        );
+        assert!(project.can_undo(), "coalesced move must be undoable");
+        project.undo().expect("undo move");
+        let restored = project.document().get_element(id).unwrap().placement.origin();
+        assert!(restored.x.abs() < EPS, "undo returns to origin, got {restored:?}");
+    }
+
+    /// Copy must not run under an open undo group — `record_before` no-ops while
+    /// pending, so the copy would not be immediately undoable.
+    #[test]
+    fn copy_without_open_undo_group_is_immediately_undoable() {
+        let mut project = Project::new();
+        let id = project
+            .create_element("apex.column", Placement::point(Vec3::ZERO), ParamMap::new())
+            .expect("create");
+        project.clear_history();
+        assert!(!project.can_undo());
+
+        project
+            .copy_elements(&[id], Vec3::new(1.0, 0.0, 0.0))
+            .expect("copy");
+        assert_eq!(project.document().elements().count(), 2);
+        assert!(project.can_undo(), "copy must push an undo entry immediately");
+        project.undo().expect("undo copy");
+        assert_eq!(project.document().elements().count(), 1);
+    }
+
+    #[test]
+    fn abort_undo_group_allows_later_copy_to_record() {
+        let mut project = Project::new();
+        let id = project
+            .create_element("apex.column", Placement::point(Vec3::ZERO), ParamMap::new())
+            .expect("create");
+        project.clear_history();
+        project.begin_undo_group();
+        project.abort_undo_group();
+        project
+            .copy_elements(&[id], Vec3::new(1.0, 0.0, 0.0))
+            .expect("copy");
+        assert!(project.can_undo());
+        project.undo().expect("undo");
+        assert_eq!(project.document().elements().count(), 1);
     }
 
     #[test]

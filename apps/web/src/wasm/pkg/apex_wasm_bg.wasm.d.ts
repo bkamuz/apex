@@ -1,6 +1,7 @@
 /* tslint:disable */
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
+export const abortUndoGroup: () => [number, number];
 export const beginUndoGroup: () => [number, number];
 export const canRedo: () => [number, number, number];
 export const canUndo: () => [number, number, number];

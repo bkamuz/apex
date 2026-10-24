@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  apexAbortUndoGroup,
   apexBeginUndoGroup,
   apexCopySelection,
   apexCreateElement,
@@ -552,6 +553,14 @@ export default function App() {
         }
       },
 
+      abortUndoGroup: () => {
+        try {
+          apexAbortUndoGroup();
+        } catch {
+          /* ignore */
+        }
+      },
+
       getTransformSelection: () => {
         const axisSel = selectedGridAxisRef.current;
         if (axisSel) {
@@ -604,12 +613,18 @@ export default function App() {
         }
       },
 
-      commitTransform: (_originals, delta, mode: TransformMode) => {
+      commitTransform: (originals, delta, mode: TransformMode) => {
         try {
-          const next =
-            mode === 'move'
-              ? apexTranslateSelection(delta, true)
-              : apexCopySelection(delta);
+          let next: SceneDto;
+          if (mode === 'move') {
+            // Live preview already wrote original+delta into the document.
+            // Restore captured anchors, then translate once so commit cannot
+            // double-apply the delta.
+            applyTransformPlacements(originals, null, false);
+            next = apexTranslateSelection(delta, true);
+          } else {
+            next = apexCopySelection(delta);
+          }
           applyScene(next);
           setError(null);
         } catch (e) {

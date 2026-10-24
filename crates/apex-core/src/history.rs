@@ -66,6 +66,13 @@ impl History {
         }
     }
 
+    /// Drop an open transaction without pushing an undo entry.
+    ///
+    /// Used when a gesture is cancelled after [`Self::begin_transaction`].
+    pub fn abort_transaction(&mut self) {
+        self.pending = None;
+    }
+
     /// Record a checkpoint before a standalone mutation.
     pub fn record_before(&mut self, before: ProjectSnapshot) {
         if self.pending.is_some() {
@@ -143,5 +150,17 @@ mod tests {
         history.commit_transaction();
         assert_eq!(history.undo.len(), 1);
         assert_eq!(history.pop_undo().unwrap().level_counter, 1);
+    }
+
+    #[test]
+    fn abort_transaction_drops_pending_without_undo() {
+        let mut history = History::new(10);
+        history.begin_transaction(snap(1));
+        history.abort_transaction();
+        assert!(!history.has_pending());
+        assert!(history.undo.is_empty());
+        // Standalone record works again after abort.
+        history.record_before(snap(2));
+        assert_eq!(history.undo.len(), 1);
     }
 }

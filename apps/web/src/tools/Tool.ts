@@ -43,6 +43,8 @@ export interface ToolContext {
   commitAnchors(anchors: Vec3[]): void;
   /** Open a coalesced undo step for the current gesture (e.g. anchor drag). */
   beginUndoGroup(): void;
+  /** Drop an open undo group without recording (cancelled gesture). */
+  abortUndoGroup(): void;
   setError(message: string | null): void;
   /** Let the tool tell the app how far through its gesture it is. */
   setPending(points: Vec3[]): void;
