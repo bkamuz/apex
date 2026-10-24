@@ -331,6 +331,26 @@ await clickCanvas(0.42, 0.48);
 await clickCanvas(0.68, 0.48);
 check('section cut created', (await cutCount()) >= 1);
 check('section cut auto-selected', await isTreeItemSelected('section_cut', 0));
+
+console.log('\n[3d2] Properties clears when switching create tools');
+await spacesTab.click();
+await page.waitForTimeout(80);
+await useTool('Detect rooms');
+await page.waitForTimeout(200);
+check(
+  'section cut deselected in browser after tool change',
+  !(await isTreeItemSelected('section_cut', 0)),
+);
+const inspectorAfterDetect = await page.locator('.inspector-body, .panel-right .empty').first().textContent();
+check(
+  'Properties not showing stale section cut inspector',
+  !inspectorAfterDetect?.includes('Section cut') && !inspectorAfterDetect?.includes('This section'),
+  inspectorAfterDetect?.slice(0, 120) ?? '',
+);
+await page.screenshot({ path: `${OUT}/apex-inspector-clears-on-tool-change.png`, fullPage: true });
+
+await page.getByTestId('tools-tab-apex.basics').click();
+await page.waitForTimeout(80);
 await page.getByTestId('browser-filter-annotations').click({ force: true });
 check('annotations filter lists lines/cuts', (await clineCount()) + (await cutCount()) >= 2);
 await page.getByTestId('browser-filter-all').click({ force: true });
@@ -432,7 +452,7 @@ const slabLabels = await page
 check('slab thickness field rendered', slabLabels.some((l) => l.startsWith('Thickness')));
 const slabThickness = page.locator('[data-section="instance"] input[type="number"]').first();
 await slabThickness.fill('0.35');
-await page.getByRole('button', { name: 'Apply', exact: true }).click();
+await slabThickness.press('Enter');
 await page.waitForTimeout(400);
 check('slab thickness edit applied', Number(await slabThickness.inputValue()) === 0.35);
 
@@ -581,7 +601,7 @@ await page.waitForTimeout(200);
 
 const heightInput = page.locator('[data-section="instance"] input[type="number"]').first();
 await heightInput.fill('5.0');
-await page.getByRole('button', { name: 'Apply', exact: true }).click();
+await heightInput.press('Enter');
 await page.waitForTimeout(400);
 const heightAfter = await heightInput.inputValue();
 check('height edit applied', Number(heightAfter) === 5, `input reads ${heightAfter}`);
@@ -594,7 +614,7 @@ await page.getByTestId('undo').click();
 await page.waitForTimeout(400);
 let heightAfterUndo = Number(await heightInput.inputValue());
 if (heightAfterUndo === 5) {
-  // Blur/Apply can record two identical param commits; step back once more.
+  // Blur/Enter can record two identical param commits; step back once more.
   await page.getByTestId('undo').click();
   await page.waitForTimeout(400);
   heightAfterUndo = Number(await heightInput.inputValue());
