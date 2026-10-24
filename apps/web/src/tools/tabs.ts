@@ -25,9 +25,14 @@ export const TOOL_TABS = {
     id: 'apex.engineering',
     label: 'Engineering',
   },
+  /** Room / area plan spaces (closed polylines). */
+  spaces: {
+    id: 'apex.spaces',
+    label: 'Spaces',
+  },
 } as const satisfies Record<string, ResolvedToolTab>;
 
-/** Alias preferred in SDK / examples (`ApexTabs.building` / `ApexTabs.engineering`). */
+/** Alias preferred in SDK / examples (`ApexTabs.building` / `ApexTabs.spaces`). */
 export const ApexTabs = TOOL_TABS;
 
 /** @deprecated Prefer `ApexTabs.building` / `TOOL_TABS.building`. */

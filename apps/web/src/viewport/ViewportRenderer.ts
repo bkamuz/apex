@@ -735,6 +735,9 @@ export class ViewportRenderer {
   private sectionCutFillVao: WebGLVertexArrayObject;
   private sectionCutFillBuf: WebGLBuffer;
   private sectionCutFillCount = 0;
+  private spaceLineVao: WebGLVertexArrayObject;
+  private spaceLineBuf: WebGLBuffer;
+  private spaceLineCount = 0;
   private editHandles: Vec3[] | null = null;
   private indexCount = 0;
   private pickFbo: WebGLFramebuffer | null = null;
@@ -902,6 +905,9 @@ export class ViewportRenderer {
     this.sectionCutFillVao = gl.createVertexArray()!;
     this.sectionCutFillBuf = gl.createBuffer()!;
     this.bindThickLineVao(this.sectionCutFillVao, this.sectionCutFillBuf);
+    this.spaceLineVao = gl.createVertexArray()!;
+    this.spaceLineBuf = gl.createBuffer()!;
+    this.bindThickLineVao(this.spaceLineVao, this.spaceLineBuf);
 
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
@@ -1276,6 +1282,16 @@ export class ViewportRenderer {
     }
     this.includePoints(fill);
     this.sectionCutFillCount = this.uploadThickLines(this.sectionCutFillBuf, flatten(fill));
+  }
+
+  /** Closed space boundaries — teal edge pairs (distinct from grids / cuts). */
+  setSpaceOverlays(lines: Vec3[] | null): void {
+    if (!lines || lines.length < 2) {
+      this.spaceLineCount = 0;
+      return;
+    }
+    this.includePoints(lines);
+    this.spaceLineCount = this.uploadThickLines(this.spaceLineBuf, flatten(lines));
   }
 
   setEditGizmo(anchors: Vec3[] | null): void {
@@ -2207,6 +2223,8 @@ export class ViewportRenderer {
     // Section cut: amber line + dimmer fill hint.
     this.drawOccludedAxis(this.sectionCutLineVao, this.sectionCutLineCount, [0.95, 0.58, 0.28, 0.98], 3.4);
     this.drawOccludedAxis(this.sectionCutFillVao, this.sectionCutFillCount, [0.95, 0.58, 0.28, 0.45], 1.6);
+    // Spaces: teal closed boundary.
+    this.drawOccludedAxis(this.spaceLineVao, this.spaceLineCount, [0.35, 0.78, 0.88, 0.95], 2.8);
     this.drawHandles();
     this.drawSnapMarker();
     this.frameMats = null;

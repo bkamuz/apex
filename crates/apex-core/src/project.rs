@@ -23,6 +23,7 @@ use crate::placement::{Placement, PlacementKind};
 use crate::reference::{RefId, Reference, ReferenceKind};
 use crate::registry::{ComponentRegistry, RegistryError};
 use crate::section_cut::{section_cut_param_specs, SectionCut, SectionCutId};
+use crate::space::{space_param_specs, Space, SpaceId};
 
 /// Fallback storey height when a level has no level above it.
 const DEFAULT_STOREY_RISE: f32 = 3.0;
@@ -81,6 +82,7 @@ pub struct Project {
     grid_axis_counter: u32,
     construction_line_counter: u32,
     section_cut_counter: u32,
+    space_counter: u32,
     level_counter: u32,
     history: History,
 }
@@ -101,6 +103,7 @@ impl Project {
             grid_axis_counter: 0,
             construction_line_counter: 0,
             section_cut_counter: 0,
+            space_counter: 0,
             level_counter: 0,
             history: History::default(),
         }
@@ -712,6 +715,130 @@ impl Project {
         Ok(new_id)
     }
 
+    /// Turn raw picks into a closed polyline space on the active work plane.
+    pub fn placement_for_space(
+        &self,
+        points: &[Vec3],
+        rotation: f32,
+    ) -> Result<Placement, crate::placement::PlacementError> {
+        if points.len() < 3 {
+            return Err(crate::placement::PlacementError::WrongPointCount {
+                kind: "polyline",
+                expected: "at least 3",
+                got: points.len(),
+            });
+        }
+        PlacementKind::Polyline.build(points, rotation, &self.active_work_plane())
+    }
+
+    pub fn create_space(
+        &mut self,
+        placement: Placement,
+        params: ParamMap,
+    ) -> Result<SpaceId, RegistryError> {
+        let before = self.export_snapshot();
+        let level_id = self
+            .document
+            .active_level_id()
+            .ok_or_else(|| RegistryError::Unknown("no active level".to_string()))?;
+        let anchors = placement.anchors();
+        if anchors.len() < 3 {
+            return Err(RegistryError::Unknown(
+                "space needs at least 3 boundary points".to_string(),
+            ));
+        }
+        let name = self.next_space_name();
+        let elevation = self.work_plane(level_id).origin.y;
+        let placement = placement.with_elevation(elevation);
+        let params = params.resolve(&space_param_specs())?;
+        let space = Space::new(name, level_id, placement, params);
+        let id = space.id;
+        self.document.upsert_space(space);
+        self.history.record_before(before);
+        Ok(id)
+    }
+
+    pub fn update_space(
+        &mut self,
+        id: SpaceId,
+        params: Option<ParamMap>,
+        placement: Option<Placement>,
+        record: bool,
+    ) -> Result<(), RegistryError> {
+        let before = if record && !self.history.has_pending() {
+            Some(self.export_snapshot())
+        } else {
+            None
+        };
+        let mut space = self
+            .document
+            .get_space(id)
+            .cloned()
+            .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
+        if let Some(patch) = params {
+            space.params = space.params.merged(&patch);
+        }
+        if let Some(placement) = placement {
+            if placement.anchors().len() < 3 {
+                return Err(RegistryError::Unknown(
+                    "space needs at least 3 boundary points".to_string(),
+                ));
+            }
+            let elevation = self.work_plane(space.level_id).origin.y;
+            space.placement = placement.with_elevation(elevation);
+        }
+        space.params = space.params.resolve(&space_param_specs())?;
+        self.document.upsert_space(space);
+        if record {
+            self.finish_recorded_edit(before);
+        }
+        Ok(())
+    }
+
+    pub fn delete_space(&mut self, id: SpaceId) -> bool {
+        if self.document.get_space(id).is_none() {
+            return false;
+        }
+        let before = self.export_snapshot();
+        let removed = self.document.remove_space(id).is_some();
+        if removed {
+            self.history.record_before(before);
+        }
+        removed
+    }
+
+    pub fn translate_space(
+        &mut self,
+        id: SpaceId,
+        delta: Vec3,
+        record: bool,
+    ) -> Result<(), RegistryError> {
+        let space = self
+            .document
+            .get_space(id)
+            .cloned()
+            .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
+        let placement = space.placement.translated(delta);
+        self.update_space(id, None, Some(placement), record)
+    }
+
+    pub fn copy_space(&mut self, id: SpaceId, delta: Vec3) -> Result<SpaceId, RegistryError> {
+        let before = self.export_snapshot();
+        let source = self
+            .document
+            .get_space(id)
+            .cloned()
+            .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
+        let name = self.next_space_name();
+        let placement = source.placement.translated(delta);
+        let params = source.params.resolve(&space_param_specs())?;
+        let space = Space::new(name, source.level_id, placement, params);
+        let new_id = space.id;
+        self.document.upsert_space(space);
+        self.history.record_before(before);
+        Ok(new_id)
+    }
+
     pub fn delete_element(&mut self, id: ElementId) -> bool {
         if self.document.get_element(id).is_none() {
             return false;
@@ -1233,6 +1360,11 @@ impl Project {
         format!("Section {}", self.section_cut_counter)
     }
 
+    fn next_space_name(&mut self) -> String {
+        self.space_counter += 1;
+        format!("Space {}", self.space_counter)
+    }
+
     /// Serializable project: levels, elements, profiles, and extra components.
     /// Meshes are rebuilt on load.
     pub fn export_snapshot(&self) -> ProjectSnapshot {
@@ -1271,6 +1403,9 @@ impl Project {
         let mut section_cuts: Vec<SectionCut> = self.document.section_cuts().cloned().collect();
         section_cuts.sort_by(|a, b| a.name.cmp(&b.name));
 
+        let mut spaces: Vec<Space> = self.document.spaces().cloned().collect();
+        spaces.sort_by(|a, b| a.name.cmp(&b.name));
+
         ProjectSnapshot {
             format: PROJECT_FORMAT,
             levels,
@@ -1280,6 +1415,7 @@ impl Project {
             grid_axes,
             construction_lines,
             section_cuts,
+            spaces,
             profiles,
             components,
             counters: self.counters.clone(),
@@ -1287,6 +1423,7 @@ impl Project {
             grid_axis_counter: self.grid_axis_counter,
             construction_line_counter: self.construction_line_counter,
             section_cut_counter: self.section_cut_counter,
+            space_counter: self.space_counter,
             level_counter: self.level_counter,
         }
     }
@@ -1301,11 +1438,13 @@ impl Project {
         // Format 3 predates element parentage; `parent_id` defaults to None on
         // load, so a format 3 file imports as a flat document.
         // Format ≤4 predates construction lines / section cuts (empty via default).
+        // Format ≤5 predates spaces (empty via default).
         let known = snap.format == PROJECT_FORMAT
             || snap.format == 1
             || snap.format == 2
             || snap.format == 3
-            || snap.format == 4;
+            || snap.format == 4
+            || snap.format == 5;
         if !known {
             return Err(RegistryError::Unknown(format!(
                 "unsupported project format {}",
@@ -1320,6 +1459,7 @@ impl Project {
         next.grid_axis_counter = snap.grid_axis_counter;
         next.construction_line_counter = snap.construction_line_counter;
         next.section_cut_counter = snap.section_cut_counter;
+        next.space_counter = snap.space_counter;
         next.level_counter = snap.level_counter;
 
         for profile in snap.profiles {
@@ -1337,6 +1477,7 @@ impl Project {
             snap.grid_axes,
             snap.construction_lines,
             snap.section_cuts,
+            snap.spaces,
         );
 
         let ids: Vec<ElementId> = next.document.elements().map(|element| element.id).collect();
@@ -1350,7 +1491,7 @@ impl Project {
 }
 
 /// On-disk / download format. Bump [`PROJECT_FORMAT`] when the shape changes.
-pub const PROJECT_FORMAT: u32 = 5;
+pub const PROJECT_FORMAT: u32 = 6;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectSnapshot {
@@ -1366,6 +1507,8 @@ pub struct ProjectSnapshot {
     pub construction_lines: Vec<ConstructionLine>,
     #[serde(default)]
     pub section_cuts: Vec<SectionCut>,
+    #[serde(default)]
+    pub spaces: Vec<Space>,
     pub profiles: Vec<ProfileType>,
     #[serde(default)]
     pub components: Vec<ComponentDefinition>,
@@ -1379,6 +1522,8 @@ pub struct ProjectSnapshot {
     pub construction_line_counter: u32,
     #[serde(default)]
     pub section_cut_counter: u32,
+    #[serde(default)]
+    pub space_counter: u32,
     #[serde(default)]
     pub level_counter: u32,
 }
@@ -2226,9 +2371,54 @@ mod tests {
         legacy.format = 4;
         legacy.construction_lines.clear();
         legacy.section_cuts.clear();
+        legacy.spaces.clear();
         restored.import_snapshot(legacy).expect("format 4");
         assert_eq!(restored.document().construction_lines().count(), 0);
         assert_eq!(restored.document().section_cuts().count(), 0);
+        assert_eq!(restored.document().spaces().count(), 0);
+    }
+
+    #[test]
+    fn spaces_round_trip_and_legacy_empty() {
+        let mut project = Project::new();
+        let points = [
+            Vec3::ZERO,
+            Vec3::new(4.0, 0.0, 0.0),
+            Vec3::new(4.0, 0.0, 3.0),
+            Vec3::new(0.0, 0.0, 3.0),
+        ];
+        let placement = project
+            .placement_for_space(&points, 0.0)
+            .expect("placement");
+        let id = project
+            .create_space(
+                placement,
+                ParamMap::new().with("label", ParamValue::Text("Kitchen".into())),
+            )
+            .expect("create space");
+        assert_eq!(project.document().spaces().count(), 1);
+
+        let snap = project.export_snapshot();
+        assert_eq!(snap.format, PROJECT_FORMAT);
+        assert_eq!(snap.spaces.len(), 1);
+
+        let mut restored = Project::new();
+        restored.import_snapshot(snap).expect("import");
+        assert_eq!(
+            restored
+                .document()
+                .get_space(id)
+                .unwrap()
+                .params
+                .text("label"),
+            Some("Kitchen")
+        );
+
+        let mut legacy = project.export_snapshot();
+        legacy.format = 5;
+        legacy.spaces.clear();
+        restored.import_snapshot(legacy).expect("format 5");
+        assert_eq!(restored.document().spaces().count(), 0);
     }
 
     #[test]

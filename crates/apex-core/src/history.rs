@@ -123,6 +123,7 @@ mod tests {
             grid_axes: Vec::new(),
             construction_lines: Vec::new(),
             section_cuts: Vec::new(),
+            spaces: Vec::new(),
             profiles: Vec::new(),
             components: Vec::new(),
             counters: Default::default(),
@@ -130,6 +131,7 @@ mod tests {
             grid_axis_counter: 0,
             construction_line_counter: 0,
             section_cut_counter: 0,
+            space_counter: 0,
             level_counter: n,
         }
     }

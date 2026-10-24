@@ -49,6 +49,8 @@ export function createReference(kind: string, points_json: string, rotation: num
 
 export function createSectionCut(points_json: string, params_json: string, rotation: number): any;
 
+export function createSpace(points_json: string, params_json: string, rotation: number): any;
+
 /**
  * Delete every selected element.
  */
@@ -61,6 +63,8 @@ export function deleteSelectedGridAxis(): any;
 export function deleteSelectedReference(): any;
 
 export function deleteSelectedSectionCut(): any;
+
+export function deleteSelectedSpace(): any;
 
 /**
  * Every descendant of an element, breadth first.
@@ -101,6 +105,8 @@ export function getSelectedGridAxis(): any;
 export function getSelectedReference(): any;
 
 export function getSelectedSectionCut(): any;
+
+export function getSelectedSpace(): any;
 
 /**
  * Replace the current project from a JSON snapshot.
@@ -173,6 +179,8 @@ export function selectReference(id: string): any;
 
 export function selectSectionCut(id: string): any;
 
+export function selectSpace(id: string): any;
+
 export function setActiveLevel(id: string): any;
 
 export function setConstructionLinePlacement(id: string, points_json: string, rotation: number, record_history: boolean): any;
@@ -202,6 +210,8 @@ export function setReferencePlacement(id: string, points_json: string, rotation:
 
 export function setSectionCutPlacement(id: string, points_json: string, rotation: number, record_history: boolean): any;
 
+export function setSpacePlacement(id: string, points_json: string, rotation: number, record_history: boolean): any;
+
 export function togglePickById(pick_id: number): any;
 
 export function toggleSelectElement(id: string): any;
@@ -229,6 +239,8 @@ export function updateProfileType(id: string, params_json: string): any;
 
 export function updateSectionCut(id: string, params_json: string): any;
 
+export function updateSpace(id: string, params_json: string): any;
+
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
 export interface InitOutput {
@@ -246,11 +258,13 @@ export interface InitOutput {
     readonly createLevel: (a: number, b: number, c: number) => [number, number, number];
     readonly createReference: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly createSectionCut: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
+    readonly createSpace: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly deleteSelected: () => [number, number, number];
     readonly deleteSelectedConstructionLine: () => [number, number, number];
     readonly deleteSelectedGridAxis: () => [number, number, number];
     readonly deleteSelectedReference: () => [number, number, number];
     readonly deleteSelectedSectionCut: () => [number, number, number];
+    readonly deleteSelectedSpace: () => [number, number, number];
     readonly descendantsOf: (a: number, b: number) => [number, number, number];
     readonly effectiveLevelOf: (a: number, b: number) => [number, number, number, number];
     readonly exportIfc: (a: number, b: number) => [number, number, number, number];
@@ -262,6 +276,7 @@ export interface InitOutput {
     readonly getSelectedGridAxis: () => [number, number, number];
     readonly getSelectedReference: () => [number, number, number];
     readonly getSelectedSectionCut: () => [number, number, number];
+    readonly getSelectedSpace: () => [number, number, number];
     readonly importProject: (a: number, b: number) => [number, number, number];
     readonly initApp: () => [number, number];
     readonly listComponents: () => [number, number, number];
@@ -279,6 +294,7 @@ export interface InitOutput {
     readonly selectGridAxis: (a: number, b: number) => [number, number, number];
     readonly selectReference: (a: number, b: number) => [number, number, number];
     readonly selectSectionCut: (a: number, b: number) => [number, number, number];
+    readonly selectSpace: (a: number, b: number) => [number, number, number];
     readonly setActiveLevel: (a: number, b: number) => [number, number, number];
     readonly setConstructionLinePlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly setElementParent: (a: number, b: number, c: number, d: number) => [number, number, number];
@@ -287,6 +303,7 @@ export interface InitOutput {
     readonly setLevelElevation: (a: number, b: number, c: number) => [number, number, number];
     readonly setReferencePlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly setSectionCutPlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
+    readonly setSpacePlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly togglePickById: (a: number) => [number, number, number];
     readonly toggleSelectElement: (a: number, b: number) => [number, number, number];
     readonly translateSelection: (a: number, b: number, c: number) => [number, number, number];
@@ -296,6 +313,7 @@ export interface InitOutput {
     readonly updateGridAxis: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly updateProfileType: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly updateSectionCut: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly updateSpace: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;

@@ -17,6 +17,7 @@ mod reference;
 mod registry;
 mod section_cut;
 mod sketch;
+mod space;
 
 pub use annotation::{AnnotationLabel, PlanAnnotation};
 pub use component::{
@@ -49,6 +50,7 @@ pub use section_cut::{
     SectionCutOverlay,
 };
 pub use sketch::{ProfileSketch, SketchConstraint, SketchDimension, SketchError};
+pub use space::{space_param_specs, Space, SpaceError, SpaceId, SpaceLibrary, SpaceOverlay};
 
 /// Geometry primitives the document is expressed in, re-exported for convenience.
 pub use apex_geometry::{Curve, Frame, GeometryError, Justification, Profile, TriangleMesh};

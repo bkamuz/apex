@@ -9,10 +9,10 @@ use std::str::FromStr;
 
 use apex_core::{
     construction_line_param_specs, grid_axis_param_specs, section_cut_param_specs,
-    ComponentDefinition, ComponentRegistry, ConstructionLine, ConstructionLineId, Element,
-    ElementId, GridAxis, GridAxisId, LevelId, ParamKind, ParamMap, ParamSpec, PlacementKind,
-    ProfileSpec, ProfileType, Project, ProjectSnapshot, RefId, Reference, ReferenceKind,
-    SceneBuffers, SectionCut, SectionCutId,
+    space_param_specs, ComponentDefinition, ComponentRegistry, ConstructionLine,
+    ConstructionLineId, Element, ElementId, GridAxis, GridAxisId, LevelId, ParamKind, ParamMap,
+    ParamSpec, PlacementKind, ProfileSpec, ProfileType, Project, ProjectSnapshot, RefId, Reference,
+    ReferenceKind, SceneBuffers, SectionCut, SectionCutId, Space, SpaceId,
 };
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
@@ -105,6 +105,7 @@ thread_local! {
     static SELECTED_CONSTRUCTION_LINE: RefCell<Option<ConstructionLineId>> =
         const { RefCell::new(None) };
     static SELECTED_SECTION_CUT: RefCell<Option<SectionCutId>> = const { RefCell::new(None) };
+    static SELECTED_SPACE: RefCell<Option<SpaceId>> = const { RefCell::new(None) };
 }
 
 fn with_selection<R>(f: impl FnOnce(&mut Selection) -> R) -> R {
@@ -228,6 +229,18 @@ struct SectionCutDto {
 }
 
 #[derive(Serialize)]
+struct SpaceDto {
+    id: String,
+    name: String,
+    level_id: String,
+    anchors: Vec<[f32; 3]>,
+    line_segments: Vec<[f32; 3]>,
+    labels: Vec<AnnotationLabelDto>,
+    params: ParamMap,
+    param_specs: Vec<ParamSpec>,
+}
+
+#[derive(Serialize)]
 struct SceneDto {
     positions: Vec<f32>,
     normals: Vec<f32>,
@@ -240,6 +253,7 @@ struct SceneDto {
     grid_axes: Vec<GridAxisDto>,
     construction_lines: Vec<ConstructionLineDto>,
     section_cuts: Vec<SectionCutDto>,
+    spaces: Vec<SpaceDto>,
     levels: Vec<LevelDto>,
     active_level_id: Option<String>,
     version: u64,
@@ -249,6 +263,7 @@ struct SceneDto {
     selected_grid_axis_id: Option<String>,
     selected_construction_line_id: Option<String>,
     selected_section_cut_id: Option<String>,
+    selected_space_id: Option<String>,
     can_undo: bool,
     can_redo: bool,
 }
@@ -407,6 +422,38 @@ fn section_cut_dto(project: &Project, cut: &SectionCut) -> SectionCutDto {
     }
 }
 
+fn space_dto(project: &Project, space: &Space) -> SpaceDto {
+    let work_plane = project.work_plane(space.level_id);
+    let overlay = space.overlay_geometry(&work_plane).unwrap_or_default();
+    let params = space.resolved_params();
+    SpaceDto {
+        id: space.id.to_string(),
+        name: space.name.clone(),
+        level_id: space.level_id.to_string(),
+        anchors: space
+            .placement
+            .anchors()
+            .into_iter()
+            .map(|p| p.to_array())
+            .collect(),
+        line_segments: overlay
+            .line_segments
+            .into_iter()
+            .map(|p| p.to_array())
+            .collect(),
+        labels: overlay
+            .labels
+            .into_iter()
+            .map(|label| AnnotationLabelDto {
+                position: label.position.to_array(),
+                text: label.text,
+            })
+            .collect(),
+        params,
+        param_specs: space_param_specs(),
+    }
+}
+
 fn reference_dto(project: &Project, reference: &Reference) -> ReferenceDto {
     let work_plane = project.work_plane(reference.level_id);
     let gizmo_segments = reference
@@ -488,6 +535,7 @@ fn scene_dto(project: &Project) -> SceneDto {
         SELECTED_CONSTRUCTION_LINE.with(|cell| cell.borrow().map(|id| id.to_string()));
     let selected_section_cut_id =
         SELECTED_SECTION_CUT.with(|cell| cell.borrow().map(|id| id.to_string()));
+    let selected_space_id = SELECTED_SPACE.with(|cell| cell.borrow().map(|id| id.to_string()));
     let mut references: Vec<_> = project
         .document()
         .references()
@@ -515,6 +563,13 @@ fn scene_dto(project: &Project) -> SceneDto {
         .map(|cut| section_cut_dto(project, cut))
         .collect();
     section_cuts.sort_by(|a, b| a.name.cmp(&b.name));
+
+    let mut spaces: Vec<_> = project
+        .document()
+        .spaces()
+        .map(|space| space_dto(project, space))
+        .collect();
+    spaces.sort_by(|a, b| a.name.cmp(&b.name));
 
     SceneDto {
         positions: buffers.positions,
@@ -558,6 +613,7 @@ fn scene_dto(project: &Project) -> SceneDto {
         grid_axes,
         construction_lines,
         section_cuts,
+        spaces,
         levels: sorted_levels(project),
         active_level_id: project
             .document()
@@ -570,6 +626,7 @@ fn scene_dto(project: &Project) -> SceneDto {
         selected_grid_axis_id,
         selected_construction_line_id,
         selected_section_cut_id,
+        selected_space_id,
         can_undo: project.can_undo(),
         can_redo: project.can_redo(),
     }
@@ -607,12 +664,17 @@ fn clear_section_cut_selection() {
     SELECTED_SECTION_CUT.with(|cell| *cell.borrow_mut() = None);
 }
 
+fn clear_space_selection() {
+    SELECTED_SPACE.with(|cell| *cell.borrow_mut() = None);
+}
+
 /// Clear every non-element selection (refs + plan annotations).
 fn clear_datum_selections() {
     clear_ref_selection();
     clear_grid_axis_selection();
     clear_construction_line_selection();
     clear_section_cut_selection();
+    clear_space_selection();
 }
 
 fn grid_axis_id(id: &str) -> Result<GridAxisId, JsValue> {
@@ -625,6 +687,10 @@ fn construction_line_id(id: &str) -> Result<ConstructionLineId, JsValue> {
 
 fn section_cut_id(id: &str) -> Result<SectionCutId, JsValue> {
     SectionCutId::from_str(id).map_err(|e| err(format!("bad section cut id: {e}")))
+}
+
+fn space_id(id: &str) -> Result<SpaceId, JsValue> {
+    SpaceId::from_str(id).map_err(|e| err(format!("bad space id: {e}")))
 }
 
 fn scene(project: &Project) -> Result<JsValue, JsValue> {
@@ -1002,6 +1068,10 @@ pub fn translate_selection(delta_json: &str, record_history: bool) -> Result<JsV
             project
                 .translate_section_cut(cut_id, delta, record_history)
                 .map_err(err)?;
+        } else if let Some(space_sel) = SELECTED_SPACE.with(|cell| *cell.borrow()) {
+            project
+                .translate_space(space_sel, delta, record_history)
+                .map_err(err)?;
         } else {
             let ids = with_selection(|s| s.0.clone());
             if ids.is_empty() {
@@ -1042,6 +1112,11 @@ pub fn copy_selection(delta_json: &str) -> Result<JsValue, JsValue> {
             clear_element_selection();
             clear_datum_selections();
             SELECTED_SECTION_CUT.with(|cell| *cell.borrow_mut() = Some(new_id));
+        } else if let Some(space_sel) = SELECTED_SPACE.with(|cell| *cell.borrow()) {
+            let new_id = project.copy_space(space_sel, delta).map_err(err)?;
+            clear_element_selection();
+            clear_datum_selections();
+            SELECTED_SPACE.with(|cell| *cell.borrow_mut() = Some(new_id));
         } else {
             let ids = with_selection(|s| s.0.clone());
             if ids.is_empty() {
@@ -1192,6 +1267,24 @@ pub fn select_section_cut(id: &str) -> Result<JsValue, JsValue> {
     })
 }
 
+#[wasm_bindgen(js_name = selectSpace)]
+pub fn select_space(id: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        if id.is_empty() {
+            clear_space_selection();
+        } else {
+            let space = space_id(id)?;
+            if project.document().get_space(space).is_none() {
+                return Err(err("Space not found"));
+            }
+            clear_element_selection();
+            clear_datum_selections();
+            SELECTED_SPACE.with(|cell| *cell.borrow_mut() = Some(space));
+        }
+        scene(project)
+    })
+}
+
 #[wasm_bindgen(js_name = getSelectedReference)]
 pub fn get_selected_reference() -> Result<JsValue, JsValue> {
     with_project(|project| {
@@ -1243,6 +1336,20 @@ pub fn get_selected_section_cut() -> Result<JsValue, JsValue> {
         };
         match project.document().get_section_cut(id) {
             Some(cut) => to_js(&section_cut_dto(project, cut)),
+            None => Ok(JsValue::NULL),
+        }
+    })
+}
+
+#[wasm_bindgen(js_name = getSelectedSpace)]
+pub fn get_selected_space() -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let selected = SELECTED_SPACE.with(|cell| *cell.borrow());
+        let Some(id) = selected else {
+            return Ok(JsValue::NULL);
+        };
+        match project.document().get_space(id) {
+            Some(space) => to_js(&space_dto(project, space)),
             None => Ok(JsValue::NULL),
         }
     })
@@ -1512,6 +1619,73 @@ pub fn delete_selected_section_cut() -> Result<JsValue, JsValue> {
         let id = SELECTED_SECTION_CUT.with(|cell| cell.borrow_mut().take());
         if let Some(id) = id {
             project.delete_section_cut(id);
+        }
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = createSpace)]
+pub fn create_space(
+    points_json: &str,
+    params_json: &str,
+    rotation: f32,
+) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let points = points_from_json(points_json)?;
+        let params = parse_params(params_json)?;
+        let placement = project
+            .placement_for_space(&points, rotation)
+            .map_err(err)?;
+        let id = project.create_space(placement, params).map_err(err)?;
+        clear_element_selection();
+        clear_datum_selections();
+        SELECTED_SPACE.with(|cell| *cell.borrow_mut() = Some(id));
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = setSpacePlacement)]
+pub fn set_space_placement(
+    id: &str,
+    points_json: &str,
+    rotation: f32,
+    record_history: bool,
+) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let space = space_id(id)?;
+        let existing = project
+            .document()
+            .get_space(space)
+            .ok_or_else(|| err("Space not found"))?;
+        let points = points_from_json(points_json)?;
+        let placement = PlacementKind::Polyline
+            .build(&points, rotation, &project.work_plane(existing.level_id))
+            .map_err(|e| err(e.to_string()))?;
+        project
+            .update_space(space, None, Some(placement), record_history)
+            .map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = updateSpace)]
+pub fn update_space(id: &str, params_json: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let space = space_id(id)?;
+        let params = parse_params(params_json)?;
+        project
+            .update_space(space, Some(params), None, true)
+            .map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = deleteSelectedSpace)]
+pub fn delete_selected_space() -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let id = SELECTED_SPACE.with(|cell| cell.borrow_mut().take());
+        if let Some(id) = id {
+            project.delete_space(id);
         }
         scene(project)
     })

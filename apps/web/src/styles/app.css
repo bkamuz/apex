@@ -704,6 +704,22 @@ button:focus-visible {
   line-height: 1.2;
 }
 
+.space-label {
+  position: fixed;
+  transform: translate(-50%, -50%);
+  min-width: 1.4rem;
+  min-height: 1.4rem;
+  padding: 0.15rem 0.45rem;
+  border-radius: 4px;
+  border: 1.5px solid rgba(90, 180, 210, 0.95);
+  background: rgba(18, 24, 28, 0.82);
+  color: #c8e8f4;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-align: center;
+  line-height: 1.2;
+}
+
 .viewport-wrap {
   position: relative;
   min-width: 0;
