@@ -27,6 +27,12 @@ export interface ToolContext {
   createReference(kind: ReferenceKind, points: Vec3[]): void;
   /** Commit picks as a new plan grid axis. */
   createGridAxis(points: Vec3[]): void;
+  /** Commit picks as a new plan construction line. */
+  createConstructionLine(points: Vec3[]): void;
+  /** Commit picks as a new section-cut MVP. */
+  createSectionCut(points: Vec3[]): void;
+  /** Add a level +3 m above the highest (same rise as LevelList). */
+  createLevel(): void;
   /** Ghost geometry, built by the same recipe the committed element will use. */
   showPreview(componentId: string, points: Vec3[], placementKind?: PlacementKind): void;
   clearPreview(): void;

@@ -1,31 +1,45 @@
 import { useCallback, useMemo, useState } from 'react';
-import type { ElementListDto, GridAxisDto, LevelDto, ProfileTypeDto, ReferenceDto } from '../types';
+import type {
+  ConstructionLineDto,
+  ElementListDto,
+  GridAxisDto,
+  LevelDto,
+  ProfileTypeDto,
+  ReferenceDto,
+  SectionCutDto,
+} from '../types';
 import { profileLabel } from './profileModel';
 
 export type BrowserGroupBy = 'kind' | 'category' | 'level' | 'profile' | 'none';
 export type BrowserSortBy = 'name' | 'kind' | 'category';
-export type BrowserFilter = 'all' | 'types' | 'instances' | 'references' | 'grids';
+export type BrowserFilter = 'all' | 'types' | 'instances' | 'references' | 'grids' | 'annotations';
 
 interface Props {
   elements: ElementListDto[];
   references: ReferenceDto[];
   gridAxes: GridAxisDto[];
+  constructionLines: ConstructionLineDto[];
+  sectionCuts: SectionCutDto[];
   profiles: ProfileTypeDto[];
   levels: LevelDto[];
   selectedIds: string[];
   selectedProfileId: string | null;
   selectedRefId: string | null;
   selectedGridAxisId: string | null;
+  selectedConstructionLineId: string | null;
+  selectedSectionCutId: string | null;
   onSelectInstance: (id: string, multi: boolean) => void;
   onSelectReference: (id: string) => void;
   onSelectGridAxis: (id: string) => void;
+  onSelectConstructionLine: (id: string) => void;
+  onSelectSectionCut: (id: string) => void;
   onSelectType: (profileId: string) => void;
   onNewProfile: () => void;
 }
 
 interface BrowserItem {
   key: string;
-  kind: 'type' | 'instance' | 'reference' | 'grid_axis';
+  kind: 'type' | 'instance' | 'reference' | 'grid_axis' | 'construction_line' | 'section_cut';
   id: string;
   name: string;
   category: string;
@@ -74,6 +88,8 @@ function groupKey(item: BrowserItem, groupBy: BrowserGroupBy): string {
       if (item.kind === 'type') return 'Shared types';
       if (item.kind === 'reference') return 'References';
       if (item.kind === 'grid_axis') return 'Grid axes';
+      if (item.kind === 'construction_line') return 'Construction lines';
+      if (item.kind === 'section_cut') return 'Section cuts';
       return 'Placed elements';
     case 'category':
       return item.category || 'uncategorized';
@@ -120,7 +136,30 @@ interface BrowserTreeItemProps {
   onSelectInstance: (id: string, multi: boolean) => void;
   onSelectReference: (id: string) => void;
   onSelectGridAxis: (id: string) => void;
+  onSelectConstructionLine: (id: string) => void;
+  onSelectSectionCut: (id: string) => void;
   onSelectType: (profileId: string) => void;
+}
+
+function kindBadge(kind: BrowserItem['kind']): string {
+  switch (kind) {
+    case 'type':
+      return 'type';
+    case 'reference':
+      return 'ref';
+    case 'grid_axis':
+      return 'grid';
+    case 'construction_line':
+      return 'line';
+    case 'section_cut':
+      return 'cut';
+    case 'instance':
+      return 'instance';
+    default: {
+      const exhaustive: never = kind;
+      return exhaustive;
+    }
+  }
 }
 
 function BrowserTreeItem({
@@ -129,11 +168,16 @@ function BrowserTreeItem({
   onSelectInstance,
   onSelectReference,
   onSelectGridAxis,
+  onSelectConstructionLine,
+  onSelectSectionCut,
   onSelectType,
 }: BrowserTreeItemProps) {
   const isType = item.kind === 'type';
-  const isRef = item.kind === 'reference';
-  const isGrid = item.kind === 'grid_axis';
+  const isDatum =
+    item.kind === 'reference' ||
+    item.kind === 'grid_axis' ||
+    item.kind === 'construction_line' ||
+    item.kind === 'section_cut';
 
   return (
     <li
@@ -142,22 +186,49 @@ function BrowserTreeItem({
       className={isSelected ? 'selected' : ''}
       onClick={(event) => {
         if (isType) onSelectType(item.id);
-        else if (isRef) onSelectReference(item.id);
-        else if (isGrid) onSelectGridAxis(item.id);
+        else if (item.kind === 'reference') onSelectReference(item.id);
+        else if (item.kind === 'grid_axis') onSelectGridAxis(item.id);
+        else if (item.kind === 'construction_line') onSelectConstructionLine(item.id);
+        else if (item.kind === 'section_cut') onSelectSectionCut(item.id);
         else onSelectInstance(item.id, event.ctrlKey || event.metaKey);
       }}
     >
       <span>
         {item.name}
-        <span className={`kind-badge kind-${item.kind}`}>
-          {isType ? 'type' : isRef ? 'ref' : isGrid ? 'grid' : 'instance'}
-        </span>
+        <span className={`kind-badge kind-${item.kind}`}>{kindBadge(item.kind)}</span>
       </span>
-      <span className="cat">
-        {isType ? item.category : isRef || isGrid ? item.levelName : item.profileName}
-      </span>
+      <span className="cat">{isType ? item.category : isDatum ? item.levelName : item.profileName}</span>
     </li>
   );
+}
+
+function isItemSelected(
+  item: BrowserItem,
+  selected: Set<string>,
+  selectedProfileId: string | null,
+  selectedRefId: string | null,
+  selectedGridAxisId: string | null,
+  selectedConstructionLineId: string | null,
+  selectedSectionCutId: string | null,
+): boolean {
+  switch (item.kind) {
+    case 'type':
+      return selectedProfileId === item.id;
+    case 'reference':
+      return selectedRefId === item.id;
+    case 'grid_axis':
+      return selectedGridAxisId === item.id;
+    case 'construction_line':
+      return selectedConstructionLineId === item.id;
+    case 'section_cut':
+      return selectedSectionCutId === item.id;
+    case 'instance':
+      return selected.has(item.id);
+    default: {
+      const exhaustive: never = item.kind;
+      return exhaustive;
+    }
+  }
 }
 
 interface BrowserTreeGroupProps {
@@ -169,9 +240,13 @@ interface BrowserTreeGroupProps {
   selectedProfileId: string | null;
   selectedRefId: string | null;
   selectedGridAxisId: string | null;
+  selectedConstructionLineId: string | null;
+  selectedSectionCutId: string | null;
   onSelectInstance: (id: string, multi: boolean) => void;
   onSelectReference: (id: string) => void;
   onSelectGridAxis: (id: string) => void;
+  onSelectConstructionLine: (id: string) => void;
+  onSelectSectionCut: (id: string) => void;
   onSelectType: (profileId: string) => void;
 }
 
@@ -184,9 +259,13 @@ function BrowserTreeGroup({
   selectedProfileId,
   selectedRefId,
   selectedGridAxisId,
+  selectedConstructionLineId,
+  selectedSectionCutId,
   onSelectInstance,
   onSelectReference,
   onSelectGridAxis,
+  onSelectConstructionLine,
+  onSelectSectionCut,
   onSelectType,
 }: BrowserTreeGroupProps) {
   return (
@@ -206,29 +285,27 @@ function BrowserTreeGroup({
       </div>
       {expanded ? (
         <ul className="browser-tree-items">
-          {items.map((item) => {
-            const isType = item.kind === 'type';
-            const isRef = item.kind === 'reference';
-            const isGrid = item.kind === 'grid_axis';
-            const isSelected = isType
-              ? selectedProfileId === item.id
-              : isRef
-                ? selectedRefId === item.id
-                : isGrid
-                  ? selectedGridAxisId === item.id
-                  : selected.has(item.id);
-            return (
-              <BrowserTreeItem
-                key={item.key}
-                item={item}
-                isSelected={isSelected}
-                onSelectInstance={onSelectInstance}
-                onSelectReference={onSelectReference}
-                onSelectGridAxis={onSelectGridAxis}
-                onSelectType={onSelectType}
-              />
-            );
-          })}
+          {items.map((item) => (
+            <BrowserTreeItem
+              key={item.key}
+              item={item}
+              isSelected={isItemSelected(
+                item,
+                selected,
+                selectedProfileId,
+                selectedRefId,
+                selectedGridAxisId,
+                selectedConstructionLineId,
+                selectedSectionCutId,
+              )}
+              onSelectInstance={onSelectInstance}
+              onSelectReference={onSelectReference}
+              onSelectGridAxis={onSelectGridAxis}
+              onSelectConstructionLine={onSelectConstructionLine}
+              onSelectSectionCut={onSelectSectionCut}
+              onSelectType={onSelectType}
+            />
+          ))}
         </ul>
       ) : null}
     </div>
@@ -239,15 +316,21 @@ export function ProjectBrowser({
   elements,
   references,
   gridAxes,
+  constructionLines,
+  sectionCuts,
   profiles,
   levels,
   selectedIds,
   selectedProfileId,
   selectedRefId,
   selectedGridAxisId,
+  selectedConstructionLineId,
+  selectedSectionCutId,
   onSelectInstance,
   onSelectReference,
   onSelectGridAxis,
+  onSelectConstructionLine,
+  onSelectSectionCut,
   onSelectType,
   onNewProfile,
 }: Props) {
@@ -340,7 +423,25 @@ export function ProjectBrowser({
       levelName: levelName(axis.level_id),
       profileName: String(axis.params.label ?? '—'),
     }));
-    let all = [...types, ...instances, ...refs, ...grids];
+    const lines: BrowserItem[] = constructionLines.map((line) => ({
+      key: `cline:${line.id}`,
+      kind: 'construction_line',
+      id: line.id,
+      name: line.name,
+      category: 'construction',
+      levelName: levelName(line.level_id),
+      profileName: String(line.params.label ?? '—'),
+    }));
+    const cuts: BrowserItem[] = sectionCuts.map((cut) => ({
+      key: `cut:${cut.id}`,
+      kind: 'section_cut',
+      id: cut.id,
+      name: cut.name,
+      category: 'section',
+      levelName: levelName(cut.level_id),
+      profileName: String(cut.params.label ?? '—'),
+    }));
+    let all = [...types, ...instances, ...refs, ...grids, ...lines, ...cuts];
     switch (filter) {
       case 'all':
         break;
@@ -356,6 +457,11 @@ export function ProjectBrowser({
       case 'grids':
         all = all.filter((item) => item.kind === 'grid_axis');
         break;
+      case 'annotations':
+        all = all.filter(
+          (item) => item.kind === 'construction_line' || item.kind === 'section_cut',
+        );
+        break;
       default: {
         const exhaustive: never = filter;
         return exhaustive;
@@ -363,7 +469,7 @@ export function ProjectBrowser({
     }
     all.sort((a, b) => compareItems(a, b, sortBy));
     return all;
-  }, [elements, references, gridAxes, profiles, levels, filter, sortBy]);
+  }, [elements, references, gridAxes, constructionLines, sectionCuts, profiles, levels, filter, sortBy]);
 
   const groups = useMemo(() => {
     const map = new Map<string, BrowserItem[]>();
@@ -429,6 +535,7 @@ export function ProjectBrowser({
             ['instances', 'Instances'],
             ['references', 'Refs'],
             ['grids', 'Grids'],
+            ['annotations', 'Annot.'],
           ] as const
         ).map(([value, label]) => (
           <button
@@ -449,29 +556,27 @@ export function ProjectBrowser({
           <div className="empty">No types or elements yet. Draw a profile or place a wall.</div>
         ) : groupBy === 'none' ? (
           <ul className="browser-tree-items browser-tree-items--flat">
-            {items.map((item) => {
-              const isType = item.kind === 'type';
-              const isRef = item.kind === 'reference';
-              const isGrid = item.kind === 'grid_axis';
-              const isSelected = isType
-                ? selectedProfileId === item.id
-                : isRef
-                  ? selectedRefId === item.id
-                  : isGrid
-                    ? selectedGridAxisId === item.id
-                    : selected.has(item.id);
-              return (
-                <BrowserTreeItem
-                  key={item.key}
-                  item={item}
-                  isSelected={isSelected}
-                  onSelectInstance={onSelectInstance}
-                  onSelectReference={onSelectReference}
-                  onSelectGridAxis={onSelectGridAxis}
-                  onSelectType={onSelectType}
-                />
-              );
-            })}
+            {items.map((item) => (
+              <BrowserTreeItem
+                key={item.key}
+                item={item}
+                isSelected={isItemSelected(
+                  item,
+                  selected,
+                  selectedProfileId,
+                  selectedRefId,
+                  selectedGridAxisId,
+                  selectedConstructionLineId,
+                  selectedSectionCutId,
+                )}
+                onSelectInstance={onSelectInstance}
+                onSelectReference={onSelectReference}
+                onSelectGridAxis={onSelectGridAxis}
+                onSelectConstructionLine={onSelectConstructionLine}
+                onSelectSectionCut={onSelectSectionCut}
+                onSelectType={onSelectType}
+              />
+            ))}
           </ul>
         ) : (
           <div className="browser-tree">
@@ -486,9 +591,13 @@ export function ProjectBrowser({
                 selectedProfileId={selectedProfileId}
                 selectedRefId={selectedRefId}
                 selectedGridAxisId={selectedGridAxisId}
+                selectedConstructionLineId={selectedConstructionLineId}
+                selectedSectionCutId={selectedSectionCutId}
                 onSelectInstance={onSelectInstance}
                 onSelectReference={onSelectReference}
                 onSelectGridAxis={onSelectGridAxis}
+                onSelectConstructionLine={onSelectConstructionLine}
+                onSelectSectionCut={onSelectSectionCut}
                 onSelectType={onSelectType}
               />
             ))}

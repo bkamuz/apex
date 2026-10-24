@@ -1,12 +1,15 @@
 import { componentPlugin } from './componentPlugin';
+import { constructionLinePlugin } from './constructionLine';
 import { copyPlugin } from './copy';
 import { exportIfcPlugin } from './exportIfc';
 import { gridAxisPlugin } from './gridAxis';
 import { hostedComponentPlugin } from './hostedComponentPlugin';
+import { levelPlugin } from './level';
 import { movePlugin } from './move';
 import { parentPlugin } from './parent';
 import { refPlanePlugin } from './refPlane';
 import { refPointPlugin } from './refPoint';
+import { sectionCutPlugin } from './sectionCut';
 import { selectPlugin } from './select';
 import { wallPlugin } from './wall';
 import type { Plugin } from './types';
@@ -24,9 +27,13 @@ export const firstPartyPlugins: Plugin[] = [
   copyPlugin,
   parentPlugin,
   // Basics tab tools first so `apex.basics` appears before building constructions.
+  // Ref point is the only point tool (no second “point” type).
+  levelPlugin,
   refPointPlugin,
   refPlanePlugin,
+  constructionLinePlugin,
   gridAxisPlugin,
+  sectionCutPlugin,
   wallPlugin,
   componentPlugin('apex.column'),
   componentPlugin('apex.beam'),

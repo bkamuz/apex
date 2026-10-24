@@ -66,6 +66,7 @@ Two consequences worth remembering:
 - `ToolContext` is the only bridge to WASM/React — tools hold no React state. Extend `ToolContext` when a new gesture family needs core support (see transform: `getTransformSelection`, `previewTransform`, `commitTransform`; openings: `createElementWithParent`).
 - Toolbar groups: `select` | `transform` | `create` (visual separators). Transform tools (Move `M`, Copy `C`) live in the `transform` group.
 - Create tools may declare `tab: ApexTabs.building` / `ApexTabs.basics` (or another `TOOL_TABS` / `window.apex.tabs` entry). Select/transform stay pinned (no tab). Tabs are data-driven: first tool with a given id creates the chip (first registration wins for label); unknown `{ id, label }` creates a new tab. Catalog is guidance, not an allowlist. Empty tabs are hidden.
+- **Basics tab** (`ApexTabs.basics`): Level, Ref point, Ref plane, Construction line, Grid axis, Section cut. **Ref point is the only point tool** — do not add a second point type. LevelList remains for manage/activate; the Level tool adds a storey at +3 m (same rise as LevelList).
 - Optional `icon`: prefer `ApexIcons.*` / `window.apex.icons.*`; custom `{ svg: string }` allowed; omit or unknown name → label-only.
 - Minimal third-party stub: `examples/custom-tool.ts`. Document shape:
 
@@ -96,5 +97,6 @@ export const myTool: Tool = {
 - Plan grid axes are first-class document entities in `crates/apex-core/src/grid_axis.rs` (not component instances). They use two-point placement on the active level; semantically each axis is a **vertical plane** through the segment and world up.
 - Params are data-driven via `grid_axis_param_specs()` (label, per-end bubbles, extension, bubble radius). Inspector reads `param_specs` from the selected axis DTO.
 - Viewport overlay: `ViewportRenderer.setGridAxisOverlays` (WebGL lines/circles) plus `GridAxisLabels` (HTML text at bubble centers). Distinct pink styling vs cyan refs.
-- Future universal 2D family/annotation editor: implement `PlanAnnotation` in `crates/apex-core/src/annotation.rs` — shared param schema + overlay segments/labels. Do not add per-type branches in `App.tsx` or `apex-wasm`.
-- Project snapshot format is `PROJECT_FORMAT = 3` (`grid_axes` array). Format 2 snapshots still import (empty grid list).
+- Construction lines (`crates/apex-core/src/construction_line.rs`) and section cuts (`crates/apex-core/src/section_cut.rs`) also implement `PlanAnnotation` — two-point plan entities with `param_specs` and viewport overlays (olive lines / amber cut + fill hint). Section-cut MVP is overlay-only (no 3D clip / 2D section view yet).
+- Future universal 2D family/annotation editor: keep extending `PlanAnnotation` in `crates/apex-core/src/annotation.rs` — shared param schema + overlay segments/labels. Prefer that seam over new per-type forks in geometry.
+- Project snapshot format is `PROJECT_FORMAT = 5` (`grid_axes`, `construction_lines`, `section_cuts`). Formats ≤4 import with empty lists for newer arrays.

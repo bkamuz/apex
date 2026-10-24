@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type {
   ComponentDto,
+  ConstructionLineDto,
   ElementDto,
   GridAxisDto,
   LevelDto,
@@ -8,6 +9,7 @@ import type {
   ParamValue,
   ProfileTypeDto,
   ReferenceDto,
+  SectionCutDto,
 } from '../types';
 import {
   applyProfileChange,
@@ -23,6 +25,8 @@ interface Props {
   /** Total selection size (0, 1, or many). */
   selectedCount: number;
   selectedGridAxis: GridAxisDto | null;
+  selectedConstructionLine: ConstructionLineDto | null;
+  selectedSectionCut: SectionCutDto | null;
   /** Definition of the selected element's component, which supplies the schema. */
   component: ComponentDto | null;
   profiles: ProfileTypeDto[];
@@ -32,12 +36,16 @@ interface Props {
   placement: { component: ComponentDto; params: Record<string, ParamValue> } | null;
   onUpdate: (params: Record<string, ParamValue>) => void;
   onUpdateGridAxis: (params: Record<string, ParamValue>) => void;
+  onUpdateConstructionLine: (params: Record<string, ParamValue>) => void;
+  onUpdateSectionCut: (params: Record<string, ParamValue>) => void;
   onPlacementChange: (params: Record<string, ParamValue>) => void;
   onEditType: (profileId: string) => void;
   onNewProfile: (category: string) => void;
   onUpdateLevelElevation: (id: string, elevation: number) => void;
   onDelete: () => void;
   onDeleteGridAxis: () => void;
+  onDeleteConstructionLine: () => void;
+  onDeleteSectionCut: () => void;
 }
 
 function stepFor(spec: ParamSpecDto): number {
@@ -278,6 +286,8 @@ export function PropertiesPanel({
   selected,
   selectedCount,
   selectedGridAxis,
+  selectedConstructionLine,
+  selectedSectionCut,
   component,
   profiles,
   references,
@@ -285,15 +295,21 @@ export function PropertiesPanel({
   placement,
   onUpdate,
   onUpdateGridAxis,
+  onUpdateConstructionLine,
+  onUpdateSectionCut,
   onPlacementChange,
   onEditType,
   onNewProfile,
   onUpdateLevelElevation,
   onDelete,
   onDeleteGridAxis,
+  onDeleteConstructionLine,
+  onDeleteSectionCut,
 }: Props) {
   const [draft, setDraft] = useState<Record<string, ParamValue>>({});
   const [gridDraft, setGridDraft] = useState<Record<string, ParamValue>>({});
+  const [lineDraft, setLineDraft] = useState<Record<string, ParamValue>>({});
+  const [cutDraft, setCutDraft] = useState<Record<string, ParamValue>>({});
   const [elevation, setElevation] = useState(0);
 
   useEffect(() => {
@@ -303,6 +319,14 @@ export function PropertiesPanel({
   useEffect(() => {
     setGridDraft(selectedGridAxis ? { ...selectedGridAxis.params } : {});
   }, [selectedGridAxis]);
+
+  useEffect(() => {
+    setLineDraft(selectedConstructionLine ? { ...selectedConstructionLine.params } : {});
+  }, [selectedConstructionLine]);
+
+  useEffect(() => {
+    setCutDraft(selectedSectionCut ? { ...selectedSectionCut.params } : {});
+  }, [selectedSectionCut]);
 
   useEffect(() => {
     if (!selectedLevel) return;
@@ -380,6 +404,76 @@ export function PropertiesPanel({
           />
         </div>
         <button type="button" className="danger" onClick={onDeleteGridAxis}>
+          Delete
+        </button>
+      </div>
+    );
+  }
+
+  if (selectedConstructionLine) {
+    const applyLine = (patch: Record<string, ParamValue> = {}) => {
+      const next = { ...lineDraft, ...patch };
+      setLineDraft(next);
+      onUpdateConstructionLine(next);
+    };
+    return (
+      <div className="inspector-body shell-scroll">
+        <div className="field">
+          <label>Name</label>
+          <div>{selectedConstructionLine.name}</div>
+        </div>
+        <div className="field">
+          <label>Type</label>
+          <div>Construction line</div>
+        </div>
+        <div className="inspector-section" data-section="instance">
+          <div className="section-title">This line</div>
+          <SchemaFields
+            specs={selectedConstructionLine.param_specs}
+            values={lineDraft}
+            profiles={profiles}
+            references={references}
+            live
+            onDraft={(id, value) => setLineDraft((prev) => ({ ...prev, [id]: value }))}
+            onCommit={(patch) => applyLine(patch)}
+          />
+        </div>
+        <button type="button" className="danger" onClick={onDeleteConstructionLine}>
+          Delete
+        </button>
+      </div>
+    );
+  }
+
+  if (selectedSectionCut) {
+    const applyCut = (patch: Record<string, ParamValue> = {}) => {
+      const next = { ...cutDraft, ...patch };
+      setCutDraft(next);
+      onUpdateSectionCut(next);
+    };
+    return (
+      <div className="inspector-body shell-scroll">
+        <div className="field">
+          <label>Name</label>
+          <div>{selectedSectionCut.name}</div>
+        </div>
+        <div className="field">
+          <label>Type</label>
+          <div>Section cut</div>
+        </div>
+        <div className="inspector-section" data-section="instance">
+          <div className="section-title">This section</div>
+          <SchemaFields
+            specs={selectedSectionCut.param_specs}
+            values={cutDraft}
+            profiles={profiles}
+            references={references}
+            live
+            onDraft={(id, value) => setCutDraft((prev) => ({ ...prev, [id]: value }))}
+            onCommit={(patch) => applyCut(patch)}
+          />
+        </div>
+        <button type="button" className="danger" onClick={onDeleteSectionCut}>
           Delete
         </button>
       </div>

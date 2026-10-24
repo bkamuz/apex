@@ -29,6 +29,9 @@ export const TOOL_ICONS = {
   refPoint: 'ref-point',
   refPlane: 'ref-plane',
   grid: 'grid',
+  level: 'level',
+  constructionLine: 'construction-line',
+  sectionCut: 'section-cut',
 } as const;
 
 export type ToolIconName = (typeof TOOL_ICONS)[keyof typeof TOOL_ICONS];
@@ -75,6 +78,12 @@ const CATALOG_SVG: Readonly<Record<string, string>> = {
   'ref-plane':
     '<path d="M2.5 10.5L7 3.5l4.5 7" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/><path d="M3.5 9h7" fill="none" stroke="currentColor" stroke-width="1.25"/>',
   grid: '<path d="M3 2.5v9M7 2.5v9M11 2.5v9M2.5 4h9M2.5 7h9M2.5 10h9" fill="none" stroke="currentColor" stroke-width="1.15"/>',
+  level:
+    '<path d="M2 11.5h10M2 7.5h10M2 3.5h10" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/><path d="M3.5 11.5V3.5" fill="none" stroke="currentColor" stroke-width="1.1"/>',
+  'construction-line':
+    '<path d="M2.5 11.5L11.5 2.5" fill="none" stroke="currentColor" stroke-width="1.25" stroke-dasharray="2 1.5" stroke-linecap="round"/><circle cx="2.5" cy="11.5" r="1" fill="currentColor"/><circle cx="11.5" cy="2.5" r="1" fill="currentColor"/>',
+  'section-cut':
+    '<path d="M2.5 11.5L11.5 2.5" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/><path d="M4 4.5h3.5v3.5" fill="none" stroke="currentColor" stroke-width="1.15" stroke-linejoin="round"/>',
 };
 
 /** Map built-in component ids → catalog icon names. */

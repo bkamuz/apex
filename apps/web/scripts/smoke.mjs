@@ -127,11 +127,24 @@ await basicsTab.click();
 await page.waitForTimeout(80);
 const basicsTools = await toolbarNames();
 console.log('  basics toolbar:', basicsTools.join(' | '));
-for (const expected of ['Select', 'Move', 'Copy', 'Parent', 'Detach', 'Ref point', 'Ref plane', 'Grid axis']) {
+for (const expected of [
+  'Select',
+  'Move',
+  'Copy',
+  'Parent',
+  'Detach',
+  'Level',
+  'Ref point',
+  'Ref plane',
+  'Construction line',
+  'Grid axis',
+  'Section cut',
+]) {
   check(`"${expected}" on Basics tab`, basicsTools.includes(expected));
 }
 check('Wall is not on Basics tab', !basicsTools.includes('Wall'));
 check('commons stay pinned across tabs', buildingTools.includes('Select') && basicsTools.includes('Select'));
+check('no second point tool on Basics', !basicsTools.includes('Point'));
 
 check('IFC export button exists', (await page.getByTestId('export-apex.ifc').count()) === 1);
 check('arc wall is not a second tool', !buildingTools.includes('Arc wall'));
@@ -231,6 +244,31 @@ check(
   'grid label editable in inspector from browser',
   (await page.locator('.grid-axis-label').filter({ hasText: 'B' }).count()) >= 1,
 );
+
+// --- 3d. Level / construction line / section cut (Basics phase 1) ----------
+console.log('\n[3d] Basics: Level, construction line, section cut');
+const levelCountBefore = await page.locator('.level-list li').count();
+await useTool('Level');
+await clickCanvas(0.5, 0.5);
+const levelCountAfter = await page.locator('.level-list li').count();
+check('Level tool adds a storey', levelCountAfter === levelCountBefore + 1, `was ${levelCountBefore} now ${levelCountAfter}`);
+
+const clineCount = () => page.locator('[data-kind="construction_line"]').count();
+await useTool('Construction line');
+await clickCanvas(0.35, 0.58);
+await clickCanvas(0.65, 0.58);
+check('construction line created', (await clineCount()) >= 1);
+check('construction line auto-selected', await isTreeItemSelected('construction_line', 0));
+
+const cutCount = () => page.locator('[data-kind="section_cut"]').count();
+await useTool('Section cut');
+await clickCanvas(0.42, 0.48);
+await clickCanvas(0.68, 0.48);
+check('section cut created', (await cutCount()) >= 1);
+check('section cut auto-selected', await isTreeItemSelected('section_cut', 0));
+await page.getByTestId('browser-filter-annotations').click({ force: true });
+check('annotations filter lists lines/cuts', (await clineCount()) + (await cutCount()) >= 2);
+await page.getByTestId('browser-filter-all').click({ force: true });
 
 // --- 4. Point, two-point and three-point gestures all work -----------------
 console.log('\n[4] every other built-in gesture');
