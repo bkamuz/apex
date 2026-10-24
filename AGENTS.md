@@ -34,7 +34,7 @@ Two consequences worth remembering:
 
 ### Toolchain (already provisioned in the snapshot)
 
-- Rust **stable** (edition2024 required by the locked `getrandom`/`uuid` deps). The base image's default rustup toolchain was `1.83.0`, which is too old — the default has been switched to `stable`. If `cargo test` ever fails with `feature 'edition2024' is required`, run `rustup default stable` (and `rustup target add wasm32-unknown-unknown`).
+- Rust **stable**. Workspace crates use `edition = "2021"` (see root `Cargo.toml`). The base image's default rustup toolchain was `1.83.0`, which is too old for current deps — the default has been switched to `stable`. If builds fail on an old toolchain, run `rustup default stable` (and `rustup target add wasm32-unknown-unknown`).
 - `wasm32-unknown-unknown` target + `wasm-pack` 0.13.1 (installed at `/usr/local/cargo/bin/wasm-pack`).
 - Node 20+ (Node 22 present).
 
@@ -102,3 +102,4 @@ export const myTool: Tool = {
 - Future universal 2D family/annotation editor: keep extending `PlanAnnotation` in `crates/apex-core/src/annotation.rs` — shared param schema + overlay segments/labels. Prefer that seam over new per-type forks in geometry.
 - Project snapshot format is `PROJECT_FORMAT = 6` (`grid_axes`, `construction_lines`, `section_cuts`, `spaces`). Formats ≤5 import with empty lists for newer arrays.
 - Plan **Spaces** are closed polylines on the active level (`PlanAnnotation` in `crates/apex-core/src/space.rs`), not mesh components. Toolbar tab `ApexTabs.spaces`; overlay + centroid label; inspector from `param_specs` (label, optional height unused for mesh this phase).
+- Full-document undo/redo is shipped (`history.rs` + UI). Move uses a ghost-only preview (document updates on commit); Copy must not open an undo group before commit.

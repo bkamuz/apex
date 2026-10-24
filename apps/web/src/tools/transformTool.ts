@@ -9,16 +9,15 @@ export const COPY_TOOL_ID = 'apex.copy';
 /**
  * Classic CAD move / copy: base point → target point.
  *
- * Move previews live geometry; copy shows a construction line until confirm.
- * Only Move opens an undo group (so live preview edits coalesce). Copy must
- * not — an open group makes `record_before` a no-op and leaves the copy
- * immediately un-undoable.
+ * Move shows a ghost overlay only (document untouched until commit). Copy draws
+ * a construction line until confirm. Neither opens an undo group up front —
+ * a single recorded commit is enough, and an open group would make Copy's
+ * `record_before` a no-op.
  */
 export function createTransformTool(mode: TransformMode): Tool {
   let base: Vec3 | null = null;
   let originals: TransformOriginal[] | null = null;
   let previewing = false;
-  let undoGroupOpen = false;
 
   const id = mode === 'move' ? MOVE_TOOL_ID : COPY_TOOL_ID;
   const label = mode === 'move' ? 'Move' : 'Copy';
@@ -59,17 +58,12 @@ export function createTransformTool(mode: TransformMode): Tool {
         base = point;
         originals = selection;
         ctx.setPending([base]);
-        if (mode === 'move') {
-          ctx.beginUndoGroup();
-          undoGroupOpen = true;
-        }
         ctx.setError(null);
         return;
       }
 
       const delta = deltaVec3(base, point);
       ctx.commitTransform(originals!, delta, mode);
-      undoGroupOpen = false;
       clearGesture(ctx);
     },
 
@@ -95,10 +89,6 @@ export function createTransformTool(mode: TransformMode): Tool {
     cancel(ctx) {
       if (previewing && originals) {
         ctx.restoreTransformOriginals(originals);
-      }
-      if (undoGroupOpen) {
-        ctx.abortUndoGroup();
-        undoGroupOpen = false;
       }
       clearGesture(ctx);
     },

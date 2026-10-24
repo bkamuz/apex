@@ -1746,10 +1746,9 @@ mod tests {
         assert!((copy.placement.origin().x - 3.0).abs() < EPS);
     }
 
-    /// UI move preview mutates to `original+delta` with history off; commit must
-    /// restore then translate once so the final position is one delta, not two.
+    /// Ghost-only Move preview must not mutate placements; commit translates once.
     #[test]
-    fn move_preview_then_restore_then_translate_ends_at_one_delta() {
+    fn move_commit_translates_once_without_preview_mutation() {
         let mut project = Project::new();
         let id = project
             .create_element("apex.column", Placement::point(Vec3::ZERO), ParamMap::new())
@@ -1757,27 +1756,18 @@ mod tests {
         project.clear_history();
 
         let delta = Vec3::new(2.0, 0.0, 0.0);
-        project.begin_undo_group();
-        // Live preview path (App.tsx applyTransformPlacements).
-        project
-            .update_element(id, None, Some(Placement::point(delta)), false)
-            .expect("preview");
+        // Preview is UI-only (ghost mesh); document stays at the original.
         assert!(
-            (project
+            project
                 .document()
                 .get_element(id)
                 .unwrap()
                 .placement
                 .origin()
                 .x
-                - 2.0)
                 .abs()
                 < EPS
         );
-        // Commit path: restore captured originals, then translate once.
-        project
-            .update_element(id, None, Some(Placement::point(Vec3::ZERO)), false)
-            .expect("restore");
         project
             .translate_elements(&[id], delta, true)
             .expect("commit");
@@ -1792,7 +1782,7 @@ mod tests {
             (origin.x - 2.0).abs() < EPS,
             "final must be original+delta (x=2), got {origin:?}"
         );
-        assert!(project.can_undo(), "coalesced move must be undoable");
+        assert!(project.can_undo(), "single move commit must be undoable");
         project.undo().expect("undo move");
         let restored = project
             .document()

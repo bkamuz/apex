@@ -63,11 +63,11 @@ export interface ToolContext {
   setTouchOrbitEnabled(enabled: boolean): void;
   /** Current selection as transform targets (elements, ref, or grid axis). */
   getTransformSelection(): TransformOriginal[] | null;
-  /** Live preview of a move from captured originals. */
+  /** Ghost-only move preview from captured originals (does not mutate the document). */
   previewTransform(originals: TransformOriginal[], delta: Vec3): void;
   /** Commit a move or copy after base → target picks. */
   commitTransform(originals: TransformOriginal[], delta: Vec3, mode: TransformMode): void;
-  /** Revert a cancelled move preview back to captured originals. */
+  /** Clear a cancelled move ghost (document was never mutated during preview). */
   restoreTransformOriginals(originals: TransformOriginal[]): void;
   /** Element id under the cursor, or null. Distinct from `pick`, which returns a GPU pick id. */
   pickElementId(clientX: number, clientY: number): string | null;

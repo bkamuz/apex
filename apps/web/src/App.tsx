@@ -97,11 +97,8 @@ import { useMediaQuery } from './hooks/useMediaQuery';
 import { ToolRegistry } from './tools/registry';
 import { finishOpenGesture } from './tools/placementTool';
 import { requiredPoints, type PointerInfo, type ToolContext } from './tools/Tool';
-import {
-  translatedAnchors,
-  type TransformMode,
-  type TransformOriginal,
-} from './tools/transformTypes';
+import { buildTranslatedGhostMesh } from './tools/transformGhost';
+import { type TransformMode } from './tools/transformTypes';
 import { extensions, installGlobalSdk } from './extensions/sdk';
 import { exporterRegistry, installPlugins } from './plugins';
 
@@ -119,42 +116,6 @@ function toFloatArray(data: ArrayLike<number> | number[]): Float32Array {
 
 function toUint32Array(data: ArrayLike<number> | number[]): Uint32Array {
   return data instanceof Uint32Array ? data : new Uint32Array(data);
-}
-
-function applyTransformPlacements(
-  originals: TransformOriginal[],
-  delta: Vec3 | null,
-  recordHistory: boolean,
-): SceneDto | null {
-  let scene: SceneDto | null = null;
-  for (const original of originals) {
-    const anchors = delta ? translatedAnchors(original.anchors, delta) : original.anchors;
-    switch (original.kind) {
-      case 'element':
-        scene = apexSetElementPlacement(original.id, anchors, 0, recordHistory);
-        break;
-      case 'reference':
-        scene = apexSetReferencePlacement(original.id, anchors, 0, recordHistory);
-        break;
-      case 'grid_axis':
-        scene = apexSetGridAxisPlacement(original.id, anchors, 0, recordHistory);
-        break;
-      case 'construction_line':
-        scene = apexSetConstructionLinePlacement(original.id, anchors, 0, recordHistory);
-        break;
-      case 'section_cut':
-        scene = apexSetSectionCutPlacement(original.id, anchors, 0, recordHistory);
-        break;
-      case 'space':
-        scene = apexSetSpacePlacement(original.id, anchors, 0, recordHistory);
-        break;
-      default: {
-        const exhaustive: never = original.kind;
-        return exhaustive;
-      }
-    }
-  }
-  return scene;
 }
 
 function selectedPickIds(scene: SceneDto): number[] {
@@ -873,42 +834,21 @@ export default function App() {
       },
 
       previewTransform: (originals, delta) => {
-        try {
-          const next = applyTransformPlacements(originals, delta, false);
-          if (next) {
-            renderer.setScene({
-              positions: toFloatArray(next.positions),
-              normals: toFloatArray(next.normals),
-              indices: toUint32Array(next.indices),
-              pickIds: next.pick_ids,
-              edgePositions: next.edge_positions ? toFloatArray(next.edge_positions) : [],
-              selectedPickIds: selectedPickIds(next),
-              fitCamera: false,
-            });
-            syncGridAxisGizmos(next.grid_axes ?? []);
-            syncConstructionLineOverlays(next.construction_lines ?? []);
-            syncSectionCutOverlays(next.section_cuts ?? []);
-            syncSpaceOverlays(next.spaces ?? []);
-            syncReferenceGizmos(next.references ?? []);
-            setScene(next);
-          }
-        } catch {
-          /* keep dragging */
+        // Ghost-only: never mutate placements while the pointer moves.
+        const current = sceneRef.current;
+        if (!current) {
+          renderer.setGhostMesh(null);
+          return;
         }
+        const ghost = buildTranslatedGhostMesh(current, originals, delta);
+        renderer.setGhostMesh(ghost);
       },
 
-      commitTransform: (originals, delta, mode: TransformMode) => {
+      commitTransform: (_originals, delta, mode: TransformMode) => {
         try {
-          let next: SceneDto;
-          if (mode === 'move') {
-            // Live preview already wrote original+delta into the document.
-            // Restore captured anchors, then translate once so commit cannot
-            // double-apply the delta.
-            applyTransformPlacements(originals, null, false);
-            next = apexTranslateSelection(delta, true);
-          } else {
-            next = apexCopySelection(delta);
-          }
+          renderer.setGhostMesh(null);
+          const next =
+            mode === 'move' ? apexTranslateSelection(delta, true) : apexCopySelection(delta);
           applyScene(next);
           setError(null);
         } catch (e) {
@@ -916,13 +856,9 @@ export default function App() {
         }
       },
 
-      restoreTransformOriginals: (originals) => {
-        try {
-          const next = applyTransformPlacements(originals, null, false);
-          if (next) applyScene(next);
-        } catch {
-          /* ignore */
-        }
+      restoreTransformOriginals: () => {
+        // Preview never mutated the document — just drop the ghost overlay.
+        renderer.setGhostMesh(null);
       },
 
       // Parenting gestures need element identity, not just a GPU pick id.

@@ -423,9 +423,20 @@ check('column selected for move', !!beforeMove?.anchor);
 
 await useTool('Move');
 await clickCanvas(0.42, 0.6);
-// Nudge the pointer so live preview mutates the document before commit.
+// Ghost-only preview: pointer move must not change document anchors.
 await page.mouse.move(box.x + box.width * 0.48, box.y + box.height * 0.6);
 await page.waitForTimeout(80);
+const midPreview = await firstColumnState();
+check(
+  'move preview leaves document position unchanged',
+  !!midPreview &&
+    midPreview.id === beforeMove.id &&
+    Math.hypot(
+      (midPreview.anchor?.[0] ?? 0) - (beforeMove.anchor?.[0] ?? 0),
+      (midPreview.anchor?.[2] ?? 0) - (beforeMove.anchor?.[2] ?? 0),
+    ) < 1e-6,
+  `preview mutated anchors before=${JSON.stringify(beforeMove?.anchor)} mid=${JSON.stringify(midPreview?.anchor)}`,
+);
 await clickCanvas(0.52, 0.6);
 await page.waitForTimeout(300);
 check('move keeps element count', (await elementCount()) === countBeforeMove);

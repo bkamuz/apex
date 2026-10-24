@@ -80,9 +80,11 @@ See `apps/web/src/tools/Tool.ts` for the `Tool` interface and
 `examples/custom-tool.ts` for a minimal stub.
 
 Built-in **Move** (`M`) and **Copy** (`C`) transform the current selection
-(instances, references, grid axes): pick a base point, then a target. Undo/redo
-and project save include the results. Rotate / mirror / array are natural
-follow-ups on the same transform tool infrastructure.
+(instances, references, grid axes, construction lines, section cuts, spaces):
+pick a base point, then a target. Move shows a ghost overlay only — the
+document updates on the target pick. Undo/redo and project save include the
+results. Rotate / mirror / array are natural follow-ups on the same transform
+tool infrastructure.
 
 ## Prerequisites
 

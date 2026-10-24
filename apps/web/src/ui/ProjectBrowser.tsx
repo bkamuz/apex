@@ -49,6 +49,8 @@ interface BrowserItem {
   category: string;
   levelName: string;
   profileName: string;
+  /** Element parent id when this row is a child instance. */
+  parentId?: string | null;
 }
 
 interface BrowserPrefs {
@@ -138,6 +140,7 @@ function isGroupExpanded(
 interface BrowserTreeItemProps {
   item: BrowserItem;
   isSelected: boolean;
+  depth?: number;
   onSelectInstance: (id: string, multi: boolean) => void;
   onSelectReference: (id: string) => void;
   onSelectGridAxis: (id: string) => void;
@@ -147,7 +150,7 @@ interface BrowserTreeItemProps {
   onSelectType: (profileId: string) => void;
 }
 
-function kindBadge(kind: BrowserItem['kind']): string {
+function kindBadge(kind: BrowserItem['kind'], depth = 0): string {
   switch (kind) {
     case 'type':
       return 'type';
@@ -162,7 +165,7 @@ function kindBadge(kind: BrowserItem['kind']): string {
     case 'space':
       return 'space';
     case 'instance':
-      return 'instance';
+      return depth > 0 ? 'child' : 'instance';
     default: {
       const exhaustive: never = kind;
       return exhaustive;
@@ -170,9 +173,55 @@ function kindBadge(kind: BrowserItem['kind']): string {
   }
 }
 
+/** Nest instance rows under their parent when both appear in the same list. */
+function orderWithParentHierarchy(items: BrowserItem[]): { item: BrowserItem; depth: number }[] {
+  const instances = items.filter((item) => item.kind === 'instance');
+  if (instances.length === 0) {
+    return items.map((item) => ({ item, depth: 0 }));
+  }
+
+  const byId = new Map(instances.map((item) => [item.id, item]));
+  const children = new Map<string, BrowserItem[]>();
+  for (const item of instances) {
+    const parentId = item.parentId;
+    if (parentId && byId.has(parentId)) {
+      const list = children.get(parentId) ?? [];
+      list.push(item);
+      children.set(parentId, list);
+    }
+  }
+
+  const ordered: { item: BrowserItem; depth: number }[] = [];
+  const visited = new Set<string>();
+
+  const walk = (item: BrowserItem, depth: number) => {
+    if (visited.has(item.id)) return;
+    visited.add(item.id);
+    ordered.push({ item, depth });
+    const kids = children.get(item.id) ?? [];
+    kids.sort((a, b) => a.name.localeCompare(b.name));
+    for (const child of kids) walk(child, depth + 1);
+  };
+
+  for (const item of items) {
+    if (item.kind !== 'instance') {
+      ordered.push({ item, depth: 0 });
+      continue;
+    }
+    const parentId = item.parentId;
+    if (parentId && byId.has(parentId)) continue;
+    walk(item, 0);
+  }
+  for (const item of instances) {
+    if (!visited.has(item.id)) ordered.push({ item, depth: 0 });
+  }
+  return ordered;
+}
+
 function BrowserTreeItem({
   item,
   isSelected,
+  depth = 0,
   onSelectInstance,
   onSelectReference,
   onSelectGridAxis,
@@ -193,7 +242,10 @@ function BrowserTreeItem({
     <li
       data-kind={item.kind}
       data-id={item.id}
+      data-parent-id={item.parentId ?? undefined}
+      data-depth={depth}
       className={isSelected ? 'selected' : ''}
+      style={depth > 0 ? { paddingLeft: 10 + depth * 14 } : undefined}
       onClick={(event) => {
         if (isType) onSelectType(item.id);
         else if (item.kind === 'reference') onSelectReference(item.id);
@@ -206,7 +258,7 @@ function BrowserTreeItem({
     >
       <span>
         {item.name}
-        <span className={`kind-badge kind-${item.kind}`}>{kindBadge(item.kind)}</span>
+        <span className={`kind-badge kind-${item.kind}`}>{kindBadge(item.kind, depth)}</span>
       </span>
       <span className="cat">{isType ? item.category : isDatum ? item.levelName : item.profileName}</span>
     </li>
@@ -303,10 +355,11 @@ function BrowserTreeGroup({
       </div>
       {expanded ? (
         <ul className="browser-tree-items">
-          {items.map((item) => (
+          {orderWithParentHierarchy(items).map(({ item, depth }) => (
             <BrowserTreeItem
               key={item.key}
               item={item}
+              depth={depth}
               isSelected={isItemSelected(
                 item,
                 selected,
@@ -427,6 +480,7 @@ export function ProjectBrowser({
       profileName: element.profile_id
         ? profileLabel(profiles, element.profile_id)
         : element.category,
+      parentId: element.parent_id ?? null,
     }));
     const refs: BrowserItem[] = references.map((reference) => ({
       key: `reference:${reference.id}`,
@@ -591,10 +645,11 @@ export function ProjectBrowser({
           <div className="empty">No types or elements yet. Draw a profile or place a wall.</div>
         ) : groupBy === 'none' ? (
           <ul className="browser-tree-items browser-tree-items--flat">
-            {items.map((item) => (
+            {orderWithParentHierarchy(items).map(({ item, depth }) => (
               <BrowserTreeItem
                 key={item.key}
                 item={item}
+                depth={depth}
                 isSelected={isItemSelected(
                   item,
                   selected,
