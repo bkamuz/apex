@@ -248,6 +248,11 @@ export function updateConstructionLine(id: string, params_json: string): any;
  */
 export function updateElement(id: string, params_json: string): any;
 
+/**
+ * Patch per-end path join settings (`allow_join`, style: miter|butt|square).
+ */
+export function updateElementJoinSettings(id: string, start_json: string, end_json: string, record_history: boolean): any;
+
 export function updateGridAxis(id: string, params_json: string): any;
 
 /**
@@ -331,6 +336,7 @@ export interface InitOutput {
     readonly undo: () => [number, number, number];
     readonly updateConstructionLine: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly updateElement: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly updateElementJoinSettings: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
     readonly updateGridAxis: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly updateProfileType: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly updateSectionCut: (a: number, b: number, c: number, d: number) => [number, number, number];

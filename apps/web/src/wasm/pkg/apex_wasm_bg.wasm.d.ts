@@ -69,6 +69,7 @@ export const translateSelection: (a: number, b: number, c: number) => [number, n
 export const undo: () => [number, number, number];
 export const updateConstructionLine: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const updateElement: (a: number, b: number, c: number, d: number) => [number, number, number];
+export const updateElementJoinSettings: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
 export const updateGridAxis: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const updateProfileType: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const updateSectionCut: (a: number, b: number, c: number, d: number) => [number, number, number];

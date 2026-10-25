@@ -1049,6 +1049,28 @@ export function updateElement(id, params_json) {
 }
 
 /**
+ * Patch per-end path join settings (`allow_join`, style: miter|butt|square).
+ * @param {string} id
+ * @param {string} start_json
+ * @param {string} end_json
+ * @param {boolean} record_history
+ * @returns {any}
+ */
+export function updateElementJoinSettings(id, start_json, end_json, record_history) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(start_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passStringToWasm0(end_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ret = wasm.updateElementJoinSettings(ptr0, len0, ptr1, len1, ptr2, len2, record_history);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * @param {string} id
  * @param {string} params_json
  * @returns {any}

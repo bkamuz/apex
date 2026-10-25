@@ -38,3 +38,21 @@ impl JoinEndSettings {
         *self == Self::default()
     }
 }
+
+impl JoinStyle {
+    pub fn from_name(name: &str) -> Self {
+        match name.trim().to_ascii_lowercase().as_str() {
+            "butt" => Self::Butt,
+            "square" => Self::Square,
+            _ => Self::Miter,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Miter => "miter",
+            Self::Butt => "butt",
+            Self::Square => "square",
+        }
+    }
+}

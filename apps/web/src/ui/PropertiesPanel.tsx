@@ -3,6 +3,7 @@ import type {
   ComponentDto,
   ConstructionLineDto,
   ElementDto,
+  JoinEndSettingsDto,
   GridAxisDto,
   LevelDto,
   ParamSpecDto,
@@ -37,6 +38,7 @@ interface Props {
   /** Create-tool draft: profile + instance fields used for preview and place. */
   placement: { component: ComponentDto; params: Record<string, ParamValue> } | null;
   onUpdate: (params: Record<string, ParamValue>) => void;
+  onUpdateJoinSettings: (start: JoinEndSettingsDto, end: JoinEndSettingsDto) => void;
   onUpdateGridAxis: (params: Record<string, ParamValue>) => void;
   onUpdateConstructionLine: (params: Record<string, ParamValue>) => void;
   onUpdateSectionCut: (params: Record<string, ParamValue>) => void;
@@ -54,6 +56,59 @@ interface Props {
 
 function stepFor(spec: ParamSpecDto): number {
   return spec.kind === 'angle' ? 0.05 : 0.05;
+}
+
+const JOIN_STYLES = ['miter', 'butt', 'square'] as const;
+
+function JoinSettingsBlock({
+  start,
+  end,
+  onChange,
+}: {
+  start: JoinEndSettingsDto;
+  end: JoinEndSettingsDto;
+  onChange: (start: JoinEndSettingsDto, end: JoinEndSettingsDto) => void;
+}) {
+  const apply = (which: 'start' | 'end', patch: Partial<JoinEndSettingsDto>) => {
+    if (which === 'start') {
+      onChange({ ...start, ...patch }, end);
+    } else {
+      onChange(start, { ...end, ...patch });
+    }
+  };
+  const row = (label: string, which: 'start' | 'end', settings: JoinEndSettingsDto) => (
+    <div className="field" key={label}>
+      <label>{label}</label>
+      <div className="join-end-row">
+        <label className="checkbox-inline">
+          <input
+            type="checkbox"
+            checked={settings.allow_join}
+            onChange={(e) => apply(which, { allow_join: e.target.checked })}
+          />
+          Allow join
+        </label>
+        <select
+          value={settings.style}
+          onChange={(e) => apply(which, { style: e.target.value as JoinEndSettingsDto['style'] })}
+          aria-label={`${label} join type`}
+        >
+          {JOIN_STYLES.map((style) => (
+            <option key={style} value={style}>
+              {style}
+            </option>
+          ))}
+        </select>
+      </div>
+    </div>
+  );
+  return (
+    <div className="inspector-section" data-section="joins">
+      <div className="section-title">Path joins</div>
+      {row('Start', 'start', start)}
+      {row('End', 'end', end)}
+    </div>
+  );
 }
 
 function optionLabel(
@@ -303,6 +358,7 @@ export function PropertiesPanel({
   selectedLevel,
   placement,
   onUpdate,
+  onUpdateJoinSettings,
   onUpdateGridAxis,
   onUpdateConstructionLine,
   onUpdateSectionCut,
@@ -593,6 +649,14 @@ export function PropertiesPanel({
           profiles={profiles}
           onEditType={onEditType}
         />
+
+        {selected.joinable || component?.joinable ? (
+          <JoinSettingsBlock
+            start={selected.join_start_settings ?? { allow_join: true, style: 'miter' }}
+            end={selected.join_end_settings ?? { allow_join: true, style: 'miter' }}
+            onChange={onUpdateJoinSettings}
+          />
+        ) : null}
 
         <button type="button" className="danger" onClick={onDelete}>
           Delete

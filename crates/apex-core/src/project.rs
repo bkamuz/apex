@@ -17,7 +17,11 @@ use crate::document::{Document, SceneBuffers};
 use crate::element::{Element, ElementId};
 use crate::grid_axis::{grid_axis_param_specs, GridAxis, GridAxisId};
 use crate::history::History;
-use crate::join_cluster::{all_join_cluster_outlines, join_connectivity, JoinConnectivity};
+use crate::join_cluster::{
+    all_join_cluster_outlines, extrude_outline_to_mesh, join_connectivity, plan_fill_from_outline,
+    JoinConnectivity,
+};
+use crate::join_end::JoinEndSettings;
 use crate::level::{Level, LevelId};
 use crate::param::{ParamMap, ParamValue};
 use crate::path_join::{joinable_segment, plan_joins_all};
@@ -365,17 +369,87 @@ impl Project {
             if cluster.points.len() < 2 {
                 continue;
             }
+            let mut max_height = 3.0f32;
+            for id in &cluster.element_ids {
+                if let Some(el) = self.document.get_element(*id) {
+                    if let Some(h) = el
+                        .params
+                        .get("height")
+                        .and_then(|v| v.as_number())
+                        .map(|v| v as f32)
+                    {
+                        max_height = max_height.max(h);
+                    }
+                }
+            }
+            let y_top = cluster.points[0].y + max_height;
             for w in cluster.points.windows(2) {
                 join_outline_edges
                     .extend_from_slice(&[w[0].x, w[0].y, w[0].z, w[1].x, w[1].y, w[1].z]);
+                join_outline_edges
+                    .extend_from_slice(&[w[0].x, y_top, w[0].z, w[1].x, y_top, w[1].z]);
             }
             let first = cluster.points[0];
             let last = cluster.points[cluster.points.len() - 1];
             join_outline_edges
                 .extend_from_slice(&[last.x, last.y, last.z, first.x, first.y, first.z]);
+            join_outline_edges.extend_from_slice(&[last.x, y_top, last.z, first.x, y_top, first.z]);
+            for p in &cluster.points {
+                join_outline_edges.extend_from_slice(&[p.x, p.y, p.z, p.x, y_top, p.z]);
+            }
         }
-        self.document
-            .build_scene_buffers_with_joins(&skip, &join_outline_edges)
+        let mut buffers = self
+            .document
+            .build_scene_buffers_with_joins(&skip, &join_outline_edges);
+        buffers.join_cluster_pick_ids = buffers
+            .elements
+            .iter()
+            .filter(|e| skip.contains(&e.id))
+            .map(|e| e.pick_id)
+            .collect();
+        for cluster in &clusters {
+            let mut max_height = 3.0f32;
+            for id in &cluster.element_ids {
+                if let Some(el) = self.document.get_element(*id) {
+                    if let Some(h) = el
+                        .params
+                        .get("height")
+                        .and_then(|v| v.as_number())
+                        .map(|v| v as f32)
+                    {
+                        max_height = max_height.max(h);
+                    }
+                }
+            }
+            if let Some((pos, nrm, idx)) = plan_fill_from_outline(&cluster.points) {
+                let base = (buffers.positions.len() / 3) as u32;
+                buffers.positions.extend(pos);
+                buffers.normals.extend(nrm);
+                for tri in idx.chunks(3) {
+                    buffers.indices.extend_from_slice(&[
+                        base + tri[0],
+                        base + tri[1],
+                        base + tri[2],
+                    ]);
+                    buffers.pick_ids.push(0);
+                }
+            }
+            let (pos, nrm, idx) = extrude_outline_to_mesh(&cluster.points, max_height);
+            if !idx.is_empty() {
+                let base = (buffers.positions.len() / 3) as u32;
+                buffers.positions.extend(pos);
+                buffers.normals.extend(nrm);
+                for tri in idx.chunks(3) {
+                    buffers.indices.extend_from_slice(&[
+                        base + tri[0],
+                        base + tri[1],
+                        base + tri[2],
+                    ]);
+                    buffers.pick_ids.push(0);
+                }
+            }
+        }
+        buffers
     }
 
     fn apply_join_update(
@@ -502,6 +576,47 @@ impl Project {
     /// Rebuild an element's mesh from its current state, after the level moved.
     pub fn rebuild_element(&mut self, id: ElementId) -> Result<(), RegistryError> {
         self.update_element(id, None, None, false)
+    }
+
+    /// Patch per-end path join overrides and recompute joins on the level.
+    pub fn update_element_join_settings(
+        &mut self,
+        id: ElementId,
+        join_start_settings: JoinEndSettings,
+        join_end_settings: JoinEndSettings,
+        record: bool,
+    ) -> Result<(), RegistryError> {
+        let before = if record && !self.history.has_pending() {
+            Some(self.export_snapshot())
+        } else {
+            None
+        };
+        let mut element = self
+            .document
+            .get_element(id)
+            .cloned()
+            .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
+        let joinable = self
+            .registry
+            .get(&element.component_id)
+            .is_some_and(|d| d.joinable);
+        if !joinable {
+            return Err(RegistryError::Unknown(format!(
+                "component '{}' is not joinable",
+                element.component_id
+            )));
+        }
+        let level_id = element.level_id;
+        let component_id = element.component_id.clone();
+        element.join_start_settings = join_start_settings;
+        element.join_end_settings = join_end_settings;
+        let mesh = self.build_element_mesh_with_cuts(&element)?;
+        self.document.update_element(element, mesh);
+        let _ = self.recompute_joins_on_level(&level_id, &component_id, false);
+        if record {
+            self.finish_recorded_edit(before);
+        }
+        Ok(())
     }
 
     /// Turn raw picks into a reference placement on the active work plane.

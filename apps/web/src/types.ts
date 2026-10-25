@@ -174,6 +174,14 @@ export interface ElementDto {
   /** Path-join sweep extensions (metres). */
   join_start?: number;
   join_end?: number;
+  joinable?: boolean;
+  join_start_settings?: JoinEndSettingsDto;
+  join_end_settings?: JoinEndSettingsDto;
+}
+
+export interface JoinEndSettingsDto {
+  allow_join: boolean;
+  style: 'miter' | 'butt' | 'square' | (string & {});
 }
 
 export interface ElementListDto {
@@ -261,6 +269,7 @@ export interface MeshDto {
   edge_positions: Float32Array | number[];
   join_outline_edges?: Float32Array | number[];
   join_cluster_element_ids?: string[];
+  join_cluster_pick_ids?: number[];
 }
 
 export interface SceneDto {
@@ -269,6 +278,9 @@ export interface SceneDto {
   indices: Uint32Array | number[];
   pick_ids: Float64Array | number[];
   edge_positions?: Float32Array | number[];
+  join_outline_edges?: Float32Array | number[];
+  join_cluster_element_ids?: string[];
+  join_cluster_pick_ids?: number[];
   elements: ElementListDto[];
   references?: ReferenceDto[];
   grid_axes?: GridAxisDto[];

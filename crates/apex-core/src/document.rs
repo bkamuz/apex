@@ -549,6 +549,7 @@ impl Document {
             edge_positions,
             join_outline_edges: join_outline_edges.to_vec(),
             join_cluster_element_ids: skip_edges_for.iter().map(|id| id.to_string()).collect(),
+            join_cluster_pick_ids: Vec::new(),
             elements: element_index,
             version: self.version,
         }
@@ -588,6 +589,8 @@ pub struct SceneBuffers {
     pub join_outline_edges: Vec<f32>,
     /// Elements whose mesh edges were replaced by cluster outlines in plan linework.
     pub join_cluster_element_ids: Vec<String>,
+    /// Pick ids for elements whose solids are hidden in plan (replaced by union fill).
+    pub join_cluster_pick_ids: Vec<u64>,
     pub elements: Vec<ElementSceneEntry>,
     pub version: u64,
 }

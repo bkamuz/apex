@@ -61,6 +61,7 @@ import {
   apexTranslateSelection,
   apexUndo,
   apexUpdateElement,
+  apexUpdateElementJoinSettings,
   initApex,
 } from './wasm/apex';
 import {
@@ -77,6 +78,7 @@ import type {
   ConstructionLineDto,
   ElementDto,
   ElementListDto,
+  JoinEndSettingsDto,
   LevelDto,
   ParamValue,
   PlacementKind,
@@ -347,6 +349,7 @@ export default function App() {
           indices: toUint32Array(next.indices),
           pickIds: next.pick_ids,
           edgePositions: next.edge_positions ? toFloatArray(next.edge_positions) : [],
+          joinClusterPickIds: next.join_cluster_pick_ids ?? [],
           selectedPickIds: selectedPickIds(next),
           fitCamera,
         });
@@ -642,6 +645,7 @@ export default function App() {
             indices: toUint32Array(next.indices),
             pickIds: next.pick_ids,
             edgePositions: next.edge_positions ? toFloatArray(next.edge_positions) : [],
+            joinClusterPickIds: next.join_cluster_pick_ids ?? [],
             selectedPickIds: selectedPickIds(next),
             fitCamera: false,
           });
@@ -1458,6 +1462,16 @@ export default function App() {
     }
   };
 
+  const onUpdateJoinSettings = (start: JoinEndSettingsDto, end: JoinEndSettingsDto) => {
+    if (!selected) return;
+    try {
+      applyScene(apexUpdateElementJoinSettings(selected.id, start, end));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const onUpdateGridAxisParams = (params: Record<string, ParamValue>) => {
     if (!selectedGridAxis) return;
     try {
@@ -1646,6 +1660,7 @@ export default function App() {
           : null
       }
       onUpdate={onUpdateParams}
+      onUpdateJoinSettings={onUpdateJoinSettings}
       onUpdateGridAxis={onUpdateGridAxisParams}
       onUpdateConstructionLine={onUpdateConstructionLineParams}
       onUpdateSectionCut={onUpdateSectionCutParams}

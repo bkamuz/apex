@@ -26,6 +26,7 @@ import initWasm, {
   togglePickById,
   toggleSelectElement,
   updateElement,
+  updateElementJoinSettings,
   updateProfileType,
   exportProject,
   exportIfc,
@@ -202,6 +203,16 @@ export function apexUpdateElement(
   params: Record<string, ParamValue>,
 ): SceneDto {
   return asScene(updateElement(id, encodeParams(params)));
+}
+
+export function apexUpdateElementJoinSettings(
+  id: string,
+  start: { allow_join: boolean; style: string },
+  end: { allow_join: boolean; style: string },
+): SceneDto {
+  return asScene(
+    updateElementJoinSettings(id, JSON.stringify(start), JSON.stringify(end), true),
+  );
 }
 
 export function apexSetElementPlacement(

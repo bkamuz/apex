@@ -25,6 +25,8 @@ export interface SceneMeshData {
   pickIds: ArrayLike<number>;
   edgePositions?: ArrayLike<number>;
   selectedPickIds: number[];
+  /** Plan view: hide per-wall solids replaced by united join fill/linework. */
+  joinClusterPickIds?: number[];
   fitCamera?: boolean;
 }
 
@@ -107,7 +109,18 @@ uniform int uSelectionMode; // 0=all, 1=opaque others, 2=selected only
 uniform int uPlanMode;
 uniform float uCutY;
 uniform float uCutFade;
+uniform float uJoinClusterPicks[32];
+uniform int uJoinClusterCount;
 out vec4 outColor;
+
+bool isJoinClusterPick(float pick) {
+  if (pick < 0.5) return false;
+  for (int i = 0; i < 32; i++) {
+    if (i >= uJoinClusterCount) break;
+    if (abs(pick - uJoinClusterPicks[i]) < 0.5) return true;
+  }
+  return false;
+}
 
 bool isSelectedPick(float pick) {
   for (int i = 0; i < 32; i++) {
@@ -138,6 +151,7 @@ void main(){
   float wrap = ndl * 0.65 + 0.35;
   vec3 base = selected ? vec3(0.86, 0.52, 0.22) : vec3(0.72, 0.76, 0.80);
   float alpha = uOpacity;
+  if (isJoinClusterPick(vPick)) discard;
   if (uPlanMode != 0) {
     float above = vWorld.y - uCutY;
     if (above > uCutFade) discard;
@@ -294,6 +308,8 @@ type MeshUniforms = {
   uPlanMode: WebGLUniformLocation | null;
   uCutY: WebGLUniformLocation | null;
   uCutFade: WebGLUniformLocation | null;
+  uJoinClusterPicks: WebGLUniformLocation | null;
+  uJoinClusterCount: WebGLUniformLocation | null;
 };
 
 type LineUniforms = {
@@ -337,6 +353,8 @@ function meshUniforms(gl: WebGL2RenderingContext, prog: WebGLProgram): MeshUnifo
     uPlanMode: gl.getUniformLocation(prog, 'uPlanMode'),
     uCutY: gl.getUniformLocation(prog, 'uCutY'),
     uCutFade: gl.getUniformLocation(prog, 'uCutFade'),
+    uJoinClusterPicks: gl.getUniformLocation(prog, 'uJoinClusterPicks'),
+    uJoinClusterCount: gl.getUniformLocation(prog, 'uJoinClusterCount'),
   };
 }
 
@@ -798,6 +816,7 @@ export class ViewportRenderer {
   private lastPlanBubbleDistance = -1;
   private sceneExtent = 10;
   private selectedPickIds: number[] = [];
+  private joinClusterPickIds: number[] = [];
   /** Locked for the whole gesture so MMB never falls through into orbit/zoom. */
   private dragMode: 'pan' | 'orbit' | null = null;
   private lastX = 0;
@@ -1154,6 +1173,7 @@ export class ViewportRenderer {
     this.edgeCount = this.uploadThickLines(this.edgeBuf, edges);
 
     this.selectedPickIds = data.selectedPickIds.slice(0, 32);
+    this.joinClusterPickIds = (data.joinClusterPickIds ?? []).slice(0, 32);
 
     const aabb = aabbFromPositions(positions);
     if (aabb) {
@@ -2169,6 +2189,12 @@ export class ViewportRenderer {
     gl.uniform1i(u.uPlanMode, this.viewNavigation === 'plan' ? 1 : 0);
     gl.uniform1f(u.uCutY, this.planCutY);
     gl.uniform1f(u.uCutFade, this.planCutFade);
+    this.scratchPicks.fill(0);
+    for (let i = 0; i < this.joinClusterPickIds.length && i < 32; i++) {
+      this.scratchPicks[i] = this.joinClusterPickIds[i];
+    }
+    gl.uniform1fv(u.uJoinClusterPicks, this.scratchPicks);
+    gl.uniform1i(u.uJoinClusterCount, this.joinClusterPickIds.length);
 
     gl.bindVertexArray(this.vao);
     gl.enable(gl.DEPTH_TEST);

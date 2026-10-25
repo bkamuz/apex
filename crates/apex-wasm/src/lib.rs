@@ -141,6 +141,24 @@ struct ElementDto {
     /// Path-join sweep extensions (metres). Zero when not joined.
     join_start: f32,
     join_end: f32,
+    joinable: bool,
+    join_start_settings: JoinEndSettingsDto,
+    join_end_settings: JoinEndSettingsDto,
+}
+
+#[derive(Serialize, Deserialize)]
+struct JoinEndSettingsDto {
+    allow_join: bool,
+    style: String,
+}
+
+impl From<apex_core::JoinEndSettings> for JoinEndSettingsDto {
+    fn from(value: apex_core::JoinEndSettings) -> Self {
+        Self {
+            allow_join: value.allow_join,
+            style: value.style.as_str().to_string(),
+        }
+    }
 }
 
 #[derive(Serialize)]
@@ -253,6 +271,7 @@ struct SceneDto {
     edge_positions: Vec<f32>,
     join_outline_edges: Vec<f32>,
     join_cluster_element_ids: Vec<String>,
+    join_cluster_pick_ids: Vec<f64>,
     elements: Vec<ElementListDto>,
     references: Vec<ReferenceDto>,
     grid_axes: Vec<GridAxisDto>,
@@ -320,6 +339,12 @@ fn element_dto(project: &Project, element: &Element) -> ElementDto {
         type_values,
         join_start: element.join_start,
         join_end: element.join_end,
+        joinable: project
+            .registry()
+            .get(&element.component_id)
+            .is_some_and(|d| d.joinable),
+        join_start_settings: element.join_start_settings.into(),
+        join_end_settings: element.join_end_settings.into(),
     }
 }
 
@@ -586,6 +611,11 @@ fn scene_dto(project: &Project) -> SceneDto {
         edge_positions: buffers.edge_positions,
         join_outline_edges: buffers.join_outline_edges,
         join_cluster_element_ids: buffers.join_cluster_element_ids,
+        join_cluster_pick_ids: buffers
+            .join_cluster_pick_ids
+            .iter()
+            .map(|id| *id as f64)
+            .collect(),
         elements: buffers
             .elements
             .iter()
@@ -921,6 +951,33 @@ pub fn create_element_with_parent(
             .create_element_with_parent(component_id, placement, params, parent)
             .map_err(err)?;
         with_selection(|s| s.set(Some(id)));
+        scene(project)
+    })
+}
+
+/// Patch per-end path join settings (`allow_join`, style: miter|butt|square).
+#[wasm_bindgen(js_name = updateElementJoinSettings)]
+pub fn update_element_join_settings(
+    id: &str,
+    start_json: &str,
+    end_json: &str,
+    record_history: bool,
+) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let element = element_id(id)?;
+        let start: JoinEndSettingsDto = serde_json::from_str(start_json).map_err(err)?;
+        let end: JoinEndSettingsDto = serde_json::from_str(end_json).map_err(err)?;
+        let start_settings = apex_core::JoinEndSettings {
+            allow_join: start.allow_join,
+            style: apex_core::JoinStyle::from_name(&start.style),
+        };
+        let end_settings = apex_core::JoinEndSettings {
+            allow_join: end.allow_join,
+            style: apex_core::JoinStyle::from_name(&end.style),
+        };
+        project
+            .update_element_join_settings(element, start_settings, end_settings, record_history)
+            .map_err(err)?;
         scene(project)
     })
 }
