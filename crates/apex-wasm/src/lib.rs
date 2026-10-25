@@ -271,6 +271,8 @@ struct SceneDto {
     construction_lines: Vec<ConstructionLineDto>,
     section_cuts: Vec<SectionCutDto>,
     spaces: Vec<SpaceDto>,
+    /// Door swing / window glazing segment pairs for the active level's plan.
+    plan_symbols: Vec<[f32; 3]>,
     levels: Vec<LevelDto>,
     active_level_id: Option<String>,
     fit_bounds_min: Option<[f32; 3]>,
@@ -598,7 +600,7 @@ fn scene_dto(project: &Project) -> SceneDto {
         .spaces()
         .map(|space| space_dto(project, space))
         .collect();
-    spaces.sort_by(|a, b| a.name.cmp(&b.name));
+    spaces.sort_by(|a, b| (a.name.len(), &a.name).cmp(&(b.name.len(), &b.name)));
 
     let (fit_bounds_min, fit_bounds_max) = project
         .document()
@@ -650,6 +652,13 @@ fn scene_dto(project: &Project) -> SceneDto {
         construction_lines,
         section_cuts,
         spaces,
+        plan_symbols: apex_core::opening_plan_symbols(
+            project,
+            project.document().active_level_id(),
+        )
+        .iter()
+        .map(|p| p.to_array())
+        .collect(),
         levels: sorted_levels(project),
         active_level_id: project
             .document()

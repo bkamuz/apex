@@ -798,6 +798,9 @@ export class ViewportRenderer {
   private constructionLineVao: WebGLVertexArrayObject;
   private constructionLineBuf: WebGLBuffer;
   private constructionLineCount = 0;
+  private planSymbolVao: WebGLVertexArrayObject;
+  private planSymbolBuf: WebGLBuffer;
+  private planSymbolCount = 0;
   private sectionCutLineVao: WebGLVertexArrayObject;
   private sectionCutLineBuf: WebGLBuffer;
   private sectionCutLineCount = 0;
@@ -978,6 +981,9 @@ export class ViewportRenderer {
     this.constructionLineVao = gl.createVertexArray()!;
     this.constructionLineBuf = gl.createBuffer()!;
     this.bindThickLineVao(this.constructionLineVao, this.constructionLineBuf);
+    this.planSymbolVao = gl.createVertexArray()!;
+    this.planSymbolBuf = gl.createBuffer()!;
+    this.bindThickLineVao(this.planSymbolVao, this.planSymbolBuf);
     this.sectionCutLineVao = gl.createVertexArray()!;
     this.sectionCutLineBuf = gl.createBuffer()!;
     this.bindThickLineVao(this.sectionCutLineVao, this.sectionCutLineBuf);
@@ -1409,7 +1415,8 @@ export class ViewportRenderer {
       this.includePoints(lines);
       this.gridAxisLineCount = this.uploadThickLines(
         this.gridAxisLineBuf,
-        segmentsThrough(lines),
+        // Each axis contributes its own [start, end] pair — never chain them.
+        flatten(lines),
       );
     }
     if (!bubbles || bubbles.length < 2) {
@@ -1457,8 +1464,17 @@ export class ViewportRenderer {
     this.includePoints(lines);
     this.constructionLineCount = this.uploadThickLines(
       this.constructionLineBuf,
-      segmentsThrough(lines),
+      flatten(lines),
     );
+  }
+
+  /** Door swing arcs / window glazing (segment pairs); drawn in Plan only. */
+  setPlanSymbols(lines: Vec3[] | null): void {
+    if (!lines || lines.length < 2) {
+      this.planSymbolCount = 0;
+      return;
+    }
+    this.planSymbolCount = this.uploadThickLines(this.planSymbolBuf, flatten(lines));
   }
 
   /** Section-cut MVP: cut line plus optional vertical fill-hint outline. */
@@ -1469,7 +1485,7 @@ export class ViewportRenderer {
       this.includePoints(lines);
       this.sectionCutLineCount = this.uploadThickLines(
         this.sectionCutLineBuf,
-        segmentsThrough(lines),
+        flatten(lines),
       );
     }
     if (!fill || fill.length < 2) {
@@ -2485,6 +2501,9 @@ export class ViewportRenderer {
       [0.62, 0.72, 0.38, 0.95],
       2.6,
     );
+    if (this.viewNavigation === 'plan') {
+      this.drawOccludedAxis(this.planSymbolVao, this.planSymbolCount, [0.88, 0.9, 0.94, 0.95], 1.8);
+    }
     // Section cut: amber line + dimmer fill hint.
     this.drawOccludedAxis(this.sectionCutLineVao, this.sectionCutLineCount, [0.95, 0.58, 0.28, 0.98], 3.4);
     this.drawOccludedAxis(this.sectionCutFillVao, this.sectionCutFillCount, [0.95, 0.58, 0.28, 0.45], 1.6);

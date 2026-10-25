@@ -283,6 +283,8 @@ export interface SceneDto {
   construction_lines?: ConstructionLineDto[];
   section_cuts?: SectionCutDto[];
   spaces?: SpaceDto[];
+  /** Door swing / window glazing segment pairs on the active level. */
+  plan_symbols?: Vec3[];
   levels: LevelDto[];
   active_level_id: string | null;
   version: number;
