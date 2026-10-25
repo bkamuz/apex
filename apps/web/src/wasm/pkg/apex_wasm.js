@@ -181,6 +181,20 @@ export function createLevel(name, elevation) {
 }
 
 /**
+ * @param {string} level_id_str
+ * @returns {any}
+ */
+export function createPlanView(level_id_str) {
+    const ptr0 = passStringToWasm0(level_id_str, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.createPlanView(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * @param {string} kind
  * @param {string} points_json
  * @param {number} rotation
@@ -217,6 +231,23 @@ export function createSectionCut(points_json, params_json, rotation) {
 }
 
 /**
+ * @param {string} number
+ * @param {string} name
+ * @returns {any}
+ */
+export function createSheet(number, name) {
+    const ptr0 = passStringToWasm0(number, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.createSheet(ptr0, len0, ptr1, len1);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * @param {string} points_json
  * @param {string} params_json
  * @param {number} rotation
@@ -228,6 +259,17 @@ export function createSpace(points_json, params_json, rotation) {
     const ptr1 = passStringToWasm0(params_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len1 = WASM_VECTOR_LEN;
     const ret = wasm.createSpace(ptr0, len0, ptr1, len1, rotation);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @returns {any}
+ */
+export function createThreeDView() {
+    const ret = wasm.createThreeDView();
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -302,6 +344,34 @@ export function deleteSelectedSpace() {
 }
 
 /**
+ * @param {string} id
+ * @returns {any}
+ */
+export function deleteSheet(id) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.deleteSheet(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {string} id
+ * @returns {any}
+ */
+export function deleteView(id) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.deleteView(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * Every descendant of an element, breadth first.
  * @param {string} id
  * @returns {any}
@@ -322,6 +392,20 @@ export function descendantsOf(id) {
  */
 export function detectRoomsFromWalls() {
     const ret = wasm.detectRoomsFromWalls();
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {string} id
+ * @returns {any}
+ */
+export function duplicateView(id) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.duplicateView(ptr0, len0);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -570,6 +654,25 @@ export function listProfiles(category) {
 }
 
 /**
+ * @param {string} sheet_id
+ * @param {string} viewport_id
+ * @param {number} center_x_mm
+ * @param {number} center_y_mm
+ * @returns {any}
+ */
+export function moveSheetViewport(sheet_id, viewport_id, center_x_mm, center_y_mm) {
+    const ptr0 = passStringToWasm0(sheet_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(viewport_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.moveSheetViewport(ptr0, len0, ptr1, len1, center_x_mm, center_y_mm);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * Discard the current project and start a blank one with the built-in types.
  * @returns {any}
  */
@@ -588,6 +691,27 @@ export function newProject() {
  */
 export function pickById(pick_id) {
     const ret = wasm.pickById(pick_id);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {string} sheet_id
+ * @param {string} view_id
+ * @param {number} center_x_mm
+ * @param {number} center_y_mm
+ * @param {number} width_mm
+ * @param {number} height_mm
+ * @returns {any}
+ */
+export function placeViewOnSheet(sheet_id, view_id, center_x_mm, center_y_mm, width_mm, height_mm) {
+    const ptr0 = passStringToWasm0(sheet_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(view_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.placeViewOnSheet(ptr0, len0, ptr1, len1, center_x_mm, center_y_mm, width_mm, height_mm);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -701,6 +825,78 @@ export function registerProfile(definition_json) {
     const ptr0 = passStringToWasm0(definition_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
     const ret = wasm.registerProfile(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {string} sheet_id
+ * @param {string} viewport_id
+ * @returns {any}
+ */
+export function removeSheetViewport(sheet_id, viewport_id) {
+    const ptr0 = passStringToWasm0(sheet_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(viewport_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.removeSheetViewport(ptr0, len0, ptr1, len1);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {string} id
+ * @param {string} number
+ * @param {string} name
+ * @returns {any}
+ */
+export function renameSheet(id, number, name) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(number, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ret = wasm.renameSheet(ptr0, len0, ptr1, len1, ptr2, len2);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {string} id
+ * @param {string} name
+ * @returns {any}
+ */
+export function renameView(id, name) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.renameView(ptr0, len0, ptr1, len1);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Persist camera / plan parameters from the shell into a saved view.
+ * @param {string} id
+ * @param {string} kind_json
+ * @returns {any}
+ */
+export function saveViewState(id, kind_json) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(kind_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.saveViewState(ptr0, len0, ptr1, len1);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -1102,6 +1298,26 @@ export function updateSectionCut(id, params_json) {
 
 /**
  * @param {string} id
+ * @param {string} paper
+ * @param {string} orientation
+ * @returns {any}
+ */
+export function updateSheetLayout(id, paper, orientation) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(paper, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passStringToWasm0(orientation, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ret = wasm.updateSheetLayout(ptr0, len0, ptr1, len1, ptr2, len2);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {string} id
  * @param {string} params_json
  * @returns {any}
  */
@@ -1111,6 +1327,23 @@ export function updateSpace(id, params_json) {
     const ptr1 = passStringToWasm0(params_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len1 = WASM_VECTOR_LEN;
     const ret = wasm.updateSpace(ptr0, len0, ptr1, len1);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {string} id
+ * @param {string} settings_json
+ * @returns {any}
+ */
+export function updateViewSettings(id, settings_json) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(settings_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.updateViewSettings(ptr0, len0, ptr1, len1);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }

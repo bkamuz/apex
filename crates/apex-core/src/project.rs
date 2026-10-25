@@ -86,6 +86,10 @@ pub struct Project {
     section_cut_counter: u32,
     space_counter: u32,
     level_counter: u32,
+    pub(crate) views: crate::view::ViewLibrary,
+    pub(crate) sheets: crate::sheet::SheetLibrary,
+    pub(crate) view_counter: u32,
+    pub(crate) sheet_counter: u32,
     history: History,
 }
 
@@ -97,7 +101,7 @@ impl Default for Project {
 
 impl Project {
     pub fn new() -> Self {
-        Self {
+        let mut project = Self {
             document: Document::new(),
             registry: ComponentRegistry::with_builtins(),
             counters: Default::default(),
@@ -107,8 +111,14 @@ impl Project {
             section_cut_counter: 0,
             space_counter: 0,
             level_counter: 0,
+            views: Default::default(),
+            sheets: Default::default(),
+            view_counter: 0,
+            sheet_counter: 0,
             history: History::default(),
-        }
+        };
+        project.ensure_default_views();
+        project
     }
 
     pub fn can_undo(&self) -> bool {
@@ -1631,6 +1641,10 @@ impl Project {
             section_cut_counter: self.section_cut_counter,
             space_counter: self.space_counter,
             level_counter: self.level_counter,
+            views: self.views.values().cloned().collect(),
+            sheets: self.sheets.values().cloned().collect(),
+            view_counter: self.view_counter,
+            sheet_counter: self.sheet_counter,
         }
     }
 
@@ -1645,12 +1659,14 @@ impl Project {
         // load, so a format 3 file imports as a flat document.
         // Format ≤4 predates construction lines / section cuts (empty via default).
         // Format ≤5 predates spaces (empty via default).
+        // Format ≤6 predates saved views / sheets (empty via default + migration).
         let known = snap.format == PROJECT_FORMAT
             || snap.format == 1
             || snap.format == 2
             || snap.format == 3
             || snap.format == 4
-            || snap.format == 5;
+            || snap.format == 5
+            || snap.format == 6;
         if !known {
             return Err(RegistryError::Unknown(format!(
                 "unsupported project format {}",
@@ -1667,6 +1683,10 @@ impl Project {
         next.section_cut_counter = snap.section_cut_counter;
         next.space_counter = snap.space_counter;
         next.level_counter = snap.level_counter;
+        next.views = snap.views.into_iter().map(|v| (v.id, v)).collect();
+        next.sheets = snap.sheets.into_iter().map(|s| (s.id, s)).collect();
+        next.view_counter = snap.view_counter;
+        next.sheet_counter = snap.sheet_counter;
 
         for profile in snap.profiles {
             next.registry.upsert_profile(profile)?;
@@ -1691,13 +1711,15 @@ impl Project {
             next.rebuild_element(id)?;
         }
 
+        next.ensure_default_views();
+
         *self = next;
         Ok(())
     }
 }
 
 /// On-disk / download format. Bump [`PROJECT_FORMAT`] when the shape changes.
-pub const PROJECT_FORMAT: u32 = 6;
+pub const PROJECT_FORMAT: u32 = 7;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectSnapshot {
@@ -1732,6 +1754,14 @@ pub struct ProjectSnapshot {
     pub space_counter: u32,
     #[serde(default)]
     pub level_counter: u32,
+    #[serde(default)]
+    pub views: Vec<crate::view::View>,
+    #[serde(default)]
+    pub sheets: Vec<crate::sheet::Sheet>,
+    #[serde(default)]
+    pub view_counter: u32,
+    #[serde(default)]
+    pub sheet_counter: u32,
 }
 
 #[cfg(test)]
@@ -2771,6 +2801,18 @@ mod tests {
         project.undo().expect("undo first detect");
         assert_eq!(project.document().spaces().count(), 1);
         assert!(project.document().get_space(manual_id).is_some());
+    }
+
+    #[test]
+    fn format_six_import_gets_default_views() {
+        let mut project = Project::new();
+        let mut snap = project.export_snapshot();
+        snap.format = 6;
+        snap.views.clear();
+        snap.view_counter = 0;
+        let mut fresh = Project::new();
+        fresh.import_snapshot(snap).expect("import");
+        assert!(fresh.views().count() >= 2);
     }
 
     #[test]

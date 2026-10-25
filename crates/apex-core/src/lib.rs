@@ -14,12 +14,15 @@ mod param;
 mod path_join;
 mod placement;
 mod project;
+mod project_views;
 mod reference;
 mod registry;
 mod room_detect;
 mod section_cut;
+mod sheet;
 mod sketch;
 mod space;
+mod view;
 
 pub use annotation::{AnnotationLabel, PlanAnnotation};
 pub use component::{
@@ -56,9 +59,17 @@ pub use section_cut::{
     section_cut_param_specs, SectionCut, SectionCutError, SectionCutId, SectionCutLibrary,
     SectionCutOverlay,
 };
+pub use sheet::{
+    PaperOrientation, PaperSize, Sheet, SheetError, SheetId, SheetLibrary, SheetViewport,
+    SheetViewportId,
+};
 pub use sketch::{ProfileSketch, SketchConstraint, SketchDimension, SketchError};
 pub use space::{
     space_is_auto, space_param_specs, Space, SpaceError, SpaceId, SpaceLibrary, SpaceOverlay,
+};
+pub use view::{
+    DetailLevel, EdgeStyle, StoredCamera, StoredProjection, View, ViewError, ViewId, ViewKind,
+    ViewLibrary, ViewSettings,
 };
 
 /// Geometry primitives the document is expressed in, re-exported for convenience.

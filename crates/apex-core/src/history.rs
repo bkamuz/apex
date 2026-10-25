@@ -133,6 +133,10 @@ mod tests {
             section_cut_counter: 0,
             space_counter: 0,
             level_counter: n,
+            views: Vec::new(),
+            sheets: Vec::new(),
+            view_counter: 0,
+            sheet_counter: 0,
         }
     }
 

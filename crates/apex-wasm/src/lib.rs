@@ -10,9 +10,10 @@ use std::str::FromStr;
 use apex_core::{
     construction_line_param_specs, grid_axis_param_specs, section_cut_param_specs,
     space_param_specs, ComponentDefinition, ComponentRegistry, ConstructionLine,
-    ConstructionLineId, Element, ElementId, GridAxis, GridAxisId, LevelId, ParamKind, ParamMap,
-    ParamSpec, PlacementKind, ProfileSpec, ProfileType, Project, ProjectSnapshot, RefId, Reference,
-    ReferenceKind, SceneBuffers, SectionCut, SectionCutId, Space, SpaceId,
+    ConstructionLineId, Element, ElementId, GridAxis, GridAxisId, LevelId, PaperOrientation,
+    PaperSize, ParamKind, ParamMap, ParamSpec, PlacementKind, ProfileSpec, ProfileType, Project,
+    ProjectSnapshot, RefId, Reference, ReferenceKind, SceneBuffers, SectionCut, SectionCutId,
+    Sheet, SheetId, Space, SpaceId, View, ViewId, ViewKind, ViewSettings,
 };
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
@@ -244,6 +245,37 @@ struct SpaceDto {
 }
 
 #[derive(Serialize)]
+struct ViewDto {
+    id: String,
+    name: String,
+    kind: ViewKind,
+    settings: ViewSettings,
+    type_label: String,
+}
+
+#[derive(Serialize)]
+struct SheetViewportDto {
+    id: String,
+    view_id: String,
+    center_x_mm: f32,
+    center_y_mm: f32,
+    width_mm: f32,
+    height_mm: f32,
+}
+
+#[derive(Serialize)]
+struct SheetDto {
+    id: String,
+    number: String,
+    name: String,
+    paper: PaperSize,
+    orientation: PaperOrientation,
+    width_mm: f32,
+    height_mm: f32,
+    viewports: Vec<SheetViewportDto>,
+}
+
+#[derive(Serialize)]
 struct SceneDto {
     positions: Vec<f32>,
     normals: Vec<f32>,
@@ -257,6 +289,8 @@ struct SceneDto {
     construction_lines: Vec<ConstructionLineDto>,
     section_cuts: Vec<SectionCutDto>,
     spaces: Vec<SpaceDto>,
+    views: Vec<ViewDto>,
+    sheets: Vec<SheetDto>,
     levels: Vec<LevelDto>,
     active_level_id: Option<String>,
     version: u64,
@@ -576,6 +610,12 @@ fn scene_dto(project: &Project) -> SceneDto {
         .collect();
     spaces.sort_by(|a, b| a.name.cmp(&b.name));
 
+    let mut views: Vec<_> = project.views().map(view_dto).collect();
+    views.sort_by(|a, b| a.name.cmp(&b.name));
+
+    let mut sheets: Vec<_> = project.sheets().map(sheet_dto).collect();
+    sheets.sort_by(|a, b| a.number.cmp(&b.number).then_with(|| a.name.cmp(&b.name)));
+
     SceneDto {
         positions: buffers.positions,
         normals: buffers.normals,
@@ -619,6 +659,8 @@ fn scene_dto(project: &Project) -> SceneDto {
         construction_lines,
         section_cuts,
         spaces,
+        views,
+        sheets,
         levels: sorted_levels(project),
         active_level_id: project
             .document()
@@ -696,6 +738,79 @@ fn section_cut_id(id: &str) -> Result<SectionCutId, JsValue> {
 
 fn space_id(id: &str) -> Result<SpaceId, JsValue> {
     SpaceId::from_str(id).map_err(|e| err(format!("bad space id: {e}")))
+}
+
+fn parse_view_id(id: &str) -> Result<ViewId, JsValue> {
+    ViewId::from_str(id).map_err(|e| err(format!("bad view id: {e}")))
+}
+
+fn parse_sheet_id(id: &str) -> Result<SheetId, JsValue> {
+    SheetId::from_str(id).map_err(|e| err(format!("bad sheet id: {e}")))
+}
+
+fn view_dto(view: &View) -> ViewDto {
+    ViewDto {
+        id: view.id.to_string(),
+        name: view.name.clone(),
+        type_label: view.kind.type_label().to_string(),
+        kind: view.kind.clone(),
+        settings: view.settings.clone(),
+    }
+}
+
+fn sheet_dto(sheet: &Sheet) -> SheetDto {
+    let (width_mm, height_mm) = sheet.paper_size_mm();
+    SheetDto {
+        id: sheet.id.to_string(),
+        number: sheet.number.clone(),
+        name: sheet.name.clone(),
+        paper: sheet.paper,
+        orientation: sheet.orientation,
+        width_mm,
+        height_mm,
+        viewports: sheet
+            .viewports
+            .iter()
+            .map(|vp| SheetViewportDto {
+                id: vp.id.to_string(),
+                view_id: vp.view_id.to_string(),
+                center_x_mm: vp.center_x_mm,
+                center_y_mm: vp.center_y_mm,
+                width_mm: vp.width_mm,
+                height_mm: vp.height_mm,
+            })
+            .collect(),
+    }
+}
+
+fn parse_view_kind(json: &str) -> Result<ViewKind, JsValue> {
+    parse_json("view kind", json)
+}
+
+fn parse_view_settings(json: &str) -> Result<ViewSettings, JsValue> {
+    if json.trim().is_empty() {
+        return Ok(ViewSettings::default());
+    }
+    parse_json("view settings", json)
+}
+
+fn parse_paper_size(name: &str) -> Result<PaperSize, JsValue> {
+    match name.trim().to_ascii_uppercase().as_str() {
+        "A4" => Ok(PaperSize::A4),
+        "A3" => Ok(PaperSize::A3),
+        "A2" => Ok(PaperSize::A2),
+        "A1" => Ok(PaperSize::A1),
+        "A0" => Ok(PaperSize::A0),
+        other => Err(err(format!("unknown paper size '{other}'"))),
+    }
+}
+
+fn parse_paper_orientation(name: &str) -> Result<PaperOrientation, JsValue> {
+    match name.trim().to_ascii_lowercase().as_str() {
+        "portrait" => Ok(PaperOrientation::Portrait),
+        "landscape" => Ok(PaperOrientation::Landscape),
+        other => Err(err(format!("unknown paper orientation '{other}'"))),
+    }
 }
 
 fn scene(project: &Project) -> Result<JsValue, JsValue> {
@@ -1871,6 +1986,170 @@ pub fn new_project() -> Result<JsValue, JsValue> {
     with_selection(|s| s.set(None));
     clear_datum_selections();
     with_project(|project| scene(project))
+}
+
+// ---------------------------------------------------------------------------
+// Views
+// ---------------------------------------------------------------------------
+
+#[wasm_bindgen(js_name = createPlanView)]
+pub fn create_plan_view(level_id_str: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let level = level_id(level_id_str)?;
+        project.create_plan_view(level).map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = createThreeDView)]
+pub fn create_three_d_view() -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        project.create_three_d_view();
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = duplicateView)]
+pub fn duplicate_view(id: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let view = parse_view_id(id)?;
+        project.duplicate_view(view).map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = renameView)]
+pub fn rename_view(id: &str, name: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let view = parse_view_id(id)?;
+        project.rename_view(view, name.to_string()).map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = deleteView)]
+pub fn delete_view(id: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let view = parse_view_id(id)?;
+        project.delete_view(view).map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = updateViewSettings)]
+pub fn update_view_settings(id: &str, settings_json: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let view = parse_view_id(id)?;
+        let settings = parse_view_settings(settings_json)?;
+        project.update_view_settings(view, settings).map_err(err)?;
+        scene(project)
+    })
+}
+
+/// Persist camera / plan parameters from the shell into a saved view.
+#[wasm_bindgen(js_name = saveViewState)]
+pub fn save_view_state(id: &str, kind_json: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let view = parse_view_id(id)?;
+        let kind = parse_view_kind(kind_json)?;
+        project.save_view_camera(view, kind).map_err(err)?;
+        scene(project)
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Sheets
+// ---------------------------------------------------------------------------
+
+#[wasm_bindgen(js_name = createSheet)]
+pub fn create_sheet(number: &str, name: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        project.create_sheet(number.to_string(), name.to_string());
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = renameSheet)]
+pub fn rename_sheet(id: &str, number: &str, name: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let sheet = parse_sheet_id(id)?;
+        project
+            .rename_sheet(sheet, number.to_string(), name.to_string())
+            .map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = updateSheetLayout)]
+pub fn update_sheet_layout(id: &str, paper: &str, orientation: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let sheet = parse_sheet_id(id)?;
+        let paper = parse_paper_size(paper)?;
+        let orientation = parse_paper_orientation(orientation)?;
+        project
+            .update_sheet_layout(sheet, paper, orientation)
+            .map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = deleteSheet)]
+pub fn delete_sheet(id: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let sheet = parse_sheet_id(id)?;
+        project.delete_sheet(sheet).map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = placeViewOnSheet)]
+pub fn place_view_on_sheet(
+    sheet_id: &str,
+    view_id: &str,
+    center_x_mm: f32,
+    center_y_mm: f32,
+    width_mm: f32,
+    height_mm: f32,
+) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let sheet = parse_sheet_id(sheet_id)?;
+        let view = parse_view_id(view_id)?;
+        project
+            .place_view_on_sheet(sheet, view, center_x_mm, center_y_mm, width_mm, height_mm)
+            .map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = moveSheetViewport)]
+pub fn move_sheet_viewport(
+    sheet_id: &str,
+    viewport_id: &str,
+    center_x_mm: f32,
+    center_y_mm: f32,
+) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let sheet = parse_sheet_id(sheet_id)?;
+        let viewport = apex_core::SheetViewportId::from_str(viewport_id)
+            .map_err(|e| err(format!("bad viewport id: {e}")))?;
+        project
+            .move_sheet_viewport(sheet, viewport, center_x_mm, center_y_mm)
+            .map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = removeSheetViewport)]
+pub fn remove_sheet_viewport(sheet_id: &str, viewport_id: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let sheet = parse_sheet_id(sheet_id)?;
+        let viewport = apex_core::SheetViewportId::from_str(viewport_id)
+            .map_err(|e| err(format!("bad viewport id: {e}")))?;
+        project
+            .remove_sheet_viewport(sheet, viewport)
+            .map_err(err)?;
+        scene(project)
+    })
 }
 
 // ---------------------------------------------------------------------------

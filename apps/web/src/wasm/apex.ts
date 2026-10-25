@@ -69,6 +69,20 @@ import initWasm, {
   getSelectedElements,
   translateSelection,
   copySelection,
+  createPlanView,
+  createThreeDView,
+  duplicateView,
+  renameView,
+  deleteView,
+  updateViewSettings,
+  saveViewState,
+  createSheet,
+  renameSheet,
+  updateSheetLayout,
+  deleteSheet,
+  placeViewOnSheet,
+  moveSheetViewport,
+  removeSheetViewport,
 } from './pkg/apex_wasm.js';
 import type {
   ComponentDto,
@@ -520,4 +534,72 @@ export function apexTranslateSelection(delta: Vec3, recordHistory = true): Scene
 
 export function apexCopySelection(delta: Vec3): SceneDto {
   return asScene(copySelection(encodeDelta(delta)));
+}
+
+export function apexCreatePlanView(levelId: string): SceneDto {
+  return asScene(createPlanView(levelId));
+}
+
+export function apexCreateThreeDView(): SceneDto {
+  return asScene(createThreeDView());
+}
+
+export function apexDuplicateView(id: string): SceneDto {
+  return asScene(duplicateView(id));
+}
+
+export function apexRenameView(id: string, name: string): SceneDto {
+  return asScene(renameView(id, name));
+}
+
+export function apexDeleteView(id: string): SceneDto {
+  return asScene(deleteView(id));
+}
+
+export function apexUpdateViewSettings(id: string, settings: unknown): SceneDto {
+  return asScene(updateViewSettings(id, JSON.stringify(settings)));
+}
+
+export function apexSaveViewState(id: string, kind: unknown): SceneDto {
+  return asScene(saveViewState(id, JSON.stringify(kind)));
+}
+
+export function apexCreateSheet(number: string, name: string): SceneDto {
+  return asScene(createSheet(number, name));
+}
+
+export function apexRenameSheet(id: string, number: string, name: string): SceneDto {
+  return asScene(renameSheet(id, number, name));
+}
+
+export function apexUpdateSheetLayout(id: string, paper: string, orientation: string): SceneDto {
+  return asScene(updateSheetLayout(id, paper, orientation));
+}
+
+export function apexDeleteSheet(id: string): SceneDto {
+  return asScene(deleteSheet(id));
+}
+
+export function apexPlaceViewOnSheet(
+  sheetId: string,
+  viewId: string,
+  centerXmm: number,
+  centerYmm: number,
+  widthMm: number,
+  heightMm: number,
+): SceneDto {
+  return asScene(placeViewOnSheet(sheetId, viewId, centerXmm, centerYmm, widthMm, heightMm));
+}
+
+export function apexMoveSheetViewport(
+  sheetId: string,
+  viewportId: string,
+  centerXmm: number,
+  centerYmm: number,
+): SceneDto {
+  return asScene(moveSheetViewport(sheetId, viewportId, centerXmm, centerYmm));
+}
+
+export function apexRemoveSheetViewport(sheetId: string, viewportId: string): SceneDto {
+  return asScene(removeSheetViewport(sheetId, viewportId));
 }

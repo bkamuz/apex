@@ -1034,6 +1034,10 @@ export class ViewportRenderer {
     this.planCutFade = Math.max(fadeBand, 0.05);
   }
 
+  getPlanCutHeight(): number {
+    return this.planCutY;
+  }
+
   /**
    * Enter locked top-down plan (orthographic, −Y view) or restore the saved 3D camera.
    */

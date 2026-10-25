@@ -254,6 +254,73 @@ export interface LevelDto {
   elevation: number;
 }
 
+export type DetailLevel = 'coarse' | 'medium' | 'fine';
+export type EdgeStyle = 'hidden' | 'simple' | 'detailed';
+export type StoredProjection = 'perspective' | 'orthographic';
+export type PaperSize = 'A4' | 'A3' | 'A2' | 'A1' | 'A0';
+export type PaperOrientation = 'portrait' | 'landscape';
+
+export interface StoredCameraDto {
+  target: Vec3;
+  distance: number;
+  yaw: number;
+  pitch: number;
+}
+
+export type ViewKindDto =
+  | {
+      kind: 'plan';
+      level_id: string;
+      cut_height: number;
+      view_range_top: number;
+      view_range_bottom: number;
+    }
+  | {
+      kind: 'three_d';
+      camera: StoredCameraDto;
+      projection: StoredProjection;
+    }
+  | {
+      kind: 'section';
+      section_cut_id: string;
+      camera: StoredCameraDto;
+    };
+
+export interface ViewSettingsDto {
+  scale: number;
+  category_visible: Record<string, boolean>;
+  detail_level: DetailLevel;
+  edge_style: EdgeStyle;
+}
+
+export interface ViewDto {
+  id: string;
+  name: string;
+  type_label: string;
+  kind: ViewKindDto;
+  settings: ViewSettingsDto;
+}
+
+export interface SheetViewportDto {
+  id: string;
+  view_id: string;
+  center_x_mm: number;
+  center_y_mm: number;
+  width_mm: number;
+  height_mm: number;
+}
+
+export interface SheetDto {
+  id: string;
+  number: string;
+  name: string;
+  paper: PaperSize;
+  orientation: PaperOrientation;
+  width_mm: number;
+  height_mm: number;
+  viewports: SheetViewportDto[];
+}
+
 export interface MeshDto {
   positions: Float32Array | number[];
   normals: Float32Array | number[];
@@ -273,6 +340,8 @@ export interface SceneDto {
   construction_lines?: ConstructionLineDto[];
   section_cuts?: SectionCutDto[];
   spaces?: SpaceDto[];
+  views?: ViewDto[];
+  sheets?: SheetDto[];
   levels: LevelDto[];
   active_level_id: string | null;
   version: number;
