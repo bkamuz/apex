@@ -91,6 +91,8 @@ import initWasm, {
   exportSheetVector,
   exportSheetDxf,
   updateSheetViewportState,
+  setSheetViewportCrop,
+  resetSheetViewportCrop,
 } from './pkg/apex_wasm.js';
 import type {
   ComponentDto,
@@ -648,4 +650,16 @@ export function apexUpdateSheetViewportState(
 ): SceneDto {
   const cameraJson = camera ? JSON.stringify(camera) : '';
   return asScene(updateSheetViewportState(sheetId, viewportId, cameraJson, lockNavigation));
+}
+
+export function apexSetSheetViewportCrop(
+  sheetId: string,
+  viewportId: string,
+  cropJson: string,
+): SceneDto {
+  return asScene(setSheetViewportCrop(sheetId, viewportId, cropJson));
+}
+
+export function apexResetSheetViewportCrop(sheetId: string, viewportId: string): SceneDto {
+  return asScene(resetSheetViewportCrop(sheetId, viewportId));
 }

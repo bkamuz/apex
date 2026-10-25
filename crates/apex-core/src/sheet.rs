@@ -8,6 +8,7 @@ use thiserror::Error;
 use uuid::Uuid;
 
 use crate::view::{StoredCamera, ViewId};
+use crate::viewport_crop::default_crop_polygon_uv;
 
 pub type SheetLibrary = BTreeMap<SheetId, Sheet>;
 
@@ -117,6 +118,9 @@ pub struct SheetViewport {
     /// When true, pan/zoom is disabled for this viewport on the sheet.
     #[serde(default)]
     pub lock_navigation: bool,
+    /// Visible crop boundary in normalized frame coordinates (u,v), bottom-left origin.
+    #[serde(default = "default_crop_polygon_uv")]
+    pub crop_polygon: Vec<[f32; 2]>,
 }
 
 impl SheetViewport {
@@ -136,7 +140,35 @@ impl SheetViewport {
             height_mm,
             camera: None,
             lock_navigation: false,
+            crop_polygon: default_crop_polygon_uv(),
         }
+    }
+
+    /// Crop ring in sheet mm (bottom-left origin).
+    pub fn crop_polygon_mm(&self) -> Vec<[f64; 2]> {
+        let left = self.center_x_mm as f64 - self.width_mm as f64 * 0.5;
+        let bottom = self.center_y_mm as f64 - self.height_mm as f64 * 0.5;
+        let w = self.width_mm as f64;
+        let h = self.height_mm as f64;
+        self.crop_polygon
+            .iter()
+            .map(|[u, v]| [left + (*u as f64) * w, bottom + (*v as f64) * h])
+            .collect()
+    }
+
+    pub fn crop_bbox_mm(&self) -> ([f64; 2], [f64; 2]) {
+        let poly = self.crop_polygon_mm();
+        crate::viewport_crop::bbox_2d(&poly).unwrap_or_else(|| {
+            let left = self.center_x_mm as f64 - self.width_mm as f64 * 0.5;
+            let bottom = self.center_y_mm as f64 - self.height_mm as f64 * 0.5;
+            (
+                [left, bottom],
+                [
+                    left + self.width_mm as f64,
+                    bottom + self.height_mm as f64,
+                ],
+            )
+        })
     }
 }
 
@@ -181,4 +213,6 @@ pub enum SheetError {
     ViewportNotFound,
     #[error("view is already placed on sheet {0}")]
     ViewAlreadyPlaced(String),
+    #[error("invalid viewport crop polygon")]
+    InvalidCrop,
 }

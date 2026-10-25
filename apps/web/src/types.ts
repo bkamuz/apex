@@ -310,7 +310,11 @@ export interface SheetViewportDto {
   height_mm: number;
   camera?: StoredCameraDto | null;
   lock_navigation?: boolean;
+  /** Normalized crop ring (u,v) within frame; default full rectangle. */
+  crop_polygon?: CropUvDto[];
 }
+
+export type CropUvDto = [number, number];
 
 export interface ViewAnnotationDto {
   id: string;

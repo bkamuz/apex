@@ -25,6 +25,7 @@ mod sheet;
 mod sketch;
 mod space;
 mod vector_export;
+mod viewport_crop;
 mod view;
 mod view_annotation;
 
@@ -67,6 +68,10 @@ pub use section_cut::{
 pub use sheet::{
     PaperOrientation, PaperSize, Sheet, SheetError, SheetId, SheetLibrary, SheetViewport,
     SheetViewportId,
+};
+pub use viewport_crop::{
+    clip_segment_to_polygon, default_crop_polygon_uv, normalize_crop_polygon, point_in_polygon,
+    CropError,
 };
 pub use sketch::{ProfileSketch, SketchConstraint, SketchDimension, SketchError};
 pub use space::{

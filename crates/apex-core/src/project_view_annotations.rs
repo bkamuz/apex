@@ -141,3 +141,56 @@ impl Project {
         self.view_annotations.retain(|_, a| a.view_id != view_id);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use glam::Vec3;
+
+    use crate::param::ParamMap;
+    use crate::placement::PlacementKind;
+    use crate::view_annotation::{AnnotationAnchor, ViewAnnotationKind};
+    use crate::Project;
+
+    #[test]
+    fn linear_dimension_reresolves_element_anchors() {
+        let mut project = Project::new();
+        let level = project.document().active_level_id().expect("level");
+        let view_id = project.create_plan_view(level).expect("view");
+        let a = Vec3::new(0.0, 0.0, 0.0);
+        let b = Vec3::new(4.0, 0.0, 0.0);
+        let placement = project
+            .placement_from_gesture("apex.wall", Some(PlacementKind::TwoPoint), &[a, b], 0.0)
+            .expect("placement");
+        let wall_id = project
+            .create_element("apex.wall", placement, ParamMap::new())
+            .expect("wall");
+        let kind = ViewAnnotationKind::LinearDimension {
+            a: AnnotationAnchor::ElementAnchor {
+                element_id: wall_id,
+                anchor_index: 0,
+            },
+            b: AnnotationAnchor::ElementAnchor {
+                element_id: wall_id,
+                anchor_index: 1,
+            },
+            offset: 0.5,
+        };
+        let ann_id = project
+            .create_view_annotation(view_id, kind)
+            .expect("annotation");
+        let ann = project.get_view_annotation(ann_id).expect("ann");
+        let label_before = project.annotation_overlay(ann).labels[0].text.clone();
+
+        let b2 = Vec3::new(8.0, 0.0, 0.0);
+        let placement2 = project
+            .placement_from_gesture("apex.wall", Some(PlacementKind::TwoPoint), &[a, b2], 0.0)
+            .expect("placement2");
+        project
+            .update_element(wall_id, None, Some(placement2), true)
+            .expect("move wall");
+        let ann = project.get_view_annotation(ann_id).expect("ann");
+        let label_after = project.annotation_overlay(ann).labels[0].text.clone();
+        assert!(label_before.contains('4'));
+        assert!(label_after.contains('8'));
+    }
+}

@@ -65,6 +65,7 @@ export const registerProfile: (a: number, b: number) => [number, number, number]
 export const removeSheetViewport: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const renameSheet: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
 export const renameView: (a: number, b: number, c: number, d: number) => [number, number, number];
+export const resetSheetViewportCrop: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const saveViewState: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const selectConstructionLine: (a: number, b: number) => [number, number, number];
 export const selectElement: (a: number, b: number) => [number, number, number];
@@ -80,6 +81,7 @@ export const setGridAxisPlacement: (a: number, b: number, c: number, d: number, 
 export const setLevelElevation: (a: number, b: number, c: number) => [number, number, number];
 export const setReferencePlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
 export const setSectionCutPlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
+export const setSheetViewportCrop: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
 export const setSpacePlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
 export const togglePickById: (a: number) => [number, number, number];
 export const toggleSelectElement: (a: number, b: number) => [number, number, number];

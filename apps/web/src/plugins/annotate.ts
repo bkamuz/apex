@@ -1,11 +1,15 @@
-import { createDimensionTool } from '../tools/dimensionTool';
-import { createTextNoteTool } from '../tools/textNoteTool';
+import { installBuiltinAnnotationKinds } from '../annotations/installBuiltins';
+import { annotationKinds } from '../annotations/registry';
 import type { Plugin } from './types';
 
 export const annotatePlugin: Plugin = {
   id: 'apex.annotate',
   install(host) {
-    host.registerTool(createDimensionTool());
-    host.registerTool(createTextNoteTool());
+    installBuiltinAnnotationKinds();
+    for (const reg of annotationKinds.all()) {
+      for (const tool of reg.tools) {
+        host.registerTool(tool);
+      }
+    }
   },
 };

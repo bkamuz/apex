@@ -352,6 +352,48 @@ impl Project {
         Ok(())
     }
 
+    pub fn set_sheet_viewport_crop(
+        &mut self,
+        sheet_id: SheetId,
+        viewport_id: SheetViewportId,
+        crop_polygon: Vec<[f32; 2]>,
+    ) -> Result<(), SheetError> {
+        let crop_polygon = crate::viewport_crop::normalize_crop_polygon(&crop_polygon)
+            .map_err(|_| SheetError::InvalidCrop)?;
+        if !self
+            .sheets
+            .get(&sheet_id)
+            .ok_or(SheetError::NotFound)?
+            .viewports
+            .iter()
+            .any(|vp| vp.id == viewport_id)
+        {
+            return Err(SheetError::ViewportNotFound);
+        }
+        let before = self.export_snapshot();
+        let sheet = self.sheets.get_mut(&sheet_id).ok_or(SheetError::NotFound)?;
+        let vp = sheet
+            .viewports
+            .iter_mut()
+            .find(|vp| vp.id == viewport_id)
+            .expect("viewport exists");
+        vp.crop_polygon = crop_polygon;
+        self.push_undo_snapshot(before);
+        Ok(())
+    }
+
+    pub fn reset_sheet_viewport_crop(
+        &mut self,
+        sheet_id: SheetId,
+        viewport_id: SheetViewportId,
+    ) -> Result<(), SheetError> {
+        self.set_sheet_viewport_crop(
+            sheet_id,
+            viewport_id,
+            crate::viewport_crop::default_crop_polygon_uv(),
+        )
+    }
+
     pub fn update_sheet_viewport_state(
         &mut self,
         sheet_id: SheetId,

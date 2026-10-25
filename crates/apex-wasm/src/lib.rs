@@ -264,6 +264,7 @@ struct SheetViewportDto {
     height_mm: f32,
     camera: Option<apex_core::StoredCamera>,
     lock_navigation: bool,
+    crop_polygon: Vec<[f32; 2]>,
 }
 
 #[derive(Serialize)]
@@ -801,6 +802,7 @@ fn sheet_dto(sheet: &Sheet) -> SheetDto {
                 height_mm: vp.height_mm,
                 camera: vp.camera.clone(),
                 lock_navigation: vp.lock_navigation,
+                crop_polygon: vp.crop_polygon.clone(),
             })
             .collect(),
     }
@@ -2283,6 +2285,37 @@ pub fn move_sheet_viewport(
             .map_err(|e| err(format!("bad viewport id: {e}")))?;
         project
             .move_sheet_viewport(sheet, viewport, center_x_mm, center_y_mm)
+            .map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = setSheetViewportCrop)]
+pub fn set_sheet_viewport_crop(
+    sheet_id: &str,
+    viewport_id: &str,
+    crop_json: &str,
+) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let sheet = parse_sheet_id(sheet_id)?;
+        let viewport = apex_core::SheetViewportId::from_str(viewport_id)
+            .map_err(|e| err(format!("bad viewport id: {e}")))?;
+        let crop: Vec<[f32; 2]> = parse_json("crop polygon", crop_json)?;
+        project
+            .set_sheet_viewport_crop(sheet, viewport, crop)
+            .map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = resetSheetViewportCrop)]
+pub fn reset_sheet_viewport_crop(sheet_id: &str, viewport_id: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let sheet = parse_sheet_id(sheet_id)?;
+        let viewport = apex_core::SheetViewportId::from_str(viewport_id)
+            .map_err(|e| err(format!("bad viewport id: {e}")))?;
+        project
+            .reset_sheet_viewport_crop(sheet, viewport)
             .map_err(err)?;
         scene(project)
     })

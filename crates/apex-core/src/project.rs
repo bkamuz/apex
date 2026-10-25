@@ -1672,6 +1672,7 @@ impl Project {
         // Format ≤5 predates spaces (empty via default).
         // Format ≤6 predates saved views / sheets (empty via default + migration).
         // Format ≤7 predates view annotations (empty via default).
+        // Format ≤8 predates viewport crop polygons (full-frame rect via default).
         let known = snap.format == PROJECT_FORMAT
             || snap.format == 1
             || snap.format == 2
@@ -1679,7 +1680,8 @@ impl Project {
             || snap.format == 4
             || snap.format == 5
             || snap.format == 6
-            || snap.format == 7;
+            || snap.format == 7
+            || snap.format == 8;
         if !known {
             return Err(RegistryError::Unknown(format!(
                 "unsupported project format {}",
@@ -1697,7 +1699,21 @@ impl Project {
         next.space_counter = snap.space_counter;
         next.level_counter = snap.level_counter;
         next.views = snap.views.into_iter().map(|v| (v.id, v)).collect();
-        next.sheets = snap.sheets.into_iter().map(|s| (s.id, s)).collect();
+        let sheets: crate::sheet::SheetLibrary = snap
+            .sheets
+            .into_iter()
+            .map(|mut s| {
+                if snap.format <= 8 {
+                    for vp in &mut s.viewports {
+                        if vp.crop_polygon.len() < 3 {
+                            vp.crop_polygon = crate::viewport_crop::default_crop_polygon_uv();
+                        }
+                    }
+                }
+                (s.id, s)
+            })
+            .collect();
+        next.sheets = sheets;
         next.view_counter = snap.view_counter;
         next.sheet_counter = snap.sheet_counter;
         next.view_annotations = snap
@@ -1738,7 +1754,7 @@ impl Project {
 }
 
 /// On-disk / download format. Bump [`PROJECT_FORMAT`] when the shape changes.
-pub const PROJECT_FORMAT: u32 = 8;
+pub const PROJECT_FORMAT: u32 = 9;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectSnapshot {

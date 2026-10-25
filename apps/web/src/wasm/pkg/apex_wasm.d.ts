@@ -221,6 +221,8 @@ export function renameSheet(id: string, number: string, name: string): any;
 
 export function renameView(id: string, name: string): any;
 
+export function resetSheetViewportCrop(sheet_id: string, viewport_id: string): any;
+
 /**
  * Persist camera / plan parameters from the shell into a saved view.
  */
@@ -266,6 +268,8 @@ export function setLevelElevation(id: string, elevation: number): any;
 export function setReferencePlacement(id: string, points_json: string, rotation: number, record_history: boolean): any;
 
 export function setSectionCutPlacement(id: string, points_json: string, rotation: number, record_history: boolean): any;
+
+export function setSheetViewportCrop(sheet_id: string, viewport_id: string, crop_json: string): any;
 
 export function setSpacePlacement(id: string, points_json: string, rotation: number, record_history: boolean): any;
 
@@ -374,6 +378,7 @@ export interface InitOutput {
     readonly removeSheetViewport: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly renameSheet: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly renameView: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly resetSheetViewportCrop: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly saveViewState: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly selectConstructionLine: (a: number, b: number) => [number, number, number];
     readonly selectElement: (a: number, b: number) => [number, number, number];
@@ -389,6 +394,7 @@ export interface InitOutput {
     readonly setLevelElevation: (a: number, b: number, c: number) => [number, number, number];
     readonly setReferencePlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly setSectionCutPlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
+    readonly setSheetViewportCrop: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly setSpacePlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly togglePickById: (a: number) => [number, number, number];
     readonly toggleSelectElement: (a: number, b: number) => [number, number, number];

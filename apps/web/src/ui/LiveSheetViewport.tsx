@@ -3,28 +3,26 @@ import type { SceneDto, SheetViewportDto, ViewDto } from '../types';
 import { ViewportRenderer } from '../viewport/ViewportRenderer';
 import { applyViewToRenderer, findView } from './viewModel';
 import { viewAnnotationSegments } from './viewAnnotationSegments';
+import { cropToCssClipPath } from './sheetCropModel';
 
 interface Props {
   scene: SceneDto;
   view: ViewDto;
   viewport: SheetViewportDto;
   syncScene: (renderer: ViewportRenderer, scene: SceneDto, viewId: string) => void;
-  activated?: boolean;
-  onActivate?: () => void;
-  onDeactivate?: () => void;
 }
 
-export function LiveSheetViewport({
-  scene,
-  view,
-  viewport,
-  syncScene,
-  activated = false,
-  onActivate,
-  onDeactivate,
-}: Props) {
+export function LiveSheetViewport({ scene, view, viewport, syncScene }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<ViewportRenderer | null>(null);
+  const crop = viewport.crop_polygon?.length && viewport.crop_polygon.length >= 3
+    ? viewport.crop_polygon
+    : [
+        [0, 0],
+        [1, 0],
+        [1, 1],
+        [0, 1],
+      ];
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -52,29 +50,21 @@ export function LiveSheetViewport({
       });
     }
     renderer.setViewAnnotationOverlays(viewAnnotationSegments(scene, view.id));
-    renderer.setTouchOrbitEnabled(activated && !viewport.lock_navigation);
-  }, [activated, scene, syncScene, view, viewport.camera, viewport.lock_navigation]);
+    renderer.setTouchOrbitEnabled(!viewport.lock_navigation);
+  }, [scene, syncScene, view, viewport.camera, viewport.lock_navigation]);
 
   return (
-    <canvas
-      ref={canvasRef}
-      tabIndex={activated ? 0 : -1}
-      className={`sheet-viewport-canvas${activated ? ' sheet-viewport-canvas--active' : ''}`}
-      data-testid={`live-viewport-${viewport.id}`}
-      onDoubleClick={(e) => {
-        e.stopPropagation();
-        onActivate?.();
-        canvasRef.current?.focus();
-      }}
-      onPointerDown={(e) => {
-        if (activated && e.target === canvasRef.current) {
-          e.stopPropagation();
-        }
-      }}
-      onKeyDown={(e) => {
-        if (e.key === 'Escape') onDeactivate?.();
-      }}
-    />
+    <div
+      className="sheet-viewport-clip"
+      style={{ clipPath: cropToCssClipPath(crop as [number, number][]) }}
+    >
+      <canvas
+        ref={canvasRef}
+        className="sheet-viewport-canvas"
+        data-testid={`live-viewport-${viewport.id}`}
+        onPointerDown={(e) => e.stopPropagation()}
+      />
+    </div>
   );
 }
 

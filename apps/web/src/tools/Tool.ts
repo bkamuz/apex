@@ -1,5 +1,5 @@
 import type { Vec3 } from '../viewport/ViewportRenderer';
-import type { ComponentDto, PlacementKind, ReferenceKind } from '../types';
+import type { AnnotationAnchorDto, ComponentDto, PlacementKind, ReferenceKind } from '../types';
 import type { ToolIcon } from './icons';
 import type { TransformMode, TransformOriginal } from './transformTypes';
 
@@ -85,6 +85,15 @@ export interface ToolContext {
   activeViewId(): string | null;
   /** Create a view-owned annotation on a saved view. */
   createViewAnnotation(viewId: string, kind: unknown): void;
+  /**
+   * Pick an associative anchor (grid end, element vertex) or world point fallback.
+   * Returns null when nothing could be resolved.
+   */
+  pickAnnotationAnchor(
+    clientX: number,
+    clientY: number,
+    worldFallback: Vec3 | null,
+  ): AnnotationAnchorDto | null;
 }
 
 /** Toolbar clusters: select, transform (move/copy/…), then create tools. */

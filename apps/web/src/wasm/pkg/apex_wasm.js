@@ -1017,6 +1017,23 @@ export function renameView(id, name) {
 }
 
 /**
+ * @param {string} sheet_id
+ * @param {string} viewport_id
+ * @returns {any}
+ */
+export function resetSheetViewportCrop(sheet_id, viewport_id) {
+    const ptr0 = passStringToWasm0(sheet_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(viewport_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.resetSheetViewportCrop(ptr0, len0, ptr1, len1);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * Persist camera / plan parameters from the shell into a saved view.
  * @param {string} id
  * @param {string} kind_json
@@ -1262,6 +1279,26 @@ export function setSectionCutPlacement(id, points_json, rotation, record_history
     const ptr1 = passStringToWasm0(points_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len1 = WASM_VECTOR_LEN;
     const ret = wasm.setSectionCutPlacement(ptr0, len0, ptr1, len1, rotation, record_history);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {string} sheet_id
+ * @param {string} viewport_id
+ * @param {string} crop_json
+ * @returns {any}
+ */
+export function setSheetViewportCrop(sheet_id, viewport_id, crop_json) {
+    const ptr0 = passStringToWasm0(sheet_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(viewport_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passStringToWasm0(crop_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ret = wasm.setSheetViewportCrop(ptr0, len0, ptr1, len1, ptr2, len2);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }

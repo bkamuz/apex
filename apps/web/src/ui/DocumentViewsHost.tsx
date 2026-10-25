@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import type { SceneDto, SheetDto, StoredCameraDto } from '../types';
+import type { CropUvDto, SceneDto, SheetDto } from '../types';
 import { ViewTabBar, type DocumentTab } from './ViewTabBar';
 import { SheetPaperView } from './SheetPaperView';
 import type { ViewportRenderer } from '../viewport/ViewportRenderer';
@@ -19,11 +19,8 @@ interface Props {
   onPlaceViewOnSheet: (viewId: string, centerXmm: number, centerYmm: number) => void;
   onMoveSheetViewport: (viewportId: string, centerXmm: number, centerYmm: number) => void;
   syncSheetViewportScene: (renderer: ViewportRenderer, scene: SceneDto, viewId: string) => void;
-  onSheetViewportStateChange: (
-    viewportId: string,
-    camera: StoredCameraDto | null,
-    lockNavigation: boolean,
-  ) => void;
+  onSheetViewportCropChange: (viewportId: string, crop: CropUvDto[]) => void;
+  onResetSheetViewportCrop: (viewportId: string) => void;
   onExportActiveViewSvg?: () => void;
   onExportActiveViewDxf?: () => void;
   onExportActiveViewPdf?: () => void;
@@ -47,7 +44,8 @@ export function DocumentViewsHost({
   onPlaceViewOnSheet,
   onMoveSheetViewport,
   syncSheetViewportScene,
-  onSheetViewportStateChange,
+  onSheetViewportCropChange,
+  onResetSheetViewportCrop,
   onExportActiveViewSvg,
   onExportActiveViewDxf,
   onExportActiveViewPdf,
@@ -83,7 +81,8 @@ export function DocumentViewsHost({
           onPlaceView={(viewId, cx, cy) => onPlaceViewOnSheet(viewId, cx, cy)}
           onMoveViewport={onMoveSheetViewport}
           syncScene={syncSheetViewportScene}
-          onViewportStateChange={onSheetViewportStateChange}
+          onCropChange={onSheetViewportCropChange}
+          onResetCrop={onResetSheetViewportCrop}
         />
       ) : (
         <div className={`view-panes${splitEnabled ? ' view-panes--split' : ''}`}>

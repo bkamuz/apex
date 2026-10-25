@@ -3,6 +3,7 @@
 use std::collections::BTreeSet;
 
 use crate::vector_export::{ExportUnits, VectorDrawing2d, VectorLine2d, VectorText2d};
+use crate::viewport_crop::{clip_segment_to_polygon, point_in_polygon};
 
 fn insunits_code(units: ExportUnits) -> i32 {
     match units {
@@ -186,6 +187,57 @@ pub fn fit_view_to_viewport_mm(
     out
 }
 
+/// Clip vector geometry to a closed polygon (sheet mm).
+pub fn clip_drawing_to_polygon(drawing: &VectorDrawing2d, ring: &[[f64; 2]]) -> VectorDrawing2d {
+    if ring.len() < 3 {
+        return drawing.clone();
+    }
+    let mut out = VectorDrawing2d {
+        units: drawing.units,
+        scale_denominator: drawing.scale_denominator,
+        lines: Vec::new(),
+        texts: Vec::new(),
+        dimensions: Vec::new(),
+    };
+    for line in &drawing.lines {
+        for (a, b) in clip_segment_to_polygon(line.a, line.b, ring) {
+            out.lines.push(VectorLine2d {
+                layer: line.layer.clone(),
+                a,
+                b,
+            });
+        }
+    }
+    for text in &drawing.texts {
+        if point_in_polygon(text.position, ring) {
+            out.texts.push(text.clone());
+        }
+    }
+    for dim in &drawing.dimensions {
+        let mid = [
+            (dim.dim_a[0] + dim.dim_b[0]) * 0.5,
+            (dim.dim_a[1] + dim.dim_b[1]) * 0.5,
+        ];
+        if point_in_polygon(mid, ring) || point_in_polygon(dim.text_position, ring) {
+            let mut clipped = dim.clone();
+            for (a, b) in [
+                (dim.extension_a, dim.dim_a),
+                (dim.extension_b, dim.dim_b),
+                (dim.dim_a, dim.dim_b),
+            ] {
+                for (ca, cb) in clip_segment_to_polygon(a, b, ring) {
+                    if (ca[0] - a[0]).abs() + (ca[1] - a[1]).abs() < 1e-6 {
+                        clipped.extension_a = ca;
+                        clipped.dim_a = cb;
+                    }
+                }
+            }
+            out.dimensions.push(clipped);
+        }
+    }
+    out
+}
+
 impl crate::project::Project {
     pub fn vector_export_sheet(&self, sheet_id: crate::sheet::SheetId) -> Option<VectorDrawing2d> {
         let sheet = self.sheets.get(&sheet_id)?;
@@ -223,16 +275,32 @@ impl crate::project::Project {
             let Some(view_drawing) = self.vector_export_view(vp.view_id) else {
                 continue;
             };
+            let (crop_min, crop_max) = vp.crop_bbox_mm();
+            let crop_cx = (crop_min[0] + crop_max[0]) * 0.5;
+            let crop_cy = (crop_min[1] + crop_max[1]) * 0.5;
+            let crop_w = (crop_max[0] - crop_min[0]).max(1.0);
+            let crop_h = (crop_max[1] - crop_min[1]).max(1.0);
             let fitted = fit_view_to_viewport_mm(
                 &view_drawing,
-                vp.center_x_mm as f64,
-                vp.center_y_mm as f64,
-                vp.width_mm as f64,
-                vp.height_mm as f64,
+                crop_cx,
+                crop_cy,
+                crop_w,
+                crop_h,
             );
-            combined.lines.extend(fitted.lines);
-            combined.texts.extend(fitted.texts);
-            combined.dimensions.extend(fitted.dimensions);
+            let crop_ring = vp.crop_polygon_mm();
+            let clipped = clip_drawing_to_polygon(&fitted, &crop_ring);
+            combined.lines.extend(clipped.lines);
+            combined.texts.extend(clipped.texts);
+            combined.dimensions.extend(clipped.dimensions);
+            let ring = &crop_ring;
+            for i in 0..ring.len() {
+                let j = (i + 1) % ring.len();
+                combined.lines.push(VectorLine2d {
+                    layer: "VIEWPORT_CROP".into(),
+                    a: ring[i],
+                    b: ring[j],
+                });
+            }
             combined.lines.push(VectorLine2d {
                 layer: "VIEWPORT".into(),
                 a: [

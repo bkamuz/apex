@@ -1151,8 +1151,31 @@ input[type="radio"] {
   pointer-events: none;
 }
 
-.sheet-viewport--active {
+.sheet-viewport--selected {
   z-index: 2;
+  outline: 2px solid #2563eb;
+  outline-offset: -1px;
+}
+
+.sheet-viewport-body {
+  position: relative;
+  overflow: hidden;
+}
+
+.sheet-viewport-clip {
+  width: 100%;
+  height: 100%;
+}
+
+.sheet-crop-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.sheet-crop-overlay .sheet-crop-handle,
+.sheet-crop-overlay .sheet-crop-edge-add {
+  pointer-events: all;
 }
 
 .sheet-viewport-dim {

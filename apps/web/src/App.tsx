@@ -75,7 +75,8 @@ import {
   apexCreateViewAnnotation,
   apexExportViewVector,
   apexExportViewDxf,
-  apexUpdateSheetViewportState,
+  apexSetSheetViewportCrop,
+  apexResetSheetViewportCrop,
   initApex,
 } from './wasm/apex';
 import {
@@ -102,7 +103,6 @@ import type {
   SceneDto,
   SectionCutDto,
   SpaceDto,
-  StoredCameraDto,
 } from './types';
 import { GridAxisLabels } from './ui/GridAxisLabels';
 import { LevelList } from './ui/LevelList';
@@ -122,6 +122,7 @@ import {
   projectionFromStored,
 } from './ui/viewModel';
 import { viewAnnotationSegments } from './ui/viewAnnotationSegments';
+import { pickAnnotationAnchor } from './annotations/pickAnchor';
 import { downloadTextFile, drawingToSvg, openSvgForPrint } from './ui/vectorExport';
 import type { VectorDrawing2d } from './types';
 import type { DocumentTab } from './ui/ViewTabBar';
@@ -999,6 +1000,19 @@ export default function App() {
         }
       },
 
+      pickAnnotationAnchor: (clientX, clientY, worldFallback) => {
+        const sc = sceneRef.current;
+        if (!sc) return null;
+        return pickAnnotationAnchor(
+          renderer,
+          sc,
+          apexListElements(),
+          clientX,
+          clientY,
+          worldFallback,
+        );
+      },
+
       setError,
       setPending,
       setTouchOrbitEnabled: (enabled) => renderer.setTouchOrbitEnabled(enabled),
@@ -1215,12 +1229,20 @@ export default function App() {
     openSvgForPrint(drawingToSvg(drawing));
   }, [loadActiveViewDrawing]);
 
-  const onSheetViewportStateChange = useCallback(
-    (viewportId: string, camera: StoredCameraDto | null, lockNavigation: boolean) => {
+  const onSheetViewportCropChange = useCallback(
+    (viewportId: string, crop: import('./types').CropUvDto[]) => {
       if (!activeSheet) return;
       runViewAction(() =>
-        apexUpdateSheetViewportState(activeSheet.id, viewportId, camera, lockNavigation),
+        apexSetSheetViewportCrop(activeSheet.id, viewportId, JSON.stringify(crop)),
       );
+    },
+    [activeSheet, runViewAction],
+  );
+
+  const onResetSheetViewportCrop = useCallback(
+    (viewportId: string) => {
+      if (!activeSheet) return;
+      runViewAction(() => apexResetSheetViewportCrop(activeSheet.id, viewportId));
     },
     [activeSheet, runViewAction],
   );
@@ -2071,7 +2093,8 @@ export default function App() {
           onPlaceViewOnSheet={onPlaceViewOnSheet}
           onMoveSheetViewport={onMoveSheetViewport}
           syncSheetViewportScene={syncSheetViewportScene}
-          onSheetViewportStateChange={onSheetViewportStateChange}
+          onSheetViewportCropChange={onSheetViewportCropChange}
+          onResetSheetViewportCrop={onResetSheetViewportCrop}
           onExportActiveViewSvg={onExportActiveViewSvg}
           onExportActiveViewDxf={onExportActiveViewDxf}
           onExportActiveViewPdf={onExportActiveViewPdf}
