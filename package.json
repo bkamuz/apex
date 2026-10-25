@@ -9,6 +9,9 @@
     "typecheck": "npm run typecheck --prefix apps/web",
     "test:rust": "cargo test -p apex-core -p apex-geometry",
     "test:smoke": "npm run test:smoke --prefix apps/web",
-    "test:camera": "npm run test:camera --prefix apps/web"
+    "test:camera": "npm run test:camera --prefix apps/web",
+    "test:fit": "npm run test:fit --prefix apps/web",
+    "test:level": "npm run test:level --prefix apps/web",
+    "test:wall-chain": "npm run test:wall-chain --prefix apps/web"
   }
 }

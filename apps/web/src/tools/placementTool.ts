@@ -17,6 +17,10 @@ function farEnough(a: Vec3, b: Vec3): boolean {
   return Math.hypot(b[0] - a[0], b[2] - a[2]) >= MIN_PICK_SPACING;
 }
 
+function nearPoint(a: Vec3, b: Vec3, tolerance = MIN_PICK_SPACING): boolean {
+  return Math.hypot(b[0] - a[0], b[2] - a[2]) < tolerance;
+}
+
 export interface PlacementToolOptions {
   /** Drawable modes. When set, the tool is one toolbar button with a switcher. */
   modes?: ToolMode[];
@@ -40,6 +44,8 @@ export function createPlacementTool(
   const modes = options.modes ?? [];
   let modeId = options.defaultMode ?? modes[0]?.id;
   const picks: Vec3[] = [];
+  /** First point of an open/closed chain (joinable two-point walls). */
+  let chainStart: Vec3 | null = null;
   /** Extra world-Y for free-elevation routes (MEP risers). */
   let elevationOffset = 0;
   const freeElevation = component.placement_options?.seat_on_level === false;
@@ -52,8 +58,12 @@ export function createPlacementTool(
   const applyElevation = (point: Vec3): Vec3 =>
     freeElevation ? [point[0], point[1] + elevationOffset, point[2]] : point;
 
+  const chainWalls = (): boolean =>
+    component.joinable === true && activeKind() === 'two_point';
+
   const reset = (ctx: ToolContext) => {
     picks.length = 0;
+    chainStart = null;
     ctx.setPending([]);
     ctx.clearPreview();
     ctx.showPreviewLine(null);
@@ -91,6 +101,9 @@ export function createPlacementTool(
           : freeElevation
             ? ' · PgUp/PgDn elev'
             : '';
+      if (chainWalls() && pendingCount >= 1) {
+        return `${name}: click next corner · snap start to close · Esc / right-click / double-click to finish${elev}`;
+      }
       if (needed === null) {
         return pendingCount === 0
           ? `${name}: click to start · double-click to finish${elev}`
@@ -109,12 +122,27 @@ export function createPlacementTool(
       if (!resolved) return;
       const point = applyElevation(resolved);
 
+      if (
+        chainWalls() &&
+        chainStart &&
+        anchor &&
+        nearPoint(point, chainStart) &&
+        !nearPoint(point, anchor)
+      ) {
+        ctx.setError(null);
+        const segment: Vec3[] = [anchor, chainStart];
+        ctx.createElement(component.id, segment, activeKind());
+        reset(ctx);
+        return;
+      }
+
       // A repeated pick would only produce a degenerate placement.
       if (anchor && !farEnough(anchor, point) && Math.abs(anchor[1] - point[1]) < MIN_PICK_SPACING) {
         ctx.setError(`Pick farther than ${MIN_PICK_SPACING} m from the previous point.`);
         return;
       }
 
+      if (picks.length === 0) chainStart = point;
       picks.push(point);
       ctx.setError(null);
       ctx.setPending([...picks]);
@@ -123,6 +151,16 @@ export function createPlacementTool(
       if (needed !== null && picks.length >= needed) {
         const points = [...picks];
         const kind = activeKind();
+        if (chainWalls() && needed === 2) {
+          ctx.createElement(component.id, points, kind);
+          const last = points[points.length - 1]!;
+          picks.length = 0;
+          picks.push(last);
+          ctx.setPending([...picks]);
+          ctx.showPreviewLine(null);
+          ctx.clearPreview();
+          return;
+        }
         reset(ctx);
         ctx.createElement(component.id, points, kind);
       }
@@ -142,11 +180,14 @@ export function createPlacementTool(
 
       const provisional = [...picks, point];
       ctx.showPreviewLine(provisional);
-      // Only ask the core for a ghost once enough picks exist to define one.
-      if (needed !== null && provisional.length === needed) {
+      const previewNeeded =
+        chainWalls() && needed === 2 ? 2 : needed;
+      if (previewNeeded !== null && provisional.length === previewNeeded) {
         ctx.showPreview(component.id, provisional, activeKind());
-      } else if (needed === null && provisional.length >= 2) {
+      } else if (previewNeeded === null && provisional.length >= 2) {
         ctx.showPreview(component.id, provisional, activeKind());
+      } else if (chainWalls() && provisional.length >= 2) {
+        ctx.showPreview(component.id, provisional.slice(-2), activeKind());
       } else {
         ctx.clearPreview();
       }

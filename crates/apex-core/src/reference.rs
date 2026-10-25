@@ -148,7 +148,7 @@ impl Reference {
             }
             ReferenceKind::Plane => {
                 let frame = self.frame(work_plane)?;
-                Ok(plane_square(&frame, 1.0))
+                Ok(plane_trace(&frame, &self.placement, work_plane, 0.2))
             }
         }
     }
@@ -181,17 +181,40 @@ fn point_cross(origin: Vec3, half: f32) -> Vec<Vec3> {
     ]
 }
 
-fn plane_square(frame: &Frame, half: f32) -> Vec<Vec3> {
+/// Plan-friendly trace: placement line plus short in-plane ticks (not a huge square).
+fn plane_trace(frame: &Frame, placement: &Placement, work_plane: &Frame, tick: f32) -> Vec<Vec3> {
+    let mut out = Vec::new();
+    if let Some(Curve::Line { a, b }) = placement.curve() {
+        let mut a = *a;
+        let mut b = *b;
+        a.y = work_plane.origin.y;
+        b.y = work_plane.origin.y;
+        out.push(a);
+        out.push(b);
+        let mid = (a + b) * 0.5;
+        let along = (b - a).normalize_or_zero();
+        if along.length_squared() > 1e-8 {
+            let perp = Vec3::new(-along.z, 0.0, along.x);
+            out.push(mid - perp * tick);
+            out.push(mid + perp * tick);
+            out.push(a - perp * tick * 0.6);
+            out.push(a + perp * tick * 0.6);
+            out.push(b - perp * tick * 0.6);
+            out.push(b + perp * tick * 0.6);
+        }
+        return out;
+    }
     let corners = [
-        frame.point(-half, -half),
-        frame.point(half, -half),
-        frame.point(half, half),
-        frame.point(-half, half),
+        frame.point(-tick, -tick),
+        frame.point(tick, -tick),
+        frame.point(tick, tick),
+        frame.point(-tick, tick),
     ];
-    vec![
+    out.extend([
         corners[0], corners[1], corners[1], corners[2], corners[2], corners[3], corners[3],
         corners[0],
-    ]
+    ]);
+    out
 }
 
 #[cfg(test)]
