@@ -63,11 +63,7 @@ pub fn join_connectivity(
             if !settings.allow_join {
                 continue;
             }
-            let tip = if at_start {
-                curve.start()
-            } else {
-                curve.end()
-            };
+            let tip = if at_start { curve.start() } else { curve.end() };
             let mut connected = false;
             for other in segments {
                 if other.id == seg.id {
@@ -228,10 +224,7 @@ pub fn join_clusters_for_level<'a>(
             .first()
             .and_then(|s| y_by_id.get(&s.id).copied())
             .unwrap_or(0.0);
-        let points: Vec<Vec3> = outer
-            .iter()
-            .map(|[x, z]| Vec3::new(*x, y, *z))
-            .collect();
+        let points: Vec<Vec3> = outer.iter().map(|[x, z]| Vec3::new(*x, y, *z)).collect();
         if points.len() >= 3 {
             outlines.push(JoinClusterOutline {
                 level_id,
@@ -261,12 +254,8 @@ pub fn all_join_cluster_outlines<'a>(
     }
     let mut out = Vec::new();
     for (level_id, component_id) in keys {
-        let (clusters, _) = join_clusters_for_level(
-            registry,
-            elements.iter().copied(),
-            level_id,
-            &component_id,
-        );
+        let (clusters, _) =
+            join_clusters_for_level(registry, elements.iter().copied(), level_id, &component_id);
         out.extend(clusters);
     }
     out

@@ -22,12 +22,7 @@ pub fn segment_footprint_rect(a: Vec3, b: Vec3, half_width: f32) -> Contour2 {
     let p1 = a + perp;
     let p2 = b + perp;
     let p3 = b - perp;
-    vec![
-        [p0.x, p0.z],
-        [p1.x, p1.z],
-        [p2.x, p2.z],
-        [p3.x, p3.z],
-    ]
+    vec![[p0.x, p0.z], [p1.x, p1.z], [p2.x, p2.z], [p3.x, p3.z]]
 }
 
 /// Union footprint of an open path after join extensions are applied.

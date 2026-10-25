@@ -24,8 +24,8 @@ pub use join::{
     miter_extension, outward_dir, plan_distance, segment_intersect_xz, split_curve_at, stem_trim,
     JOIN_SNAP,
 };
+pub use mesh::TriangleMesh;
 pub use path_footprint::{path_footprint_union, segment_footprint_rect};
 pub use polygon::{union_contours, Contour2};
-pub use mesh::TriangleMesh;
 pub use profile::{Justification, Point2, Profile};
 pub use sweep::{extrude, sweep, SweepOptions};

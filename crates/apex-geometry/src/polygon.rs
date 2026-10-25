@@ -58,18 +58,8 @@ mod tests {
 
     #[test]
     fn overlapping_rectangles_union_to_one_outer_loop() {
-        let a = vec![
-            [0.0, 0.0],
-            [2.0, 0.0],
-            [2.0, 1.0],
-            [0.0, 1.0],
-        ];
-        let b = vec![
-            [1.0, 0.0],
-            [3.0, 0.0],
-            [3.0, 1.0],
-            [1.0, 1.0],
-        ];
+        let a = vec![[0.0, 0.0], [2.0, 0.0], [2.0, 1.0], [0.0, 1.0]];
+        let b = vec![[1.0, 0.0], [3.0, 0.0], [3.0, 1.0], [1.0, 1.0]];
         let out = union_contours(&[a, b]);
         assert!(!out.is_empty());
         let min_x = out

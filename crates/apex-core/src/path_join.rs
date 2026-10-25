@@ -129,7 +129,8 @@ pub fn plan_joins_all(segments: &[JoinableSegment]) -> Vec<JoinUpdate> {
                     let Some((hit, _, _)) = segment_intersect_xz(*a0, *a1, *b0, *b1, 1e-4) else {
                         continue;
                     };
-                    if let Some(split) = split_curve_at(&state.get(&id_a).unwrap().curve, hit, JOIN_SNAP)
+                    if let Some(split) =
+                        split_curve_at(&state.get(&id_a).unwrap().curve, hit, JOIN_SNAP)
                     {
                         if split != state.get(&id_a).unwrap().curve {
                             let s = state.get_mut(&id_a).unwrap();
@@ -138,7 +139,8 @@ pub fn plan_joins_all(segments: &[JoinableSegment]) -> Vec<JoinUpdate> {
                             s.touched = true;
                         }
                     }
-                    if let Some(split) = split_curve_at(&state.get(&id_b).unwrap().curve, hit, JOIN_SNAP)
+                    if let Some(split) =
+                        split_curve_at(&state.get(&id_b).unwrap().curve, hit, JOIN_SNAP)
                     {
                         if split != state.get(&id_b).unwrap().curve {
                             let s = state.get_mut(&id_b).unwrap();
@@ -187,16 +189,8 @@ pub fn plan_joins_all(segments: &[JoinableSegment]) -> Vec<JoinUpdate> {
                 if theta < 0.15 || (std::f32::consts::PI - theta) < 0.15 {
                     continue;
                 }
-                let ext_a = style_extension(
-                    end_style(seg_a, a_at_start),
-                    seg_a.half_width,
-                    theta,
-                );
-                let ext_b = style_extension(
-                    end_style(seg_b, b_at_start),
-                    seg_b.half_width,
-                    theta,
-                );
+                let ext_a = style_extension(end_style(seg_a, a_at_start), seg_a.half_width, theta);
+                let ext_b = style_extension(end_style(seg_b, b_at_start), seg_b.half_width, theta);
                 if ext_a <= 0.0 && ext_b <= 0.0 {
                     continue;
                 }
@@ -325,10 +319,7 @@ fn style_extension(style: JoinStyle, half_width: f32, theta: f32) -> f32 {
 fn segment_pairs(curve: Curve) -> Vec<(Vec3, Vec3)> {
     match curve {
         Curve::Line { a, b } => vec![(a, b)],
-        Curve::Polyline { points } => points
-            .windows(2)
-            .map(|w| (w[0], w[1]))
-            .collect(),
+        Curve::Polyline { points } => points.windows(2).map(|w| (w[0], w[1])).collect(),
         _ => Vec::new(),
     }
 }

@@ -14,10 +14,10 @@ use crate::construction_line::{
     construction_line_param_specs, ConstructionLine, ConstructionLineId,
 };
 use crate::document::{Document, SceneBuffers};
-use crate::join_cluster::{all_join_cluster_outlines, join_connectivity, JoinConnectivity};
 use crate::element::{Element, ElementId};
 use crate::grid_axis::{grid_axis_param_specs, GridAxis, GridAxisId};
 use crate::history::History;
+use crate::join_cluster::{all_join_cluster_outlines, join_connectivity, JoinConnectivity};
 use crate::level::{Level, LevelId};
 use crate::param::{ParamMap, ParamValue};
 use crate::path_join::{joinable_segment, plan_joins_all};
@@ -366,15 +366,13 @@ impl Project {
                 continue;
             }
             for w in cluster.points.windows(2) {
-                join_outline_edges.extend_from_slice(&[
-                    w[0].x, w[0].y, w[0].z, w[1].x, w[1].y, w[1].z,
-                ]);
+                join_outline_edges
+                    .extend_from_slice(&[w[0].x, w[0].y, w[0].z, w[1].x, w[1].y, w[1].z]);
             }
             let first = cluster.points[0];
             let last = cluster.points[cluster.points.len() - 1];
-            join_outline_edges.extend_from_slice(&[
-                last.x, last.y, last.z, first.x, first.y, first.z,
-            ]);
+            join_outline_edges
+                .extend_from_slice(&[last.x, last.y, last.z, first.x, first.y, first.z]);
         }
         self.document
             .build_scene_buffers_with_joins(&skip, &join_outline_edges)
@@ -1563,23 +1561,12 @@ impl Project {
         let segments: Vec<_> = self
             .document
             .elements()
-            .filter(|e| {
-                e.level_id == element.level_id && e.component_id == element.component_id
-            })
+            .filter(|e| e.level_id == element.level_id && e.component_id == element.component_id)
             .filter_map(|e| joinable_segment(&self.registry, e))
             .collect();
-        let curves: BTreeMap<_, _> = segments
-            .iter()
-            .map(|s| (s.id, s.curve.clone()))
-            .collect();
-        let join_start: BTreeMap<_, _> = segments
-            .iter()
-            .map(|s| (s.id, s.join_start))
-            .collect();
-        let join_end: BTreeMap<_, _> = segments
-            .iter()
-            .map(|s| (s.id, s.join_end))
-            .collect();
+        let curves: BTreeMap<_, _> = segments.iter().map(|s| (s.id, s.curve.clone())).collect();
+        let join_start: BTreeMap<_, _> = segments.iter().map(|s| (s.id, s.join_start)).collect();
+        let join_end: BTreeMap<_, _> = segments.iter().map(|s| (s.id, s.join_end)).collect();
         join_connectivity(&segments, &curves, &join_start, &join_end)
             .get(&element.id)
             .copied()
