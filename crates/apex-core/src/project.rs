@@ -1890,14 +1890,14 @@ impl Project {
         push_box(&mut mesh, center, u, n, 0.0, hw, y0, y0 + sill_t, fd);
         // Leaf or glass, centred in the hole.
         let inner = hw - fw;
-        let (py0, py1, pt) = if is_door {
-            (y0 + sill_t, y1 - fw, 0.025)
-        } else {
-            (y0 + sill_t, y1 - fw, 0.006)
-        };
+        let (py0, py1, pt) = (y0 + sill_t, y1 - fw, 0.025);
         if inner > 0.0 && py1 > py0 {
-            push_box(&mut mesh, center, u, n, 0.0, inner, py0, py1, pt);
-            if !is_door {
+            // The renderer has one opaque material, so an opaque glass pane
+            // would read as a solid wall patch. Windows stay see-through:
+            // only the frame and sash are solid.
+            if is_door {
+                push_box(&mut mesh, center, u, n, 0.0, inner, py0, py1, pt);
+            } else {
                 // Mullion-free sash frame around the glass.
                 let sf = 0.03;
                 for s in [-1.0_f32, 1.0] {
