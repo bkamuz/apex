@@ -1838,7 +1838,24 @@ impl Project {
             // would read as a solid wall patch. Windows stay see-through:
             // only the frame and sash are solid.
             if is_door {
+                // Leaf stays closed in the wall plane (an open leaf reads as
+                // a door standing across the wall); the swing is shown as
+                // the plan's quarter arc on the floor, from the -u jamb at
+                // the +n wall face.
                 push_box(&mut mesh, center, u, n, 0.0, inner, py0, py1, pt);
+                let leaf = 2.0 * inner;
+                let hinge = center - u * inner + n * half_t;
+                let y = py0 + 0.005;
+                let at = |t: f32| {
+                    let p = hinge + (u * t.cos() + n * t.sin()) * leaf;
+                    [p.x, y, p.z]
+                };
+                const SEGMENTS: usize = 16;
+                for i in 0..SEGMENTS {
+                    let t0 = i as f32 / SEGMENTS as f32 * std::f32::consts::FRAC_PI_2;
+                    let t1 = (i + 1) as f32 / SEGMENTS as f32 * std::f32::consts::FRAC_PI_2;
+                    mesh.push_edge(at(t0), at(t1));
+                }
             } else {
                 // Mullion-free sash frame around the glass.
                 let sf = 0.03;
