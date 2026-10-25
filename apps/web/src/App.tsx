@@ -1392,11 +1392,20 @@ export default function App() {
     [activeSheet, runViewAction],
   );
 
+  // Apply a view's camera/level once when its tab opens. Re-running on every
+  // active-level change would snap the level back to the view's and undo the
+  // user's pick in the level list.
+  const appliedViewRef = useRef<string | null>(null);
   useEffect(() => {
-    if (!ready || activeTab?.kind !== 'view' || !activeViewId || !scene) return;
+    if (!ready || activeTab?.kind !== 'view' || !activeViewId || !scene) {
+      if (activeTab?.kind !== 'view') appliedViewRef.current = null;
+      return;
+    }
+    if (appliedViewRef.current === activeViewId) return;
     const view = findView(scene, activeViewId);
     const renderer = rendererRef.current;
     if (!view || !renderer) return;
+    appliedViewRef.current = activeViewId;
     applyViewToRenderer(view, renderer);
     if (view.kind.kind === 'plan') {
       viewNavigationRef.current = 'plan';
@@ -1418,7 +1427,7 @@ export default function App() {
       renderer.setViewNavigation('3d');
       renderer.setProjection(mode);
     }
-  }, [activeTab?.kind, activeViewId, applyScene, ready, scene?.active_level_id]);
+  }, [activeTab?.kind, activeViewId, applyScene, ready, scene]);
 
   useEffect(() => {
     if (!splitEnabled) {
@@ -1654,6 +1663,10 @@ export default function App() {
         const canvas = canvasRef.current;
         if (!canvas) return;
         rendererRef.current = new ViewportRenderer(canvas);
+        // Test hook: world -> client mapping so UI scripts can click real points.
+        (window as unknown as { __apexTest?: unknown }).__apexTest = {
+          worldToClient: (p: Vec3) => rendererRef.current?.worldToClient(p) ?? null,
+        };
 
         const stored = loadStoredProject();
         if (stored) {
