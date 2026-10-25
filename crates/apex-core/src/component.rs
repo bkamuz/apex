@@ -176,6 +176,9 @@ pub enum ProfileSpec {
     },
     Polygon {
         points: Vec<[Expr; 2]>,
+        /// Inner loops cut out of the outline.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        holes: Vec<Vec<[Expr; 2]>>,
     },
     /// A profile from the shared library.
     Named {
@@ -250,12 +253,21 @@ impl ProfileSpec {
                     vec![hole.outer().to_vec()],
                 )?)
             }
-            Self::Polygon { points } => {
-                let evaluated = points
+            Self::Polygon { points, holes } => {
+                let eval_loop = |pts: &[[Expr; 2]]| {
+                    pts.iter()
+                        .map(|[u, v]| Ok([u.eval_f32(params)?, v.eval_f32(params)?]))
+                        .collect::<Result<Vec<_>, ExprError>>()
+                };
+                let evaluated = eval_loop(points)?;
+                if holes.is_empty() {
+                    return Ok(Profile::polygon(evaluated)?);
+                }
+                let inner = holes
                     .iter()
-                    .map(|[u, v]| Ok([u.eval_f32(params)?, v.eval_f32(params)?]))
+                    .map(|hole| eval_loop(hole))
                     .collect::<Result<Vec<_>, ExprError>>()?;
-                Ok(Profile::polygon(evaluated)?)
+                Ok(Profile::new(evaluated, inner)?)
             }
             Self::Named { id } => {
                 if depth >= MAX_PROFILE_DEPTH {
@@ -317,8 +329,8 @@ impl ProfileSpec {
                 out.extend(radius.referenced_params());
                 out.extend(wall.referenced_params());
             }
-            Self::Polygon { points } => {
-                for [u, v] in points {
+            Self::Polygon { points, holes } => {
+                for [u, v] in points.iter().chain(holes.iter().flatten()) {
                     out.extend(u.referenced_params());
                     out.extend(v.referenced_params());
                 }
@@ -720,10 +732,12 @@ impl ProfileType {
                 self.spec = spec;
                 Ok(())
             }
-            Err(SketchError::TooSmall(count)) => Err(DefinitionError::SketchTooSmall {
-                profile: self.id.clone(),
-                count,
-            }),
+            Err(SketchError::TooSmall(count) | SketchError::HoleTooSmall(count)) => {
+                Err(DefinitionError::SketchTooSmall {
+                    profile: self.id.clone(),
+                    count,
+                })
+            }
         }
     }
 
@@ -1648,6 +1662,7 @@ mod tests {
             type_values: ParamMap::new(),
             formulas: Default::default(),
             sketch: Some(ProfileSketch {
+                holes: Vec::new(),
                 vertices: vec![[0.0, 0.0], [0.2, 0.0], [0.2, 3.0], [0.0, 3.0]],
                 dimensions: vec![
                     SketchDimension {

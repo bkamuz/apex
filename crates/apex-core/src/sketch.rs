@@ -44,6 +44,10 @@ pub struct ProfileSketch {
     pub dimensions: Vec<SketchDimension>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub constraints: Vec<SketchConstraint>,
+    /// Inner loops (holes) in profile XY, each with at least 3 vertices. They
+    /// are fixed geometry: dimensions and constraints apply to the outline.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub holes: Vec<Vec<[f32; 2]>>,
 }
 
 impl ProfileSketch {
@@ -52,6 +56,7 @@ impl ProfileSketch {
             vertices,
             dimensions: Vec::new(),
             constraints: Vec::new(),
+            holes: Vec::new(),
         }
     }
 
@@ -130,7 +135,21 @@ impl ProfileSketch {
             points.push([x, y]);
         }
 
-        Ok(ProfileSpec::Polygon { points })
+        let holes = self
+            .holes
+            .iter()
+            .map(|hole| {
+                if hole.len() < 3 {
+                    return Err(SketchError::HoleTooSmall(hole.len()));
+                }
+                Ok(hole
+                    .iter()
+                    .map(|[x, y]| [Expr::constant(*x as f64), Expr::constant(*y as f64)])
+                    .collect())
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+
+        Ok(ProfileSpec::Polygon { points, holes })
     }
 }
 
@@ -145,6 +164,8 @@ enum EdgeOrientation {
 pub enum SketchError {
     #[error("a sketch needs at least 3 vertices, got {0}")]
     TooSmall(usize),
+    #[error("a sketch hole needs at least 3 vertices, got {0}")]
+    HoleTooSmall(usize),
 }
 
 fn edge_offset(
@@ -195,6 +216,7 @@ mod tests {
 
     fn rect_sketch() -> ProfileSketch {
         ProfileSketch {
+            holes: Vec::new(),
             vertices: vec![[-0.1, -1.5], [0.1, -1.5], [0.1, 1.5], [-0.1, 1.5]],
             dimensions: vec![
                 SketchDimension {
@@ -264,6 +286,7 @@ mod tests {
     #[test]
     fn an_undimensioned_edge_keeps_its_drawn_offset() {
         let sketch = ProfileSketch {
+            holes: Vec::new(),
             vertices: vec![[0.0, 0.0], [2.0, 0.0], [2.0, 1.0]],
             dimensions: vec![SketchDimension {
                 edge: 0,
@@ -290,6 +313,7 @@ mod tests {
     #[test]
     fn horizontal_lock_zeros_vertical_offset_even_without_a_dimension() {
         let sketch = ProfileSketch {
+            holes: Vec::new(),
             vertices: vec![[0.0, 0.0], [1.0, 0.2], [1.0, 1.0]],
             dimensions: vec![],
             constraints: vec![SketchConstraint::Horizontal { edge: 0 }],
@@ -305,6 +329,7 @@ mod tests {
     #[test]
     fn vertical_lock_zeros_horizontal_offset_with_a_length_param() {
         let sketch = ProfileSketch {
+            holes: Vec::new(),
             vertices: vec![[0.0, 0.0], [0.1, 2.0], [1.0, 2.0]],
             dimensions: vec![SketchDimension {
                 edge: 1,
@@ -328,6 +353,7 @@ mod tests {
     #[test]
     fn equal_length_constraint_shares_one_param_across_edges() {
         let sketch = ProfileSketch {
+            holes: Vec::new(),
             vertices: vec![[0.0, 0.0], [1.0, 0.0], [1.5, 0.5], [0.5, 0.5]],
             dimensions: vec![],
             constraints: vec![SketchConstraint::EqualLength {
@@ -350,6 +376,7 @@ mod tests {
     #[test]
     fn changing_equal_length_param_resizes_all_linked_edges() {
         let sketch = ProfileSketch {
+            holes: Vec::new(),
             vertices: vec![[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]],
             dimensions: vec![],
             constraints: vec![
@@ -370,5 +397,23 @@ mod tests {
             .expect("profile");
         let (min, max) = profile.bounds();
         assert!((max[0] - min[0] - 0.6).abs() < EPS);
+    }
+
+    #[test]
+    fn holes_compile_into_inner_loops() {
+        let mut sketch = rect_sketch();
+        sketch.holes = vec![vec![[-0.05, -0.5], [0.05, -0.5], [0.05, 0.5], [-0.05, 0.5]]];
+        let spec = sketch.to_profile_spec().expect("spec");
+        let params = ParamMap::new()
+            .with("thickness", ParamValue::Length(0.2))
+            .with("height", ParamValue::Length(3.0));
+        let profile = spec
+            .evaluate(&params, &Default::default())
+            .expect("profile");
+        assert_eq!(profile.holes().len(), 1);
+        assert_eq!(profile.holes()[0].len(), 4);
+
+        sketch.holes = vec![vec![[0.0, 0.0], [0.01, 0.0]]];
+        assert_eq!(sketch.to_profile_spec(), Err(SketchError::HoleTooSmall(2)));
     }
 }

@@ -1631,6 +1631,7 @@ mod tests {
                 type_values: ParamMap::new(),
                 formulas: Default::default(),
                 sketch: Some(ProfileSketch {
+                    holes: Vec::new(),
                     vertices: vec![
                         [0.0, 0.0],
                         [1.0, 0.0],

@@ -326,8 +326,28 @@ input[type="radio"] {
   outline-offset: -1px;
 }
 
+.tools-bar {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  background: var(--chrome-bg-tools);
+}
+
+/* Persistent view group (3D / Plan / Fit / Axon / Persp), pinned right of the
+   scrolling, per-tab tool strip. */
+.tools-view {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 3px 4px;
+  border-left: 1px solid var(--chrome-border, #2a2f3a);
+  background: var(--chrome-bg-tools);
+}
+
 .tools-scroll {
   position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
   width: 100%;
   background: var(--chrome-bg-tools);
 }

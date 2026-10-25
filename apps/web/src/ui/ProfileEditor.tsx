@@ -30,7 +30,13 @@ interface Props {
   onClose: () => void;
 }
 
-type Mode = 'draw' | 'dimension';
+type Mode = 'draw' | 'dimension' | 'hole';
+
+interface DragTarget {
+  /** null: the outline; otherwise the hole index. */
+  hole: number | null;
+  index: number;
+}
 
 function clientToWorld(
   svg: SVGSVGElement,
@@ -48,6 +54,14 @@ function clientToWorld(
 
 function polyline(points: [number, number][]): string {
   return points.map(([x, y]) => `${x},${-y}`).join(' ');
+}
+
+/** SVG path for an outline plus holes, filled even-odd so holes read as voids. */
+function loopsPath(outer: [number, number][], holes: [number, number][][]): string {
+  return [outer, ...holes]
+    .filter((loop) => loop.length >= 2)
+    .map((loop) => `M${loop.map(([x, y]) => `${x},${-y}`).join('L')}Z`)
+    .join(' ');
 }
 
 function hitVertex(
@@ -97,7 +111,7 @@ function typeValuesOf(params: ParamSpecDto[]): ProfileTypeDto['type_values'] {
 
 export function ProfileEditor({ initial, originalId, onSave, onClose }: Props) {
   const svgRef = useRef<SVGSVGElement>(null);
-  const dragRef = useRef<number | null>(null);
+  const dragRef = useRef<DragTarget | null>(null);
   const [id, setId] = useState(initial.id);
   const [displayName, setDisplayName] = useState(initial.display_name);
   const [category, setCategory] = useState(initial.category);
@@ -105,6 +119,9 @@ export function ProfileEditor({ initial, originalId, onSave, onClose }: Props) {
   const [closed, setClosed] = useState(false);
   const [dimensions, setDimensions] = useState<SketchDimensionDto[]>([]);
   const [constraints, setConstraints] = useState<SketchConstraintDto[]>([]);
+  const [holes, setHoles] = useState<[number, number][][]>([]);
+  const [holeDraft, setHoleDraft] = useState<[number, number][]>([]);
+  const [selectedHole, setSelectedHole] = useState<number | null>(null);
   const [params, setParams] = useState<ParamSpecDto[]>(initial.params);
   const [mode, setMode] = useState<Mode>('draw');
   const [cursor, setCursor] = useState<[number, number] | null>(null);
@@ -127,6 +144,9 @@ export function ProfileEditor({ initial, originalId, onSave, onClose }: Props) {
     setClosed(inferred.closed);
     setDimensions(inferred.dimensions);
     setConstraints(inferred.constraints);
+    setHoles(inferred.holes);
+    setHoleDraft([]);
+    setSelectedHole(null);
     setParams(initial.params);
     setMode(inferred.closed ? 'dimension' : 'draw');
     setKeepCircle(initial.spec.shape === 'circle' && inferred.vertices.length < 3);
@@ -169,11 +189,11 @@ export function ProfileEditor({ initial, originalId, onSave, onClose }: Props) {
         params: kept,
         spec: placeholderPolygon(vertices),
         type_values: typeValuesOf(kept),
-        sketch: sketchPayload(vertices, dimensions, constraints),
+        sketch: sketchPayload(vertices, dimensions, constraints, holes),
       },
       error: null,
     };
-  }, [ready, keepCircle, closed, vertices, dimensions, constraints, params, id, displayName, category, initial]);
+  }, [ready, keepCircle, closed, vertices, dimensions, constraints, holes, params, id, displayName, category, initial]);
 
   useEffect(() => {
     if (!built.profile) {
@@ -191,7 +211,7 @@ export function ProfileEditor({ initial, originalId, onSave, onClose }: Props) {
 
   const worldPts = preview?.outer ?? vertices;
   const box = useMemo(() => {
-    const pts: [number, number][] = [...worldPts, [0, 0]];
+    const pts: [number, number][] = [...worldPts, ...holes.flat(), ...holeDraft, [0, 0]];
     if (cursor) pts.push(cursor);
     if (pts.length === 0) {
       return { min: [-1, -1] as [number, number], max: [1, 1] as [number, number] };
@@ -208,7 +228,7 @@ export function ProfileEditor({ initial, originalId, onSave, onClose }: Props) {
       min: [min[0] - pad, min[1] - pad] as [number, number],
       max: [max[0] + pad, max[1] + pad] as [number, number],
     };
-  }, [worldPts, cursor]);
+  }, [worldPts, holes, holeDraft, cursor]);
 
   const viewW = box.max[0] - box.min[0];
   const viewH = box.max[1] - box.min[1];
@@ -257,6 +277,31 @@ export function ProfileEditor({ initial, originalId, onSave, onClose }: Props) {
     setKeepCircle(false);
   };
 
+  const closeHole = (pts: [number, number][]) => {
+    if (pts.length < 3) return;
+    setHoles((prev) => [...prev, pts]);
+    setSelectedHole(holes.length);
+    setHoleDraft([]);
+    setMode('dimension');
+    setCursor(null);
+  };
+
+  const addHoleVertex = (p: [number, number]) => {
+    if (holeDraft.length >= 3) {
+      const first = holeDraft[0];
+      if (Math.hypot(p[0] - first[0], p[1] - first[1]) <= closeTol) {
+        closeHole(holeDraft);
+        return;
+      }
+    }
+    setHoleDraft((prev) => [...prev, p]);
+  };
+
+  const deleteHole = (index: number) => {
+    setHoles((prev) => prev.filter((_, i) => i !== index));
+    setSelectedHole(null);
+  };
+
   const onPointerDown = (e: React.PointerEvent<SVGSVGElement>) => {
     if (e.button !== 0) return;
     const p = readWorld(e);
@@ -267,12 +312,34 @@ export function ProfileEditor({ initial, originalId, onSave, onClose }: Props) {
       addVertex(p);
       return;
     }
+    if (mode === 'hole') {
+      addHoleVertex(p);
+      return;
+    }
+
+    for (let h = 0; h < holes.length; h++) {
+      const hv = hitVertex(p, holes[h], hitTol);
+      if (hv != null) {
+        dragRef.current = { hole: h, index: hv };
+        setSelectedHole(h);
+        e.currentTarget.setPointerCapture(e.pointerId);
+        return;
+      }
+    }
 
     const v = hitVertex(p, vertices, hitTol);
     if (v != null) {
-      dragRef.current = v;
+      dragRef.current = { hole: null, index: v };
       e.currentTarget.setPointerCapture(e.pointerId);
       return;
+    }
+
+    for (let h = 0; h < holes.length; h++) {
+      if (hitEdge(p, holes[h], true, hitTol) != null) {
+        setSelectedHole(h);
+        setSelectedEdge(null);
+        return;
+      }
     }
 
     if (!closed) return;
@@ -285,11 +352,19 @@ export function ProfileEditor({ initial, originalId, onSave, onClose }: Props) {
     const p = readWorld(e);
     if (!p) return;
     if (dragRef.current != null) {
-      const index = dragRef.current;
-      setVertices((prev) => prev.map((pt, i) => (i === index ? p : pt)));
+      const { hole, index } = dragRef.current;
+      if (hole == null) {
+        setVertices((prev) => prev.map((pt, i) => (i === index ? p : pt)));
+      } else {
+        setHoles((prev) =>
+          prev.map((loop, h) =>
+            h === hole ? loop.map((pt, i) => (i === index ? p : pt)) : loop,
+          ),
+        );
+      }
       return;
     }
-    if (mode === 'draw' && !closed) setCursor(p);
+    if ((mode === 'draw' && !closed) || mode === 'hole') setCursor(p);
   };
 
   const onPointerUp = (e: React.PointerEvent<SVGSVGElement>) => {
@@ -301,6 +376,10 @@ export function ProfileEditor({ initial, originalId, onSave, onClose }: Props) {
 
   const onDoubleClick = (e: React.MouseEvent<SVGSVGElement>) => {
     e.preventDefault();
+    if (mode === 'hole') {
+      closeHole(holeDraft);
+      return;
+    }
     if (!closed && vertices.length >= 3) closeOutline(vertices);
   };
 
@@ -460,6 +539,9 @@ export function ProfileEditor({ initial, originalId, onSave, onClose }: Props) {
     setClosed(false);
     setDimensions([]);
     setConstraints([]);
+    setHoles([]);
+    setHoleDraft([]);
+    setSelectedHole(null);
     setParams([]);
     setSelectedEdge(null);
     setMode('draw');
@@ -469,6 +551,18 @@ export function ProfileEditor({ initial, originalId, onSave, onClose }: Props) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (mode === 'hole') {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          closeHole(holeDraft);
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          setHoleDraft([]);
+          setMode('dimension');
+        }
+        return;
+      }
       if (e.key === 'Enter' && !closed && vertices.length >= 3) {
         e.preventDefault();
         closeOutline(vertices);
@@ -490,7 +584,7 @@ export function ProfileEditor({ initial, originalId, onSave, onClose }: Props) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [closed, vertices]);
+  }, [closed, vertices, mode, holeDraft]);
 
   const n = vertices.length;
   const selectedDim =
@@ -516,7 +610,9 @@ export function ProfileEditor({ initial, originalId, onSave, onClose }: Props) {
         <header className="profile-editor-head">
           <strong>Draw profile</strong>
           <span className="profile-editor-hint">
-            {keepCircle
+            {mode === 'hole'
+              ? 'Hole: click corners inside the outline, click the first point (or Enter) to close · Esc cancels.'
+              : keepCircle
               ? 'Round profile. Draw an outline to replace it, or edit the shared size.'
               : closed
                 ? 'Click an edge to add a dimension — Shared type (all elements) or This element.'
@@ -566,6 +662,18 @@ export function ProfileEditor({ initial, originalId, onSave, onClose }: Props) {
                 data-testid="dimension-all"
               >
                 Dimension all edges
+              </button>
+              <button
+                type="button"
+                className={mode === 'hole' ? 'active' : ''}
+                disabled={!closed}
+                onClick={() => {
+                  setHoleDraft([]);
+                  setMode('hole');
+                }}
+                data-testid="add-hole"
+              >
+                Add hole
               </button>
               <button type="button" onClick={clearOutline}>
                 Clear
@@ -632,11 +740,13 @@ export function ProfileEditor({ initial, originalId, onSave, onClose }: Props) {
               ) : null}
               {drawn.length >= 2 ? (
                 closed ? (
-                  <polygon
-                    points={polyline(drawn)}
+                  <path
+                    d={loopsPath(drawn, preview?.holes ?? holes)}
+                    fillRule="evenodd"
                     fill="rgba(212, 137, 58, 0.22)"
                     stroke="#d4893a"
                     strokeWidth={stroke}
+                    data-testid="profile-shape"
                   />
                 ) : (
                   <polyline
@@ -724,6 +834,36 @@ export function ProfileEditor({ initial, originalId, onSave, onClose }: Props) {
                     );
                   })
                 : null}
+              {holes.map((loop, h) => (
+                <polygon
+                  key={`h-${h}`}
+                  points={polyline(loop)}
+                  fill="none"
+                  stroke={selectedHole === h ? '#f3d2a8' : '#d4893a'}
+                  strokeWidth={stroke * (selectedHole === h ? 1.6 : 1)}
+                  strokeDasharray={selectedHole === h ? undefined : `${stroke * 3} ${stroke * 1.5}`}
+                  data-testid={`hole-${h}`}
+                />
+              ))}
+              {mode === 'hole' && holeDraft.length > 0 ? (
+                <polyline
+                  points={polyline(cursor ? [...holeDraft, cursor] : holeDraft)}
+                  fill="none"
+                  stroke="#9ec5ff"
+                  strokeWidth={stroke}
+                />
+              ) : null}
+              {[...holes.flat(), ...holeDraft].map(([x, y], i) => (
+                <circle
+                  key={`hv-${i}`}
+                  cx={x}
+                  cy={-y}
+                  r={stroke * 1.2}
+                  fill="#9ec5ff"
+                  stroke="#12141a"
+                  strokeWidth={stroke * 0.3}
+                />
+              ))}
               {vertices.map(([x, y], i) => (
                 <circle
                   key={`v-${i}`}
@@ -796,6 +936,37 @@ export function ProfileEditor({ initial, originalId, onSave, onClose }: Props) {
                     <option value="instance">This element</option>
                   </select>
                   <button type="button" className="icon-btn" onClick={() => removeParam(param.id)}>
+                    ×
+                  </button>
+                </div>
+              ))
+            )}
+
+            <div className="section-title">Holes</div>
+            {holes.length === 0 ? (
+              <div className="empty" style={{ padding: 0 }}>
+                {closed ? 'Add hole, then click its corners inside the outline.' : 'Close the outline first.'}
+              </div>
+            ) : (
+              holes.map((loop, h) => (
+                <div
+                  key={`hole-row-${h}`}
+                  className={`profile-dim-row${selectedHole === h ? ' active' : ''}`}
+                  data-testid={`hole-row-${h}`}
+                >
+                  <button type="button" onClick={() => setSelectedHole(h)}>
+                    Hole {h + 1} · {loop.length} pts
+                  </button>
+                  <span className="empty" style={{ padding: 0 }}>
+                    drag corners to edit
+                  </span>
+                  <button
+                    type="button"
+                    className="icon-btn"
+                    aria-label={`Delete hole ${h + 1}`}
+                    data-testid={`delete-hole-${h}`}
+                    onClick={() => deleteHole(h)}
+                  >
                     ×
                   </button>
                 </div>
