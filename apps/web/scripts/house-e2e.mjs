@@ -191,6 +191,20 @@ async function drawStorey({ entrance }) {
     await clickW(x, z, { snap: false });
   await page.keyboard.press('Escape');
   await checkError('openings');
+  if (entrance) {
+    // Diagonal (45°) test wall east of the house, with a door and a window,
+    // so the 3D close-ups prove openings follow non-axis walls too.
+    await useTool('Wall');
+    await clickW(10.8, 0.8, { snap: false });
+    await clickW(12.8, 2.8, { snap: false });
+    await page.keyboard.press('Escape');
+    await useTool('Door');
+    await clickW(11.3, 1.3, { snap: false });
+    await useTool('Window');
+    await clickW(12.2, 2.2, { snap: false });
+    await page.keyboard.press('Escape');
+    await checkError('diagonal wall');
+  }
 }
 
 if (!RESUME) {
@@ -344,19 +358,22 @@ await fit();
 await page.getByTestId('save-view').click().catch(() => {});
 await shot('3d-view');
 {
-  const c = page.locator('canvas').first();
-  const b = await c.boundingBox();
-  const cx = b.x + b.width / 2, cy = b.y + b.height / 2;
-  for (const [i, dx, dy, zoom] of [[1, 260, 0, 4], [2, -520, 120, 4], [3, 260, -260, 6], [4, 400, 200, 6]]) {
-    await page.mouse.move(cx, cy);
-    await page.mouse.down();
-    await page.mouse.move(cx + dx, cy + dy, { steps: 12 });
-    await page.mouse.up();
-    for (let k = 0; k < zoom; k++) { await page.mouse.wheel(0, -200); await page.waitForTimeout(60); }
-    await page.waitForTimeout(400);
-    await shot(`3d-angle-${i}`);
-    await fit();
+  // Close-ups of hosted openings from inside/outside, several yaws each.
+  const targets = [
+    ['door-x-wall-entrance', [2, 1.05, 0]],
+    ['door-y-wall-interior', [5, 1.05, 2]],
+    ['window-y-wall', [0, 1.6, 4]],
+    ['door-diagonal', [11.3, 1.05, 1.3]],
+    ['window-diagonal', [12.2, 1.6, 2.2]],
+  ];
+  for (const [name, t] of targets) {
+    for (const [k, yaw] of [0.4, 0.4 + Math.PI / 2, 0.4 + Math.PI, 0.4 + 1.5 * Math.PI].entries()) {
+      await page.evaluate(([t, yaw]) => window.__apexTest.setCamera({ target: t, distance: 3.2, yaw, pitch: 0.22 }), [t, yaw]);
+      await page.waitForTimeout(250);
+      await shot(`3d-close-${name}-${k}`);
+    }
   }
+  await fit();
 }
 
 writeFileSync(`${OUT}/project.json`, await page.evaluate(() => localStorage.getItem('apex.project') ?? ''));
@@ -373,8 +390,8 @@ await paper.waitFor({ state: 'visible' });
 const pb = await paper.boundingBox();
 const viewRows = page.locator('[data-testid^="view-row-"]');
 const targets = [
-  [/Plan/i, 0, 0.27, 0.42],
-  [/Plan/i, 1, 0.62, 0.42],
+  [/Plan/i, 0, 0.24, 0.42],
+  [/Plan/i, 1, 0.7, 0.42],
   [/3D/i, 0, 0.5, 0.8],
 ];
 for (const [re, n, fx, fy] of targets) {
@@ -388,7 +405,7 @@ const vps = page.locator('[data-testid^="live-viewport-"]');
 const vpCount = await vps.count();
 if (vpCount !== 3) note(`expected 3 viewports on sheet, got ${vpCount}`);
 for (let i = 0; i < Math.min(2, vpCount); i += 1) {
-  await vps.nth(i).click({ position: { x: 10, y: 10 } });
+  await vps.nth(i).click({ position: { x: 10, y: 10 }, force: true });
   await page.waitForTimeout(200);
   const sel = page.getByTestId('viewport-scale-select');
   if (await sel.count()) {

@@ -1688,6 +1688,8 @@ export default function App() {
         // Test hook: world -> client mapping so UI scripts can click real points.
         (window as unknown as { __apexTest?: unknown }).__apexTest = {
           worldToClient: (p: Vec3) => rendererRef.current?.worldToClient(p) ?? null,
+          getCamera: () => rendererRef.current?.getCamera() ?? null,
+          setCamera: (c: Parameters<ViewportRenderer['setCamera']>[0]) => rendererRef.current?.setCamera(c),
         };
 
         const stored = loadStoredProject();
