@@ -124,6 +124,86 @@ fn opening_void_aabb(
     Some((min, max))
 }
 
+/// Closest point on a line / polyline host curve in plan.
+fn project_onto_curve_xz(curve: &apex_geometry::Curve, p: Vec3) -> Option<Vec3> {
+    let pts: Vec<Vec3> = match curve {
+        apex_geometry::Curve::Line { a, b } => vec![*a, *b],
+        apex_geometry::Curve::Polyline { points } => points.clone(),
+        _ => return None,
+    };
+    let mut best: Option<(Vec3, f32)> = None;
+    for w in pts.windows(2) {
+        let (a, b) = (w[0], w[1]);
+        let ab = Vec3::new(b.x - a.x, 0.0, b.z - a.z);
+        let len2 = ab.length_squared();
+        if len2 < 1e-12 {
+            continue;
+        }
+        let t = (((p.x - a.x) * ab.x + (p.z - a.z) * ab.z) / len2).clamp(0.0, 1.0);
+        let q = Vec3::new(a.x + ab.x * t, p.y, a.z + ab.z * t);
+        let d = (q - p).length_squared();
+        if best.map(|(_, bd)| d < bd).unwrap_or(true) {
+            best = Some((q, d));
+        }
+    }
+    best.map(|(q, _)| q)
+}
+
+/// Box in a wall frame: `u` along the wall, `n` across, +Y up. `cu`/`hu` are
+/// centre and half length along `u`; `hn` is half depth along `n`.
+#[allow(clippy::too_many_arguments)]
+fn push_box(
+    mesh: &mut TriangleMesh,
+    c: Vec3,
+    u: Vec3,
+    n: Vec3,
+    cu: f32,
+    hu: f32,
+    y0: f32,
+    y1: f32,
+    hn: f32,
+) {
+    let corner = |su: f32, y: f32, sn: f32| -> [f32; 3] {
+        let p = c + u * (cu + su * hu) + n * (sn * hn);
+        [p.x, y, p.z]
+    };
+    let v = |i: usize| {
+        let su = if i & 1 == 0 { -1.0 } else { 1.0 };
+        let y = if i & 2 == 0 { y0 } else { y1 };
+        let sn = if i & 4 == 0 { -1.0 } else { 1.0 };
+        corner(su, y, sn)
+    };
+    let quads: [([usize; 4], Vec3); 6] = [
+        ([0, 4, 6, 2], -u),
+        ([1, 3, 7, 5], u),
+        ([0, 1, 5, 4], Vec3::new(0.0, -1.0, 0.0)),
+        ([2, 6, 7, 3], Vec3::Y),
+        ([0, 2, 3, 1], -n),
+        ([4, 5, 7, 6], n),
+    ];
+    for (q, nn) in quads {
+        let nn = nn.to_array();
+        mesh.push_triangle(v(q[0]), v(q[1]), v(q[2]), nn);
+        mesh.push_triangle(v(q[0]), v(q[2]), v(q[3]), nn);
+    }
+    for (a, b) in [
+        (0, 1),
+        (2, 3),
+        (4, 5),
+        (6, 7),
+        (0, 2),
+        (1, 3),
+        (4, 6),
+        (5, 7),
+        (0, 4),
+        (1, 5),
+        (2, 6),
+        (3, 7),
+    ] {
+        mesh.push_edge(v(a), v(b));
+    }
+}
+
 pub struct Project {
     document: Document,
     registry: ComponentRegistry,
@@ -1638,6 +1718,9 @@ impl Project {
             .document
             .effective_level_id(element.id)
             .unwrap_or(element.level_id);
+        if let Some(mesh) = self.hosted_opening_assembly(element) {
+            return Ok(mesh);
+        }
         let oriented = self.oriented_hosted_opening(element);
         let element = oriented.as_ref().unwrap_or(element);
         let mut mesh = self.registry.build_element_mesh(
@@ -1667,6 +1750,99 @@ impl Project {
         let along = Vec3::new(dir.x, 0.0, dir.z).try_normalize()?;
         // Frame::horizontal has x = +X, y = -Z; rotated(θ).x = X cosθ - Z sinθ.
         Some((-along.z).atan2(along.x))
+    }
+
+    /// Door / window 3D assembly built in the host wall's frame: a full
+    /// rectangular frame as deep as the wall, and a leaf (door) or glass
+    /// (window) centred in the wall hole. `None` for anything that is not a
+    /// point opening hosted by a wall curve.
+    fn hosted_opening_assembly(&self, element: &Element) -> Option<TriangleMesh> {
+        let def = self.registry.get(&element.component_id)?;
+        def.host_cut.as_ref()?;
+        if def.placement != PlacementKind::Point {
+            return None;
+        }
+        let host = self.document.get_element(element.parent_id?)?;
+        let curve = host.placement.curve()?;
+        let origin = element.placement.origin();
+        let dir = crate::path_join::host_tangent_at(curve, origin)?;
+        let u = Vec3::new(dir.x, 0.0, dir.z).try_normalize()?;
+        let n = Vec3::new(-u.z, 0.0, u.x);
+        let center = project_onto_curve_xz(curve, origin).unwrap_or(origin);
+        let center = Vec3::new(center.x, origin.y, center.z);
+        let params = def.resolve_params(&element.params).ok()?;
+        let width = params.number("width").unwrap_or(0.9) as f32;
+        let height = params.number("height").unwrap_or(2.1) as f32;
+        let sill = params.number("sill").unwrap_or(0.0) as f32;
+        let is_door = element.component_id == "apex.door";
+        // Wall half thickness from the host mesh around the opening.
+        let mut half_t = 0.0_f32;
+        if let Some(hm) = self.document.get_mesh(host.id) {
+            for p in hm.positions.chunks(3) {
+                let d = Vec3::new(p[0], p[1], p[2]) - center;
+                if d.dot(u).abs() <= width {
+                    half_t = half_t.max(d.dot(n).abs());
+                }
+            }
+        }
+        if !(0.02..=1.0).contains(&half_t) {
+            half_t = 0.1;
+        }
+        let mut mesh = TriangleMesh::empty();
+        let fw = 0.06_f32; // frame member width
+        let y0 = center.y + sill;
+        let y1 = y0 + height;
+        let hw = width * 0.5;
+        let fd = half_t; // frame fills the wall depth
+                         // Jambs.
+        for s in [-1.0_f32, 1.0] {
+            push_box(
+                &mut mesh,
+                center,
+                u,
+                n,
+                s * (hw - fw * 0.5),
+                fw * 0.5,
+                y0,
+                y1,
+                fd,
+            );
+        }
+        // Head.
+        push_box(&mut mesh, center, u, n, 0.0, hw, y1 - fw, y1, fd);
+        // Sill / threshold.
+        let sill_t = if is_door { 0.02 } else { fw };
+        push_box(&mut mesh, center, u, n, 0.0, hw, y0, y0 + sill_t, fd);
+        // Leaf or glass, centred in the hole.
+        let inner = hw - fw;
+        let (py0, py1, pt) = if is_door {
+            (y0 + sill_t, y1 - fw, 0.025)
+        } else {
+            (y0 + sill_t, y1 - fw, 0.006)
+        };
+        if inner > 0.0 && py1 > py0 {
+            push_box(&mut mesh, center, u, n, 0.0, inner, py0, py1, pt);
+            if !is_door {
+                // Mullion-free sash frame around the glass.
+                let sf = 0.03;
+                for s in [-1.0_f32, 1.0] {
+                    push_box(
+                        &mut mesh,
+                        center,
+                        u,
+                        n,
+                        s * (inner - sf * 0.5),
+                        sf * 0.5,
+                        py0,
+                        py1,
+                        0.03,
+                    );
+                }
+                push_box(&mut mesh, center, u, n, 0.0, inner, py1 - sf, py1, 0.03);
+                push_box(&mut mesh, center, u, n, 0.0, inner, py0, py0 + sf, 0.03);
+            }
+        }
+        Some(mesh)
     }
 
     fn oriented_hosted_opening(&self, element: &Element) -> Option<Element> {
@@ -3567,8 +3743,19 @@ mod plugin_first_tests {
                     "{component} leaf along {along:?} spans {}",
                     span(*along)
                 );
+                // Frame fills the wall depth, centred on the wall axis.
+                let (mut lo, mut hi) = (f32::MAX, f32::MIN);
+                for p in mesh.positions.chunks(3) {
+                    let d = (Vec3::new(p[0], p[1], p[2]) - *at).dot(across);
+                    lo = lo.min(d);
+                    hi = hi.max(d);
+                }
                 assert!(
-                    span(across) < 0.1,
+                    (lo + hi).abs() < 1e-3,
+                    "{component} not centred: {lo}..{hi}"
+                );
+                assert!(
+                    span(across) < 0.4 && span(across) < span(*along) * 0.5,
                     "{component} leaf across {along:?} spans {}",
                     span(across)
                 );
