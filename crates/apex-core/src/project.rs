@@ -218,6 +218,12 @@ pub struct Project {
     section_cut_counter: u32,
     space_counter: u32,
     level_counter: u32,
+    pub(crate) views: crate::view::ViewLibrary,
+    pub(crate) sheets: crate::sheet::SheetLibrary,
+    pub(crate) view_counter: u32,
+    pub(crate) sheet_counter: u32,
+    pub(crate) view_annotations: crate::view_annotation::ViewAnnotationLibrary,
+    pub(crate) view_annotation_counter: u32,
     history: History,
 }
 
@@ -229,7 +235,7 @@ impl Default for Project {
 
 impl Project {
     pub fn new() -> Self {
-        Self {
+        let mut project = Self {
             document: Document::new(),
             registry: ComponentRegistry::with_builtins(),
             counters: Default::default(),
@@ -239,8 +245,16 @@ impl Project {
             section_cut_counter: 0,
             space_counter: 0,
             level_counter: 0,
+            views: Default::default(),
+            sheets: Default::default(),
+            view_counter: 0,
+            sheet_counter: 0,
+            view_annotations: Default::default(),
+            view_annotation_counter: 0,
             history: History::default(),
-        }
+        };
+        project.ensure_default_views();
+        project
     }
 
     pub fn can_undo(&self) -> bool {
@@ -299,6 +313,11 @@ impl Project {
         } else {
             self.history.commit_transaction();
         }
+    }
+
+    /// Record a snapshot for undo after a view/sheet/annotation edit (sibling modules).
+    pub(crate) fn push_undo_snapshot(&mut self, before: ProjectSnapshot) {
+        self.history.record_before(before);
     }
 
     pub fn document(&self) -> &Document {
@@ -1089,6 +1108,29 @@ impl Project {
         self.document.upsert_space(space);
         self.history.record_before(before);
         Ok(id)
+    }
+
+    /// Rename a space (room tag text on plans and sheets). Undoable.
+    pub fn rename_space(&mut self, id: SpaceId, name: &str) -> Result<(), RegistryError> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(RegistryError::Unknown(
+                "space name cannot be empty".to_string(),
+            ));
+        }
+        let mut space = self
+            .document
+            .get_space(id)
+            .cloned()
+            .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
+        if space.name == name {
+            return Ok(());
+        }
+        let before = self.export_snapshot();
+        space.name = name.to_string();
+        self.document.upsert_space(space);
+        self.history.record_before(before);
+        Ok(())
     }
 
     pub fn update_space(
@@ -1984,16 +2026,16 @@ impl Project {
     }
 
     fn next_space_name(&mut self) -> String {
-        // Continue from the highest existing "Space N" so numbers stay
+        // Continue from the highest existing "Room N" so numbers stay
         // sequential after deletes/undo instead of drifting with a raw counter.
         let highest = self
             .document
             .spaces()
-            .filter_map(|s| s.name.strip_prefix("Space ")?.parse::<u32>().ok())
+            .filter_map(|s| s.name.strip_prefix("Room ")?.parse::<u32>().ok())
             .max()
             .unwrap_or(0);
         self.space_counter = highest + 1;
-        format!("Space {}", self.space_counter)
+        format!("Room {}", self.space_counter)
     }
 
     /// Serializable project: levels, elements, profiles, and extra components.
@@ -2056,6 +2098,12 @@ impl Project {
             section_cut_counter: self.section_cut_counter,
             space_counter: self.space_counter,
             level_counter: self.level_counter,
+            views: self.views.values().cloned().collect(),
+            sheets: self.sheets.values().cloned().collect(),
+            view_counter: self.view_counter,
+            sheet_counter: self.sheet_counter,
+            view_annotations: self.view_annotations.values().cloned().collect(),
+            view_annotation_counter: self.view_annotation_counter,
         }
     }
 
@@ -2070,12 +2118,18 @@ impl Project {
         // load, so a format 3 file imports as a flat document.
         // Format ≤4 predates construction lines / section cuts (empty via default).
         // Format ≤5 predates spaces (empty via default).
+        // Format ≤6 predates saved views / sheets (empty via default + migration).
+        // Format ≤7 predates view annotations (empty via default).
+        // Format ≤8 predates viewport crop polygons (full-frame rect via default).
         let known = snap.format == PROJECT_FORMAT
             || snap.format == 1
             || snap.format == 2
             || snap.format == 3
             || snap.format == 4
-            || snap.format == 5;
+            || snap.format == 5
+            || snap.format == 6
+            || snap.format == 7
+            || snap.format == 8;
         if !known {
             return Err(RegistryError::Unknown(format!(
                 "unsupported project format {}",
@@ -2092,6 +2146,30 @@ impl Project {
         next.section_cut_counter = snap.section_cut_counter;
         next.space_counter = snap.space_counter;
         next.level_counter = snap.level_counter;
+        next.views = snap.views.into_iter().map(|v| (v.id, v)).collect();
+        let sheets: crate::sheet::SheetLibrary = snap
+            .sheets
+            .into_iter()
+            .map(|mut s| {
+                if snap.format <= 8 {
+                    for vp in &mut s.viewports {
+                        if vp.crop_polygon.len() < 3 {
+                            vp.crop_polygon = crate::viewport_crop::default_crop_polygon_uv();
+                        }
+                    }
+                }
+                (s.id, s)
+            })
+            .collect();
+        next.sheets = sheets;
+        next.view_counter = snap.view_counter;
+        next.sheet_counter = snap.sheet_counter;
+        next.view_annotations = snap
+            .view_annotations
+            .into_iter()
+            .map(|a| (a.id, a))
+            .collect();
+        next.view_annotation_counter = snap.view_annotation_counter;
 
         for profile in snap.profiles {
             next.registry.upsert_profile(profile)?;
@@ -2125,13 +2203,16 @@ impl Project {
             .collect();
         next.refresh_meshes(solids);
 
+        next.ensure_default_views();
+        next.repair_sheet_viewport_anchors();
+
         *self = next;
         Ok(())
     }
 }
 
 /// On-disk / download format. Bump [`PROJECT_FORMAT`] when the shape changes.
-pub const PROJECT_FORMAT: u32 = 6;
+pub const PROJECT_FORMAT: u32 = 9;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectSnapshot {
@@ -2166,6 +2247,18 @@ pub struct ProjectSnapshot {
     pub space_counter: u32,
     #[serde(default)]
     pub level_counter: u32,
+    #[serde(default)]
+    pub views: Vec<crate::view::View>,
+    #[serde(default)]
+    pub sheets: Vec<crate::sheet::Sheet>,
+    #[serde(default)]
+    pub view_counter: u32,
+    #[serde(default)]
+    pub sheet_counter: u32,
+    #[serde(default)]
+    pub view_annotations: Vec<crate::view_annotation::ViewAnnotation>,
+    #[serde(default)]
+    pub view_annotation_counter: u32,
 }
 
 #[cfg(test)]
@@ -2947,6 +3040,30 @@ mod tests {
     }
 
     #[test]
+    fn sheet_snapshot_round_trips_through_json() {
+        use crate::sheet::{PaperOrientation, PaperSize};
+
+        let mut project = Project::new();
+        project.create_sheet_with_layout(
+            "A1".into(),
+            "Sheet 1".into(),
+            PaperSize::A2,
+            PaperOrientation::Portrait,
+            None,
+            None,
+        );
+        assert_eq!(project.sheets.len(), 1);
+        let json = serde_json::to_string(&project.export_snapshot()).expect("serialize");
+        let snap: ProjectSnapshot = serde_json::from_str(&json).expect("deserialize");
+        let mut fresh = Project::new();
+        fresh.import_snapshot(snap).expect("import");
+        assert_eq!(fresh.sheets.len(), 1);
+        let sheet = fresh.sheets.values().next().expect("sheet");
+        assert_eq!(sheet.paper, PaperSize::A2);
+        assert_eq!(sheet.orientation, PaperOrientation::Portrait);
+    }
+
+    #[test]
     fn grid_axes_round_trip_params_and_undo() {
         let mut project = Project::new();
         let axis_id = project
@@ -3206,6 +3323,18 @@ mod tests {
         project.undo().expect("undo first detect");
         assert_eq!(project.document().spaces().count(), 1);
         assert!(project.document().get_space(manual_id).is_some());
+    }
+
+    #[test]
+    fn format_six_import_gets_default_views() {
+        let mut project = Project::new();
+        let mut snap = project.export_snapshot();
+        snap.format = 6;
+        snap.views.clear();
+        snap.view_counter = 0;
+        let mut fresh = Project::new();
+        fresh.import_snapshot(snap).expect("import");
+        assert!(fresh.views().count() >= 2);
     }
 
     #[test]

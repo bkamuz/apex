@@ -148,7 +148,18 @@ Do not add per-type branches in `App.tsx` / `apex-wasm` — extend a seam instea
 window.apex.defineComponent({ /* … */ });
 window.apex.registerTool(tool);
 window.apex.registerExporter({ id, label, filename, export: () => '…' });
+window.apex.registerAnnotationKind({
+  kind: 'text_note',
+  tools: [/* Tool that calls ctx.createViewAnnotation on a saved view */],
+  hitTest(annotation, x, y, renderer) { /* optional */ return false; },
+  serialize: (kind) => kind,
+  deserialize: (payload) => payload,
+});
 ```
+
+View-owned annotations (dimensions, notes) register through `registerAnnotationKind` with
+toolbar tools plus optional hit-test / serialize hooks; geometry lives in apex-core.
+See `examples/custom-annotation.ts`.
 
 **IFC:** the first-party Export **IFC** button writes IFC4 with tessellated
 meshes; type → entity mapping comes from each definition's `ifc_entity`.

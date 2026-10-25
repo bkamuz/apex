@@ -568,6 +568,22 @@ impl Document {
                 any = true;
             }
         }
+        // Grid axes (plus room for their bubbles) belong to the drawing extents.
+        const BUBBLE_PAD: f32 = 1.5;
+        for axis in self.grid_axes() {
+            let Some(apex_geometry::Curve::Line { a, b }) = axis.placement.curve() else {
+                continue;
+            };
+            for p in [*a, *b] {
+                let p = p.clamp(Vec3::splat(-CLAMP), Vec3::splat(CLAMP));
+                if !p.is_finite() {
+                    continue;
+                }
+                min = min.min(p - Vec3::new(BUBBLE_PAD, 0.0, BUBBLE_PAD));
+                max = max.max(p + Vec3::new(BUBBLE_PAD, 0.0, BUBBLE_PAD));
+                any = true;
+            }
+        }
         if !any || min.x > max.x || min.y > max.y || min.z > max.z {
             None
         } else {

@@ -54,6 +54,7 @@ import {
   apexUpdateGridAxis,
   apexUpdateSectionCut,
   apexUpdateSpace,
+  apexRenameSpace,
   apexSetActiveLevel,
   apexSetElementPlacement,
   apexSetLevelElevation,
@@ -62,6 +63,24 @@ import {
   apexTranslateSelection,
   apexUndo,
   apexUpdateElement,
+  apexCreatePlanView,
+  apexCreateThreeDView,
+  apexDuplicateView,
+  apexRenameView,
+  apexDeleteView,
+  apexSaveViewState,
+  apexCreateSheetWithLayout,
+  apexUpdateSheetLayout,
+  apexRenameSheet,
+  apexDeleteSheet,
+  apexPlaceViewOnSheet,
+  apexMoveSheetViewport,
+  apexCreateViewAnnotation,
+  apexExportViewVector,
+  apexExportViewDxf,
+  apexSetSheetViewportCrop,
+  apexResetSheetViewportCrop,
+  apexSetSheetViewportScale,
   apexUpdateProfileType,
   initApex,
 } from './wasm/apex';
@@ -97,6 +116,21 @@ import { ComponentEditor } from './ui/ComponentEditor';
 import { ProfileEditor } from './ui/ProfileEditor';
 import { defaultNewComponent, isUserAuthoredComponent, nextComponentId } from './ui/componentModel';
 import { ProjectBrowser } from './ui/ProjectBrowser';
+import { DocumentViewsHost } from './ui/DocumentViewsHost';
+import { useDocumentTabs } from './hooks/useDocumentTabs';
+import {
+  applyViewToRenderer,
+  buildViewKindFromRenderer,
+  filterPickIdsForCategories,
+  findView,
+  hiddenCategoriesForView,
+  projectionFromStored,
+} from './ui/viewModel';
+import { viewAnnotationSegments } from './ui/viewAnnotationSegments';
+import { pickAnnotationAnchor } from './annotations/pickAnchor';
+import { downloadBlob, downloadTextFile, drawingToPdf, drawingToSvg } from './ui/vectorExport';
+import type { VectorDrawing2d } from './types';
+import type { DocumentTab } from './ui/ViewTabBar';
 import { PropertiesPanel } from './ui/PropertiesPanel';
 import { ToolsToolbar } from './ui/ToolsToolbar';
 import { GettingStartedPanel } from './ui/GettingStartedPanel';
@@ -157,8 +191,11 @@ function pointerInfo(e: React.PointerEvent | React.MouseEvent): PointerInfo {
 }
 
 export default function App() {
+  const projectRestoreDoneRef = useRef(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const canvasSplitRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<ViewportRenderer | null>(null);
+  const splitRendererRef = useRef<ViewportRenderer | null>(null);
   const registryRef = useRef<ToolRegistry>(makeToolRegistry());
   const shiftHeldRef = useRef(false);
   const selectedRef = useRef<ElementDto | null>(null);
@@ -206,6 +243,20 @@ export default function App() {
   viewNavigationRef.current = viewNavigation;
   const [scene, setScene] = useState<SceneDto | null>(null);
   const sceneRef = useRef<SceneDto | null>(null);
+  const documentTabs = useDocumentTabs(scene);
+  const {
+    openTabs,
+    activeTab,
+    splitTab,
+    splitEnabled,
+    activeIsView,
+    activeViewId,
+    activeSheet,
+    openTab,
+    closeTab,
+    setActiveTab,
+    toggleSplit,
+  } = documentTabs;
   const [selected, setSelected] = useState<ElementDto | null>(null);
   const [selectedReference, setSelectedReference] = useState<ReferenceDto | null>(null);
   const [selectedGridAxis, setSelectedGridAxis] = useState<GridAxisDto | null>(null);
@@ -307,6 +358,11 @@ export default function App() {
     );
   }, []);
 
+  const syncViewAnnotationOverlays = useCallback((next: SceneDto, viewId: string | null) => {
+    const segs = viewId ? viewAnnotationSegments(next, viewId) : [];
+    rendererRef.current?.setViewAnnotationOverlays(segs.length >= 2 ? segs : null);
+  }, []);
+
   const syncSpaceOverlays = useCallback((items: SpaceDto[], activeLevelId?: string | null) => {
     const lines: Vec3[] = [];
     for (const item of items) {
@@ -371,6 +427,73 @@ export default function App() {
       .map((el) => el.pick_id);
   }, []);
 
+  const syncSceneToRenderer = useCallback(
+    (
+      renderer: ViewportRenderer,
+      next: SceneDto,
+      fitCamera: boolean,
+      viewId: string | null,
+      syncGizmos: boolean,
+    ) => {
+      const view = findView(next, viewId);
+      const hidden = hiddenCategoriesForView(view);
+      renderer.setScene({
+        positions: toFloatArray(next.positions),
+        normals: toFloatArray(next.normals),
+        indices: toUint32Array(next.indices),
+        pickIds: filterPickIdsForCategories(next, hidden),
+        edgePositions: next.edge_positions ? toFloatArray(next.edge_positions) : [],
+        selectedPickIds: selectedPickIds(next),
+        fitBounds: sceneFitBounds(next),
+        slabPickIds: slabPickIds(next),
+        fitCamera,
+      });
+      syncLevelPlanes(renderer, next);
+      renderer.setPlanSymbols(next.plan_symbols?.length ? next.plan_symbols : null);
+      if (syncGizmos) {
+        syncReferenceGizmos(next.references ?? []);
+        syncGridAxisGizmos(next.grid_axes ?? []);
+        syncConstructionLineOverlays(next.construction_lines ?? []);
+        syncSectionCutOverlays(next.section_cuts ?? []);
+        syncSpaceOverlays(next.spaces ?? [], next.active_level_id);
+        syncViewAnnotationOverlays(next, viewId);
+      }
+    },
+    [
+      sceneFitBounds,
+      slabPickIds,
+      syncConstructionLineOverlays,
+      syncGridAxisGizmos,
+      syncReferenceGizmos,
+      syncSectionCutOverlays,
+      syncSpaceOverlays,
+      syncViewAnnotationOverlays,
+    ],
+  );
+
+  const syncSheetViewportScene = useCallback(
+    (renderer: ViewportRenderer, next: SceneDto, viewId: string) => {
+      const view = findView(next, viewId);
+      const hidden = hiddenCategoriesForView(view);
+      renderer.setSheetPresentation(true);
+      renderer.setLevelPlanes([]);
+      renderer.setScene({
+        positions: toFloatArray(next.positions),
+        normals: toFloatArray(next.normals),
+        indices: toUint32Array(next.indices),
+        pickIds: filterPickIdsForCategories(next, hidden),
+        edgePositions: next.edge_positions ? toFloatArray(next.edge_positions) : [],
+        selectedPickIds: [],
+        slabPickIds: slabPickIds(next),
+        fitCamera: false,
+      });
+      renderer.setPlanSymbols(next.plan_symbols?.length ? next.plan_symbols : null);
+      const segs = viewId ? viewAnnotationSegments(next, viewId) : [];
+      renderer.setViewAnnotationOverlays(segs.length >= 2 ? segs : null);
+    },
+    [slabPickIds],
+  );
+
   const applyScene = useCallback(
     (next: SceneDto, fitCamera = false) => {
       setScene(next);
@@ -390,24 +513,11 @@ export default function App() {
       }
       const renderer = rendererRef.current;
       if (renderer) {
-        renderer.setScene({
-          positions: toFloatArray(next.positions),
-          normals: toFloatArray(next.normals),
-          indices: toUint32Array(next.indices),
-          pickIds: next.pick_ids,
-          edgePositions: next.edge_positions ? toFloatArray(next.edge_positions) : [],
-          selectedPickIds: selectedPickIds(next),
-          fitBounds: sceneFitBounds(next),
-          slabPickIds: slabPickIds(next),
-          fitCamera,
-        });
-        syncLevelPlanes(renderer, next);
-        syncReferenceGizmos(next.references ?? []);
-        syncGridAxisGizmos(next.grid_axes ?? []);
-        syncConstructionLineOverlays(next.construction_lines ?? []);
-        syncSectionCutOverlays(next.section_cuts ?? []);
-        syncSpaceOverlays(next.spaces ?? [], next.active_level_id);
-        renderer.setPlanSymbols(next.plan_symbols?.length ? next.plan_symbols : null);
+        syncSceneToRenderer(renderer, next, fitCamera, activeViewId, true);
+      }
+      const splitRenderer = splitRendererRef.current;
+      if (splitRenderer && splitTab?.kind === 'view') {
+        syncSceneToRenderer(splitRenderer, next, false, splitTab.id, false);
       }
       setComponents(apexListComponents());
       const sel = apexGetSelected();
@@ -430,16 +540,7 @@ export default function App() {
       else if (selSpace) setSelectedLevelId(selSpace.level_id);
       if (!draggingRef.current) syncEditGizmo(sel, selRef, selAxis, selLine, selCut, selSpace);
     },
-    [
-      sceneFitBounds,
-      slabPickIds,
-      syncConstructionLineOverlays,
-      syncEditGizmo,
-      syncGridAxisGizmos,
-      syncReferenceGizmos,
-      syncSectionCutOverlays,
-      syncSpaceOverlays,
-    ],
+    [activeViewId, splitTab, syncEditGizmo, syncSceneToRenderer],
   );
 
   /** Screen point to a world point on the active work plane, with Shift snapping. */
@@ -670,6 +771,24 @@ export default function App() {
         }
 
         const pickId = renderer.pick(clientX, clientY);
+        // Plan: a click inside a room (on its floor slab or on nothing) selects
+        // the room, so it can be renamed without hunting for its boundary.
+        if (!multi && renderer.isPlanNavigation() && (pickId == null || renderer.isSlabPick(pickId))) {
+          const elevation = activeElevationRef.current;
+          const ground = renderer.screenToGround(clientX, clientY, elevation);
+          const room = ground
+            ? (current?.spaces ?? []).find(
+                (space) =>
+                  space.anchors.length >= 3 &&
+                  Math.abs(space.anchors[0][1] - elevation) < 0.05 &&
+                  pointInPlanPolygon(ground, space.anchors),
+              )
+            : undefined;
+          if (room) {
+            applyScene(apexSelectSpace(room.id));
+            return;
+          }
+        }
         if (pickId != null) {
           applyScene(multi ? apexTogglePickById(pickId) : apexPickById(pickId));
           return;
@@ -975,6 +1094,30 @@ export default function App() {
         applyScene(scene as SceneDto);
       },
 
+      activeViewId: () => activeViewId,
+
+      createViewAnnotation: (viewId, kind) => {
+        try {
+          applyScene(apexCreateViewAnnotation(viewId, kind));
+          setError(null);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+        }
+      },
+
+      pickAnnotationAnchor: (clientX, clientY, worldFallback) => {
+        const sc = sceneRef.current;
+        if (!sc) return null;
+        return pickAnnotationAnchor(
+          renderer,
+          sc,
+          apexListElements(),
+          clientX,
+          clientY,
+          worldFallback,
+        );
+      },
+
       setError,
       setPending,
       setTouchOrbitEnabled: (enabled) => renderer.setTouchOrbitEnabled(enabled),
@@ -988,6 +1131,7 @@ export default function App() {
     syncReferenceGizmos,
     syncSectionCutOverlays,
     syncSpaceOverlays,
+    activeViewId,
   ]);
 
   const cancelGesture = useCallback(() => {
@@ -1130,6 +1274,200 @@ export default function App() {
   const fitView = useCallback(() => {
     rendererRef.current?.fitViewExtents();
   }, []);
+
+  const onSelectDocumentTab = useCallback(
+    (tab: DocumentTab) => {
+      setActiveTab(tab);
+      openTab(tab);
+    },
+    [openTab, setActiveTab],
+  );
+
+  const runViewAction = useCallback(
+    (fn: () => SceneDto) => {
+      try {
+        applyScene(fn());
+      } catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    },
+    [applyScene],
+  );
+
+  const onSaveActiveView = useCallback(() => {
+    if (!activeViewId || !scene) return;
+    const view = findView(scene, activeViewId);
+    const renderer = rendererRef.current;
+    if (!view || !renderer) return;
+    const kind = buildViewKindFromRenderer(view, renderer, viewNavigationRef.current);
+    runViewAction(() => apexSaveViewState(activeViewId, kind));
+  }, [activeViewId, runViewAction, scene]);
+
+  const loadActiveViewDrawing = useCallback((): VectorDrawing2d | null => {
+    if (!activeViewId) return null;
+    try {
+      return JSON.parse(apexExportViewVector(activeViewId)) as VectorDrawing2d;
+    } catch {
+      return null;
+    }
+  }, [activeViewId]);
+
+  const onExportActiveViewSvg = useCallback(() => {
+    const drawing = loadActiveViewDrawing();
+    if (!drawing) return;
+    const view = scene ? findView(scene, activeViewId ?? '') : undefined;
+    const name = view?.name ?? 'view';
+    downloadTextFile(`${name.replace(/\s+/g, '_')}.svg`, drawingToSvg(drawing), 'image/svg+xml');
+  }, [activeViewId, loadActiveViewDrawing, scene]);
+
+  const onExportActiveViewDxf = useCallback(() => {
+    if (!activeViewId) return;
+    try {
+      const dxf = apexExportViewDxf(activeViewId);
+      const view = scene ? findView(scene, activeViewId) : undefined;
+      const name = view?.name ?? 'view';
+      downloadTextFile(`${name.replace(/\s+/g, '_')}.dxf`, dxf, 'application/dxf');
+    } catch {
+      /* ignore */
+    }
+  }, [activeViewId, scene]);
+
+  const onExportActiveViewPdf = useCallback(() => {
+    const drawing = loadActiveViewDrawing();
+    if (!drawing) return;
+    const view = scene ? findView(scene, activeViewId ?? '') : undefined;
+    const name = view?.name ?? 'view';
+    const pdf = drawingToPdf(drawing, { title: name });
+    downloadBlob(`${name.replace(/\s+/g, '_')}.pdf`, new Blob([pdf as BlobPart], { type: 'application/pdf' }));
+  }, [activeViewId, loadActiveViewDrawing, scene]);
+
+  const onSheetViewportCropChange = useCallback(
+    (viewportId: string, crop: import('./types').CropUvDto[]) => {
+      if (!activeSheet) return;
+      runViewAction(() =>
+        apexSetSheetViewportCrop(activeSheet.id, viewportId, JSON.stringify(crop)),
+      );
+    },
+    [activeSheet, runViewAction],
+  );
+
+  const onResetSheetViewportCrop = useCallback(
+    (viewportId: string) => {
+      if (!activeSheet) return;
+      runViewAction(() => apexResetSheetViewportCrop(activeSheet.id, viewportId));
+    },
+    [activeSheet, runViewAction],
+  );
+
+  const activeViewIsPlan = useMemo(() => {
+    if (!activeViewId || !scene) return false;
+    return findView(scene, activeViewId)?.kind.kind === 'plan';
+  }, [activeViewId, scene]);
+
+  const onPlaceViewOnSheet = useCallback(
+    (viewId: string, centerXmm: number, centerYmm: number) => {
+      if (!activeSheet) return;
+      runViewAction(() =>
+        apexPlaceViewOnSheet(activeSheet.id, viewId, centerXmm, centerYmm, 120, 90),
+      );
+    },
+    [activeSheet, runViewAction],
+  );
+
+  const onMoveSheetViewport = useCallback(
+    (viewportId: string, centerXmm: number, centerYmm: number) => {
+      if (!activeSheet) return;
+      runViewAction(() => apexMoveSheetViewport(activeSheet.id, viewportId, centerXmm, centerYmm));
+    },
+    [activeSheet, runViewAction],
+  );
+
+  const onUpdateSheetLayout = useCallback(
+    (
+      paper: import('./types').PaperSize,
+      orientation: import('./types').PaperOrientation,
+      customWidthMm: number,
+      customHeightMm: number,
+    ) => {
+      if (!activeSheet) return;
+      const paperWasm = paper === 'custom' ? 'CUSTOM' : paper.toUpperCase();
+      runViewAction(() =>
+        apexUpdateSheetLayout(
+          activeSheet.id,
+          paperWasm,
+          orientation,
+          customWidthMm,
+          customHeightMm,
+        ),
+      );
+    },
+    [activeSheet, runViewAction],
+  );
+
+  const onSetSheetViewportScale = useCallback(
+    (viewportId: string, scale: number) => {
+      if (!activeSheet) return;
+      runViewAction(() =>
+        apexSetSheetViewportScale(activeSheet.id, viewportId, scale),
+      );
+    },
+    [activeSheet, runViewAction],
+  );
+
+  // Apply a view's camera/level once when its tab opens. Re-running on every
+  // active-level change would snap the level back to the view's and undo the
+  // user's pick in the level list.
+  const appliedViewRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!ready || activeTab?.kind !== 'view' || !activeViewId || !scene) {
+      if (activeTab?.kind !== 'view') appliedViewRef.current = null;
+      return;
+    }
+    if (appliedViewRef.current === activeViewId) return;
+    const view = findView(scene, activeViewId);
+    const renderer = rendererRef.current;
+    if (!view || !renderer) return;
+    appliedViewRef.current = activeViewId;
+    applyViewToRenderer(view, renderer);
+    if (view.kind.kind === 'plan') {
+      viewNavigationRef.current = 'plan';
+      setViewNavigation('plan');
+      setProjection('orthographic');
+      renderer.setViewNavigation('plan');
+      if (view.kind.level_id && view.kind.level_id !== scene.active_level_id) {
+        try {
+          applyScene(apexSetActiveLevel(view.kind.level_id));
+        } catch {
+          /* ignore */
+        }
+      }
+    } else if (view.kind.kind === 'three_d') {
+      viewNavigationRef.current = '3d';
+      setViewNavigation('3d');
+      const mode = projectionFromStored(view.kind.projection);
+      setProjection(mode);
+      renderer.setViewNavigation('3d');
+      renderer.setProjection(mode);
+    }
+  }, [activeTab?.kind, activeViewId, applyScene, ready, scene]);
+
+  useEffect(() => {
+    if (!splitEnabled) {
+      splitRendererRef.current?.dispose();
+      splitRendererRef.current = null;
+      return;
+    }
+    const canvas = canvasSplitRef.current;
+    if (!canvas) return;
+    if (!splitRendererRef.current) {
+      splitRendererRef.current = new ViewportRenderer(canvas);
+    }
+    if (scene && splitTab?.kind === 'view') {
+      syncSceneToRenderer(splitRendererRef.current, scene, false, splitTab.id, false);
+      const view = findView(scene, splitTab.id);
+      if (view) applyViewToRenderer(view, splitRendererRef.current);
+    }
+  }, [scene, splitEnabled, splitTab, syncSceneToRenderer]);
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -1347,6 +1685,12 @@ export default function App() {
         const canvas = canvasRef.current;
         if (!canvas) return;
         rendererRef.current = new ViewportRenderer(canvas);
+        // Test hook: world -> client mapping so UI scripts can click real points.
+        (window as unknown as { __apexTest?: unknown }).__apexTest = {
+          worldToClient: (p: Vec3) => rendererRef.current?.worldToClient(p) ?? null,
+          getCamera: () => rendererRef.current?.getCamera() ?? null,
+          setCamera: (c: Parameters<ViewportRenderer['setCamera']>[0]) => rendererRef.current?.setCamera(c),
+        };
 
         const stored = loadStoredProject();
         if (stored) {
@@ -1361,10 +1705,22 @@ export default function App() {
         syncCatalog();
         installGlobalSdk();
 
-        const initial = apexGetScene();
+        let initial = apexGetScene();
+        if (
+          stored?.includes('"sheets":[{') &&
+          (initial.sheets?.length ?? 0) === 0
+        ) {
+          try {
+            apexImportProject(stored);
+            initial = apexGetScene();
+          } catch {
+            /* ignore */
+          }
+        }
         if (!cancelled) {
           applyScene(initial, false);
           setSelectedLevelId(initial.active_level_id);
+          projectRestoreDoneRef.current = true;
           setReady(true);
         }
       } catch (e) {
@@ -1385,14 +1741,23 @@ export default function App() {
     setMobileMenuOpen(true);
   }, []);
 
+  const persistSceneKey = scene
+    ? [
+        scene.version,
+        scene.views?.length ?? 0,
+        scene.sheets?.length ?? 0,
+        scene.view_annotations?.length ?? 0,
+      ].join(':')
+    : '';
+
   useEffect(() => {
-    if (!ready || !scene) return;
+    if (!ready || !scene || !projectRestoreDoneRef.current) return;
     try {
       storeProject(apexExportProject());
     } catch {
       /* ignore */
     }
-  }, [ready, scene?.version]);
+  }, [ready, persistSceneKey, scene]);
 
   useEffect(() => {
     if (!ready) return;
@@ -1422,6 +1787,43 @@ export default function App() {
       ),
     [scene],
   );
+
+  const browserViewsProps = {
+    views: scene?.views ?? [],
+    sheets: scene?.sheets ?? [],
+    activeLevelId: scene?.active_level_id ?? null,
+    openViewId: activeTab?.kind === 'view' ? activeTab.id : null,
+    openSheetId: activeTab?.kind === 'sheet' ? activeTab.id : null,
+    onOpenView: (id: string) => onSelectDocumentTab({ kind: 'view', id }),
+    onOpenSheet: (id: string) => onSelectDocumentTab({ kind: 'sheet', id }),
+    onNewPlanView: (levelId: string) => runViewAction(() => apexCreatePlanView(levelId)),
+    onNewThreeDView: () => runViewAction(() => apexCreateThreeDView()),
+    onDuplicateView: (id: string) => runViewAction(() => apexDuplicateView(id)),
+    onRenameView: (id: string, name: string) => runViewAction(() => apexRenameView(id, name)),
+    onDeleteView: (id: string) => runViewAction(() => apexDeleteView(id)),
+    onCreateSheetWithLayout: (
+      paper: import('./types').PaperSize,
+      orientation: import('./types').PaperOrientation,
+      customWidthMm: number,
+      customHeightMm: number,
+    ) => {
+      const n = (scene?.sheets?.length ?? 0) + 1;
+      const paperWasm = paper === 'custom' ? 'CUSTOM' : paper.toUpperCase();
+      runViewAction(() =>
+        apexCreateSheetWithLayout(
+          `S-${100 + n}`,
+          `Sheet ${n}`,
+          paperWasm,
+          orientation,
+          customWidthMm,
+          customHeightMm,
+        ),
+      );
+    },
+    onRenameSheet: (id: string, number: string, name: string) =>
+      runViewAction(() => apexRenameSheet(id, number, name)),
+    onDeleteSheet: (id: string) => runViewAction(() => apexDeleteSheet(id)),
+  };
 
   const placementKindOf = (componentId: string): PlacementKind =>
     components.find((c) => c.id === componentId)?.placement ?? 'point';
@@ -1664,6 +2066,16 @@ export default function App() {
     }
   };
 
+  const onRenameSpace = (name: string) => {
+    if (!selectedSpace) return;
+    try {
+      applyScene(apexRenameSpace(selectedSpace.id, name));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const onPlacementChange = (params: Record<string, ParamValue>) => {
     placementParamsRef.current = params;
     setPlacementDraft(params);
@@ -1824,6 +2236,7 @@ export default function App() {
       onUpdateConstructionLine={onUpdateConstructionLineParams}
       onUpdateSectionCut={onUpdateSectionCutParams}
       onUpdateSpace={onUpdateSpaceParams}
+      onRenameSpace={onRenameSpace}
       onPlacementChange={onPlacementChange}
       onEditType={onEditType}
       onNewProfile={onNewProfile}
@@ -1990,6 +2403,7 @@ export default function App() {
             onSelectComponent={onEditComponent}
             onNewProfile={() => onNewProfile('wall')}
             onNewComponent={() => onNewComponent('box')}
+            {...browserViewsProps}
           />
         </aside>
       ) : null}
@@ -2018,21 +2432,52 @@ export default function App() {
             }}
           />
         ) : null}
-        <GridAxisLabels
-          axes={scene?.grid_axes ?? []}
-          spaces={activeLevelSpaces}
-          renderer={ready ? rendererRef.current : null}
-        />
-        <canvas
-          ref={canvasRef}
-          onClick={onCanvasClick}
-          onDoubleClick={onCanvasDoubleClick}
-          onContextMenu={(e) => e.preventDefault()}
-          onPointerDown={onCanvasPointerDown}
-          onPointerMove={onCanvasPointerMove}
-          onPointerUp={onCanvasPointerUp}
-          onPointerCancel={onCanvasPointerUp}
-          onPointerLeave={onCanvasPointerLeave}
+        <DocumentViewsHost
+          scene={scene}
+          tabs={openTabs}
+          activeTab={activeTab}
+          splitTab={splitTab}
+          splitEnabled={splitEnabled}
+          activeIsView={activeIsView}
+          activeSheet={activeSheet}
+          onSelectTab={onSelectDocumentTab}
+          onCloseTab={closeTab}
+          onToggleSplit={toggleSplit}
+          onSaveView={onSaveActiveView}
+          onPlaceViewOnSheet={onPlaceViewOnSheet}
+          onMoveSheetViewport={onMoveSheetViewport}
+          syncSheetViewportScene={syncSheetViewportScene}
+          onSheetViewportCropChange={onSheetViewportCropChange}
+          onResetSheetViewportCrop={onResetSheetViewportCrop}
+          onSetSheetViewportScale={onSetSheetViewportScale}
+          onUpdateSheetLayout={onUpdateSheetLayout}
+          onExportActiveViewSvg={onExportActiveViewSvg}
+          onExportActiveViewDxf={onExportActiveViewDxf}
+          onExportActiveViewPdf={onExportActiveViewPdf}
+          activeViewIsPlan={activeViewIsPlan}
+          viewport={
+            <>
+              <GridAxisLabels
+                axes={scene?.grid_axes ?? []}
+                spaces={activeLevelSpaces}
+                renderer={ready ? rendererRef.current : null}
+              />
+              <canvas
+                ref={canvasRef}
+                onClick={onCanvasClick}
+                onDoubleClick={onCanvasDoubleClick}
+                onContextMenu={(e) => e.preventDefault()}
+                onPointerDown={onCanvasPointerDown}
+                onPointerMove={onCanvasPointerMove}
+                onPointerUp={onCanvasPointerUp}
+                onPointerCancel={onCanvasPointerUp}
+                onPointerLeave={onCanvasPointerLeave}
+              />
+            </>
+          }
+          splitViewport={
+            <canvas ref={canvasSplitRef} className="view-canvas-split" aria-label="Secondary view" />
+          }
         />
         {isMobile ? (
           <button
@@ -2122,6 +2567,7 @@ export default function App() {
                 }}
                 onNewProfile={() => onNewProfile('wall')}
                 onNewComponent={() => onNewComponent('box')}
+                {...browserViewsProps}
               />
             }
             properties={inspector}
@@ -2155,4 +2601,15 @@ export default function App() {
       ) : null}
     </div>
   );
+}
+
+/** Even-odd point-in-polygon test on the XZ plane. */
+function pointInPlanPolygon(p: Vec3, ring: Vec3[]): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i, i += 1) {
+    const [xi, , zi] = ring[i];
+    const [xj, , zj] = ring[j];
+    if (zi > p[2] !== zj > p[2] && p[0] < ((xj - xi) * (p[2] - zi)) / (zj - zi) + xi) inside = !inside;
+  }
+  return inside;
 }

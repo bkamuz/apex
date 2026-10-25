@@ -141,6 +141,9 @@ bool isSelectedPick(float pick) {
 }
 
 void main(){
+  // Plan: geometry above the cut is invisible, so it must not be pickable
+  // either (a roof would otherwise swallow every click inside the plan).
+  if (uPlanMode != 0 && vWorld.y - uCutY > uCutFade) discard;
   if (uPickPass) {
     uint id = uint(vPick);
     float r = float((id >> 0u) & 255u) / 255.0;
@@ -810,6 +813,9 @@ export class ViewportRenderer {
   private spaceLineVao: WebGLVertexArrayObject;
   private spaceLineBuf: WebGLBuffer;
   private spaceLineCount = 0;
+  private viewAnnotationLineVao: WebGLVertexArrayObject;
+  private viewAnnotationLineBuf: WebGLBuffer;
+  private viewAnnotationLineCount = 0;
   private editHandles: Vec3[] | null = null;
   private indexCount = 0;
   private pickFbo: WebGLFramebuffer | null = null;
@@ -848,6 +854,9 @@ export class ViewportRenderer {
   private pointers = new Map<number, { x: number; y: number; type: string }>();
   private touchGesture: 'none' | 'orbit' | 'pinchpan' = 'none';
   private touchOrbitEnabled = true;
+  /** Sheet paper viewport: transparent drawing, no camera interaction. */
+  private sheetPresentation = false;
+  private readonly transparentBackground: boolean;
   private pinchStartSpan = 0;
   private pinchStartDistance = 0;
   private lastCentroidX = 0;
@@ -873,14 +882,18 @@ export class ViewportRenderer {
   private fpsWindowStart = 0;
   private readonly eventAbort = new AbortController();
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(
+    canvas: HTMLCanvasElement,
+    options?: { transparentBackground?: boolean },
+  ) {
     this.canvas = canvas;
+    this.transparentBackground = options?.transparentBackground === true;
     const gl = canvas.getContext('webgl2', {
       antialias: true,
-      alpha: false,
+      alpha: this.transparentBackground,
       depth: true,
       stencil: false,
-      premultipliedAlpha: false,
+      premultipliedAlpha: this.transparentBackground,
       // false: cheaper swap-chain on high-Hz displays; pick uses an offscreen FBO.
       preserveDrawingBuffer: false,
       powerPreference: 'high-performance',
@@ -993,6 +1006,9 @@ export class ViewportRenderer {
     this.spaceLineVao = gl.createVertexArray()!;
     this.spaceLineBuf = gl.createBuffer()!;
     this.bindThickLineVao(this.spaceLineVao, this.spaceLineBuf);
+    this.viewAnnotationLineVao = gl.createVertexArray()!;
+    this.viewAnnotationLineBuf = gl.createBuffer()!;
+    this.bindThickLineVao(this.viewAnnotationLineVao, this.viewAnnotationLineBuf);
 
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
@@ -1054,6 +1070,16 @@ export class ViewportRenderer {
   }
 
   /** Rolling FPS from the render loop (display-synced via rAF). */
+  /**
+   * PNG data URL of the next rendered frame (the drawing buffer is not
+   * preserved, so read it inside the same animation frame as the draw).
+   */
+  snapshotDataUrl(): Promise<string> {
+    return new Promise((resolve) => {
+      requestAnimationFrame(() => resolve(this.canvas.toDataURL('image/png')));
+    });
+  }
+
   getFps(): number {
     return this.fps;
   }
@@ -1074,6 +1100,10 @@ export class ViewportRenderer {
   setPlanCutHeight(elevation: number, fadeBand = 0.35): void {
     this.planCutY = elevation;
     this.planCutFade = Math.max(fadeBand, 0.05);
+  }
+
+  getPlanCutHeight(): number {
+    return this.planCutY;
   }
 
   /**
@@ -1119,6 +1149,15 @@ export class ViewportRenderer {
   }
 
   /** Fit the camera to the current scene bounds (3D) or XZ extents at the cut (plan). */
+  isPlanNavigation(): boolean {
+    return this.viewNavigation === 'plan';
+  }
+
+  /** Whether a pick id belongs to a floor slab (rooms sit on slabs in plan). */
+  isSlabPick(pickId: number): boolean {
+    return this.slabPickIds.includes(pickId);
+  }
+
   fitViewExtents(): void {
     if (!this.sceneAabb) return;
     const aabb = this.sceneAabb;
@@ -1506,6 +1545,19 @@ export class ViewportRenderer {
     this.spaceLineCount = this.uploadThickLines(this.spaceLineBuf, flatten(lines));
   }
 
+  /** Saved-view annotations (dimensions, notes) — gold overlay. */
+  setViewAnnotationOverlays(lines: Vec3[] | null): void {
+    if (!lines || lines.length < 2) {
+      this.viewAnnotationLineCount = 0;
+      return;
+    }
+    this.includePoints(lines);
+    this.viewAnnotationLineCount = this.uploadThickLines(
+      this.viewAnnotationLineBuf,
+      flatten(lines),
+    );
+  }
+
   setEditGizmo(anchors: Vec3[] | null): void {
     const gl = this.gl;
     if (!anchors || anchors.length === 0) {
@@ -1541,8 +1593,16 @@ export class ViewportRenderer {
     this.snapCount = 1;
   }
 
-  /** Project world point to CSS client coordinates (relative to canvas). */
+  /** Project world point to CSS client coordinates (viewport-relative). */
   worldToClient(p: [number, number, number]): [number, number] | null {
+    const local = this.worldToCanvas(p);
+    if (!local) return null;
+    const rect = this.canvas.getBoundingClientRect();
+    return [rect.left + local[0], rect.top + local[1]];
+  }
+
+  /** Project world point to coordinates relative to this canvas (top-left origin). */
+  worldToCanvas(p: [number, number, number]): [number, number] | null {
     const { viewProj } = this.cameraMatrices();
     const x = viewProj[0] * p[0] + viewProj[4] * p[1] + viewProj[8] * p[2] + viewProj[12];
     const y = viewProj[1] * p[0] + viewProj[5] * p[1] + viewProj[9] * p[2] + viewProj[13];
@@ -1551,7 +1611,7 @@ export class ViewportRenderer {
     const ndcX = x / w;
     const ndcY = y / w;
     const rect = this.canvas.getBoundingClientRect();
-    return [rect.left + ((ndcX + 1) * 0.5) * rect.width, rect.top + ((1 - ndcY) * 0.5) * rect.height];
+    return [((ndcX + 1) * 0.5) * rect.width, ((1 - ndcY) * 0.5) * rect.height];
   }
 
   /** Hit-test edit handles in screen space; returns the anchor index. */
@@ -1745,6 +1805,37 @@ export class ViewportRenderer {
     }
   }
 
+  setSheetPresentation(enabled: boolean): void {
+    this.sheetPresentation = enabled;
+    if (enabled) {
+      this.touchOrbitEnabled = false;
+    }
+    this.frameMats = null;
+  }
+
+  /** True-scale ortho frustum for a sheet viewport (mm on paper, model metres). */
+  setSheetPlanFrustum(
+    widthMm: number,
+    heightMm: number,
+    scaleDenominator: number,
+    anchorXM: number,
+    anchorZM: number,
+    cutY: number,
+  ): void {
+    const mmPerM = 1000 / Math.max(1, scaleDenominator);
+    const halfH_m = heightMm / 2 / mmPerM;
+    const halfW_m = widthMm / 2 / mmPerM;
+    const aspect = this.canvas.clientWidth / Math.max(1, this.canvas.clientHeight);
+    const halfHNeeded = Math.max(halfH_m, halfW_m / aspect);
+    const tanHalfFov = Math.tan(CAMERA_FOVY / 2);
+    this.camera.distance = Math.max(halfHNeeded / tanHalfFov, 0.01);
+    this.camera.target = [anchorXM, cutY, anchorZM];
+    this.camera.yaw = 0;
+    this.camera.pitch = PITCH_LIMIT;
+    this.planCutY = cutY;
+    this.frameMats = null;
+  }
+
   private bindEvents(): void {
     const signal = this.eventAbort.signal;
     const opt = { signal };
@@ -1752,6 +1843,13 @@ export class ViewportRenderer {
 
     this.canvas.addEventListener('pointerdown', (e) => {
       this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
+
+      if (
+        this.sheetPresentation &&
+        (e.pointerType === 'mouse' || e.pointerType === 'pen')
+      ) {
+        return;
+      }
 
       if (e.pointerType === 'touch') {
         const n = this.touchPointerCount();
@@ -1791,6 +1889,7 @@ export class ViewportRenderer {
         return;
       }
       if (e.button === 2) {
+        if (this.sheetPresentation) return;
         // Plan: always pan. 3D: Alt+RMB pans; plain RMB orbits.
         e.preventDefault();
         const mode =
@@ -1888,6 +1987,7 @@ export class ViewportRenderer {
     this.canvas.addEventListener(
       'wheel',
       (e) => {
+        if (this.sheetPresentation) return;
         e.preventDefault();
         this.applyWheelZoom(e.clientX, e.clientY, 1 + e.deltaY * 0.001);
       },
@@ -2464,6 +2564,23 @@ export class ViewportRenderer {
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.disable(gl.BLEND);
     gl.depthMask(true);
+
+    if (this.sheetPresentation) {
+      if (this.transparentBackground) {
+        gl.clearColor(0, 0, 0, 0);
+      } else {
+        gl.clearColor(1, 1, 1, 1);
+      }
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      const lineColor: [number, number, number, number] = [0.15, 0.15, 0.15, 1];
+      this.drawLines(this.edgeVao, this.edgeCount, lineColor, 2.2, { overlay: true });
+      this.drawLines(this.viewAnnotationLineVao, this.viewAnnotationLineCount, lineColor, 2.0, {
+        overlay: true,
+      });
+      this.frameMats = null;
+      return;
+    }
+
     // Match --chrome-viewport (#1c1c1c) so the canvas sits in the industrial shell.
     gl.clearColor(28 / 255, 28 / 255, 28 / 255, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
@@ -2501,14 +2618,32 @@ export class ViewportRenderer {
       [0.62, 0.72, 0.38, 0.95],
       2.6,
     );
-    if (this.viewNavigation === 'plan') {
-      this.drawOccludedAxis(this.planSymbolVao, this.planSymbolCount, [0.88, 0.9, 0.94, 0.95], 1.8);
+    if (plan) {
+      // Plan symbols are 2D drafting on top of the cut: never dash them where
+      // they sit "behind" the wall tops (that read as dashed walls).
+      this.drawLines(this.planSymbolVao, this.planSymbolCount, [0.88, 0.9, 0.94, 0.95], 1.8, {
+        overlay: true,
+      });
     }
     // Section cut: amber line + dimmer fill hint.
     this.drawOccludedAxis(this.sectionCutLineVao, this.sectionCutLineCount, [0.95, 0.58, 0.28, 0.98], 3.4);
     this.drawOccludedAxis(this.sectionCutFillVao, this.sectionCutFillCount, [0.95, 0.58, 0.28, 0.45], 1.6);
-    // Spaces: teal closed boundary.
-    this.drawOccludedAxis(this.spaceLineVao, this.spaceLineCount, [0.35, 0.78, 0.88, 0.95], 2.8);
+    // Spaces: teal closed boundary — a plan concept, so not drawn in 3D.
+    if (plan) {
+      this.drawLines(this.spaceLineVao, this.spaceLineCount, [0.35, 0.78, 0.88, 0.95], 2.8, {
+        overlay: true,
+      });
+      this.drawLines(this.viewAnnotationLineVao, this.viewAnnotationLineCount, [0.98, 0.82, 0.35, 0.98], 2.6, {
+        overlay: true,
+      });
+    } else {
+      this.drawOccludedAxis(
+        this.viewAnnotationLineVao,
+        this.viewAnnotationLineCount,
+        [0.98, 0.82, 0.35, 0.98],
+        2.6,
+      );
+    }
     this.drawHandles();
     this.drawSnapMarker();
     this.frameMats = null;

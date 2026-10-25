@@ -65,10 +65,37 @@ import initWasm, {
   getSelectedSpace,
   setSpacePlacement,
   updateSpace,
+  renameSpace,
   deleteSelectedSpace,
   getSelectedElements,
   translateSelection,
   copySelection,
+  createPlanView,
+  createThreeDView,
+  duplicateView,
+  renameView,
+  deleteView,
+  updateViewSettings,
+  saveViewState,
+  createSheet,
+  createSheetWithLayout,
+  renameSheet,
+  updateSheetLayout,
+  deleteSheet,
+  placeViewOnSheet,
+  moveSheetViewport,
+  removeSheetViewport,
+  createViewAnnotation,
+  updateViewAnnotation,
+  deleteViewAnnotation,
+  exportViewVector,
+  exportViewDxf,
+  exportSheetVector,
+  exportSheetDxf,
+  updateSheetViewportState,
+  setSheetViewportCrop,
+  resetSheetViewportCrop,
+  setSheetViewportScale,
 } from './pkg/apex_wasm.js';
 import type {
   ComponentDto,
@@ -505,6 +532,10 @@ export function apexUpdateSpace(id: string, params: Record<string, ParamValue>):
   return asScene(updateSpace(id, encodeParams(params)));
 }
 
+export function apexRenameSpace(id: string, name: string): SceneDto {
+  return asScene(renameSpace(id, name));
+}
+
 export function apexDeleteSelectedSpace(): SceneDto {
   return asScene(deleteSelectedSpace());
 }
@@ -523,4 +554,149 @@ export function apexTranslateSelection(delta: Vec3, recordHistory = true): Scene
 
 export function apexCopySelection(delta: Vec3): SceneDto {
   return asScene(copySelection(encodeDelta(delta)));
+}
+
+export function apexCreatePlanView(levelId: string): SceneDto {
+  return asScene(createPlanView(levelId));
+}
+
+export function apexCreateThreeDView(): SceneDto {
+  return asScene(createThreeDView());
+}
+
+export function apexDuplicateView(id: string): SceneDto {
+  return asScene(duplicateView(id));
+}
+
+export function apexRenameView(id: string, name: string): SceneDto {
+  return asScene(renameView(id, name));
+}
+
+export function apexDeleteView(id: string): SceneDto {
+  return asScene(deleteView(id));
+}
+
+export function apexUpdateViewSettings(id: string, settings: unknown): SceneDto {
+  return asScene(updateViewSettings(id, JSON.stringify(settings)));
+}
+
+export function apexSaveViewState(id: string, kind: unknown): SceneDto {
+  return asScene(saveViewState(id, JSON.stringify(kind)));
+}
+
+export function apexCreateSheet(number: string, name: string): SceneDto {
+  return asScene(createSheet(number, name));
+}
+
+export function apexCreateSheetWithLayout(
+  number: string,
+  name: string,
+  paper: string,
+  orientation: string,
+  customWidthMm: number,
+  customHeightMm: number,
+): SceneDto {
+  return asScene(
+    createSheetWithLayout(number, name, paper, orientation, customWidthMm, customHeightMm),
+  );
+}
+
+export function apexRenameSheet(id: string, number: string, name: string): SceneDto {
+  return asScene(renameSheet(id, number, name));
+}
+
+export function apexUpdateSheetLayout(
+  id: string,
+  paper: string,
+  orientation: string,
+  customWidthMm: number,
+  customHeightMm: number,
+): SceneDto {
+  return asScene(updateSheetLayout(id, paper, orientation, customWidthMm, customHeightMm));
+}
+
+export function apexDeleteSheet(id: string): SceneDto {
+  return asScene(deleteSheet(id));
+}
+
+export function apexPlaceViewOnSheet(
+  sheetId: string,
+  viewId: string,
+  centerXmm: number,
+  centerYmm: number,
+  widthMm: number,
+  heightMm: number,
+): SceneDto {
+  return asScene(placeViewOnSheet(sheetId, viewId, centerXmm, centerYmm, widthMm, heightMm));
+}
+
+export function apexMoveSheetViewport(
+  sheetId: string,
+  viewportId: string,
+  centerXmm: number,
+  centerYmm: number,
+): SceneDto {
+  return asScene(moveSheetViewport(sheetId, viewportId, centerXmm, centerYmm));
+}
+
+export function apexRemoveSheetViewport(sheetId: string, viewportId: string): SceneDto {
+  return asScene(removeSheetViewport(sheetId, viewportId));
+}
+
+export function apexCreateViewAnnotation(viewId: string, kind: unknown): SceneDto {
+  return asScene(createViewAnnotation(viewId, JSON.stringify(kind)));
+}
+
+export function apexUpdateViewAnnotation(id: string, kind: unknown): SceneDto {
+  return asScene(updateViewAnnotation(id, JSON.stringify(kind)));
+}
+
+export function apexDeleteViewAnnotation(id: string): SceneDto {
+  return asScene(deleteViewAnnotation(id));
+}
+
+export function apexExportViewVector(viewId: string): string {
+  return exportViewVector(viewId);
+}
+
+export function apexExportViewDxf(viewId: string): string {
+  return exportViewDxf(viewId);
+}
+
+export function apexExportSheetVector(sheetId: string): string {
+  return exportSheetVector(sheetId);
+}
+
+export function apexExportSheetDxf(sheetId: string): string {
+  return exportSheetDxf(sheetId);
+}
+
+export function apexUpdateSheetViewportState(
+  sheetId: string,
+  viewportId: string,
+  camera: unknown | null,
+  lockNavigation: boolean,
+): SceneDto {
+  const cameraJson = camera ? JSON.stringify(camera) : '';
+  return asScene(updateSheetViewportState(sheetId, viewportId, cameraJson, lockNavigation));
+}
+
+export function apexSetSheetViewportCrop(
+  sheetId: string,
+  viewportId: string,
+  cropJson: string,
+): SceneDto {
+  return asScene(setSheetViewportCrop(sheetId, viewportId, cropJson));
+}
+
+export function apexResetSheetViewportCrop(sheetId: string, viewportId: string): SceneDto {
+  return asScene(resetSheetViewportCrop(sheetId, viewportId));
+}
+
+export function apexSetSheetViewportScale(
+  sheetId: string,
+  viewportId: string,
+  scaleDenominator: number,
+): SceneDto {
+  return asScene(setSheetViewportScale(sheetId, viewportId, scaleDenominator));
 }

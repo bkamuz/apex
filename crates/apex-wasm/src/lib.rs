@@ -10,9 +10,11 @@ use std::str::FromStr;
 use apex_core::{
     construction_line_param_specs, grid_axis_param_specs, section_cut_param_specs,
     space_param_specs, ComponentDefinition, ComponentRegistry, ConstructionLine,
-    ConstructionLineId, Element, ElementId, GridAxis, GridAxisId, LevelId, ParamKind, ParamMap,
-    ParamSpec, PlacementKind, ProfileSpec, ProfileType, Project, ProjectSnapshot, RefId, Reference,
-    ReferenceKind, SceneBuffers, SectionCut, SectionCutId, Space, SpaceId,
+    ConstructionLineId, Element, ElementId, GridAxis, GridAxisId, LevelId, PaperOrientation,
+    PaperSize, ParamKind, ParamMap, ParamSpec, PlacementKind, ProfileSpec, ProfileType, Project,
+    ProjectSnapshot, RefId, Reference, ReferenceKind, SceneBuffers, SectionCut, SectionCutId,
+    Sheet, SheetId, Space, SpaceId, View, ViewAnnotation, ViewAnnotationId, ViewAnnotationKind,
+    ViewId, ViewKind, ViewSettings,
 };
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
@@ -258,6 +260,54 @@ struct SpaceDto {
 }
 
 #[derive(Serialize)]
+struct ViewDto {
+    id: String,
+    name: String,
+    kind: ViewKind,
+    settings: ViewSettings,
+    type_label: String,
+}
+
+#[derive(Serialize)]
+struct SheetViewportDto {
+    id: String,
+    view_id: String,
+    center_x_mm: f32,
+    center_y_mm: f32,
+    width_mm: f32,
+    height_mm: f32,
+    anchor_x_m: f32,
+    anchor_z_m: f32,
+    camera: Option<apex_core::StoredCamera>,
+    lock_navigation: bool,
+    crop_polygon: Vec<[f32; 2]>,
+}
+
+#[derive(Serialize)]
+struct ViewAnnotationDto {
+    id: String,
+    view_id: String,
+    category: String,
+    kind: ViewAnnotationKind,
+    line_segments: Vec<[f32; 3]>,
+    labels: Vec<AnnotationLabelDto>,
+}
+
+#[derive(Serialize)]
+struct SheetDto {
+    id: String,
+    number: String,
+    name: String,
+    paper: PaperSize,
+    orientation: PaperOrientation,
+    custom_width_mm: f32,
+    custom_height_mm: f32,
+    width_mm: f32,
+    height_mm: f32,
+    viewports: Vec<SheetViewportDto>,
+}
+
+#[derive(Serialize)]
 struct SceneDto {
     positions: Vec<f32>,
     normals: Vec<f32>,
@@ -271,6 +321,9 @@ struct SceneDto {
     construction_lines: Vec<ConstructionLineDto>,
     section_cuts: Vec<SectionCutDto>,
     spaces: Vec<SpaceDto>,
+    views: Vec<ViewDto>,
+    sheets: Vec<SheetDto>,
+    view_annotations: Vec<ViewAnnotationDto>,
     /// Door swing / window glazing segment pairs for the active level's plan.
     plan_symbols: Vec<[f32; 3]>,
     levels: Vec<LevelDto>,
@@ -609,6 +662,18 @@ fn scene_dto(project: &Project) -> SceneDto {
         .unwrap_or((None, None));
     let room_detect_report = ROOM_DETECT_REPORT.with(|cell| cell.borrow_mut().take());
 
+    let mut views: Vec<_> = project.views().map(view_dto).collect();
+    views.sort_by(|a, b| a.name.cmp(&b.name));
+
+    let mut sheets: Vec<_> = project.sheets().map(sheet_dto).collect();
+    sheets.sort_by(|a, b| a.number.cmp(&b.number).then_with(|| a.name.cmp(&b.name)));
+
+    let mut view_annotations: Vec<_> = project
+        .view_annotations()
+        .map(|a| view_annotation_dto(project, a))
+        .collect();
+    view_annotations.sort_by(|a, b| a.view_id.cmp(&b.view_id).then_with(|| a.id.cmp(&b.id)));
+
     SceneDto {
         positions: buffers.positions,
         normals: buffers.normals,
@@ -652,6 +717,9 @@ fn scene_dto(project: &Project) -> SceneDto {
         construction_lines,
         section_cuts,
         spaces,
+        views,
+        sheets,
+        view_annotations,
         plan_symbols: apex_core::opening_plan_symbols(
             project,
             project.document().active_level_id(),
@@ -739,6 +807,118 @@ fn section_cut_id(id: &str) -> Result<SectionCutId, JsValue> {
 
 fn space_id(id: &str) -> Result<SpaceId, JsValue> {
     SpaceId::from_str(id).map_err(|e| err(format!("bad space id: {e}")))
+}
+
+fn parse_view_id(id: &str) -> Result<ViewId, JsValue> {
+    ViewId::from_str(id).map_err(|e| err(format!("bad view id: {e}")))
+}
+
+fn parse_sheet_id(id: &str) -> Result<SheetId, JsValue> {
+    SheetId::from_str(id).map_err(|e| err(format!("bad sheet id: {e}")))
+}
+
+fn view_dto(view: &View) -> ViewDto {
+    ViewDto {
+        id: view.id.to_string(),
+        name: view.name.clone(),
+        type_label: view.kind.type_label().to_string(),
+        kind: view.kind.clone(),
+        settings: view.settings.clone(),
+    }
+}
+
+fn sheet_dto(sheet: &Sheet) -> SheetDto {
+    let (width_mm, height_mm) = sheet.paper_size_mm();
+    SheetDto {
+        id: sheet.id.to_string(),
+        number: sheet.number.clone(),
+        name: sheet.name.clone(),
+        paper: sheet.paper,
+        orientation: sheet.orientation,
+        custom_width_mm: sheet.custom_width_mm,
+        custom_height_mm: sheet.custom_height_mm,
+        width_mm,
+        height_mm,
+        viewports: sheet
+            .viewports
+            .iter()
+            .map(|vp| SheetViewportDto {
+                id: vp.id.to_string(),
+                view_id: vp.view_id.to_string(),
+                center_x_mm: vp.center_x_mm,
+                center_y_mm: vp.center_y_mm,
+                width_mm: vp.width_mm,
+                height_mm: vp.height_mm,
+                anchor_x_m: vp.anchor_x_m,
+                anchor_z_m: vp.anchor_z_m,
+                camera: vp.camera.clone(),
+                lock_navigation: vp.lock_navigation,
+                crop_polygon: vp.crop_polygon.clone(),
+            })
+            .collect(),
+    }
+}
+
+fn view_annotation_dto(project: &Project, annotation: &ViewAnnotation) -> ViewAnnotationDto {
+    let overlay = project.annotation_overlay(annotation);
+    ViewAnnotationDto {
+        id: annotation.id.to_string(),
+        view_id: annotation.view_id.to_string(),
+        category: annotation.kind.category().to_string(),
+        kind: annotation.kind.clone(),
+        line_segments: overlay
+            .line_segments
+            .into_iter()
+            .map(|p| p.to_array())
+            .collect(),
+        labels: overlay
+            .labels
+            .into_iter()
+            .map(|label| AnnotationLabelDto {
+                position: label.position.to_array(),
+                text: label.text,
+            })
+            .collect(),
+    }
+}
+
+fn parse_view_kind(json: &str) -> Result<ViewKind, JsValue> {
+    parse_json("view kind", json)
+}
+
+fn parse_view_annotation_kind(json: &str) -> Result<ViewAnnotationKind, JsValue> {
+    parse_json("annotation kind", json)
+}
+
+fn view_annotation_id(id: &str) -> Result<ViewAnnotationId, JsValue> {
+    ViewAnnotationId::from_str(id).map_err(|e| err(format!("bad annotation id: {e}")))
+}
+
+fn parse_view_settings(json: &str) -> Result<ViewSettings, JsValue> {
+    if json.trim().is_empty() {
+        return Ok(ViewSettings::default());
+    }
+    parse_json("view settings", json)
+}
+
+fn parse_paper_size(name: &str) -> Result<PaperSize, JsValue> {
+    match name.trim().to_ascii_uppercase().as_str() {
+        "A4" => Ok(PaperSize::A4),
+        "A3" => Ok(PaperSize::A3),
+        "A2" => Ok(PaperSize::A2),
+        "A1" => Ok(PaperSize::A1),
+        "A0" => Ok(PaperSize::A0),
+        "CUSTOM" => Ok(PaperSize::Custom),
+        other => Err(err(format!("unknown paper size '{other}'"))),
+    }
+}
+
+fn parse_paper_orientation(name: &str) -> Result<PaperOrientation, JsValue> {
+    match name.trim().to_ascii_lowercase().as_str() {
+        "portrait" => Ok(PaperOrientation::Portrait),
+        "landscape" => Ok(PaperOrientation::Landscape),
+        other => Err(err(format!("unknown paper orientation '{other}'"))),
+    }
 }
 
 fn scene(project: &Project) -> Result<JsValue, JsValue> {
@@ -1754,6 +1934,15 @@ pub fn update_space(id: &str, params_json: &str) -> Result<JsValue, JsValue> {
     })
 }
 
+#[wasm_bindgen(js_name = renameSpace)]
+pub fn rename_space(id: &str, name: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let space = space_id(id)?;
+        project.rename_space(space, name).map_err(err)?;
+        scene(project)
+    })
+}
+
 #[wasm_bindgen(js_name = deleteSelectedSpace)]
 pub fn delete_selected_space() -> Result<JsValue, JsValue> {
     with_project(|project| {
@@ -1937,6 +2126,363 @@ pub fn new_project() -> Result<JsValue, JsValue> {
     with_selection(|s| s.set(None));
     clear_datum_selections();
     with_project(|project| scene(project))
+}
+
+// ---------------------------------------------------------------------------
+// Views
+// ---------------------------------------------------------------------------
+
+#[wasm_bindgen(js_name = createPlanView)]
+pub fn create_plan_view(level_id_str: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let level = level_id(level_id_str)?;
+        project.create_plan_view(level).map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = createThreeDView)]
+pub fn create_three_d_view() -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        project.create_three_d_view();
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = duplicateView)]
+pub fn duplicate_view(id: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let view = parse_view_id(id)?;
+        project.duplicate_view(view).map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = renameView)]
+pub fn rename_view(id: &str, name: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let view = parse_view_id(id)?;
+        project.rename_view(view, name.to_string()).map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = deleteView)]
+pub fn delete_view(id: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let view = parse_view_id(id)?;
+        project.delete_view(view).map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = updateViewSettings)]
+pub fn update_view_settings(id: &str, settings_json: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let view = parse_view_id(id)?;
+        let settings = parse_view_settings(settings_json)?;
+        project.update_view_settings(view, settings).map_err(err)?;
+        scene(project)
+    })
+}
+
+/// Persist camera / plan parameters from the shell into a saved view.
+#[wasm_bindgen(js_name = saveViewState)]
+pub fn save_view_state(id: &str, kind_json: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let view = parse_view_id(id)?;
+        let kind = parse_view_kind(kind_json)?;
+        project.save_view_camera(view, kind).map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = createViewAnnotation)]
+pub fn create_view_annotation(view_id_str: &str, kind_json: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let view_id = parse_view_id(view_id_str)?;
+        let kind = parse_view_annotation_kind(kind_json)?;
+        project.create_view_annotation(view_id, kind).map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = updateViewAnnotation)]
+pub fn update_view_annotation(id: &str, kind_json: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let ann = view_annotation_id(id)?;
+        let kind = parse_view_annotation_kind(kind_json)?;
+        project.update_view_annotation(ann, kind).map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = deleteViewAnnotation)]
+pub fn delete_view_annotation(id: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let ann = view_annotation_id(id)?;
+        project.delete_view_annotation(ann).map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = exportViewVector)]
+pub fn export_view_vector(view_id_str: &str) -> Result<String, JsValue> {
+    with_project(|project| {
+        let view_id = parse_view_id(view_id_str)?;
+        let drawing = project
+            .vector_export_view(view_id)
+            .ok_or_else(|| err("vector export supports plan views only"))?;
+        serde_json::to_string(&drawing).map_err(|e| err(e.to_string()))
+    })
+}
+
+#[wasm_bindgen(js_name = exportViewDxf)]
+pub fn export_view_dxf(view_id_str: &str) -> Result<String, JsValue> {
+    with_project(|project| {
+        let view_id = parse_view_id(view_id_str)?;
+        project
+            .export_view_dxf(view_id)
+            .ok_or_else(|| err("DXF export supports plan views only"))
+    })
+}
+
+#[wasm_bindgen(js_name = exportSheetVector)]
+pub fn export_sheet_vector(sheet_id_str: &str) -> Result<String, JsValue> {
+    with_project(|project| {
+        let sheet_id = parse_sheet_id(sheet_id_str)?;
+        let drawing = project
+            .vector_export_sheet(sheet_id)
+            .ok_or_else(|| err("sheet not found"))?;
+        serde_json::to_string(&drawing).map_err(|e| err(e.to_string()))
+    })
+}
+
+#[wasm_bindgen(js_name = exportSheetDxf)]
+pub fn export_sheet_dxf(sheet_id_str: &str) -> Result<String, JsValue> {
+    with_project(|project| {
+        let sheet_id = parse_sheet_id(sheet_id_str)?;
+        project
+            .export_sheet_dxf(sheet_id)
+            .ok_or_else(|| err("sheet not found"))
+    })
+}
+
+#[wasm_bindgen(js_name = updateSheetViewportState)]
+pub fn update_sheet_viewport_state(
+    sheet_id_str: &str,
+    viewport_id_str: &str,
+    camera_json: &str,
+    lock_navigation: bool,
+) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        use apex_core::StoredCamera;
+        let sheet_id = parse_sheet_id(sheet_id_str)?;
+        let viewport_id = apex_core::SheetViewportId::from_str(viewport_id_str)
+            .map_err(|e| err(format!("bad viewport id: {e}")))?;
+        let camera: Option<StoredCamera> = if camera_json.trim().is_empty() {
+            None
+        } else {
+            Some(parse_json("camera", camera_json)?)
+        };
+        project
+            .update_sheet_viewport_state(sheet_id, viewport_id, camera, lock_navigation)
+            .map_err(err)?;
+        scene(project)
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Sheets
+// ---------------------------------------------------------------------------
+
+#[wasm_bindgen(js_name = createSheet)]
+pub fn create_sheet(number: &str, name: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        project.create_sheet(number.to_string(), name.to_string());
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = createSheetWithLayout)]
+pub fn create_sheet_with_layout(
+    number: &str,
+    name: &str,
+    paper: &str,
+    orientation: &str,
+    custom_width_mm: f32,
+    custom_height_mm: f32,
+) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let paper = parse_paper_size(paper)?;
+        let orientation = parse_paper_orientation(orientation)?;
+        let custom_w = if paper == PaperSize::Custom {
+            Some(custom_width_mm)
+        } else {
+            None
+        };
+        let custom_h = if paper == PaperSize::Custom {
+            Some(custom_height_mm)
+        } else {
+            None
+        };
+        project.create_sheet_with_layout(
+            number.to_string(),
+            name.to_string(),
+            paper,
+            orientation,
+            custom_w,
+            custom_h,
+        );
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = renameSheet)]
+pub fn rename_sheet(id: &str, number: &str, name: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let sheet = parse_sheet_id(id)?;
+        project
+            .rename_sheet(sheet, number.to_string(), name.to_string())
+            .map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = updateSheetLayout)]
+pub fn update_sheet_layout(
+    id: &str,
+    paper: &str,
+    orientation: &str,
+    custom_width_mm: f32,
+    custom_height_mm: f32,
+) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let sheet = parse_sheet_id(id)?;
+        let paper = parse_paper_size(paper)?;
+        let orientation = parse_paper_orientation(orientation)?;
+        let custom_w = if paper == PaperSize::Custom {
+            Some(custom_width_mm)
+        } else {
+            None
+        };
+        let custom_h = if paper == PaperSize::Custom {
+            Some(custom_height_mm)
+        } else {
+            None
+        };
+        project
+            .update_sheet_layout(sheet, paper, orientation, custom_w, custom_h)
+            .map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = deleteSheet)]
+pub fn delete_sheet(id: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let sheet = parse_sheet_id(id)?;
+        project.delete_sheet(sheet).map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = placeViewOnSheet)]
+pub fn place_view_on_sheet(
+    sheet_id: &str,
+    view_id: &str,
+    center_x_mm: f32,
+    center_y_mm: f32,
+    width_mm: f32,
+    height_mm: f32,
+) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let sheet = parse_sheet_id(sheet_id)?;
+        let view = parse_view_id(view_id)?;
+        project
+            .place_view_on_sheet(sheet, view, center_x_mm, center_y_mm, width_mm, height_mm)
+            .map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = setSheetViewportScale)]
+pub fn set_sheet_viewport_scale(
+    sheet_id: &str,
+    viewport_id: &str,
+    scale_denominator: f32,
+) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let sheet = parse_sheet_id(sheet_id)?;
+        let viewport = apex_core::SheetViewportId::from_str(viewport_id)
+            .map_err(|e| err(format!("bad viewport id: {e}")))?;
+        project
+            .set_sheet_viewport_scale(sheet, viewport, scale_denominator)
+            .map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = moveSheetViewport)]
+pub fn move_sheet_viewport(
+    sheet_id: &str,
+    viewport_id: &str,
+    center_x_mm: f32,
+    center_y_mm: f32,
+) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let sheet = parse_sheet_id(sheet_id)?;
+        let viewport = apex_core::SheetViewportId::from_str(viewport_id)
+            .map_err(|e| err(format!("bad viewport id: {e}")))?;
+        project
+            .move_sheet_viewport(sheet, viewport, center_x_mm, center_y_mm)
+            .map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = setSheetViewportCrop)]
+pub fn set_sheet_viewport_crop(
+    sheet_id: &str,
+    viewport_id: &str,
+    crop_json: &str,
+) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let sheet = parse_sheet_id(sheet_id)?;
+        let viewport = apex_core::SheetViewportId::from_str(viewport_id)
+            .map_err(|e| err(format!("bad viewport id: {e}")))?;
+        let crop: Vec<[f32; 2]> = parse_json("crop polygon", crop_json)?;
+        project
+            .set_sheet_viewport_crop(sheet, viewport, crop)
+            .map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = resetSheetViewportCrop)]
+pub fn reset_sheet_viewport_crop(sheet_id: &str, viewport_id: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let sheet = parse_sheet_id(sheet_id)?;
+        let viewport = apex_core::SheetViewportId::from_str(viewport_id)
+            .map_err(|e| err(format!("bad viewport id: {e}")))?;
+        project
+            .reset_sheet_viewport_crop(sheet, viewport)
+            .map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = removeSheetViewport)]
+pub fn remove_sheet_viewport(sheet_id: &str, viewport_id: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let sheet = parse_sheet_id(sheet_id)?;
+        let viewport = apex_core::SheetViewportId::from_str(viewport_id)
+            .map_err(|e| err(format!("bad viewport id: {e}")))?;
+        project
+            .remove_sheet_viewport(sheet, viewport)
+            .map_err(err)?;
+        scene(project)
+    })
 }
 
 // ---------------------------------------------------------------------------

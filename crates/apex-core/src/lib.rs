@@ -5,6 +5,7 @@ mod builders;
 mod component;
 mod construction_line;
 mod document;
+mod dxf_export;
 mod element;
 mod expr;
 mod grid_axis;
@@ -15,12 +16,20 @@ mod path_join;
 mod placement;
 mod plan_symbols;
 mod project;
+mod project_view_annotations;
+mod project_views;
 mod reference;
 mod registry;
 mod room_detect;
 mod section_cut;
+mod sheet;
+mod sheet_scale;
 mod sketch;
 mod space;
+mod vector_export;
+mod view;
+mod view_annotation;
+mod viewport_crop;
 
 pub use annotation::{AnnotationLabel, PlanAnnotation};
 pub use component::{
@@ -33,6 +42,7 @@ pub use construction_line::{
     ConstructionLineLibrary, ConstructionLineOverlay,
 };
 pub use document::{Document, DocumentChange, DocumentChangeKind, ElementSceneEntry, SceneBuffers};
+pub use dxf_export::drawing_to_dxf;
 pub use element::{ComponentId, Element, ElementId};
 pub use expr::{Expr, ExprError};
 pub use grid_axis::{
@@ -58,9 +68,32 @@ pub use section_cut::{
     section_cut_param_specs, SectionCut, SectionCutError, SectionCutId, SectionCutLibrary,
     SectionCutOverlay,
 };
+pub use sheet::{
+    PaperOrientation, PaperSize, Sheet, SheetError, SheetId, SheetLibrary, SheetViewport,
+    SheetViewportId,
+};
+pub use sheet_scale::{
+    map_view_drawing_to_sheet_mm, mm_per_model_metre, model_metres_to_paper_mm, plan_bounds_center,
+    viewport_size_mm_for_bounds, PAPER_TEXT_HEIGHT_MM, STANDARD_VIEW_SCALES,
+};
 pub use sketch::{ProfileSketch, SketchConstraint, SketchDimension, SketchError};
 pub use space::{
     space_is_auto, space_param_specs, Space, SpaceError, SpaceId, SpaceLibrary, SpaceOverlay,
+};
+pub use vector_export::{
+    ExportUnits, VectorDimension2d, VectorDrawing2d, VectorLine2d, VectorText2d,
+};
+pub use view::{
+    DetailLevel, EdgeStyle, StoredCamera, StoredProjection, View, ViewError, ViewId, ViewKind,
+    ViewLibrary, ViewSettings,
+};
+pub use view_annotation::{
+    AnnotationAnchor, GridAxisEnd, ViewAnnotation, ViewAnnotationError, ViewAnnotationId,
+    ViewAnnotationKind, ViewAnnotationLibrary, ViewAnnotationOverlay,
+};
+pub use viewport_crop::{
+    clip_segment_to_polygon, default_crop_polygon_uv, normalize_crop_polygon, point_in_polygon,
+    CropError,
 };
 
 /// Geometry primitives the document is expressed in, re-exported for convenience.

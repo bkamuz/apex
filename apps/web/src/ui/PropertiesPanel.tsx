@@ -42,6 +42,7 @@ interface Props {
   onUpdateConstructionLine: (params: Record<string, ParamValue>) => void;
   onUpdateSectionCut: (params: Record<string, ParamValue>) => void;
   onUpdateSpace: (params: Record<string, ParamValue>) => void;
+  onRenameSpace: (name: string) => void;
   onPlacementChange: (params: Record<string, ParamValue>) => void;
   onEditType: (profileId: string) => void;
   onNewProfile: (category: string) => void;
@@ -324,6 +325,7 @@ export function PropertiesPanel({
   onUpdateConstructionLine,
   onUpdateSectionCut,
   onUpdateSpace,
+  onRenameSpace,
   onPlacementChange,
   onEditType,
   onNewProfile,
@@ -562,8 +564,22 @@ export function PropertiesPanel({
     return (
       <div className="inspector-body shell-scroll">
         <div className="field">
-          <label>Name</label>
-          <div>{selectedSpace.name}</div>
+          <label htmlFor="space-name">Name</label>
+          <input
+            id="space-name"
+            data-testid="space-name"
+            key={`${selectedSpace.id}:${selectedSpace.name}`}
+            defaultValue={selectedSpace.name}
+            onBlur={(e) => onRenameSpace(e.currentTarget.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') e.currentTarget.blur();
+              if (e.key === 'Escape') {
+                e.currentTarget.value = selectedSpace.name;
+                e.currentTarget.blur();
+              }
+              e.stopPropagation();
+            }}
+          />
         </div>
         <div className="field">
           <label>Type</label>

@@ -45,11 +45,21 @@ export function createGridAxis(points_json: string, params_json: string, rotatio
 
 export function createLevel(name: string, elevation: number): any;
 
+export function createPlanView(level_id_str: string): any;
+
 export function createReference(kind: string, points_json: string, rotation: number): any;
 
 export function createSectionCut(points_json: string, params_json: string, rotation: number): any;
 
+export function createSheet(number: string, name: string): any;
+
+export function createSheetWithLayout(number: string, name: string, paper: string, orientation: string, custom_width_mm: number, custom_height_mm: number): any;
+
 export function createSpace(points_json: string, params_json: string, rotation: number): any;
+
+export function createThreeDView(): any;
+
+export function createViewAnnotation(view_id_str: string, kind_json: string): any;
 
 /**
  * Delete every selected element.
@@ -66,6 +76,12 @@ export function deleteSelectedSectionCut(): any;
 
 export function deleteSelectedSpace(): any;
 
+export function deleteSheet(id: string): any;
+
+export function deleteView(id: string): any;
+
+export function deleteViewAnnotation(id: string): any;
+
 /**
  * Every descendant of an element, breadth first.
  */
@@ -75,6 +91,8 @@ export function descendantsOf(id: string): any;
  * Detect enclosed rooms from walls on the active level; refresh auto spaces.
  */
 export function detectRoomsFromWalls(): any;
+
+export function duplicateView(id: string): any;
 
 /**
  * The level an element actually sits on, following parent inheritance.
@@ -90,6 +108,14 @@ export function exportIfc(mapping_json: string): string;
  * JSON snapshot of the document, profiles, and extra components.
  */
 export function exportProject(): string;
+
+export function exportSheetDxf(sheet_id_str: string): string;
+
+export function exportSheetVector(sheet_id_str: string): string;
+
+export function exportViewDxf(view_id_str: string): string;
+
+export function exportViewVector(view_id_str: string): string;
 
 export function getScene(): any;
 
@@ -146,6 +172,8 @@ export function listElements(): any;
  */
 export function listProfiles(category: string): any;
 
+export function moveSheetViewport(sheet_id: string, viewport_id: string, center_x_mm: number, center_y_mm: number): any;
+
 /**
  * Discard the current project and start a blank one with the built-in types.
  */
@@ -155,6 +183,8 @@ export function newProject(): any;
  * Resolve a GPU pick id to an element and replace the selection.
  */
 export function pickById(pick_id: number): any;
+
+export function placeViewOnSheet(sheet_id: string, view_id: string, center_x_mm: number, center_y_mm: number, width_mm: number, height_mm: number): any;
 
 /**
  * Mesh preview for a component definition before it is registered (visual editor).
@@ -186,6 +216,21 @@ export function registerComponent(definition_json: string): any;
  * Install or replace a profile type. Dependent elements are rebuilt.
  */
 export function registerProfile(definition_json: string): any;
+
+export function removeSheetViewport(sheet_id: string, viewport_id: string): any;
+
+export function renameSheet(id: string, number: string, name: string): any;
+
+export function renameSpace(id: string, name: string): any;
+
+export function renameView(id: string, name: string): any;
+
+export function resetSheetViewportCrop(sheet_id: string, viewport_id: string): any;
+
+/**
+ * Persist camera / plan parameters from the shell into a saved view.
+ */
+export function saveViewState(id: string, kind_json: string): any;
 
 export function selectConstructionLine(id: string): any;
 
@@ -228,6 +273,10 @@ export function setReferencePlacement(id: string, points_json: string, rotation:
 
 export function setSectionCutPlacement(id: string, points_json: string, rotation: number, record_history: boolean): any;
 
+export function setSheetViewportCrop(sheet_id: string, viewport_id: string, crop_json: string): any;
+
+export function setSheetViewportScale(sheet_id: string, viewport_id: string, scale_denominator: number): any;
+
 export function setSpacePlacement(id: string, points_json: string, rotation: number, record_history: boolean): any;
 
 export function togglePickById(pick_id: number): any;
@@ -257,7 +306,15 @@ export function updateProfileType(id: string, params_json: string): any;
 
 export function updateSectionCut(id: string, params_json: string): any;
 
+export function updateSheetLayout(id: string, paper: string, orientation: string, custom_width_mm: number, custom_height_mm: number): any;
+
+export function updateSheetViewportState(sheet_id_str: string, viewport_id_str: string, camera_json: string, lock_navigation: boolean): any;
+
 export function updateSpace(id: string, params_json: string): any;
+
+export function updateViewAnnotation(id: string, kind_json: string): any;
+
+export function updateViewSettings(id: string, settings_json: string): any;
 
 export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembly.Module;
 
@@ -274,20 +331,33 @@ export interface InitOutput {
     readonly createElementWithParent: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number, k: number) => [number, number, number];
     readonly createGridAxis: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly createLevel: (a: number, b: number, c: number) => [number, number, number];
+    readonly createPlanView: (a: number, b: number) => [number, number, number];
     readonly createReference: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly createSectionCut: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
+    readonly createSheet: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly createSheetWithLayout: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
     readonly createSpace: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
+    readonly createThreeDView: () => [number, number, number];
+    readonly createViewAnnotation: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly deleteSelected: () => [number, number, number];
     readonly deleteSelectedConstructionLine: () => [number, number, number];
     readonly deleteSelectedGridAxis: () => [number, number, number];
     readonly deleteSelectedReference: () => [number, number, number];
     readonly deleteSelectedSectionCut: () => [number, number, number];
     readonly deleteSelectedSpace: () => [number, number, number];
+    readonly deleteSheet: (a: number, b: number) => [number, number, number];
+    readonly deleteView: (a: number, b: number) => [number, number, number];
+    readonly deleteViewAnnotation: (a: number, b: number) => [number, number, number];
     readonly descendantsOf: (a: number, b: number) => [number, number, number];
     readonly detectRoomsFromWalls: () => [number, number, number];
+    readonly duplicateView: (a: number, b: number) => [number, number, number];
     readonly effectiveLevelOf: (a: number, b: number) => [number, number, number, number];
     readonly exportIfc: (a: number, b: number) => [number, number, number, number];
     readonly exportProject: () => [number, number, number, number];
+    readonly exportSheetDxf: (a: number, b: number) => [number, number, number, number];
+    readonly exportSheetVector: (a: number, b: number) => [number, number, number, number];
+    readonly exportViewDxf: (a: number, b: number) => [number, number, number, number];
+    readonly exportViewVector: (a: number, b: number) => [number, number, number, number];
     readonly getScene: () => [number, number, number];
     readonly getSelected: () => [number, number, number];
     readonly getSelectedConstructionLine: () => [number, number, number];
@@ -302,14 +372,22 @@ export interface InitOutput {
     readonly listComponents: () => [number, number, number];
     readonly listElements: () => [number, number, number];
     readonly listProfiles: (a: number, b: number) => [number, number, number];
+    readonly moveSheetViewport: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly newProject: () => [number, number, number];
     readonly pickById: (a: number) => [number, number, number];
+    readonly placeViewOnSheet: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number];
     readonly previewComponentDefinition: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
     readonly previewElement: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
     readonly previewProfile: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly redo: () => [number, number, number];
     readonly registerComponent: (a: number, b: number) => [number, number, number];
     readonly registerProfile: (a: number, b: number) => [number, number, number];
+    readonly removeSheetViewport: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly renameSheet: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
+    readonly renameSpace: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly renameView: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly resetSheetViewportCrop: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly saveViewState: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly selectConstructionLine: (a: number, b: number) => [number, number, number];
     readonly selectElement: (a: number, b: number) => [number, number, number];
     readonly selectGridAxis: (a: number, b: number) => [number, number, number];
@@ -324,6 +402,8 @@ export interface InitOutput {
     readonly setLevelElevation: (a: number, b: number, c: number) => [number, number, number];
     readonly setReferencePlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly setSectionCutPlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
+    readonly setSheetViewportCrop: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
+    readonly setSheetViewportScale: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly setSpacePlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly togglePickById: (a: number) => [number, number, number];
     readonly toggleSelectElement: (a: number, b: number) => [number, number, number];
@@ -334,7 +414,11 @@ export interface InitOutput {
     readonly updateGridAxis: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly updateProfileType: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly updateSectionCut: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly updateSheetLayout: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number];
+    readonly updateSheetViewportState: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
     readonly updateSpace: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly updateViewAnnotation: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly updateViewSettings: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
     readonly __wbindgen_free: (a: number, b: number, c: number) => void;

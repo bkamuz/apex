@@ -264,6 +264,151 @@ export interface LevelDto {
   elevation: number;
 }
 
+export type DetailLevel = 'coarse' | 'medium' | 'fine';
+export type EdgeStyle = 'hidden' | 'simple' | 'detailed';
+export type StoredProjection = 'perspective' | 'orthographic';
+export type PaperSize = 'A4' | 'A3' | 'A2' | 'A1' | 'A0' | 'custom';
+export type PaperOrientation = 'portrait' | 'landscape';
+
+export interface StoredCameraDto {
+  target: Vec3;
+  distance: number;
+  yaw: number;
+  pitch: number;
+}
+
+export type ViewKindDto =
+  | {
+      kind: 'plan';
+      level_id: string;
+      cut_height: number;
+      view_range_top: number;
+      view_range_bottom: number;
+    }
+  | {
+      kind: 'three_d';
+      camera: StoredCameraDto;
+      projection: StoredProjection;
+    }
+  | {
+      kind: 'section';
+      section_cut_id: string;
+      camera: StoredCameraDto;
+    };
+
+export interface ViewSettingsDto {
+  scale: number;
+  category_visible: Record<string, boolean>;
+  detail_level: DetailLevel;
+  edge_style: EdgeStyle;
+}
+
+export interface ViewDto {
+  id: string;
+  name: string;
+  type_label: string;
+  kind: ViewKindDto;
+  settings: ViewSettingsDto;
+}
+
+export interface SheetViewportDto {
+  id: string;
+  view_id: string;
+  center_x_mm: number;
+  center_y_mm: number;
+  width_mm: number;
+  height_mm: number;
+  anchor_x_m?: number;
+  anchor_z_m?: number;
+  camera?: StoredCameraDto | null;
+  lock_navigation?: boolean;
+  /** Normalized crop ring (u,v) within frame; default full rectangle. */
+  crop_polygon?: CropUvDto[];
+}
+
+export type CropUvDto = [number, number];
+
+export interface ViewAnnotationDto {
+  id: string;
+  view_id: string;
+  category: string;
+  kind: ViewAnnotationKindDto;
+  line_segments: Vec3[];
+  labels: GridAxisLabelDto[];
+}
+
+export type ViewAnnotationKindDto =
+  | {
+      kind: 'linear_dimension';
+      a: AnnotationAnchorDto;
+      b: AnnotationAnchorDto;
+      offset: number;
+    }
+  | { kind: 'text_note'; position: AnnotationAnchorDto; text: string }
+  | {
+      kind: 'leader_tag';
+      head: AnnotationAnchorDto;
+      tail: AnnotationAnchorDto;
+      text: string;
+    };
+
+export type AnnotationAnchorDto =
+  | { kind: 'world'; point: Vec3 }
+  | { kind: 'element_anchor'; element_id: string; anchor_index: number }
+  | { kind: 'grid_axis_end'; grid_axis_id: string; end: 'start' | 'end' };
+
+export interface VectorLine2dDto {
+  layer: string;
+  a: [number, number];
+  b: [number, number];
+}
+
+export interface VectorText2dDto {
+  layer: string;
+  position: [number, number];
+  height: number;
+  text: string;
+  /** Centre the text on `position` (room tags, grid bubbles). */
+  centered?: boolean;
+}
+
+export interface VectorFill2dDto {
+  layer: string;
+  ring: [number, number][];
+}
+
+export interface VectorDimension2dDto {
+  layer: string;
+  extension_a: [number, number];
+  extension_b: [number, number];
+  dim_a: [number, number];
+  dim_b: [number, number];
+  text_position: [number, number];
+  text: string;
+}
+
+export interface VectorDrawing2d {
+  units: 'metres' | 'millimetres';
+  scale_denominator: number;
+  lines: VectorLine2dDto[];
+  texts: VectorText2dDto[];
+  dimensions: VectorDimension2dDto[];
+  fills?: VectorFill2dDto[];
+}
+
+export interface SheetDto {
+  id: string;
+  number: string;
+  name: string;
+  paper: PaperSize;
+  orientation: PaperOrientation;
+  custom_width_mm?: number;
+  custom_height_mm?: number;
+  width_mm: number;
+  height_mm: number;
+  viewports: SheetViewportDto[];
+}
+
 export interface MeshDto {
   positions: Float32Array | number[];
   normals: Float32Array | number[];
@@ -283,6 +428,9 @@ export interface SceneDto {
   construction_lines?: ConstructionLineDto[];
   section_cuts?: SectionCutDto[];
   spaces?: SpaceDto[];
+  views?: ViewDto[];
+  sheets?: SheetDto[];
+  view_annotations?: ViewAnnotationDto[];
   /** Door swing / window glazing segment pairs on the active level. */
   plan_symbols?: Vec3[];
   levels: LevelDto[];

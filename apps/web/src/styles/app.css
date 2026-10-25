@@ -998,10 +998,353 @@ input[type="radio"] {
   line-height: 1.2;
 }
 
+.view-tab-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--chrome-border);
+  background: var(--chrome-panel);
+  min-height: 36px;
+}
+
+.view-tab-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.view-tab {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--chrome-border);
+  border-radius: var(--chrome-radius);
+  background: var(--chrome-field);
+  overflow: hidden;
+}
+
+.view-tab--active {
+  border-color: var(--chrome-accent, #6aa3ff);
+  background: rgba(106, 163, 255, 0.12);
+}
+
+.view-tab-open {
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.view-tab-close {
+  border: none;
+  border-left: 1px solid var(--chrome-border);
+  background: transparent;
+  color: var(--chrome-muted);
+  width: 22px;
+  cursor: pointer;
+}
+
+.view-tab-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.view-tab-actions button {
+  font-size: 11px;
+  padding: 4px 8px;
+}
+
+.view-panes {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.view-panes--split {
+  flex-direction: row;
+}
+
+.view-pane {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+}
+
+.view-pane--secondary {
+  border-left: 1px solid var(--chrome-border);
+}
+
+.view-canvas-split {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+.views-sheets-panel {
+  border-bottom: 1px solid var(--chrome-border);
+  padding-bottom: 6px;
+  margin-bottom: 6px;
+}
+
+.browser-tree-item {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.browser-tree-item-btn {
+  flex: 1;
+  text-align: left;
+}
+
+.browser-tree-item-actions {
+  display: flex;
+  gap: 2px;
+  opacity: 0.6;
+}
+
+.browser-tree-item-actions button {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 3px;
+}
+
+.browser-tree-item--selected .browser-tree-item-btn {
+  font-weight: 600;
+}
+
+.sheet-workspace {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: #2a2a2a;
+}
+
+.sheet-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 6px 10px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--chrome-border);
+}
+
+.sheet-scroll {
+  flex: 1;
+  overflow: auto;
+  padding: 16px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.sheet-fit-host {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.sheet-paper {
+  position: relative;
+  margin: 0;
+  background: #fff;
+  border: 1px solid #222;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
+}
+
+.sheet-title-block {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  width: 160px;
+  padding: 8px;
+  border: 1px solid #333;
+  font-size: 11px;
+  color: #111;
+}
+
+.sheet-viewport {
+  position: absolute;
+  border: none;
+  background: transparent;
+  overflow: hidden;
+  cursor: move;
+}
+
+.sheet-scale-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.sheet-scale-control select,
+.sheet-scale-control input {
+  font-size: 12px;
+  padding: 2px 4px;
+}
+
+.sheet-layout-controls {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.sheet-layout-controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sheet-create-block {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.sheet-viewport-img {
+  width: 100%;
+  height: calc(100% - 18px);
+  object-fit: cover;
+  display: block;
+  pointer-events: none;
+}
+
+.sheet-viewport-caption {
+  box-sizing: border-box;
+  min-height: 20px;
+  padding: 2px 6px 0;
+  text-align: center;
+  color: #111;
+  background: transparent;
+}
+
+.sheet-viewport-caption-name {
+  display: block;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 1.2;
+  border-bottom: 1px solid #222;
+  padding-bottom: 1px;
+}
+
+.sheet-viewport-caption-scale {
+  display: block;
+  margin-top: 2px;
+  font-size: 9px;
+  line-height: 1.2;
+  letter-spacing: 0.02em;
+}
+
+.sheet-viewport-caption-hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 8px;
+  color: #555;
+  font-weight: 400;
+}
+
+.sheet-viewport-placeholder {
+  height: calc(100% - 18px);
+  display: grid;
+  place-items: center;
+  color: #666;
+  font-size: 12px;
+}
+
+.sheet-viewport-canvas {
+  width: 100%;
+  height: 100%;
+  display: block;
+  pointer-events: auto;
+  background: transparent;
+}
+
+.sheet-viewport-canvas--active {
+  outline: 2px solid #3b82f6;
+  outline-offset: -2px;
+}
+
+.sheet-viewport--dimmed {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.sheet-viewport--selected {
+  z-index: 2;
+  outline: 2px solid #2563eb;
+  outline-offset: -1px;
+  box-shadow: inset 0 0 0 1px #2563eb;
+}
+
+.sheet-viewport-body {
+  position: relative;
+  overflow: hidden;
+}
+
+.sheet-viewport-clip {
+  position: relative;
+  width: 100%;
+  height: 100%;
+}
+
+.sheet-view-annotation-labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.sheet-view-annotation-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  font-size: 10px;
+  line-height: 1.1;
+  color: #111;
+  white-space: nowrap;
+  font-family: system-ui, sans-serif;
+}
+
+.sheet-crop-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.sheet-crop-overlay .sheet-crop-handle,
+.sheet-crop-overlay .sheet-crop-edge-add {
+  pointer-events: all;
+}
+
+.sheet-viewport-dim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.08);
+  pointer-events: none;
+  z-index: 1;
+}
+
 .viewport-wrap {
   position: relative;
   min-width: 0;
   min-height: 0;
+  display: flex;
+  flex-direction: column;
   /* Own all touch gestures here so the browser does not pan/zoom the page. */
   touch-action: none;
   overscroll-behavior: none;

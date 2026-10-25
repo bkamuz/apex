@@ -4,12 +4,15 @@ import { createPlacementTool } from '../tools/placementTool';
 import { ApexTabs, TOOL_TABS } from '../tools/tabs';
 import type { Tool } from '../tools/Tool';
 import type { Exporter } from '../plugins/types';
+import { annotationKinds } from '../annotations/registry';
+import type { AnnotationKindRegistration } from '../annotations/types';
 
 /** Re-export the tool surface third-party modules implement. */
 export type { Tool, ToolContext, ToolGroup, ToolMode, ToolTab, ResolvedToolTab } from '../tools/Tool';
 export type { ToolIcon, ToolIconName } from '../tools/icons';
 export type { TransformOriginal, TransformMode } from '../tools/transformTypes';
 export type { Exporter } from '../plugins/types';
+export type { AnnotationKindRegistration, AnnotationKindId } from '../annotations/types';
 export { ApexTabs, TOOL_TABS, catalogTabById, resolveToolTab } from '../tools/tabs';
 export { ApexIcons, TOOL_ICONS, catalogIconByName, resolveToolIconSvg } from '../tools/icons';
 
@@ -56,6 +59,15 @@ class ExtensionHost {
     this.emit();
   }
 
+  /** Register a view-annotation kind (tools + optional hit-test / serialize hooks). */
+  registerAnnotationKind(registration: AnnotationKindRegistration): void {
+    annotationKinds.register(registration);
+    for (const tool of registration.tools) {
+      this.registerTool(tool);
+    }
+    this.emit();
+  }
+
   customTools(): Tool[] {
     return this.tools;
   }
@@ -91,6 +103,7 @@ export interface ApexGlobal {
   defineComponent(definition: unknown): void;
   registerTool(tool: Tool): void;
   registerExporter(exporter: Exporter): void;
+  registerAnnotationKind(registration: AnnotationKindRegistration): void;
   /** Known toolbar tabs — prefer these; a custom `{ id, label }` still creates a new tab. */
   tabs: typeof TOOL_TABS;
   /** Known toolbar icon names — prefer these; omit icon or use `{ svg }` for custom. */
@@ -109,6 +122,7 @@ export function installGlobalSdk(): void {
     defineComponent: (definition) => extensions.defineComponent(definition),
     registerTool: (tool) => extensions.registerTool(tool),
     registerExporter: (exporter) => extensions.registerExporter(exporter),
+    registerAnnotationKind: (registration) => extensions.registerAnnotationKind(registration),
     tabs: TOOL_TABS,
     icons: TOOL_ICONS,
   };

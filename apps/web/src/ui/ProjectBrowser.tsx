@@ -13,6 +13,8 @@ import type {
 import { categoryDisplayLabel } from './categoryLabels';
 import { isUserAuthoredComponent } from './componentModel';
 import { profileLabel } from './profileModel';
+import { ViewsSheetsPanel } from './ViewsSheetsPanel';
+import type { SheetDto, ViewDto } from '../types';
 
 export type BrowserGroupBy = 'kind' | 'category' | 'level' | 'profile' | 'none';
 export type BrowserSortBy = 'name' | 'kind' | 'category';
@@ -46,6 +48,26 @@ interface Props {
   onSelectComponent: (componentId: string) => void;
   onNewProfile: () => void;
   onNewComponent: () => void;
+  views?: ViewDto[];
+  sheets?: SheetDto[];
+  activeLevelId?: string | null;
+  openViewId?: string | null;
+  openSheetId?: string | null;
+  onOpenView?: (id: string) => void;
+  onOpenSheet?: (id: string) => void;
+  onNewPlanView?: (levelId: string) => void;
+  onNewThreeDView?: () => void;
+  onDuplicateView?: (id: string) => void;
+  onRenameView?: (id: string, name: string) => void;
+  onDeleteView?: (id: string) => void;
+  onCreateSheetWithLayout?: (
+    paper: import('../types').PaperSize,
+    orientation: import('../types').PaperOrientation,
+    customWidthMm: number,
+    customHeightMm: number,
+  ) => void;
+  onRenameSheet?: (id: string, number: string, name: string) => void;
+  onDeleteSheet?: (id: string) => void;
 }
 
 interface BrowserItem {
@@ -459,6 +481,21 @@ export function ProjectBrowser({
   onSelectComponent,
   onNewProfile,
   onNewComponent,
+  views = [],
+  sheets = [],
+  activeLevelId = null,
+  openViewId = null,
+  openSheetId = null,
+  onOpenView,
+  onOpenSheet,
+  onNewPlanView,
+  onNewThreeDView,
+  onDuplicateView,
+  onRenameView,
+  onDeleteView,
+  onCreateSheetWithLayout,
+  onRenameSheet,
+  onDeleteSheet,
 }: Props) {
   const initial = loadPrefs();
   const [groupBy, setGroupBy] = useState<BrowserGroupBy>(initial.groupBy);
@@ -722,6 +759,31 @@ export function ProjectBrowser({
           </button>
         ))}
       </div>
+      {onOpenView && onNewPlanView && onNewThreeDView ? (
+        <ViewsSheetsPanel
+          views={views}
+          sheets={sheets}
+          levels={levels}
+          activeLevelId={activeLevelId}
+          openViewId={openViewId}
+          openSheetId={openSheetId}
+          onOpenView={onOpenView}
+          onOpenSheet={(id) => (onOpenSheet ?? onOpenView)?.(id)}
+          onNewPlanView={onNewPlanView}
+          onNewThreeDView={onNewThreeDView}
+          onDuplicateView={onDuplicateView ?? (() => {})}
+          onRenameView={onRenameView ?? (() => {})}
+          onDeleteView={onDeleteView ?? (() => {})}
+          onCreateSheetWithLayout={
+            onCreateSheetWithLayout ??
+            (() => {
+              /* noop */
+            })
+          }
+          onRenameSheet={onRenameSheet ?? (() => {})}
+          onDeleteSheet={onDeleteSheet ?? (() => {})}
+        />
+      ) : null}
       <div className="browser-tree-scroll shell-scroll" data-testid="browser-tree-scroll">
         {groups.length === 0 ? (
           <div className="empty">No types or elements yet. Draw a profile or place a wall.</div>
