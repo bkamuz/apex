@@ -94,10 +94,13 @@ uniform mat3 uNormalMat;
 out vec3 vNormal;
 out vec3 vWorld;
 flat out float vPick;
+out float vGlass;
 void main(){
   vec4 world = uModel * vec4(aPos, 1.0);
   vWorld = world.xyz;
   vNormal = normalize(uNormalMat * aNormal);
+  // Window glass is tagged in the core with length-2 normals.
+  vGlass = length(aNormal) > 1.5 ? 1.0 : 0.0;
   vPick = aPick;
   gl_Position = uMVP * vec4(aPos, 1.0);
 }`;
@@ -107,6 +110,8 @@ precision highp float;
 in vec3 vNormal;
 in vec3 vWorld;
 flat in float vPick;
+in float vGlass;
+uniform int uGlassPass;
 uniform vec3 uLightDir;
 uniform vec3 uSkyColor;
 uniform vec3 uGroundColor;
@@ -153,6 +158,7 @@ void main(){
     outColor = vec4(r, g, b, a);
     return;
   }
+  if ((vGlass > 0.5) != (uGlassPass == 1)) discard;
   bool selected = isSelectedPick(vPick);
   if (uSelectionMode == 1 && selected) discard;
   if (uSelectionMode == 2 && !selected) discard;
@@ -181,6 +187,10 @@ void main(){
     }
   }
   vec3 color = base * (ambient * 0.45 + vec3(wrap) * 0.7);
+  if (uGlassPass == 1) {
+    color = mix(vec3(0.55, 0.75, 0.86), color, selected ? 0.5 : 0.15);
+    alpha *= 0.28;
+  }
   outColor = vec4(color, alpha);
 }`;
 
@@ -321,6 +331,7 @@ type MeshUniforms = {
   uSelectedPicks: WebGLUniformLocation | null;
   uSelectedCount: WebGLUniformLocation | null;
   uPickPass: WebGLUniformLocation | null;
+  uGlassPass: WebGLUniformLocation | null;
   uOpacity: WebGLUniformLocation | null;
   uSelectionMode: WebGLUniformLocation | null;
   uPlanMode: WebGLUniformLocation | null;
@@ -367,6 +378,7 @@ function meshUniforms(gl: WebGL2RenderingContext, prog: WebGLProgram): MeshUnifo
     uSelectedPicks: gl.getUniformLocation(prog, 'uSelectedPicks'),
     uSelectedCount: gl.getUniformLocation(prog, 'uSelectedCount'),
     uPickPass: gl.getUniformLocation(prog, 'uPickPass'),
+    uGlassPass: gl.getUniformLocation(prog, 'uGlassPass'),
     uOpacity: gl.getUniformLocation(prog, 'uOpacity'),
     uSelectionMode: gl.getUniformLocation(prog, 'uSelectionMode'),
     uPlanMode: gl.getUniformLocation(prog, 'uPlanMode'),
@@ -2330,6 +2342,7 @@ export class ViewportRenderer {
     gl.uniform1i(u.uSelectedCount, this.selectedPickIds.length);
     gl.uniform1f(u.uSelectedPick, this.selectedPickIds[0] ?? 0);
     gl.uniform1i(u.uPickPass, pickPass ? 1 : 0);
+    gl.uniform1i(u.uGlassPass, 0);
     gl.uniform1i(u.uPlanMode, this.viewNavigation === 'plan' ? 1 : 0);
     gl.uniform1f(u.uCutY, this.planCutY);
     gl.uniform1f(u.uCutFade, this.planCutFade);
@@ -2395,7 +2408,21 @@ export class ViewportRenderer {
       gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_INT, 0);
     }
 
-    if (!pickPass) gl.disable(gl.POLYGON_OFFSET_FILL);
+    if (!pickPass) {
+      // Glass last: translucent, depth-tested, no depth writes.
+      gl.uniform1i(u.uMeshLayer, 0);
+      gl.uniform1i(u.uSelectionMode, 0);
+      gl.uniform1f(u.uOpacity, 1.0);
+      gl.uniform1i(u.uGlassPass, 1);
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.depthMask(false);
+      gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_INT, 0);
+      gl.depthMask(true);
+      gl.disable(gl.BLEND);
+      gl.uniform1i(u.uGlassPass, 0);
+      gl.disable(gl.POLYGON_OFFSET_FILL);
+    }
     gl.bindVertexArray(null);
   }
 

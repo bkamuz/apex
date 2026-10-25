@@ -1932,6 +1932,23 @@ impl Project {
                 }
                 push_box(&mut mesh, center, u, n, 0.0, inner, py1 - sf, py1, 0.03);
                 push_box(&mut mesh, center, u, n, 0.0, inner, py0, py0 + sf, 0.03);
+                // Glass pane: normals tagged (length 2) so the renderer draws
+                // it in its translucent glass pass instead of as a solid.
+                let first = mesh.normals.len();
+                push_box(
+                    &mut mesh,
+                    center,
+                    u,
+                    n,
+                    0.0,
+                    inner - sf,
+                    py0 + sf,
+                    py1 - sf,
+                    0.006,
+                );
+                for v in &mut mesh.normals[first..] {
+                    *v *= GLASS_NORMAL_TAG;
+                }
             }
         }
         Some(mesh)
@@ -4252,3 +4269,7 @@ mod grid_label_tests {
         assert_eq!(letter_index("1"), None);
     }
 }
+
+/// Glass triangles carry normals of this length; the web renderer draws
+/// them translucent. Everything else has unit normals.
+pub const GLASS_NORMAL_TAG: f32 = 2.0;
