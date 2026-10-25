@@ -95,12 +95,16 @@ out vec3 vNormal;
 out vec3 vWorld;
 flat out float vPick;
 out float vGlass;
+out float vGhost;
 void main(){
   vec4 world = uModel * vec4(aPos, 1.0);
   vWorld = world.xyz;
   vNormal = normalize(uNormalMat * aNormal);
   // Window glass is tagged in the core with length-2 normals.
-  vGlass = length(aNormal) > 1.5 ? 1.0 : 0.0;
+  // Ghosts (shown boolean operands, slab openings) use length-3 normals.
+  float tag = length(aNormal);
+  vGlass = tag > 1.5 ? 1.0 : 0.0;
+  vGhost = tag > 2.5 ? 1.0 : 0.0;
   vPick = aPick;
   gl_Position = uMVP * vec4(aPos, 1.0);
 }`;
@@ -111,6 +115,7 @@ in vec3 vNormal;
 in vec3 vWorld;
 flat in float vPick;
 in float vGlass;
+in float vGhost;
 uniform int uGlassPass;
 uniform vec3 uLightDir;
 uniform vec3 uSkyColor;
@@ -187,7 +192,11 @@ void main(){
     }
   }
   vec3 color = base * (ambient * 0.45 + vec3(wrap) * 0.7);
-  if (uGlassPass == 1) {
+  if (uGlassPass == 1 && vGhost > 0.5) {
+    // Ghost: faint warm wash so it reads as a modelling aid, not a solid.
+    color = mix(vec3(0.95, 0.72, 0.38), color, selected ? 0.6 : 0.3);
+    alpha *= selected ? 0.32 : 0.18;
+  } else if (uGlassPass == 1) {
     color = mix(vec3(0.55, 0.75, 0.86), color, selected ? 0.5 : 0.15);
     alpha *= 0.28;
   }

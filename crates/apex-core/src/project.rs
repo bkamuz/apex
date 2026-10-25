@@ -1708,7 +1708,51 @@ impl Project {
             // Consumed by a boolean: the boolean renders it.
             return Ok(TriangleMesh::default());
         }
+        if !self.boolean_consumers(element.id).is_empty() {
+            // Shown operand: a translucent ghost over the boolean result.
+            let mut mesh = if element.component_id == booleans::BOOLEAN {
+                self.boolean_mesh(element)
+            } else {
+                self.build_uncombined_mesh(element)?
+            };
+            tag_normals(&mut mesh, GHOST_NORMAL_TAG);
+            return Ok(mesh);
+        }
         self.build_uncombined_mesh(element)
+    }
+
+    /// Slab opening shown as a translucent, pickable ghost filling the
+    /// hole through the host slab's thickness.
+    fn area_opening_ghost(&self, element: &Element, level_id: LevelId) -> TriangleMesh {
+        let Ok(mut mesh) = self.registry.build_element_mesh(
+            element,
+            self.work_plane(level_id),
+            self.document.references(),
+        ) else {
+            return TriangleMesh::default();
+        };
+        let host_range = element
+            .parent_id
+            .and_then(|id| self.document.get_mesh(id))
+            .and_then(|m| {
+                let ys = m.positions.chunks(3).map(|p| p[1]);
+                let (lo, hi) = ys.fold((f32::MAX, f32::MIN), |(lo, hi), y| (lo.min(y), hi.max(y)));
+                (lo < hi).then_some((lo, hi))
+            });
+        if let Some((lo, hi)) = host_range {
+            let own = mesh.positions.chunks(3).map(|p| p[1]);
+            let (olo, ohi) = own.fold((f32::MAX, f32::MIN), |(lo, hi), y| (lo.min(y), hi.max(y)));
+            let mid = (olo + ohi) * 0.5;
+            let remap = |y: &mut f32| *y = if *y < mid { lo - 0.002 } else { hi + 0.002 };
+            for p in mesh.positions.chunks_mut(3) {
+                remap(&mut p[1]);
+            }
+            for p in mesh.edges.chunks_mut(3) {
+                remap(&mut p[1]);
+            }
+        }
+        tag_normals(&mut mesh, GHOST_NORMAL_TAG);
+        mesh
     }
 
     /// An element's own geometry, ignoring booleans that consume it.
@@ -1726,8 +1770,9 @@ impl Project {
         let oriented = self.oriented_hosted_opening(element);
         let element = oriented.as_ref().unwrap_or(element);
         if self.is_area_opening(element) {
-            // Slab / stair openings are pure voids: the host shows the hole.
-            return Ok(TriangleMesh::default());
+            // A void: the host shows the hole; the opening itself is only a
+            // translucent ghost so it can be seen and picked.
+            return Ok(self.area_opening_ghost(element, level_id));
         }
         if let Some(mesh) = self.solid_mesh(element) {
             return Ok(mesh);
@@ -1839,13 +1884,13 @@ impl Project {
             // would read as a solid wall patch. Windows stay see-through:
             // only the frame and sash are solid.
             if is_door {
-                // Leaf stays closed in the wall plane (an open leaf reads as
-                // a door standing across the wall); the swing is shown as
-                // the plan's quarter arc on the floor, from the -u jamb at
-                // the +n wall face.
-                push_box(&mut mesh, center, u, n, 0.0, inner, py0, py1, pt);
+                // Leaf open 90° about its hinge on the -u jamb at the +n
+                // wall face (matches the plan symbol): a hinge rotation, so
+                // it stands across the wall on purpose, with the floor arc.
                 let leaf = 2.0 * inner;
                 let hinge = center - u * inner + n * half_t;
+                let leaf_center = hinge + u * pt + n * inner;
+                push_box(&mut mesh, leaf_center, n, u, 0.0, inner, py0, py1, pt);
                 let y = py0 + 0.005;
                 let at = |t: f32| {
                     let p = hinge + (u * t.cos() + n * t.sin()) * leaf;
@@ -3877,10 +3922,36 @@ mod plugin_first_tests {
                     .expect("opening");
                 let across = Vec3::new(-along.z, 0.0, along.x);
                 let mesh = project.document().get_mesh(opening).expect("opening mesh");
+                // A door's open leaf is rotated about its hinge out of the
+                // wall; the frame (everything within the wall depth) must
+                // still align with the wall axis.
+                let in_wall: Vec<Vec3> = mesh
+                    .positions
+                    .chunks(3)
+                    .map(|p| Vec3::new(p[0], p[1], p[2]))
+                    .filter(|p| (*p - *at).dot(across).abs() <= 0.11)
+                    .collect();
+                if component == "apex.door" {
+                    let reach = mesh
+                        .positions
+                        .chunks(3)
+                        .map(|p| (Vec3::new(p[0], p[1], p[2]) - *at).dot(across))
+                        .fold(f32::MIN, f32::max);
+                    assert!(reach > 0.75, "door leaf open across the wall: {reach}");
+                    // Leaf hinged at the -along jamb.
+                    let leaf_along: Vec<f32> = mesh
+                        .positions
+                        .chunks(3)
+                        .map(|p| Vec3::new(p[0], p[1], p[2]) - *at)
+                        .filter(|d| d.dot(across) > 0.2)
+                        .map(|d| d.dot(*along))
+                        .collect();
+                    assert!(leaf_along.iter().all(|a| *a < -0.3), "{leaf_along:?}");
+                }
                 let span = |dir: Vec3| {
                     let (mut lo, mut hi) = (f32::MAX, f32::MIN);
-                    for p in mesh.positions.chunks(3) {
-                        let d = (Vec3::new(p[0], p[1], p[2]) - *at).dot(dir);
+                    for p in &in_wall {
+                        let d = (*p - *at).dot(dir);
                         lo = lo.min(d);
                         hi = hi.max(d);
                     }
@@ -3893,8 +3964,8 @@ mod plugin_first_tests {
                 );
                 // Frame fills the wall depth, centred on the wall axis.
                 let (mut lo, mut hi) = (f32::MAX, f32::MIN);
-                for p in mesh.positions.chunks(3) {
-                    let d = (Vec3::new(p[0], p[1], p[2]) - *at).dot(across);
+                for p in &in_wall {
+                    let d = (*p - *at).dot(across);
                     lo = lo.min(d);
                     hi = hi.max(d);
                 }
@@ -4216,3 +4287,13 @@ mod grid_label_tests {
 /// Glass triangles carry normals of this length; the web renderer draws
 /// them translucent. Everything else has unit normals.
 pub const GLASS_NORMAL_TAG: f32 = 2.0;
+/// Normal length tagging translucent ghosts (shown boolean operands, slab
+/// openings): drawn see-through in the glass pass, but pickable.
+pub const GHOST_NORMAL_TAG: f32 = 3.0;
+
+fn tag_normals(mesh: &mut TriangleMesh, tag: f32) {
+    for n in mesh.normals.chunks_mut(3) {
+        let v = Vec3::new(n[0], n[1], n[2]).normalize_or_zero() * tag;
+        n.copy_from_slice(&v.to_array());
+    }
+}

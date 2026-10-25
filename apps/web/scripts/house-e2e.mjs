@@ -321,7 +321,7 @@ async function annotatePlan(levelIdx, e, names) {
   await dim([-1, 4], [-1, 8]);
   await dim([-1.8, 0], [-1.8, 8]);
   // Per-room clear dimensions (wall face to face).
-  await dim([0.1, 1.2], [4.9, 1.2]);
+  await dim([0.1, 7.3], [4.9, 7.3]);
   await dim([5.1, 1], [9.9, 1]);
   await dim([9, 0.1], [9, 3.9]);
   await dim([9, 4.1], [9, 7.9]);
