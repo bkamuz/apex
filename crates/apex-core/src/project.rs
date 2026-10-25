@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 
 mod booleans;
 mod solids;
+mod space_labels;
 pub use booleans::boolean_params;
 
 use apex_geometry::{Frame, TriangleMesh};
@@ -34,13 +35,6 @@ use crate::space::{space_is_auto, space_param_specs, Space, SpaceId};
 /// Fallback storey height when a level has no level above it.
 const DEFAULT_STOREY_RISE: f32 = 3.0;
 const STAIR_COMPONENT: &str = "apex.stair";
-
-fn xz_bounds(points: &[Vec3]) -> ((f32, f32), (f32, f32)) {
-    points.iter().fold(
-        ((f32::MAX, f32::MAX), (f32::MIN, f32::MIN)),
-        |((ax, az), (bx, bz)), p| ((ax.min(p.x), az.min(p.z)), (bx.max(p.x), bz.max(p.z))),
-    )
-}
 
 /// Axis-aligned void for a hosted opening, used by [`TriangleMesh::punch_aabbs`].
 /// Punch a box that is axis-aligned in a frame yawed by `yaw` about +Y
@@ -455,74 +449,6 @@ impl Project {
             self.commit_undo_group();
         }
         Ok(id)
-    }
-
-    /// Punch a slab opening over a stair's footprint in every slab sitting at
-    /// the stair's top (base level elevation + `height`). Returns the openings.
-    pub fn cut_slab_openings_for_stair(
-        &mut self,
-        stair_id: ElementId,
-    ) -> Result<Vec<ElementId>, RegistryError> {
-        let stair = self
-            .document
-            .get_element(stair_id)
-            .cloned()
-            .ok_or_else(|| RegistryError::Unknown(stair_id.to_string()))?;
-        let params = self
-            .registry
-            .persistable_params(&stair.component_id, &stair.params)?;
-        let height = params.number("height").unwrap_or(0.0) as f32;
-        let width = params.number("width").unwrap_or(1.0) as f32;
-        let anchors = stair.placement.anchors();
-        let [a, b, ..] = anchors.as_slice() else {
-            return Ok(Vec::new());
-        };
-        if height <= 1e-3 {
-            return Ok(Vec::new());
-        }
-        let top = a.y + height;
-        let dir = Vec3::new(b.x - a.x, 0.0, b.z - a.z).normalize_or_zero();
-        let side = Vec3::new(-dir.z, 0.0, dir.x) * (width * 0.5);
-        let footprint = [*a - side, *b - side, *b + side, *a + side];
-        let (fmin, fmax) = xz_bounds(&footprint);
-
-        let slabs: Vec<ElementId> = self
-            .document
-            .elements()
-            .filter(|e| e.component_id == "apex.slab")
-            .filter(|e| {
-                self.document
-                    .effective_level_id(e.id)
-                    .and_then(|level| self.document.get_level(level))
-                    .is_some_and(|level| (level.elevation - top).abs() < 0.05)
-            })
-            .filter(|e| {
-                self.document.get_mesh(e.id).is_some_and(|mesh| {
-                    let pts: Vec<Vec3> = mesh
-                        .positions
-                        .chunks(3)
-                        .map(|p| Vec3::new(p[0], p[1], p[2]))
-                        .collect();
-                    let (smin, smax) = xz_bounds(&pts);
-                    smin.0 < fmax.0 && smax.0 > fmin.0 && smin.1 < fmax.1 && smax.1 > fmin.1
-                })
-            })
-            .map(|e| e.id)
-            .collect();
-
-        let mut openings = Vec::new();
-        for slab in slabs {
-            let placement = self
-                .placement_from_points("apex.slab_opening", &footprint, 0.0)?
-                .with_elevation(top);
-            openings.push(self.create_element_with_parent(
-                "apex.slab_opening",
-                placement,
-                ParamMap::new(),
-                Some(slab),
-            )?);
-        }
-        Ok(openings)
     }
 
     /// Recompute path joins for a joinable element against peers on its level.
@@ -1913,7 +1839,24 @@ impl Project {
             // would read as a solid wall patch. Windows stay see-through:
             // only the frame and sash are solid.
             if is_door {
+                // Leaf stays closed in the wall plane (an open leaf reads as
+                // a door standing across the wall); the swing is shown as
+                // the plan's quarter arc on the floor, from the -u jamb at
+                // the +n wall face.
                 push_box(&mut mesh, center, u, n, 0.0, inner, py0, py1, pt);
+                let leaf = 2.0 * inner;
+                let hinge = center - u * inner + n * half_t;
+                let y = py0 + 0.005;
+                let at = |t: f32| {
+                    let p = hinge + (u * t.cos() + n * t.sin()) * leaf;
+                    [p.x, y, p.z]
+                };
+                const SEGMENTS: usize = 16;
+                for i in 0..SEGMENTS {
+                    let t0 = i as f32 / SEGMENTS as f32 * std::f32::consts::FRAC_PI_2;
+                    let t1 = (i + 1) as f32 / SEGMENTS as f32 * std::f32::consts::FRAC_PI_2;
+                    mesh.push_edge(at(t0), at(t1));
+                }
             } else {
                 // Mullion-free sash frame around the glass.
                 let sf = 0.03;
@@ -3361,7 +3304,7 @@ mod tests {
 
     #[test]
     fn format_six_import_gets_default_views() {
-        let mut project = Project::new();
+        let project = Project::new();
         let mut snap = project.export_snapshot();
         snap.format = 6;
         snap.views.clear();
