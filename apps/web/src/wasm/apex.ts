@@ -220,7 +220,10 @@ export function apexSetElementPlacement(
  * scene; ids whose level changed are already reflected in it.
  */
 export function apexSetElementParent(id: string, parentId: string | null): SceneDto {
-  return asScene(setElementParent(id, parentId ?? undefined));
+  // The core returns the ids whose level changed, not a scene; read the fresh
+  // scene afterwards so callers can apply it like any other mutation.
+  setElementParent(id, parentId ?? undefined);
+  return asScene(getScene());
 }
 
 /** Direct children of an element. */

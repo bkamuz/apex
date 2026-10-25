@@ -6,6 +6,7 @@ import {
   apexCopySelection,
   apexCreateElement,
   apexCreateElementWithParent,
+  apexSetElementParent,
   apexCreateLevel,
   apexCreateConstructionLine,
   apexCreateGridAxis,
@@ -479,6 +480,19 @@ export default function App() {
           setError(e instanceof Error ? e.message : String(e));
         }
       },
+
+      hostCandidates: () => {
+        const active = sceneRef.current?.active_level_id ?? null;
+        return apexListElements()
+          .filter((element) => !active || element.effective_level_id === active)
+          .map((element) => ({
+            id: element.id,
+            category: element.category,
+            anchors: element.anchors,
+          }));
+      },
+
+      worldToClient: (point) => renderer.worldToClient(point),
 
       elementCategory: (id) => {
         const element = sceneRef.current?.elements.find((item) => item.id === id);
@@ -1122,7 +1136,15 @@ export default function App() {
       const typing =
         active instanceof HTMLElement &&
         (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT');
-      if (!typing && (e.key === 'Delete' || e.key === 'Backspace')) {
+      // A focused dropdown or checkbox (e.g. after editing a property) must not
+      // swallow Delete; only real text entry keeps the key for itself.
+      const textEntry =
+        active instanceof HTMLTextAreaElement ||
+        (active instanceof HTMLInputElement &&
+          !['checkbox', 'radio', 'button', 'range', 'color'].includes(active.type));
+      const deleteKey = e.key === 'Delete' || (e.key === 'Backspace' && !typing);
+      if (!textEntry && deleteKey) {
+        if (active instanceof HTMLElement && active !== document.body) active.blur();
         if (selectedGridAxisRef.current) {
           e.preventDefault();
           try {
@@ -1742,6 +1764,22 @@ export default function App() {
       onUpdateLevelElevation={onUpdateLevelElevation}
       onUpdateWallThickness={onUpdateWallThickness}
       onDelete={onDelete}
+      parentName={(() => {
+        if (!selected) return null;
+        const list = scene?.elements ?? [];
+        const parentId = list.find((element) => element.id === selected.id)?.parent_id;
+        if (!parentId) return null;
+        return list.find((element) => element.id === parentId)?.name ?? parentId;
+      })()}
+      onDetach={() => {
+        if (!selected) return;
+        try {
+          applyScene(apexSetElementParent(selected.id, null));
+          setError(null);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+        }
+      }}
       onDeleteGridAxis={() => applyScene(apexDeleteSelectedGridAxis())}
       onDeleteConstructionLine={() => applyScene(apexDeleteSelectedConstructionLine())}
       onDeleteSectionCut={() => applyScene(apexDeleteSelectedSectionCut())}

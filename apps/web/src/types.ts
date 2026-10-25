@@ -128,6 +128,8 @@ export interface ProfileSketchDto {
     vertices: [number, number][];
     dimensions?: SketchDimensionDto[];
     constraints?: SketchConstraintDto[];
+    /** Inner loops (holes), fixed geometry in profile XY. */
+    holes?: [number, number][][];
 }
 
 export interface ProfilePreviewDto {

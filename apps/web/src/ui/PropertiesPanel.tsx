@@ -48,6 +48,10 @@ interface Props {
   onUpdateLevelElevation: (id: string, elevation: number) => void;
   onUpdateWallThickness: (thickness: number) => void;
   onDelete: () => void;
+  /** Display name of the selected element's parent, when it has one. */
+  parentName?: string | null;
+  /** Clear the selected element's parent (same as the Detach tool). */
+  onDetach?: () => void;
   onDeleteGridAxis: () => void;
   onDeleteConstructionLine: () => void;
   onDeleteSectionCut: () => void;
@@ -326,6 +330,8 @@ export function PropertiesPanel({
   onUpdateLevelElevation,
   onUpdateWallThickness,
   onDelete,
+  parentName = null,
+  onDetach,
   onDeleteGridAxis,
   onDeleteConstructionLine,
   onDeleteSectionCut,
@@ -618,6 +624,21 @@ export function PropertiesPanel({
         <div className="field">
           <label>Type</label>
           <div>{component?.display_name ?? selected.component_id}</div>
+        </div>
+        <div className="field" data-field="parent">
+          <label>Parent</label>
+          {parentName ? (
+            <div className="parent-row">
+              <span data-testid="parent-name">{parentName}</span>
+              {onDetach ? (
+                <button type="button" onClick={onDetach}>
+                  Detach
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <div className="muted">None</div>
+          )}
         </div>
         {selected.length != null ? (
           <div className="field">

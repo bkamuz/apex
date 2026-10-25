@@ -1,4 +1,4 @@
-import { apexSetElementParent } from '../wasm/apex';
+import { apexSelectElement, apexSetElementParent } from '../wasm/apex';
 import { ApexIcons } from './icons';
 import type { Tool } from './Tool';
 
@@ -21,7 +21,7 @@ export function createParentTool(): Tool {
     label: 'Parent',
     group: 'transform',
     icon: ApexIcons.parent,
-    shortcut: 'P',
+    // No letter hotkey: P toggles the plan view.
 
     hint() {
       return childId ? 'Click the parent element' : 'Click the element to attach';
@@ -41,9 +41,15 @@ export function createParentTool(): Tool {
         // The core refuses cycles; let it report the reason verbatim.
         const child = childId;
         childId = null;
-        ctx.applyScene(apexSetElementParent(child, parentId));
-        ctx.setError(null);
         ctx.setPending([]);
+        try {
+          ctx.applyScene(apexSetElementParent(child, parentId));
+          ctx.setError(null);
+        } catch (err) {
+          ctx.setError(err instanceof Error ? err.message : String(err));
+        }
+        // Leave the child selected so Properties shows its new parent.
+        ctx.applyScene(apexSelectElement(child));
         return;
       }
 
@@ -54,6 +60,8 @@ export function createParentTool(): Tool {
       }
       childId = picked;
       ctx.setError(null);
+      // Highlight the child while the parent is being picked.
+      ctx.applyScene(apexSelectElement(picked));
       ctx.setPending([ctx.anchorOf(picked)]);
     },
 
@@ -95,8 +103,12 @@ export function createDetachTool(): Tool {
         ctx.setError('That element has no parent');
         return;
       }
-      ctx.applyScene(apexSetElementParent(id, null));
-      ctx.setError(null);
+      try {
+        ctx.applyScene(apexSetElementParent(id, null));
+        ctx.setError(null);
+      } catch (err) {
+        ctx.setError(err instanceof Error ? err.message : String(err));
+      }
     },
   };
 }
