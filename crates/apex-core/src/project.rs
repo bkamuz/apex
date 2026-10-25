@@ -5,7 +5,9 @@
 
 use std::collections::BTreeMap;
 
+mod booleans;
 mod solids;
+pub use booleans::boolean_params;
 
 use apex_geometry::{Frame, TriangleMesh};
 use glam::Vec3;
@@ -1770,6 +1772,21 @@ impl Project {
     }
 
     fn build_element_mesh_with_cuts(
+        &self,
+        element: &Element,
+    ) -> Result<TriangleMesh, RegistryError> {
+        if element.component_id == booleans::BOOLEAN {
+            return Ok(self.boolean_mesh(element));
+        }
+        if !self.boolean_consumers(element.id).is_empty() {
+            // Consumed by a boolean: the boolean renders it.
+            return Ok(TriangleMesh::default());
+        }
+        self.build_uncombined_mesh(element)
+    }
+
+    /// An element's own geometry, ignoring booleans that consume it.
+    pub(crate) fn build_uncombined_mesh(
         &self,
         element: &Element,
     ) -> Result<TriangleMesh, RegistryError> {

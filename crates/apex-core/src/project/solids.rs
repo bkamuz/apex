@@ -468,6 +468,7 @@ impl Project {
     /// slab when it is a stair.
     pub(crate) fn solid_dependents(&self, element: &Element) -> Vec<ElementId> {
         let mut out = self.join_candidates(element);
+        out.extend(self.boolean_dependents(element));
         if element.component_id == STAIR {
             out.extend(
                 self.document

@@ -6,6 +6,7 @@
 //!
 //! This crate knows nothing about walls, levels or documents.
 
+mod csg;
 mod curve;
 mod error;
 mod frame;
@@ -15,6 +16,7 @@ mod prism;
 mod profile;
 mod sweep;
 
+pub use csg::{box_mesh, cylinder_mesh, mesh_boolean, mesh_volume, CsgError};
 pub use curve::{Curve, MIN_CURVE_LENGTH};
 pub use error::GeometryError;
 pub use frame::Frame;
