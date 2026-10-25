@@ -55,6 +55,14 @@ async function clickCanvas(nx, ny) {
   await page.waitForTimeout(160);
 }
 
+/** Two-click wall segment; Esc clears chain state for the next segment. */
+async function placeWallLine(nx1, ny1, nx2, ny2) {
+  await clickCanvas(nx1, ny1);
+  await clickCanvas(nx2, ny2);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(120);
+}
+
 async function useTool(name) {
   const btn = page.getByRole('button', { name, exact: true });
   if ((await btn.count()) === 0 || !(await btn.first().isVisible())) {
@@ -203,19 +211,13 @@ check('Line mode is available', wallModes.includes('Line'));
 check('Arc mode is available', wallModes.includes('Arc'));
 check('Polyline mode is available', wallModes.includes('Polyline'));
 await page.getByRole('button', { name: 'Line', exact: true }).click();
-const corners = [
-  [0.32, 0.5],
-  [0.58, 0.5],
-  [0.58, 0.68],
-  [0.32, 0.68],
-];
-for (let i = 0; i < corners.length; i++) {
-  const a = corners[i];
-  const b = corners[(i + 1) % corners.length];
-  await clickCanvas(a[0], a[1]);
-  await clickCanvas(b[0], b[1]);
-  await page.waitForTimeout(200);
-}
+// Chained wall rectangle (shared corners); snap start to close the loop.
+await clickCanvas(0.32, 0.5);
+await clickCanvas(0.58, 0.5);
+await clickCanvas(0.58, 0.68);
+await clickCanvas(0.32, 0.68);
+await clickCanvas(0.32, 0.5);
+await page.waitForTimeout(200);
 const afterWalls = await elementCount();
 check('four walls placed', afterWalls === 4, `got ${afterWalls}`);
 // Rectangle corners auto-join (miter extensions). Capture joined room mesh.
@@ -227,19 +229,15 @@ const beforeJoins = await elementCount();
 await useTool('Wall');
 await page.getByRole('button', { name: 'Line', exact: true }).click();
 // L-corner (two walls meeting at a right angle)
-await clickCanvas(0.18, 0.28);
-await clickCanvas(0.38, 0.28);
-await clickCanvas(0.38, 0.28);
-await clickCanvas(0.38, 0.48);
+await placeWallLine(0.18, 0.28, 0.38, 0.28);
+await placeWallLine(0.38, 0.28, 0.38, 0.48);
 await page.waitForTimeout(250);
 check('L-corner walls placed', (await elementCount()) === beforeJoins + 2);
 await page.screenshot({ path: `${OUT}/apex-path-joins-l-corner.png`, fullPage: true });
 
 // T-junction: host span + stem into mid-edge
-await clickCanvas(0.15, 0.72);
-await clickCanvas(0.45, 0.72);
-await clickCanvas(0.30, 0.58);
-await clickCanvas(0.30, 0.72);
+await placeWallLine(0.15, 0.72, 0.45, 0.72);
+await placeWallLine(0.30, 0.58, 0.30, 0.72);
 await page.waitForTimeout(250);
 check('T-junction walls placed', (await elementCount()) === beforeJoins + 4);
 await page.screenshot({ path: `${OUT}/apex-path-joins-t-junction.png`, fullPage: true });
@@ -593,8 +591,8 @@ check('wall profile control is present', labels.some((l) => l.startsWith('Profil
 check('instance block is present', (await page.locator('[data-section="instance"]').count()) === 1);
 check('type block is present', (await page.locator('[data-section="type"]').count()) === 1);
 check(
-  'type thickness is read-only',
-  await page.locator('[data-section="type"] input[type="number"]').first().isDisabled(),
+  'wall thickness override field is present',
+  (await page.getByTestId('wall-thickness-field').count()) >= 1,
 );
 
 const wallProfile = page.locator('.inspector-body select').first();

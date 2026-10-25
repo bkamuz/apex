@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use apex_geometry::TriangleMesh;
+use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
 use crate::construction_line::{ConstructionLine, ConstructionLineId, ConstructionLineLibrary};
@@ -539,6 +540,41 @@ impl Document {
         }
     }
 
+    /// Axis-aligned bounds of cached element meshes for camera fit (not grid/helpers).
+    ///
+    /// Vertices are clamped so kilometre-long construction helpers cannot blow up fit.
+    pub fn model_fit_bounds(&self) -> Option<(Vec3, Vec3)> {
+        const CLAMP: f32 = 500.0;
+        let mut min = Vec3::splat(f32::INFINITY);
+        let mut max = Vec3::splat(f32::NEG_INFINITY);
+        let mut any = false;
+        for element in self.elements.values() {
+            let Some(mesh) = self.meshes.get(&element.id) else {
+                continue;
+            };
+            for [x, y, z] in mesh.positions.as_chunks::<3>().0 {
+                let x = x.clamp(-CLAMP, CLAMP);
+                let y = y.clamp(-CLAMP, CLAMP);
+                let z = z.clamp(-CLAMP, CLAMP);
+                if !x.is_finite() || !y.is_finite() || !z.is_finite() {
+                    continue;
+                }
+                min.x = min.x.min(x);
+                min.y = min.y.min(y);
+                min.z = min.z.min(z);
+                max.x = max.x.max(x);
+                max.y = max.y.max(y);
+                max.z = max.z.max(z);
+                any = true;
+            }
+        }
+        if !any || min.x > max.x || min.y > max.y || min.z > max.z {
+            None
+        } else {
+            Some((min, max))
+        }
+    }
+
     fn bump(&mut self, kind: DocumentChangeKind, element_ids: Vec<ElementId>) -> DocumentChange {
         self.version = self.version.saturating_add(1);
         DocumentChange {
@@ -687,5 +723,30 @@ mod tests {
             .map(|e| e.component_id.clone())
             .collect();
         assert_eq!(ids.len(), 3, "no component type is privileged");
+    }
+
+    #[test]
+    fn model_fit_bounds_clamps_kilometre_mesh_coords() {
+        let mut doc = Document::new();
+        let level = doc.active_level_id().unwrap();
+        let element = wall_on(level, Vec3::ZERO, Vec3::new(4.0, 0.0, 0.0));
+        let mut mesh = TriangleMesh::empty();
+        mesh.push_triangle(
+            [0.0, 0.0, 0.0],
+            [5.0, 0.0, 0.0],
+            [5.0, 0.0, 5.0],
+            [0.0, 1.0, 0.0],
+        );
+        mesh.push_triangle(
+            [20_000.0, 0.0, 0.0],
+            [20_001.0, 0.0, 0.0],
+            [20_001.0, 0.0, 1.0],
+            [0.0, 1.0, 0.0],
+        );
+        doc.upsert_element(element, mesh);
+        let (min, max) = doc.model_fit_bounds().expect("bounds");
+        assert!(max.x <= 500.0, "clamp huge coords, got {}", max.x);
+        assert!(max.x >= 5.0, "keep real geometry, got {}", max.x);
+        assert!(min.x <= 0.0);
     }
 }

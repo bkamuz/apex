@@ -1,5 +1,13 @@
 /** Flat-buffer WebGL2 renderer — solid + CAD edges, pick by triangle id. */
 
+import {
+  aabbCenter,
+  perspectiveFitDistance,
+  planFitDistance,
+  sanitizeAabb,
+  type Aabb,
+} from './fitView';
+
 export type Vec3 = [number, number, number];
 
 /** Consecutive point pairs for a polyline through `points`. */
@@ -25,6 +33,10 @@ export interface SceneMeshData {
   pickIds: ArrayLike<number>;
   edgePositions?: ArrayLike<number>;
   selectedPickIds: number[];
+  /** Model-element bounds from the core (ignores huge helpers). */
+  fitBounds?: { min: Vec3; max: Vec3 } | null;
+  /** Pick ids for horizontal slabs/floors drawn under walls in plan. */
+  slabPickIds?: number[];
   fitCamera?: boolean;
 }
 
@@ -107,7 +119,18 @@ uniform int uSelectionMode; // 0=all, 1=opaque others, 2=selected only
 uniform int uPlanMode;
 uniform float uCutY;
 uniform float uCutFade;
+uniform int uMeshLayer;
+uniform int uSlabPickCount;
+uniform float uSlabPicks[32];
 out vec4 outColor;
+
+bool isSlabPick(float pick) {
+  for (int i = 0; i < 32; i++) {
+    if (i >= uSlabPickCount) break;
+    if (abs(pick - uSlabPicks[i]) < 0.5) return true;
+  }
+  return false;
+}
 
 bool isSelectedPick(float pick) {
   for (int i = 0; i < 32; i++) {
@@ -130,6 +153,9 @@ void main(){
   bool selected = isSelectedPick(vPick);
   if (uSelectionMode == 1 && selected) discard;
   if (uSelectionMode == 2 && !selected) discard;
+  bool slab = isSlabPick(vPick);
+  if (uPlanMode != 0 && uMeshLayer == 1 && !slab) discard;
+  if (uPlanMode != 0 && uMeshLayer == 2 && slab) discard;
   vec3 n = normalize(vNormal);
   // Two-sided: thin walls stay lit when viewed from either side.
   float ndl = abs(dot(n, normalize(uLightDir)));
@@ -143,6 +169,9 @@ void main(){
     if (above > uCutFade) discard;
     if (above > 0.0) {
       alpha *= 1.0 - clamp(above / max(uCutFade, 1e-4), 0.0, 0.92);
+    }
+    if (slab && uMeshLayer != 2) {
+      alpha *= 0.34;
     }
     if (abs(vWorld.y - uCutY) < 0.12) {
       base = mix(base, vec3(0.12, 0.13, 0.15), 0.55);
@@ -294,6 +323,9 @@ type MeshUniforms = {
   uPlanMode: WebGLUniformLocation | null;
   uCutY: WebGLUniformLocation | null;
   uCutFade: WebGLUniformLocation | null;
+  uMeshLayer: WebGLUniformLocation | null;
+  uSlabPickCount: WebGLUniformLocation | null;
+  uSlabPicks: WebGLUniformLocation | null;
 };
 
 type LineUniforms = {
@@ -337,6 +369,9 @@ function meshUniforms(gl: WebGL2RenderingContext, prog: WebGLProgram): MeshUnifo
     uPlanMode: gl.getUniformLocation(prog, 'uPlanMode'),
     uCutY: gl.getUniformLocation(prog, 'uCutY'),
     uCutFade: gl.getUniformLocation(prog, 'uCutFade'),
+    uMeshLayer: gl.getUniformLocation(prog, 'uMeshLayer'),
+    uSlabPickCount: gl.getUniformLocation(prog, 'uSlabPickCount'),
+    uSlabPicks: gl.getUniformLocation(prog, 'uSlabPicks'),
   };
 }
 
@@ -792,8 +827,9 @@ export class ViewportRenderer {
   /** Horizontal plan cut height (world Y); defaults with active level elevation. */
   private planCutY = 0;
   private planCutFade = 0.35;
-  private sceneAabb: { min: [number, number, number]; max: [number, number, number] } | null =
-    null;
+  private sceneAabb: Aabb | null = null;
+  private slabPickIds: number[] = [];
+  private scratchSlabPicks = new Float32Array(32);
   private gridAxisBubbleRaw: Float32Array | null = null;
   private lastPlanBubbleDistance = -1;
   private sceneExtent = 10;
@@ -1079,23 +1115,20 @@ export class ViewportRenderer {
   /** Fit the camera to the current scene bounds (3D) or XZ extents at the cut (plan). */
   fitViewExtents(): void {
     if (!this.sceneAabb) return;
-    const { min, max } = this.sceneAabb;
+    const aabb = this.sceneAabb;
     if (this.viewNavigation === 'plan') {
-      const cx = (min[0] + max[0]) * 0.5;
-      const cz = (min[2] + max[2]) * 0.5;
-      const sx = Math.max(max[0] - min[0], 2);
-      const sz = Math.max(max[2] - min[2], 2);
+      const cx = (aabb.min[0] + aabb.max[0]) * 0.5;
+      const cz = (aabb.min[2] + aabb.max[2]) * 0.5;
       this.camera.target = [cx, this.planCutY, cz];
       this.camera.yaw = 0;
       this.camera.pitch = PITCH_LIMIT;
       const aspect = this.canvas.clientWidth / Math.max(1, this.canvas.clientHeight);
-      const span = Math.max(sx / aspect, sz, 2);
-      this.camera.distance = Math.max(span * 0.55, 4);
+      this.camera.distance = planFitDistance(aabb, aspect, CAMERA_FOVY);
       this.frameMats = null;
       this.refreshPlanBubbleGeometry(true);
       return;
     }
-    this.fitToAabb(min, max);
+    this.fitToAabb(aabb.min, aabb.max);
   }
 
   /** Restore the default home camera pose (keeps projection mode). */
@@ -1155,18 +1188,24 @@ export class ViewportRenderer {
 
     this.selectedPickIds = data.selectedPickIds.slice(0, 32);
 
-    const aabb = aabbFromPositions(positions);
-    if (aabb) {
-      this.sceneAabb = { min: aabb.min, max: aabb.max };
-      const sx = aabb.max[0] - aabb.min[0];
-      const sy = aabb.max[1] - aabb.min[1];
-      const sz = aabb.max[2] - aabb.min[2];
+    this.slabPickIds = (data.slabPickIds ?? []).slice(0, 32);
+    const meshAabb = aabbFromPositions(positions);
+    const fitAabb =
+      sanitizeAabb(data.fitBounds ?? null) ??
+      sanitizeAabb(meshAabb ? { min: meshAabb.min, max: meshAabb.max } : null);
+    if (fitAabb) {
+      this.sceneAabb = fitAabb;
+      const sx = fitAabb.max[0] - fitAabb.min[0];
+      const sy = fitAabb.max[1] - fitAabb.min[1];
+      const sz = fitAabb.max[2] - fitAabb.min[2];
       this.sceneExtent = Math.max(sx, sy, sz, 2);
-      this.expandGridToInclude(aabb.min[0], aabb.max[0], aabb.min[2], aabb.max[2]);
+      if (meshAabb) {
+        this.expandGridToInclude(meshAabb.min[0], meshAabb.max[0], meshAabb.min[2], meshAabb.max[2]);
+      }
       // Opt-in only — never yank the camera unless the caller asked.
       if (data.fitCamera === true) {
         if (this.viewNavigation === 'plan') this.fitViewExtents();
-        else this.fitToAabb(aabb.min, aabb.max);
+        else this.fitToAabb(fitAabb.min, fitAabb.max);
       }
     } else {
       this.sceneAabb = null;
@@ -1175,15 +1214,14 @@ export class ViewportRenderer {
   }
 
   fitToAabb(min: [number, number, number], max: [number, number, number]): void {
-    const cx = (min[0] + max[0]) * 0.5;
-    const cy = (min[1] + max[1]) * 0.5;
-    const cz = (min[2] + max[2]) * 0.5;
-    const sx = Math.max(max[0] - min[0], 0.5);
-    const sy = Math.max(max[1] - min[1], 0.5);
-    const sz = Math.max(max[2] - min[2], 0.5);
-    const radius = Math.hypot(sx, sy, sz) * 0.5;
-    this.camera.target = [cx, cy, cz];
-    this.camera.distance = Math.max(radius * 2.6, 6);
+    const aabb = sanitizeAabb({ min, max });
+    if (!aabb) return;
+    const center = aabbCenter(aabb);
+    this.camera.target = center;
+    this.camera.distance = perspectiveFitDistance(aabb);
+    const sx = aabb.max[0] - aabb.min[0];
+    const sy = aabb.max[1] - aabb.min[1];
+    const sz = aabb.max[2] - aabb.min[2];
     this.sceneExtent = Math.max(sx, sy, sz, 2);
   }
 
@@ -2146,6 +2184,16 @@ export class ViewportRenderer {
     this.pickH = h;
   }
 
+  private uploadSlabPickUniforms(u: MeshUniforms): void {
+    const gl = this.gl;
+    this.scratchSlabPicks.fill(0);
+    for (let i = 0; i < this.slabPickIds.length && i < 32; i++) {
+      this.scratchSlabPicks[i] = this.slabPickIds[i]!;
+    }
+    gl.uniform1i(u.uSlabPickCount, Math.min(this.slabPickIds.length, 32));
+    gl.uniform1fv(u.uSlabPicks, this.scratchSlabPicks);
+  }
+
   private drawMeshes(pickPass: boolean): void {
     const gl = this.gl;
     if (this.indexCount === 0) return;
@@ -2169,6 +2217,7 @@ export class ViewportRenderer {
     gl.uniform1i(u.uPlanMode, this.viewNavigation === 'plan' ? 1 : 0);
     gl.uniform1f(u.uCutY, this.planCutY);
     gl.uniform1f(u.uCutFade, this.planCutFade);
+    this.uploadSlabPickUniforms(u);
 
     gl.bindVertexArray(this.vao);
     gl.enable(gl.DEPTH_TEST);
@@ -2178,13 +2227,32 @@ export class ViewportRenderer {
       gl.polygonOffset(1, 1);
     }
 
+    const planLayered =
+      !pickPass && this.viewNavigation === 'plan' && this.slabPickIds.length > 0;
+
     if (pickPass) {
       gl.disable(gl.BLEND);
       gl.depthMask(true);
+      gl.uniform1i(u.uMeshLayer, 0);
       gl.uniform1i(u.uSelectionMode, 0);
       gl.uniform1f(u.uOpacity, 1.0);
       gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_INT, 0);
+    } else if (planLayered) {
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.depthMask(false);
+      gl.uniform1i(u.uSelectionMode, 0);
+      gl.uniform1f(u.uOpacity, 1.0);
+      gl.uniform1i(u.uMeshLayer, 1);
+      gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_INT, 0);
+      gl.disable(gl.BLEND);
+      gl.depthMask(true);
+      gl.uniform1i(u.uMeshLayer, 2);
+      gl.uniform1f(u.uOpacity, 1.0);
+      gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_INT, 0);
+      gl.uniform1i(u.uMeshLayer, 0);
     } else if (this.selectedPickIds.length > 0) {
+      gl.uniform1i(u.uMeshLayer, 0);
       // Opaque walls first (skip selection).
       gl.disable(gl.BLEND);
       gl.depthMask(true);
@@ -2205,6 +2273,7 @@ export class ViewportRenderer {
     } else {
       gl.disable(gl.BLEND);
       gl.depthMask(true);
+      gl.uniform1i(u.uMeshLayer, 0);
       gl.uniform1i(u.uSelectionMode, 0);
       gl.uniform1f(u.uOpacity, 1.0);
       gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_INT, 0);
@@ -2237,6 +2306,8 @@ export class ViewportRenderer {
     gl.uniform1i(u.uPlanMode, this.viewNavigation === 'plan' ? 1 : 0);
     gl.uniform1f(u.uCutY, this.planCutY);
     gl.uniform1f(u.uCutFade, this.planCutFade);
+    gl.uniform1i(u.uMeshLayer, 0);
+    this.uploadSlabPickUniforms(u);
 
     gl.bindVertexArray(this.ghostVao);
     gl.vertexAttrib1f(2, 0);
