@@ -118,74 +118,6 @@ pub fn bounds_2d(drawing: &VectorDrawing2d) -> Option<([f64; 2], [f64; 2])> {
     }
 }
 
-/// Fit a plan drawing (metres) into a sheet viewport rectangle (mm).
-pub fn fit_view_to_viewport_mm(
-    drawing: &VectorDrawing2d,
-    center_x_mm: f64,
-    center_y_mm: f64,
-    width_mm: f64,
-    height_mm: f64,
-) -> VectorDrawing2d {
-    let Some((min, max)) = bounds_2d(drawing) else {
-        return VectorDrawing2d {
-            units: ExportUnits::Millimetres,
-            scale_denominator: drawing.scale_denominator,
-            lines: Vec::new(),
-            texts: Vec::new(),
-            dimensions: Vec::new(),
-        };
-    };
-    let cx = (min[0] + max[0]) * 0.5;
-    let cz = (min[1] + max[1]) * 0.5;
-    let w_m = (max[0] - min[0]).max(0.5);
-    let h_m = (max[1] - min[1]).max(0.5);
-    let mm_per_m = 1000.0 / f64::from(drawing.scale_denominator.max(1.0));
-    let content_w_mm = w_m * mm_per_m;
-    let content_h_mm = h_m * mm_per_m;
-    let fit = (width_mm * 0.92 / content_w_mm).min(height_mm * 0.92 / content_h_mm);
-
-    let map = |p: [f64; 2]| -> [f64; 2] {
-        let dx = (p[0] - cx) * mm_per_m * fit;
-        let dz = (p[1] - cz) * mm_per_m * fit;
-        [center_x_mm + dx, center_y_mm + dz]
-    };
-
-    let mut out = VectorDrawing2d {
-        units: ExportUnits::Millimetres,
-        scale_denominator: drawing.scale_denominator,
-        lines: Vec::new(),
-        texts: Vec::new(),
-        dimensions: Vec::new(),
-    };
-    for line in &drawing.lines {
-        out.lines.push(VectorLine2d {
-            layer: line.layer.clone(),
-            a: map(line.a),
-            b: map(line.b),
-        });
-    }
-    for text in &drawing.texts {
-        out.texts.push(VectorText2d {
-            layer: text.layer.clone(),
-            position: map(text.position),
-            height: text.height * mm_per_m * fit,
-            text: text.text.clone(),
-        });
-    }
-    for dim in &drawing.dimensions {
-        out.dimensions
-            .push(crate::vector_export::VectorDimension2d {
-                layer: dim.layer.clone(),
-                extension_a: map(dim.extension_a),
-                extension_b: map(dim.extension_b),
-                dim_a: map(dim.dim_a),
-                dim_b: map(dim.dim_b),
-                text_position: map(dim.text_position),
-                text: dim.text.clone(),
-            });
-    }
-    out
-}
 
 /// Clip vector geometry to a closed polygon (sheet mm).
 pub fn clip_drawing_to_polygon(drawing: &VectorDrawing2d, ring: &[[f64; 2]]) -> VectorDrawing2d {
@@ -275,76 +207,18 @@ impl crate::project::Project {
             let Some(view_drawing) = self.vector_export_view(vp.view_id) else {
                 continue;
             };
-            let (crop_min, crop_max) = vp.crop_bbox_mm();
-            let crop_cx = (crop_min[0] + crop_max[0]) * 0.5;
-            let crop_cy = (crop_min[1] + crop_max[1]) * 0.5;
-            let crop_w = (crop_max[0] - crop_min[0]).max(1.0);
-            let crop_h = (crop_max[1] - crop_min[1]).max(1.0);
-            let fitted = fit_view_to_viewport_mm(
+            let mapped = crate::sheet_scale::map_view_drawing_to_sheet_mm(
                 &view_drawing,
-                crop_cx,
-                crop_cy,
-                crop_w,
-                crop_h,
+                f64::from(vp.anchor_x_m),
+                f64::from(vp.anchor_z_m),
+                f64::from(vp.center_x_mm),
+                f64::from(vp.center_y_mm),
             );
             let crop_ring = vp.crop_polygon_mm();
-            let clipped = clip_drawing_to_polygon(&fitted, &crop_ring);
+            let clipped = clip_drawing_to_polygon(&mapped, &crop_ring);
             combined.lines.extend(clipped.lines);
             combined.texts.extend(clipped.texts);
             combined.dimensions.extend(clipped.dimensions);
-            let ring = &crop_ring;
-            for i in 0..ring.len() {
-                let j = (i + 1) % ring.len();
-                combined.lines.push(VectorLine2d {
-                    layer: "VIEWPORT_CROP".into(),
-                    a: ring[i],
-                    b: ring[j],
-                });
-            }
-            combined.lines.push(VectorLine2d {
-                layer: "VIEWPORT".into(),
-                a: [
-                    (vp.center_x_mm - vp.width_mm * 0.5) as f64,
-                    (vp.center_y_mm - vp.height_mm * 0.5) as f64,
-                ],
-                b: [
-                    (vp.center_x_mm + vp.width_mm * 0.5) as f64,
-                    (vp.center_y_mm - vp.height_mm * 0.5) as f64,
-                ],
-            });
-            combined.lines.push(VectorLine2d {
-                layer: "VIEWPORT".into(),
-                a: [
-                    (vp.center_x_mm + vp.width_mm * 0.5) as f64,
-                    (vp.center_y_mm - vp.height_mm * 0.5) as f64,
-                ],
-                b: [
-                    (vp.center_x_mm + vp.width_mm * 0.5) as f64,
-                    (vp.center_y_mm + vp.height_mm * 0.5) as f64,
-                ],
-            });
-            combined.lines.push(VectorLine2d {
-                layer: "VIEWPORT".into(),
-                a: [
-                    (vp.center_x_mm + vp.width_mm * 0.5) as f64,
-                    (vp.center_y_mm + vp.height_mm * 0.5) as f64,
-                ],
-                b: [
-                    (vp.center_x_mm - vp.width_mm * 0.5) as f64,
-                    (vp.center_y_mm + vp.height_mm * 0.5) as f64,
-                ],
-            });
-            combined.lines.push(VectorLine2d {
-                layer: "VIEWPORT".into(),
-                a: [
-                    (vp.center_x_mm - vp.width_mm * 0.5) as f64,
-                    (vp.center_y_mm + vp.height_mm * 0.5) as f64,
-                ],
-                b: [
-                    (vp.center_x_mm - vp.width_mm * 0.5) as f64,
-                    (vp.center_y_mm - vp.height_mm * 0.5) as f64,
-                ],
-            });
         }
 
         Some(combined)
@@ -390,5 +264,50 @@ mod tests {
         assert!(dxf.contains("  0\nLINE\n"));
         assert!(dxf.contains("  0\nTEXT\n"));
         assert!(dxf.contains("A1"));
+    }
+
+    #[test]
+    fn sheet_export_10m_wall_measures_100mm_at_1_100() {
+        use glam::Vec3;
+
+        use crate::param::ParamMap;
+        use crate::placement::PlacementKind;
+        use crate::Project;
+
+        let mut project = Project::new();
+        let level = project.document().active_level_id().expect("level");
+        let view_id = project.create_plan_view(level).expect("view");
+        project
+            .views
+            .get_mut(&view_id)
+            .expect("view")
+            .settings
+            .scale = 100.0;
+        let a = Vec3::new(0.0, 0.0, 0.0);
+        let b = Vec3::new(10.0, 0.0, 0.0);
+        let placement = project
+            .placement_from_gesture("apex.wall", Some(PlacementKind::TwoPoint), &[a, b], 0.0)
+            .expect("placement");
+        project
+            .create_element("apex.wall", placement, ParamMap::new())
+            .expect("wall");
+        let sheet_id = project.create_sheet("A101".into(), "Plan".into());
+        project
+            .place_view_on_sheet(sheet_id, view_id, 150.0, 150.0, 0.0, 0.0)
+            .expect("place");
+        let drawing = project.vector_export_sheet(sheet_id).expect("export");
+        let mut best = 0.0_f64;
+        for line in &drawing.lines {
+            if line.layer != "WALL" {
+                continue;
+            }
+            let len =
+                ((line.b[0] - line.a[0]).powi(2) + (line.b[1] - line.a[1]).powi(2)).sqrt();
+            best = best.max(len);
+        }
+        assert!(
+            (best - 100.0).abs() < 1.0,
+            "expected ~100 mm wall on sheet, longest WALL segment was {best} mm"
+        );
     }
 }

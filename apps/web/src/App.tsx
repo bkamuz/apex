@@ -77,6 +77,7 @@ import {
   apexExportViewDxf,
   apexSetSheetViewportCrop,
   apexResetSheetViewportCrop,
+  apexSetSheetViewportScale,
   initApex,
 } from './wasm/apex';
 import {
@@ -429,9 +430,22 @@ export default function App() {
 
   const syncSheetViewportScene = useCallback(
     (renderer: ViewportRenderer, next: SceneDto, viewId: string) => {
-      syncSceneToRenderer(renderer, next, false, viewId, true);
+      const view = findView(next, viewId);
+      const hidden = hiddenCategoriesForView(view);
+      renderer.setSheetPresentation(true);
+      renderer.setLevelPlanes([]);
+      renderer.setScene({
+        positions: toFloatArray(next.positions),
+        normals: toFloatArray(next.normals),
+        indices: toUint32Array(next.indices),
+        pickIds: filterPickIdsForCategories(next, hidden),
+        edgePositions: next.edge_positions ? toFloatArray(next.edge_positions) : [],
+        selectedPickIds: [],
+        fitCamera: false,
+      });
+      syncViewAnnotationOverlays(next, viewId);
     },
-    [syncSceneToRenderer],
+    [syncViewAnnotationOverlays],
   );
 
   const applyScene = useCallback(
@@ -1270,6 +1284,16 @@ export default function App() {
     [activeSheet, runViewAction],
   );
 
+  const onSetSheetViewportScale = useCallback(
+    (viewportId: string, scale: number) => {
+      if (!activeSheet) return;
+      runViewAction(() =>
+        apexSetSheetViewportScale(activeSheet.id, viewportId, scale),
+      );
+    },
+    [activeSheet, runViewAction],
+  );
+
   useEffect(() => {
     if (!ready || activeTab?.kind !== 'view' || !activeViewId || !scene) return;
     const view = findView(scene, activeViewId);
@@ -2095,6 +2119,7 @@ export default function App() {
           syncSheetViewportScene={syncSheetViewportScene}
           onSheetViewportCropChange={onSheetViewportCropChange}
           onResetSheetViewportCrop={onResetSheetViewportCrop}
+          onSetSheetViewportScale={onSetSheetViewportScale}
           onExportActiveViewSvg={onExportActiveViewSvg}
           onExportActiveViewDxf={onExportActiveViewDxf}
           onExportActiveViewPdf={onExportActiveViewPdf}

@@ -1306,6 +1306,24 @@ export function setSheetViewportCrop(sheet_id, viewport_id, crop_json) {
 }
 
 /**
+ * @param {string} sheet_id
+ * @param {string} viewport_id
+ * @param {number} scale_denominator
+ * @returns {any}
+ */
+export function setSheetViewportScale(sheet_id, viewport_id, scale_denominator) {
+    const ptr0 = passStringToWasm0(sheet_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(viewport_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.setSheetViewportScale(ptr0, len0, ptr1, len1, scale_denominator);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * @param {string} id
  * @param {string} points_json
  * @param {number} rotation

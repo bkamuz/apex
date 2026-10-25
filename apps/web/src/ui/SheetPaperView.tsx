@@ -13,6 +13,7 @@ import {
   removeVertex,
   type CropUv,
 } from './sheetCropModel';
+import { formatViewScale, STANDARD_VIEW_SCALES } from './sheetScales';
 
 interface Props {
   sheet: SheetDto;
@@ -23,6 +24,7 @@ interface Props {
   syncScene: (renderer: ViewportRenderer, scene: SceneDto, viewId: string) => void;
   onCropChange: (viewportId: string, crop: CropUvDto[]) => void;
   onResetCrop: (viewportId: string) => void;
+  onSetViewportScale: (viewportId: string, scale: number) => void;
 }
 
 const MM_TO_PX = 2.5;
@@ -37,10 +39,12 @@ export function SheetPaperView({
   syncScene,
   onCropChange,
   onResetCrop,
+  onSetViewportScale,
 }: Props) {
   const paperRef = useRef<HTMLDivElement>(null);
   const [dragViewport, setDragViewport] = useState<string | null>(null);
   const [selectedViewportId, setSelectedViewportId] = useState<string | null>(null);
+  const [customScaleDraft, setCustomScaleDraft] = useState('');
 
   const widthPx = sheet.width_mm * MM_TO_PX;
   const heightPx = sheet.height_mm * MM_TO_PX;
@@ -97,6 +101,13 @@ export function SheetPaperView({
     onResetCrop(selectedViewportId);
   }, [onResetCrop, selectedViewportId]);
 
+  const selectedViewport = viewports.find((vp) => vp.id === selectedViewportId);
+  const selectedView = selectedViewport
+    ? resolveView(scene, selectedViewport.view_id)
+    : undefined;
+  const selectedScale = Math.round(selectedView?.settings.scale ?? 100);
+  const scaleIsStandard = STANDARD_VIEW_SCALES.some((s) => s === selectedScale);
+
   const viewportNodes = useMemo(
     () =>
       viewports.map((vp) => (
@@ -136,10 +147,56 @@ export function SheetPaperView({
         <span>
           {sheet.number} — {sheet.name} ({sheet.paper} {sheet.orientation})
         </span>
-        {selectedViewportId ? (
-          <button type="button" data-testid="reset-viewport-crop" onClick={onResetCropClick}>
-            Reset crop
-          </button>
+        {selectedViewportId && selectedViewport ? (
+          <>
+            <label className="sheet-scale-control">
+              Scale
+              <select
+                data-testid="viewport-scale-select"
+                value={scaleIsStandard ? String(selectedScale) : 'custom'}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  if (v === 'custom') return;
+                  onSetViewportScale(selectedViewportId, Number(v));
+                }}
+              >
+                {STANDARD_VIEW_SCALES.map((s) => (
+                  <option key={s} value={s}>
+                    {formatViewScale(s)}
+                  </option>
+                ))}
+                <option value="custom">Custom…</option>
+              </select>
+            </label>
+            {!scaleIsStandard || customScaleDraft ? (
+              <label className="sheet-scale-control">
+                Custom
+                <input
+                  type="number"
+                  min={1}
+                  step={1}
+                  data-testid="viewport-scale-custom"
+                  value={
+                    customScaleDraft ||
+                    (scaleIsStandard ? '' : String(selectedScale))
+                  }
+                  placeholder="1:?"
+                  onChange={(e) => setCustomScaleDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== 'Enter' || !selectedViewportId) return;
+                    const n = Number(customScaleDraft || e.currentTarget.value);
+                    if (Number.isFinite(n) && n >= 1) {
+                      onSetViewportScale(selectedViewportId, n);
+                      setCustomScaleDraft('');
+                    }
+                  }}
+                />
+              </label>
+            ) : null}
+            <button type="button" data-testid="reset-viewport-crop" onClick={onResetCropClick}>
+              Reset crop
+            </button>
+          </>
         ) : null}
         <button type="button" data-testid="export-sheet-svg" onClick={onExportSvg}>
           Export SVG
@@ -346,8 +403,8 @@ function SheetViewportFrame({
           </svg>
         ) : null}
       </div>
-      <div className="sheet-viewport-label">
-        {view?.name ?? 'View'} · 1:{Math.round(view?.settings.scale ?? 100)}
+      <div className="sheet-viewport-label" data-testid={`viewport-title-${viewport.id}`}>
+        {view?.name ?? 'View'} · {formatViewScale(view?.settings.scale ?? 100)}
         {selected ? ' · drag vertices · dbl-click + on edge · right-click remove' : ''}
       </div>
     </div>

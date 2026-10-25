@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import type { SceneDto, SheetViewportDto, ViewDto } from '../types';
 import { ViewportRenderer } from '../viewport/ViewportRenderer';
-import { applyViewToRenderer, findView } from './viewModel';
+import { findView } from './viewModel';
 import { viewAnnotationSegments } from './viewAnnotationSegments';
 import { cropToCssClipPath } from './sheetCropModel';
 
@@ -29,6 +29,7 @@ export function LiveSheetViewport({ scene, view, viewport, syncScene }: Props) {
     if (!canvas) return;
     if (!rendererRef.current) {
       rendererRef.current = new ViewportRenderer(canvas);
+      rendererRef.current.setSheetPresentation(true);
     }
     return () => {
       rendererRef.current?.dispose();
@@ -40,18 +41,23 @@ export function LiveSheetViewport({ scene, view, viewport, syncScene }: Props) {
     const renderer = rendererRef.current;
     if (!renderer) return;
     syncScene(renderer, scene, view.id);
-    applyViewToRenderer(view, renderer);
-    if (viewport.camera) {
-      renderer.setCamera({
-        target: viewport.camera.target,
-        distance: viewport.camera.distance,
-        yaw: viewport.camera.yaw,
-        pitch: viewport.camera.pitch,
-      });
-    }
+    const kind = view.kind;
+    const cutY = kind.kind === 'plan' ? kind.cut_height : 0;
+    const scale = view.settings.scale;
+    const anchorX = viewport.anchor_x_m ?? 0;
+    const anchorZ = viewport.anchor_z_m ?? 0;
+    renderer.setPlanCutHeight(cutY);
+    renderer.setSheetPlanFrustum(
+      viewport.width_mm,
+      viewport.height_mm,
+      scale,
+      anchorX,
+      anchorZ,
+      cutY,
+    );
     renderer.setViewAnnotationOverlays(viewAnnotationSegments(scene, view.id));
-    renderer.setTouchOrbitEnabled(!viewport.lock_navigation);
-  }, [scene, syncScene, view, viewport.camera, viewport.lock_navigation]);
+    renderer.setTouchOrbitEnabled(false);
+  }, [scene, syncScene, view, viewport]);
 
   return (
     <div

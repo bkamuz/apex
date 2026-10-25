@@ -217,4 +217,10 @@ impl Project {
 
         Some(out)
     }
+
+    /// Plan extents of a view export in metres (XZ plane).
+    pub fn view_plan_bounds_m(&self, view_id: ViewId) -> Option<([f64; 2], [f64; 2])> {
+        let drawing = self.vector_export_view(view_id)?;
+        crate::dxf_export::bounds_2d(&drawing)
+    }
 }

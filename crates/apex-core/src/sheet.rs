@@ -10,6 +10,10 @@ use uuid::Uuid;
 use crate::view::{StoredCamera, ViewId};
 use crate::viewport_crop::default_crop_polygon_uv;
 
+fn default_lock_navigation() -> bool {
+    true
+}
+
 pub type SheetLibrary = BTreeMap<SheetId, Sheet>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
@@ -112,11 +116,17 @@ pub struct SheetViewport {
     /// Viewport frame size on the sheet (mm).
     pub width_mm: f32,
     pub height_mm: f32,
-    /// Per-sheet viewport camera override (live on sheet).
+    /// Per-sheet viewport camera override (legacy; sheet viewports use true scale, no pan/zoom).
     #[serde(default)]
     pub camera: Option<StoredCamera>,
-    /// When true, pan/zoom is disabled for this viewport on the sheet.
+    /// World X (metres) shown at viewport centre on sheet.
     #[serde(default)]
+    pub anchor_x_m: f32,
+    /// World Z (metres) shown at viewport centre on sheet.
+    #[serde(default)]
+    pub anchor_z_m: f32,
+    /// When true, pan/zoom is disabled for this viewport on the sheet.
+    #[serde(default = "default_lock_navigation")]
     pub lock_navigation: bool,
     /// Visible crop boundary in normalized frame coordinates (u,v), bottom-left origin.
     #[serde(default = "default_crop_polygon_uv")]
@@ -139,7 +149,9 @@ impl SheetViewport {
             width_mm,
             height_mm,
             camera: None,
-            lock_navigation: false,
+            anchor_x_m: 0.0,
+            anchor_z_m: 0.0,
+            lock_navigation: true,
             crop_polygon: default_crop_polygon_uv(),
         }
     }

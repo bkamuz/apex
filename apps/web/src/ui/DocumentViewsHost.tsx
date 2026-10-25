@@ -21,6 +21,7 @@ interface Props {
   syncSheetViewportScene: (renderer: ViewportRenderer, scene: SceneDto, viewId: string) => void;
   onSheetViewportCropChange: (viewportId: string, crop: CropUvDto[]) => void;
   onResetSheetViewportCrop: (viewportId: string) => void;
+  onSetSheetViewportScale: (viewportId: string, scale: number) => void;
   onExportActiveViewSvg?: () => void;
   onExportActiveViewDxf?: () => void;
   onExportActiveViewPdf?: () => void;
@@ -46,6 +47,7 @@ export function DocumentViewsHost({
   syncSheetViewportScene,
   onSheetViewportCropChange,
   onResetSheetViewportCrop,
+  onSetSheetViewportScale,
   onExportActiveViewSvg,
   onExportActiveViewDxf,
   onExportActiveViewPdf,
@@ -83,6 +85,7 @@ export function DocumentViewsHost({
           syncScene={syncSheetViewportScene}
           onCropChange={onSheetViewportCropChange}
           onResetCrop={onResetSheetViewportCrop}
+          onSetViewportScale={onSetSheetViewportScale}
         />
       ) : (
         <div className={`view-panes${splitEnabled ? ' view-panes--split' : ''}`}>

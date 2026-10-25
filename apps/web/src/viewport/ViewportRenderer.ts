@@ -812,6 +812,8 @@ export class ViewportRenderer {
   private pointers = new Map<number, { x: number; y: number; type: string }>();
   private touchGesture: 'none' | 'orbit' | 'pinchpan' = 'none';
   private touchOrbitEnabled = true;
+  /** Sheet paper viewport: transparent drawing, no camera interaction. */
+  private sheetPresentation = false;
   private pinchStartSpan = 0;
   private pinchStartDistance = 0;
   private lastCentroidX = 0;
@@ -1714,6 +1716,41 @@ export class ViewportRenderer {
     }
   }
 
+  setSheetPresentation(enabled: boolean): void {
+    this.sheetPresentation = enabled;
+    if (enabled) {
+      this.touchOrbitEnabled = false;
+      this.projection = 'orthographic';
+      this.viewNavigation = 'plan';
+      this.camera.yaw = 0;
+      this.camera.pitch = PITCH_LIMIT;
+    }
+    this.frameMats = null;
+  }
+
+  /** True-scale ortho frustum for a sheet viewport (mm on paper, model metres). */
+  setSheetPlanFrustum(
+    widthMm: number,
+    heightMm: number,
+    scaleDenominator: number,
+    anchorXM: number,
+    anchorZM: number,
+    cutY: number,
+  ): void {
+    const mmPerM = 1000 / Math.max(1, scaleDenominator);
+    const halfH_m = heightMm / 2 / mmPerM;
+    const halfW_m = widthMm / 2 / mmPerM;
+    const aspect = this.canvas.clientWidth / Math.max(1, this.canvas.clientHeight);
+    const halfHNeeded = Math.max(halfH_m, halfW_m / aspect);
+    const tanHalfFov = Math.tan(CAMERA_FOVY / 2);
+    this.camera.distance = Math.max(halfHNeeded / tanHalfFov, 0.01);
+    this.camera.target = [anchorXM, cutY, anchorZM];
+    this.camera.yaw = 0;
+    this.camera.pitch = PITCH_LIMIT;
+    this.planCutY = cutY;
+    this.frameMats = null;
+  }
+
   private bindEvents(): void {
     const signal = this.eventAbort.signal;
     const opt = { signal };
@@ -1721,6 +1758,13 @@ export class ViewportRenderer {
 
     this.canvas.addEventListener('pointerdown', (e) => {
       this.pointers.set(e.pointerId, { x: e.clientX, y: e.clientY, type: e.pointerType });
+
+      if (
+        this.sheetPresentation &&
+        (e.pointerType === 'mouse' || e.pointerType === 'pen')
+      ) {
+        return;
+      }
 
       if (e.pointerType === 'touch') {
         const n = this.touchPointerCount();
@@ -1760,6 +1804,7 @@ export class ViewportRenderer {
         return;
       }
       if (e.button === 2) {
+        if (this.sheetPresentation) return;
         // Plan: always pan. 3D: Alt+RMB pans; plain RMB orbits.
         e.preventDefault();
         const mode =
@@ -1857,6 +1902,7 @@ export class ViewportRenderer {
     this.canvas.addEventListener(
       'wheel',
       (e) => {
+        if (this.sheetPresentation) return;
         e.preventDefault();
         this.applyWheelZoom(e.clientX, e.clientY, 1 + e.deltaY * 0.001);
       },
@@ -2400,6 +2446,21 @@ export class ViewportRenderer {
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.disable(gl.BLEND);
     gl.depthMask(true);
+
+    if (this.sheetPresentation) {
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+      this.drawLines(this.edgeVao, this.edgeCount, [0.12, 0.12, 0.12, 1], 2.2);
+      this.drawOccludedAxis(
+        this.viewAnnotationLineVao,
+        this.viewAnnotationLineCount,
+        [0.08, 0.08, 0.08, 1],
+        2.0,
+      );
+      this.frameMats = null;
+      return;
+    }
+
     // Match --chrome-viewport (#1c1c1c) so the canvas sits in the industrial shell.
     gl.clearColor(28 / 255, 28 / 255, 28 / 255, 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);

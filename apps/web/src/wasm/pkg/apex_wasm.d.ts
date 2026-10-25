@@ -271,6 +271,8 @@ export function setSectionCutPlacement(id: string, points_json: string, rotation
 
 export function setSheetViewportCrop(sheet_id: string, viewport_id: string, crop_json: string): any;
 
+export function setSheetViewportScale(sheet_id: string, viewport_id: string, scale_denominator: number): any;
+
 export function setSpacePlacement(id: string, points_json: string, rotation: number, record_history: boolean): any;
 
 export function togglePickById(pick_id: number): any;
@@ -395,6 +397,7 @@ export interface InitOutput {
     readonly setReferencePlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly setSectionCutPlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly setSheetViewportCrop: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
+    readonly setSheetViewportScale: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly setSpacePlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly togglePickById: (a: number) => [number, number, number];
     readonly toggleSelectElement: (a: number, b: number) => [number, number, number];

@@ -22,6 +22,7 @@ mod registry;
 mod room_detect;
 mod section_cut;
 mod sheet;
+mod sheet_scale;
 mod sketch;
 mod space;
 mod vector_export;
@@ -68,6 +69,10 @@ pub use section_cut::{
 pub use sheet::{
     PaperOrientation, PaperSize, Sheet, SheetError, SheetId, SheetLibrary, SheetViewport,
     SheetViewportId,
+};
+pub use sheet_scale::{
+    map_view_drawing_to_sheet_mm, mm_per_model_metre, model_metres_to_paper_mm,
+    plan_bounds_center, viewport_size_mm_for_bounds, PAPER_TEXT_HEIGHT_MM, STANDARD_VIEW_SCALES,
 };
 pub use viewport_crop::{
     clip_segment_to_polygon, default_crop_polygon_uv, normalize_crop_polygon, point_in_polygon,

@@ -275,14 +275,34 @@ impl Project {
             .find(|sheet| sheet.viewports.iter().any(|vp| vp.view_id == view_id))
     }
 
+    /// True-scale viewport frame + world anchor for a plan view.
+    fn sheet_viewport_layout_for_view(
+        &self,
+        view_id: ViewId,
+    ) -> (f32, f32, f32, f32, f32) {
+        let scale = self
+            .views
+            .get(&view_id)
+            .map(|v| v.settings.scale)
+            .unwrap_or(100.0);
+        if let Some((min, max)) = self.view_plan_bounds_m(view_id) {
+            let (anchor_x, anchor_z) = crate::sheet_scale::plan_bounds_center(min, max);
+            let (width_mm, height_mm) =
+                crate::sheet_scale::viewport_size_mm_for_bounds(min, max, scale);
+            (anchor_x, anchor_z, width_mm, height_mm, scale)
+        } else {
+            (0.0, 0.0, 120.0, 90.0, scale)
+        }
+    }
+
     pub fn place_view_on_sheet(
         &mut self,
         sheet_id: SheetId,
         view_id: ViewId,
         center_x_mm: f32,
         center_y_mm: f32,
-        width_mm: f32,
-        height_mm: f32,
+        _width_mm: f32,
+        _height_mm: f32,
     ) -> Result<SheetViewportId, SheetError> {
         if !self.views.contains_key(&view_id) {
             return Err(SheetError::ViewNotFound);
@@ -300,6 +320,8 @@ impl Project {
             .iter()
             .find(|vp| vp.view_id == view_id)
             .map(|vp| vp.id);
+        let (anchor_x, anchor_z, auto_w, auto_h, _scale) =
+            self.sheet_viewport_layout_for_view(view_id);
         let before = self.export_snapshot();
         let sheet = self.sheets.get_mut(&sheet_id).ok_or(SheetError::NotFound)?;
         if let Some(vp_id) = existing_id {
@@ -310,16 +332,75 @@ impl Project {
                 .expect("viewport id from same sheet");
             existing.center_x_mm = center_x_mm;
             existing.center_y_mm = center_y_mm;
-            existing.width_mm = width_mm;
-            existing.height_mm = height_mm;
+            existing.width_mm = auto_w;
+            existing.height_mm = auto_h;
+            existing.anchor_x_m = anchor_x;
+            existing.anchor_z_m = anchor_z;
+            existing.lock_navigation = true;
             self.push_undo_snapshot(before);
             return Ok(vp_id);
         }
-        let vp = SheetViewport::new(view_id, center_x_mm, center_y_mm, width_mm, height_mm);
+        let mut vp = SheetViewport::new(view_id, center_x_mm, center_y_mm, auto_w, auto_h);
+        vp.anchor_x_m = anchor_x;
+        vp.anchor_z_m = anchor_z;
         let vp_id = vp.id;
         sheet.viewports.push(vp);
         self.push_undo_snapshot(before);
         Ok(vp_id)
+    }
+
+    /// Set viewport scale (Revit-style: view scale follows viewport) and resize frame about its centre.
+    pub fn set_sheet_viewport_scale(
+        &mut self,
+        sheet_id: SheetId,
+        viewport_id: SheetViewportId,
+        scale_denominator: f32,
+    ) -> Result<(), SheetError> {
+        let scale = scale_denominator.max(1.0);
+        if !self
+            .sheets
+            .get(&sheet_id)
+            .ok_or(SheetError::NotFound)?
+            .viewports
+            .iter()
+            .any(|vp| vp.id == viewport_id)
+        {
+            return Err(SheetError::ViewportNotFound);
+        }
+        let view_id = self
+            .sheets
+            .get(&sheet_id)
+            .ok_or(SheetError::NotFound)?
+            .viewports
+            .iter()
+            .find(|vp| vp.id == viewport_id)
+            .map(|vp| vp.view_id)
+            .expect("viewport exists");
+        let (anchor_x, anchor_z, width_mm, height_mm) = match self.view_plan_bounds_m(view_id) {
+            Some((min, max)) => {
+                let (ax, az) = crate::sheet_scale::plan_bounds_center(min, max);
+                let (w, h) = crate::sheet_scale::viewport_size_mm_for_bounds(min, max, scale);
+                (ax, az, w, h)
+            }
+            None => (0.0, 0.0, 120.0, 90.0),
+        };
+        let before = self.export_snapshot();
+        if let Some(view) = self.views.get_mut(&view_id) {
+            view.settings.scale = scale;
+        }
+        let sheet = self.sheets.get_mut(&sheet_id).ok_or(SheetError::NotFound)?;
+        let vp = sheet
+            .viewports
+            .iter_mut()
+            .find(|vp| vp.id == viewport_id)
+            .expect("viewport exists");
+        vp.width_mm = width_mm;
+        vp.height_mm = height_mm;
+        vp.anchor_x_m = anchor_x;
+        vp.anchor_z_m = anchor_z;
+        vp.lock_navigation = true;
+        self.push_undo_snapshot(before);
+        Ok(())
     }
 
     pub fn move_sheet_viewport(

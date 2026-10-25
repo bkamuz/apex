@@ -93,6 +93,7 @@ import initWasm, {
   updateSheetViewportState,
   setSheetViewportCrop,
   resetSheetViewportCrop,
+  setSheetViewportScale,
 } from './pkg/apex_wasm.js';
 import type {
   ComponentDto,
@@ -662,4 +663,12 @@ export function apexSetSheetViewportCrop(
 
 export function apexResetSheetViewportCrop(sheetId: string, viewportId: string): SceneDto {
   return asScene(resetSheetViewportCrop(sheetId, viewportId));
+}
+
+export function apexSetSheetViewportScale(
+  sheetId: string,
+  viewportId: string,
+  scaleDenominator: number,
+): SceneDto {
+  return asScene(setSheetViewportScale(sheetId, viewportId, scaleDenominator));
 }

@@ -82,6 +82,7 @@ export const setLevelElevation: (a: number, b: number, c: number) => [number, nu
 export const setReferencePlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
 export const setSectionCutPlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
 export const setSheetViewportCrop: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
+export const setSheetViewportScale: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
 export const setSpacePlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
 export const togglePickById: (a: number) => [number, number, number];
 export const toggleSelectElement: (a: number, b: number) => [number, number, number];

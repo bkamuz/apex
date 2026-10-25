@@ -262,6 +262,8 @@ struct SheetViewportDto {
     center_y_mm: f32,
     width_mm: f32,
     height_mm: f32,
+    anchor_x_m: f32,
+    anchor_z_m: f32,
     camera: Option<apex_core::StoredCamera>,
     lock_navigation: bool,
     crop_polygon: Vec<[f32; 2]>,
@@ -800,6 +802,8 @@ fn sheet_dto(sheet: &Sheet) -> SheetDto {
                 center_y_mm: vp.center_y_mm,
                 width_mm: vp.width_mm,
                 height_mm: vp.height_mm,
+                anchor_x_m: vp.anchor_x_m,
+                anchor_z_m: vp.anchor_z_m,
                 camera: vp.camera.clone(),
                 lock_navigation: vp.lock_navigation,
                 crop_polygon: vp.crop_polygon.clone(),
@@ -2267,6 +2271,23 @@ pub fn place_view_on_sheet(
         let view = parse_view_id(view_id)?;
         project
             .place_view_on_sheet(sheet, view, center_x_mm, center_y_mm, width_mm, height_mm)
+            .map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = setSheetViewportScale)]
+pub fn set_sheet_viewport_scale(
+    sheet_id: &str,
+    viewport_id: &str,
+    scale_denominator: f32,
+) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let sheet = parse_sheet_id(sheet_id)?;
+        let viewport = apex_core::SheetViewportId::from_str(viewport_id)
+            .map_err(|e| err(format!("bad viewport id: {e}")))?;
+        project
+            .set_sheet_viewport_scale(sheet, viewport, scale_denominator)
             .map_err(err)?;
         scene(project)
     })

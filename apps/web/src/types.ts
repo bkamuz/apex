@@ -308,6 +308,8 @@ export interface SheetViewportDto {
   center_y_mm: number;
   width_mm: number;
   height_mm: number;
+  anchor_x_m?: number;
+  anchor_z_m?: number;
   camera?: StoredCameraDto | null;
   lock_navigation?: boolean;
   /** Normalized crop ring (u,v) within frame; default full rectangle. */
