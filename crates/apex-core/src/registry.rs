@@ -546,12 +546,11 @@ fn wall() -> ComponentDefinition {
         source: ComponentSource::BuiltIn,
         placement: PlacementKind::Path,
         placement_options: PlacementOptions::default(),
-        params: vec![ParamSpec::profile(
-            "profile",
-            "Profile",
-            "apex.wall.rect",
-            &[],
-        )],
+        params: vec![
+            ParamSpec::profile("profile", "Profile", "apex.wall.rect", &[]),
+            ParamSpec::flag("allow_join_start", "Join at start", true),
+            ParamSpec::flag("allow_join_end", "Join at end", true),
+        ],
         recipe: GeometryRecipe::Sweep {
             profile: ProfileSpec::FromParam {
                 param: "profile".into(),
@@ -1472,7 +1471,7 @@ mod tests {
         let registry = ComponentRegistry::with_builtins();
         let wall = registry.get("apex.wall").unwrap();
         let ids: Vec<_> = wall.params.iter().map(|p| p.id.as_str()).collect();
-        assert_eq!(ids, ["profile"]);
+        assert_eq!(ids, ["profile", "allow_join_start", "allow_join_end"]);
         let profile = registry.profile("apex.wall.rect").expect("rect");
         assert!(profile
             .params
