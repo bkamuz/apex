@@ -29,7 +29,16 @@ pub fn stair_run(ctx: &RecipeContext<'_>) -> Result<TriangleMesh, RecipeError> {
         return Err(RecipeError::NeedsCurve);
     }
     let dir = (*b - *a) / run;
-    let steps = ((run / tread).floor() as u32).max(1);
+    // With a target height (base → top level) the riser count comes from the
+    // height so the last step lands exactly on the top level; the run is then
+    // shared evenly. Without one, fall back to treads along the run.
+    let height = length_param(ctx, "height", 0.0);
+    let (steps, riser, tread) = if height > 1e-3 {
+        let steps = ((height / riser.max(0.05)).round() as u32).max(1);
+        (steps, height / steps as f32, run / steps as f32)
+    } else {
+        (((run / tread).floor() as u32).max(1), riser, tread)
+    };
     let horizontal = Frame {
         origin: *a,
         x: dir,
@@ -94,6 +103,8 @@ pub fn pitched_roof(ctx: &RecipeContext<'_>) -> Result<TriangleMesh, RecipeError
     let width = length_param(ctx, "width", 6.0).max(0.2);
     let rise = length_param(ctx, "rise", 1.5).max(0.05);
     let thickness = length_param(ctx, "thickness", 0.15).max(0.02);
+    let lift = Vec3::Y * length_param(ctx, "base_offset", 0.0);
+    let (a, b) = (&(*a + lift), &(*b + lift));
     let run = (*b - *a).length();
     if run < 1e-4 {
         return Err(RecipeError::NeedsCurve);

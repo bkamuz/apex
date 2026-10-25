@@ -538,7 +538,10 @@ export function ProjectBrowser({
       levelName: levelName(element.effective_level_id),
       profileName: element.profile_id
         ? profileLabel(profiles, element.profile_id)
-        : categoryDisplayLabel(element.category, components),
+        : // Name the element's own component (a window is not a "Door" just
+          // because both share the opening category).
+          (components.find((c) => c.id === element.component_id)?.display_name ??
+          categoryDisplayLabel(element.category, components)),
       parentId: element.parent_id ?? null,
     }));
     const refs: BrowserItem[] = references.map((reference) => ({

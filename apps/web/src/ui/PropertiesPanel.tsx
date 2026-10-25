@@ -250,7 +250,7 @@ function TypeBlock({
       </div>
       {specs.length === 0 ? (
         <div className="empty" style={{ padding: 0 }}>
-          {profile ? 'No type parameters' : 'Pick a profile'}
+          {profile ? 'No type parameters' : 'Built-in defaults — no shared type needed'}
         </div>
       ) : (
         specs.map((spec) => (
