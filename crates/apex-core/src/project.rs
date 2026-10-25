@@ -5,6 +5,8 @@
 
 use std::collections::BTreeMap;
 
+mod solids;
+
 use apex_geometry::{Frame, TriangleMesh};
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
@@ -420,9 +422,13 @@ impl Project {
         if definition.joinable {
             let _ = self.apply_path_joins(id, false)?;
         }
-        if is_stair {
-            // Best effort: a stair still places when no slab needs cutting.
-            let _ = self.cut_slab_openings_for_stair(id);
+        // Neighbours re-mitre / re-partition; slabs pick up a new stair well.
+        if let Some(created) = self.document.get_element(id).cloned() {
+            // The new element itself too: its first build ran before it
+            // was in the document, so it saw no neighbours.
+            let mut deps = vec![id];
+            deps.extend(self.solid_dependents(&created));
+            self.refresh_meshes(deps);
         }
         if auto_join {
             self.commit_undo_group();
@@ -602,6 +608,9 @@ impl Project {
             .get_element(id)
             .cloned()
             .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
+        // Solids that depended on the old state (join neighbours, slabs
+        // under a stair) must follow the edit too.
+        let old_dependents = self.solid_dependents(&element);
 
         if let Some(patch) = params {
             element.params = element.params.merged(&patch);
@@ -635,7 +644,9 @@ impl Project {
             .is_some();
         let parent_id = element.parent_id;
         let mesh = self.build_element_mesh_with_cuts(&element)?;
+        let new_dependents = self.solid_dependents(&element);
         self.document.update_element(element, mesh);
+        self.refresh_meshes(old_dependents.into_iter().chain(new_dependents));
         if is_opening {
             if let Some(parent_id) = parent_id {
                 let _ = self.rebuild_element(parent_id);
@@ -1231,11 +1242,17 @@ impl Project {
             return false;
         }
         let before = self.export_snapshot();
+        let (dependents, parent) = match self.document.get_element(id) {
+            Some(e) => (self.solid_dependents(e), e.parent_id),
+            None => (Vec::new(), None),
+        };
         let removed = self
             .document
             .remove_element_detaching_children(id)
             .is_some();
         if removed {
+            // Neighbours lose the join; a host loses the hole.
+            self.refresh_meshes(dependents.into_iter().chain(parent));
             self.history.record_before(before);
         }
         removed
@@ -1723,6 +1740,13 @@ impl Project {
         }
         let oriented = self.oriented_hosted_opening(element);
         let element = oriented.as_ref().unwrap_or(element);
+        if self.is_area_opening(element) {
+            // Slab / stair openings are pure voids: the host shows the hole.
+            return Ok(TriangleMesh::default());
+        }
+        if let Some(mesh) = self.solid_mesh(element) {
+            return Ok(mesh);
+        }
         let mut mesh = self.registry.build_element_mesh(
             element,
             self.work_plane(level_id),
@@ -1733,6 +1757,15 @@ impl Project {
             mesh = punch_rotated_box(&mesh, yaw, center, min, max);
         }
         Ok(mesh)
+    }
+
+    /// A hosted polyline opening (slab opening): a void, never a body.
+    fn is_area_opening(&self, element: &Element) -> bool {
+        element.parent_id.is_some()
+            && self
+                .registry
+                .get(&element.component_id)
+                .is_some_and(|d| d.host_cut.is_some() && d.placement == PlacementKind::Polyline)
     }
 
     /// Plan yaw of the host wall at a hosted opening's origin. Doors and
@@ -2079,9 +2112,18 @@ impl Project {
         );
 
         let ids: Vec<ElementId> = next.document.elements().map(|element| element.id).collect();
-        for id in ids {
+        for id in ids.iter().copied() {
             next.rebuild_element(id)?;
         }
+        // Solids that read their neighbours (joins, stair wells) need the
+        // whole document loaded first.
+        let solids: Vec<ElementId> = next
+            .document
+            .elements()
+            .filter(|e| e.component_id == "apex.slab" || next.joinable(e))
+            .map(|e| e.id)
+            .collect();
+        next.refresh_meshes(solids);
 
         *self = next;
         Ok(())
@@ -3952,28 +3994,75 @@ mod plugin_first_tests {
                 ParamMap::new(),
             )
             .unwrap();
-        let children = project.document().children_of(slab);
-        assert_eq!(children.len(), 1, "one opening in the upper slab");
-        assert!(!project.host_cut_voids(slab).is_empty());
+        // The well is a live boolean, not a child element.
+        assert!(project.document().children_of(slab).is_empty());
         let slab_mesh = project.document().get_mesh(slab).unwrap();
-        eprintln!(
-            "slab tris {} voids {:?}",
-            slab_mesh.triangle_count(),
-            project.host_cut_voids(slab)
-        );
-        let ys: Vec<f32> = slab_mesh.positions.chunks(3).map(|p| p[1]).collect();
-        eprintln!(
-            "slab y {:?}",
-            (
-                ys.iter().cloned().fold(f32::MAX, f32::min),
-                ys.iter().cloned().fold(f32::MIN, f32::max)
+        assert!(apex_geometry::is_watertight(slab_mesh), "slab stays closed");
+        let covers = |mesh: &TriangleMesh, x: f32, z: f32| {
+            mesh.indices.chunks(3).any(|t| {
+                let p: Vec<[f32; 3]> = t
+                    .iter()
+                    .map(|&i| {
+                        let i = i as usize * 3;
+                        [
+                            mesh.positions[i],
+                            mesh.positions[i + 1],
+                            mesh.positions[i + 2],
+                        ]
+                    })
+                    .collect();
+                let up = (p[1][0] - p[0][0]) * (p[2][2] - p[0][2])
+                    - (p[1][2] - p[0][2]) * (p[2][0] - p[0][0]);
+                if up.abs() < 1e-9 {
+                    return false;
+                }
+                let s = |a: [f32; 3], b: [f32; 3]| {
+                    (b[0] - a[0]) * (z - a[2]) - (b[2] - a[2]) * (x - a[0])
+                };
+                let (d0, d1, d2) = (s(p[0], p[1]), s(p[1], p[2]), s(p[2], p[0]));
+                (d0 >= 0.0 && d1 >= 0.0 && d2 >= 0.0) || (d0 <= 0.0 && d1 <= 0.0 && d2 <= 0.0)
+            })
+        };
+        assert!(!covers(slab_mesh, 2.0, 0.0), "hole over the stair");
+        assert!(covers(slab_mesh, -3.0, 0.0), "slab elsewhere");
+        // Moving the stair moves the hole.
+        project
+            .update_element(
+                stair,
+                None,
+                Some(Placement::line(
+                    Vec3::new(0.0, 0.0, 3.0),
+                    Vec3::new(4.0, 0.0, 3.0),
+                )),
+                true,
             )
-        );
-        assert!(slab_mesh.triangle_count() > 12, "slab survives the cut");
-        // One undo removes the stair and its opening together.
+            .unwrap();
+        let slab_mesh = project.document().get_mesh(slab).unwrap();
+        assert!(covers(slab_mesh, 2.0, 0.0), "old hole closed");
+        assert!(!covers(slab_mesh, 2.0, 3.0), "new hole");
+        // A slab drawn after the stair is cut too.
+        project.set_active_level(upper).unwrap();
+        let placement = project
+            .placement_from_points("apex.slab", &slab_pts, 0.0)
+            .unwrap();
+        let late = project
+            .create_element("apex.slab", placement, ParamMap::new())
+            .unwrap();
+        assert!(!covers(
+            project.document().get_mesh(late).unwrap(),
+            2.0,
+            3.0
+        ));
+        // Undo: late slab, active level, stair move.
+        for _ in 0..3 {
+            project.undo().unwrap();
+        }
+        let slab_mesh = project.document().get_mesh(slab).unwrap();
+        assert!(!covers(slab_mesh, 2.0, 0.0), "undo restores the hole");
+        // Undo removes the stair; the slab closes.
         project.undo().unwrap();
         assert!(project.document().get_element(stair).is_none());
-        assert!(project.document().children_of(slab).is_empty());
+        assert!(covers(project.document().get_mesh(slab).unwrap(), 2.0, 0.0));
     }
 }
 

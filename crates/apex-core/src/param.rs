@@ -289,6 +289,19 @@ impl ParamSpec {
         }
     }
 
+    pub fn flag(id: &str, label: &str, default: bool) -> Self {
+        Self {
+            id: id.to_string(),
+            label: label.to_string(),
+            kind: ParamKind::Bool,
+            default: ParamValue::Bool(default),
+            min: None,
+            max: None,
+            unit: None,
+            binding: ParamBinding::Instance,
+        }
+    }
+
     pub fn number(id: &str, label: &str, default: f64) -> Self {
         Self {
             id: id.to_string(),
