@@ -276,10 +276,7 @@ impl Project {
     }
 
     /// True-scale viewport frame + world anchor for a plan view.
-    fn sheet_viewport_layout_for_view(
-        &self,
-        view_id: ViewId,
-    ) -> (f32, f32, f32, f32, f32) {
+    fn sheet_viewport_layout_for_view(&self, view_id: ViewId) -> (f32, f32, f32, f32, f32) {
         let scale = self
             .views
             .get(&view_id)

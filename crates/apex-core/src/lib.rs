@@ -26,9 +26,9 @@ mod sheet_scale;
 mod sketch;
 mod space;
 mod vector_export;
-mod viewport_crop;
 mod view;
 mod view_annotation;
+mod viewport_crop;
 
 pub use annotation::{AnnotationLabel, PlanAnnotation};
 pub use component::{
@@ -71,12 +71,8 @@ pub use sheet::{
     SheetViewportId,
 };
 pub use sheet_scale::{
-    map_view_drawing_to_sheet_mm, mm_per_model_metre, model_metres_to_paper_mm,
-    plan_bounds_center, viewport_size_mm_for_bounds, PAPER_TEXT_HEIGHT_MM, STANDARD_VIEW_SCALES,
-};
-pub use viewport_crop::{
-    clip_segment_to_polygon, default_crop_polygon_uv, normalize_crop_polygon, point_in_polygon,
-    CropError,
+    map_view_drawing_to_sheet_mm, mm_per_model_metre, model_metres_to_paper_mm, plan_bounds_center,
+    viewport_size_mm_for_bounds, PAPER_TEXT_HEIGHT_MM, STANDARD_VIEW_SCALES,
 };
 pub use sketch::{ProfileSketch, SketchConstraint, SketchDimension, SketchError};
 pub use space::{
@@ -92,6 +88,10 @@ pub use view::{
 pub use view_annotation::{
     AnnotationAnchor, GridAxisEnd, ViewAnnotation, ViewAnnotationError, ViewAnnotationId,
     ViewAnnotationKind, ViewAnnotationLibrary, ViewAnnotationOverlay,
+};
+pub use viewport_crop::{
+    clip_segment_to_polygon, default_crop_polygon_uv, normalize_crop_polygon, point_in_polygon,
+    CropError,
 };
 
 /// Geometry primitives the document is expressed in, re-exported for convenience.

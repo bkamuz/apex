@@ -118,7 +118,6 @@ pub fn bounds_2d(drawing: &VectorDrawing2d) -> Option<([f64; 2], [f64; 2])> {
     }
 }
 
-
 /// Clip vector geometry to a closed polygon (sheet mm).
 pub fn clip_drawing_to_polygon(drawing: &VectorDrawing2d, ring: &[[f64; 2]]) -> VectorDrawing2d {
     if ring.len() < 3 {
@@ -301,8 +300,7 @@ mod tests {
             if line.layer != "WALL" {
                 continue;
             }
-            let len =
-                ((line.b[0] - line.a[0]).powi(2) + (line.b[1] - line.a[1]).powi(2)).sqrt();
+            let len = ((line.b[0] - line.a[0]).powi(2) + (line.b[1] - line.a[1]).powi(2)).sqrt();
             best = best.max(len);
         }
         assert!(

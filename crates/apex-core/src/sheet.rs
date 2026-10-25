@@ -175,10 +175,7 @@ impl SheetViewport {
             let bottom = self.center_y_mm as f64 - self.height_mm as f64 * 0.5;
             (
                 [left, bottom],
-                [
-                    left + self.width_mm as f64,
-                    bottom + self.height_mm as f64,
-                ],
+                [left + self.width_mm as f64, bottom + self.height_mm as f64],
             )
         })
     }

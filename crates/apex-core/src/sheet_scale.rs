@@ -4,9 +4,7 @@ use crate::vector_export::{VectorDimension2d, VectorDrawing2d, VectorLine2d, Vec
 
 pub const PAPER_TEXT_HEIGHT_MM: f64 = 2.5;
 
-pub const STANDARD_VIEW_SCALES: &[u32] = &[
-    1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000,
-];
+pub const STANDARD_VIEW_SCALES: &[u32] = &[1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
 
 pub fn mm_per_model_metre(scale_denominator: f32) -> f64 {
     1000.0 / f64::from(scale_denominator.max(1.0))
