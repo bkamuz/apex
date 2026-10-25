@@ -11,6 +11,7 @@ mod error;
 mod frame;
 mod join;
 mod mesh;
+mod prism;
 mod profile;
 mod sweep;
 
@@ -22,5 +23,9 @@ pub use join::{
     plan_distance, split_curve_at, stem_trim, JOIN_SNAP,
 };
 pub use mesh::TriangleMesh;
+pub use prism::{
+    is_watertight, point_in_region, polygon_region, region_area, region_intersect, region_subtract,
+    region_union, BooleanOp, LayeredSolid, Region, Ring,
+};
 pub use profile::{Justification, Point2, Profile};
 pub use sweep::{extrude, sweep, SweepOptions};

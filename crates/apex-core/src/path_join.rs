@@ -26,6 +26,19 @@ pub struct JoinableSegment {
     pub half_width: f32,
     pub join_start: f32,
     pub join_end: f32,
+    /// Joining switched on at the start / end.
+    pub allow_start: bool,
+    pub allow_end: bool,
+}
+
+impl JoinableSegment {
+    fn allows(&self, at_start: bool) -> bool {
+        if at_start {
+            self.allow_start
+        } else {
+            self.allow_end
+        }
+    }
 }
 
 /// One rewrite produced by a join pass.
@@ -58,6 +71,21 @@ pub fn profile_half_width(registry: &ComponentRegistry, element: &Element) -> Op
     Some(width * 0.5)
 }
 
+/// Whether joining is allowed at one end (`allow_join_start` /
+/// `allow_join_end` instance flags; on unless switched off).
+pub fn end_join_allowed(registry: &ComponentRegistry, element: &Element, at_start: bool) -> bool {
+    let key = if at_start {
+        "allow_join_start"
+    } else {
+        "allow_join_end"
+    };
+    registry
+        .eval_params(&element.component_id, &element.params)
+        .ok()
+        .and_then(|p| p.bool(key))
+        .unwrap_or(true)
+}
+
 /// Build a joinable segment from an element when its definition is joinable
 /// and the placement is a straight line or open polyline (arcs skipped in MVP).
 pub fn joinable_segment(
@@ -84,6 +112,8 @@ pub fn joinable_segment(
         half_width,
         join_start: element.join_start,
         join_end: element.join_end,
+        allow_start: end_join_allowed(registry, element, true),
+        allow_end: end_join_allowed(registry, element, false),
     })
 }
 
@@ -118,6 +148,9 @@ pub fn plan_joins(new_seg: &JoinableSegment, peers: &[JoinableSegment]) -> Vec<J
         for (new_at_start, peer_at_start) in
             [(true, true), (true, false), (false, true), (false, false)]
         {
+            if !new_seg.allows(new_at_start) || !peer.allows(peer_at_start) {
+                continue;
+            }
             let new_curve = state.get(&new_seg.id).unwrap().curve.clone();
             let peer_curve = state.get(&peer.id).unwrap().curve.clone();
             let new_end = endpoint(&new_curve, new_at_start);
@@ -156,6 +189,9 @@ pub fn plan_joins(new_seg: &JoinableSegment, peers: &[JoinableSegment]) -> Vec<J
             continue;
         }
         for new_at_start in [true, false] {
+            if !new_seg.allows(new_at_start) {
+                continue;
+            }
             let new_curve = state.get(&new_seg.id).unwrap().curve.clone();
             let peer_curve = state.get(&peer.id).unwrap().curve.clone();
             let tip = endpoint(&new_curve, new_at_start);
@@ -204,6 +240,9 @@ pub fn plan_joins(new_seg: &JoinableSegment, peers: &[JoinableSegment]) -> Vec<J
             continue;
         }
         for peer_at_start in [true, false] {
+            if !peer.allows(peer_at_start) {
+                continue;
+            }
             let new_curve = state.get(&new_seg.id).unwrap().curve.clone();
             let peer_curve = state.get(&peer.id).unwrap().curve.clone();
             let tip = endpoint(&peer_curve, peer_at_start);
@@ -375,6 +414,8 @@ mod tests {
             half_width: 0.1,
             join_start: 0.0,
             join_end: 0.0,
+            allow_start: true,
+            allow_end: true,
         };
         let b = JoinableSegment {
             id: ElementId::new(),
@@ -382,6 +423,8 @@ mod tests {
             half_width: 0.1,
             join_start: 0.0,
             join_end: 0.0,
+            allow_start: true,
+            allow_end: true,
         };
         let updates = plan_joins(&b, &[a.clone()]);
         assert!(
@@ -414,6 +457,8 @@ mod tests {
             half_width: 0.1,
             join_start: 0.0,
             join_end: 0.0,
+            allow_start: true,
+            allow_end: true,
         };
         let stem = JoinableSegment {
             id: ElementId::new(),
@@ -421,6 +466,8 @@ mod tests {
             half_width: 0.1,
             join_start: 0.0,
             join_end: 0.0,
+            allow_start: true,
+            allow_end: true,
         };
         let updates = plan_joins(&stem, &[host.clone()]);
         let host_u = updates.iter().find(|u| u.id == host.id).expect("host");
