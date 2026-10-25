@@ -68,6 +68,14 @@ pub fn map_view_drawing_to_sheet_mm(
         lines: Vec::with_capacity(drawing.lines.len()),
         texts: Vec::with_capacity(drawing.texts.len()),
         dimensions: Vec::with_capacity(drawing.dimensions.len()),
+        fills: drawing
+            .fills
+            .iter()
+            .map(|f| crate::vector_export::VectorFill2d {
+                layer: f.layer.clone(),
+                ring: f.ring.iter().map(|p| map(*p)).collect(),
+            })
+            .collect(),
     };
     for line in &drawing.lines {
         out.lines.push(VectorLine2d {
@@ -80,8 +88,10 @@ pub fn map_view_drawing_to_sheet_mm(
         out.texts.push(VectorText2d {
             layer: text.layer.clone(),
             position: map(text.position),
-            height: PAPER_TEXT_HEIGHT_MM,
+            height: (text.height * k)
+                .clamp(PAPER_TEXT_HEIGHT_MM * 0.75, PAPER_TEXT_HEIGHT_MM * 2.0),
             text: text.text.clone(),
+            centered: text.centered,
         });
     }
     for dim in &drawing.dimensions {
@@ -115,6 +125,7 @@ mod tests {
             }],
             texts: vec![],
             dimensions: vec![],
+            fills: vec![],
         };
         let mapped = map_view_drawing_to_sheet_mm(&drawing, 5.0, 0.0, 100.0, 50.0);
         let line = &mapped.lines[0];

@@ -2,7 +2,15 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CropUvDto, SceneDto, SheetDto, SheetViewportDto, VectorDrawing2d } from '../types';
 import { apexExportSheetDxf, apexExportSheetVector } from '../wasm/apex';
 import { exportSheetSvgFromDrawing } from './sheetExport';
-import { downloadTextFile, openSvgForPrint } from './vectorExport';
+import {
+  downloadBlob,
+  downloadTextFile,
+  drawingToPdf,
+  toJpegDataUrl,
+  type PlacedImage,
+} from './vectorExport';
+import { sheetViewportRenderers } from './LiveSheetViewport';
+import { sheetViewportDrawableHeightMm } from './sheetViewportMetrics';
 import { LiveSheetViewport, resolveView } from './LiveSheetViewport';
 import type { ViewportRenderer } from '../viewport/ViewportRenderer';
 import {
@@ -87,15 +95,43 @@ export function SheetPaperView({
     }
   }, [sheet.id]);
 
-  const onExportSvg = useCallback(() => {
+  /** Rasters of non-plan viewports (3D) placed in their sheet frames. */
+  const captureViewportImages = useCallback(
+    async (jpeg: boolean): Promise<PlacedImage[]> => {
+      const out: PlacedImage[] = [];
+      for (const vp of sheet.viewports) {
+        const view = resolveView(scene, vp.view_id);
+        if (!view || view.kind.kind === 'plan') continue;
+        const renderer = sheetViewportRenderers.get(vp.id);
+        if (!renderer) continue;
+        let dataUrl = await renderer.snapshotDataUrl();
+        if (jpeg) dataUrl = await toJpegDataUrl(dataUrl);
+        const drawableH = sheetViewportDrawableHeightMm(vp.height_mm);
+        out.push({
+          x: vp.center_x_mm - vp.width_mm / 2,
+          y: vp.center_y_mm + vp.height_mm / 2 - drawableH,
+          width: vp.width_mm,
+          height: drawableH,
+          dataUrl,
+        });
+      }
+      return out;
+    },
+    [scene, sheet.viewports],
+  );
+
+  const fileStem = sheet.number.replace(/\s+/g, '_');
+
+  const onExportSvg = useCallback(async () => {
     const drawing = loadSheetDrawing();
     if (!drawing) return;
+    const images = await captureViewportImages(false);
     downloadTextFile(
-      `${sheet.number.replace(/\s+/g, '_')}.svg`,
-      exportSheetSvgFromDrawing(sheet.number, drawing),
+      `${fileStem}.svg`,
+      exportSheetSvgFromDrawing(sheet.number, drawing, { page: { width: sheet.width_mm, height: sheet.height_mm }, images }),
       'image/svg+xml',
     );
-  }, [loadSheetDrawing, sheet.number]);
+  }, [captureViewportImages, fileStem, loadSheetDrawing, sheet.number, sheet.width_mm, sheet.height_mm]);
 
   const onExportDxf = useCallback(() => {
     try {
@@ -106,11 +142,13 @@ export function SheetPaperView({
     }
   }, [sheet.id, sheet.number]);
 
-  const onExportPdf = useCallback(() => {
+  const onExportPdf = useCallback(async () => {
     const drawing = loadSheetDrawing();
     if (!drawing) return;
-    openSvgForPrint(exportSheetSvgFromDrawing(sheet.number, drawing));
-  }, [loadSheetDrawing, sheet.number]);
+    const images = await captureViewportImages(true);
+    const pdf = drawingToPdf(drawing, { title: `Sheet ${sheet.number}`, page: { width: sheet.width_mm, height: sheet.height_mm }, images });
+    downloadBlob(`${fileStem}.pdf`, new Blob([pdf as BlobPart], { type: 'application/pdf' }));
+  }, [captureViewportImages, fileStem, loadSheetDrawing, sheet.number, sheet.width_mm, sheet.height_mm]);
 
   const clientToMm = useCallback(
     (clientX: number, clientY: number): [number, number] | null => {
@@ -375,6 +413,9 @@ function SheetViewportFrame({
     <div
       className={`sheet-viewport${dragging ? ' sheet-viewport--drag' : ''}${selected ? ' sheet-viewport--selected' : ''}`}
       style={{ left, top, width: w, height: h }}
+      // Capture phase: the live canvas stops propagation (it owns pan/orbit),
+      // but clicking it must still select the viewport for the scale UI.
+      onPointerDownCapture={onSelect}
       onPointerDown={(e) => {
         e.stopPropagation();
         onSelect();

@@ -141,6 +141,9 @@ bool isSelectedPick(float pick) {
 }
 
 void main(){
+  // Plan: geometry above the cut is invisible, so it must not be pickable
+  // either (a roof would otherwise swallow every click inside the plan).
+  if (uPlanMode != 0 && vWorld.y - uCutY > uCutFade) discard;
   if (uPickPass) {
     uint id = uint(vPick);
     float r = float((id >> 0u) & 255u) / 255.0;
@@ -1067,6 +1070,16 @@ export class ViewportRenderer {
   }
 
   /** Rolling FPS from the render loop (display-synced via rAF). */
+  /**
+   * PNG data URL of the next rendered frame (the drawing buffer is not
+   * preserved, so read it inside the same animation frame as the draw).
+   */
+  snapshotDataUrl(): Promise<string> {
+    return new Promise((resolve) => {
+      requestAnimationFrame(() => resolve(this.canvas.toDataURL('image/png')));
+    });
+  }
+
   getFps(): number {
     return this.fps;
   }
@@ -1136,6 +1149,15 @@ export class ViewportRenderer {
   }
 
   /** Fit the camera to the current scene bounds (3D) or XZ extents at the cut (plan). */
+  isPlanNavigation(): boolean {
+    return this.viewNavigation === 'plan';
+  }
+
+  /** Whether a pick id belongs to a floor slab (rooms sit on slabs in plan). */
+  isSlabPick(pickId: number): boolean {
+    return this.slabPickIds.includes(pickId);
+  }
+
   fitViewExtents(): void {
     if (!this.sceneAabb) return;
     const aabb = this.sceneAabb;
@@ -2596,20 +2618,32 @@ export class ViewportRenderer {
       [0.62, 0.72, 0.38, 0.95],
       2.6,
     );
-    if (this.viewNavigation === 'plan') {
-      this.drawOccludedAxis(this.planSymbolVao, this.planSymbolCount, [0.88, 0.9, 0.94, 0.95], 1.8);
+    if (plan) {
+      // Plan symbols are 2D drafting on top of the cut: never dash them where
+      // they sit "behind" the wall tops (that read as dashed walls).
+      this.drawLines(this.planSymbolVao, this.planSymbolCount, [0.88, 0.9, 0.94, 0.95], 1.8, {
+        overlay: true,
+      });
     }
     // Section cut: amber line + dimmer fill hint.
     this.drawOccludedAxis(this.sectionCutLineVao, this.sectionCutLineCount, [0.95, 0.58, 0.28, 0.98], 3.4);
     this.drawOccludedAxis(this.sectionCutFillVao, this.sectionCutFillCount, [0.95, 0.58, 0.28, 0.45], 1.6);
-    // Spaces: teal closed boundary.
-    this.drawOccludedAxis(this.spaceLineVao, this.spaceLineCount, [0.35, 0.78, 0.88, 0.95], 2.8);
-    this.drawOccludedAxis(
-      this.viewAnnotationLineVao,
-      this.viewAnnotationLineCount,
-      [0.98, 0.82, 0.35, 0.98],
-      2.6,
-    );
+    // Spaces: teal closed boundary — a plan concept, so not drawn in 3D.
+    if (plan) {
+      this.drawLines(this.spaceLineVao, this.spaceLineCount, [0.35, 0.78, 0.88, 0.95], 2.8, {
+        overlay: true,
+      });
+      this.drawLines(this.viewAnnotationLineVao, this.viewAnnotationLineCount, [0.98, 0.82, 0.35, 0.98], 2.6, {
+        overlay: true,
+      });
+    } else {
+      this.drawOccludedAxis(
+        this.viewAnnotationLineVao,
+        this.viewAnnotationLineCount,
+        [0.98, 0.82, 0.35, 0.98],
+        2.6,
+      );
+    }
     this.drawHandles();
     this.drawSnapMarker();
     this.frameMats = null;

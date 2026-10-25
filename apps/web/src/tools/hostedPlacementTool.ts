@@ -58,7 +58,10 @@ export function findHostSnap(
       // centerline is on screen (tall walls in 3D).
       const within = distance <= tolerancePx || hit === host.id;
       if (!within) continue;
-      const effective = hit === host.id ? Math.min(distance, 0) : distance;
+      // A picked host beats any other host, but its own segments still compete
+      // by distance: zeroing them all made the first segment of a multi-segment
+      // wall win and clamped openings onto its end vertex.
+      const effective = hit === host.id ? distance - 1e6 : distance;
       if (best && effective >= best.distance) continue;
       const point = ground
         ? closestOnSegment(ground, a, b)

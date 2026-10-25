@@ -44,6 +44,7 @@ fn write_dimension_lines(out: &mut String, dim: &crate::vector_export::VectorDim
             position: dim.text_position,
             height: 0.25,
             text: dim.text.clone(),
+            centered: false,
         },
         z,
     );
@@ -59,6 +60,9 @@ pub fn drawing_to_dxf(drawing: &VectorDrawing2d) -> String {
     }
     for dim in &drawing.dimensions {
         layers.insert(dim.layer.clone());
+    }
+    for fill in &drawing.fills {
+        layers.insert(fill.layer.clone());
     }
 
     let mut out = String::new();
@@ -131,6 +135,14 @@ pub fn clip_drawing_to_polygon(drawing: &VectorDrawing2d, ring: &[[f64; 2]]) -> 
         lines: Vec::new(),
         texts: Vec::new(),
         dimensions: Vec::new(),
+        // Keep regions whose vertices all lie in the crop; partial regions
+        // are dropped (their clipped outline lines still print).
+        fills: drawing
+            .fills
+            .iter()
+            .filter(|f| f.ring.iter().all(|p| point_in_polygon(*p, ring)))
+            .cloned()
+            .collect(),
     };
     for line in &drawing.lines {
         for (a, b) in clip_segment_to_polygon(line.a, line.b, ring) {
@@ -171,6 +183,60 @@ pub fn clip_drawing_to_polygon(drawing: &VectorDrawing2d, ring: &[[f64; 2]]) -> 
     out
 }
 
+fn rect_lines(out: &mut VectorDrawing2d, layer: &str, x0: f64, y0: f64, x1: f64, y1: f64) {
+    for (a, b) in [
+        ([x0, y0], [x1, y0]),
+        ([x1, y0], [x1, y1]),
+        ([x1, y1], [x0, y1]),
+        ([x0, y1], [x0, y0]),
+    ] {
+        out.lines.push(VectorLine2d {
+            layer: layer.into(),
+            a,
+            b,
+        });
+    }
+}
+
+/// ISO-style drawing frame (10 mm margin, 20 mm binding edge) and a
+/// bottom-right title block.
+fn push_title_block(out: &mut VectorDrawing2d, sheet: &crate::sheet::Sheet, sw: f64, sh: f64) {
+    let (l, r, b, t) = (20.0, sw - 10.0, 10.0, sh - 10.0);
+    rect_lines(out, "SHEET_FRAME", l, b, r, t);
+    let (w, h) = (180.0, 48.0);
+    let (x0, y0) = (r - w, b);
+    rect_lines(out, "TITLE_BLOCK", x0, y0, r, y0 + h);
+    for y in [y0 + 16.0, y0 + 32.0] {
+        out.lines.push(VectorLine2d {
+            layer: "TITLE_BLOCK".into(),
+            a: [x0, y],
+            b: [r, y],
+        });
+    }
+    out.lines.push(VectorLine2d {
+        layer: "TITLE_BLOCK".into(),
+        a: [x0 + 120.0, y0],
+        b: [x0 + 120.0, y0 + 16.0],
+    });
+    let mut text = |x: f64, y: f64, height: f64, s: String| {
+        out.texts.push(VectorText2d {
+            layer: "TITLE_BLOCK".into(),
+            position: [x, y],
+            height,
+            text: s,
+            centered: false,
+        });
+    };
+    text(x0 + 3.0, y0 + h - 3.5, 2.0, "PROJECT".into());
+    text(x0 + 3.0, y0 + 35.5, 5.0, "APEX PROJECT".into());
+    text(x0 + 3.0, y0 + 29.0, 2.0, "SHEET TITLE".into());
+    text(x0 + 3.0, y0 + 19.5, 5.0, sheet.name.to_uppercase());
+    text(x0 + 3.0, y0 + 13.0, 2.0, "SCALE".into());
+    text(x0 + 3.0, y0 + 4.0, 4.0, "AS INDICATED".into());
+    text(x0 + 123.0, y0 + 13.0, 2.0, "SHEET NO.".into());
+    text(x0 + 123.0, y0 + 3.5, 7.0, sheet.number.clone());
+}
+
 impl crate::project::Project {
     pub fn vector_export_sheet(&self, sheet_id: crate::sheet::SheetId) -> Option<VectorDrawing2d> {
         let sheet = self.sheets.get(&sheet_id)?;
@@ -180,6 +246,7 @@ impl crate::project::Project {
             lines: Vec::new(),
             texts: Vec::new(),
             dimensions: Vec::new(),
+            fills: Vec::new(),
         };
 
         let (sw, sh) = sheet.paper_size_mm();
@@ -205,23 +272,51 @@ impl crate::project::Project {
         });
 
         for vp in &sheet.viewports {
-            let Some(view_drawing) = self.vector_export_view(vp.view_id) else {
-                continue;
-            };
-            let mapped = crate::sheet_scale::map_view_drawing_to_sheet_mm(
-                &view_drawing,
-                f64::from(vp.anchor_x_m),
-                f64::from(vp.anchor_z_m),
-                f64::from(vp.center_x_mm),
-                f64::from(vp.center_y_mm),
-            );
-            let crop_ring = vp.crop_polygon_mm();
-            let clipped = clip_drawing_to_polygon(&mapped, &crop_ring);
-            combined.lines.extend(clipped.lines);
-            combined.texts.extend(clipped.texts);
-            combined.dimensions.extend(clipped.dimensions);
+            if let Some(view_drawing) = self.vector_export_view(vp.view_id) {
+                let mapped = crate::sheet_scale::map_view_drawing_to_sheet_mm(
+                    &view_drawing,
+                    f64::from(vp.anchor_x_m),
+                    f64::from(vp.anchor_z_m),
+                    f64::from(vp.center_x_mm),
+                    f64::from(vp.center_y_mm),
+                );
+                let crop_ring = vp.crop_polygon_mm();
+                let clipped = clip_drawing_to_polygon(&mapped, &crop_ring);
+                combined.lines.extend(clipped.lines);
+                combined.texts.extend(clipped.texts);
+                combined.dimensions.extend(clipped.dimensions);
+                combined.fills.extend(clipped.fills);
+            }
+
+            // View title under the viewport: name, rule, scale.
+            if let Some(view) = self.views.get(&vp.view_id) {
+                let left = f64::from(vp.center_x_mm - vp.width_mm * 0.5);
+                let bottom = f64::from(vp.center_y_mm - vp.height_mm * 0.5);
+                let name = view.name.to_uppercase();
+                let rule = (name.chars().count() as f64 * 3.2).max(40.0);
+                combined.texts.push(VectorText2d {
+                    layer: "VIEW_TITLE".into(),
+                    position: [left + 2.0, bottom + 5.0],
+                    height: 4.0,
+                    text: name,
+                    centered: false,
+                });
+                combined.lines.push(VectorLine2d {
+                    layer: "VIEW_TITLE".into(),
+                    a: [left + 2.0, bottom + 3.8],
+                    b: [left + 2.0 + rule, bottom + 3.8],
+                });
+                combined.texts.push(VectorText2d {
+                    layer: "VIEW_TITLE".into(),
+                    position: [left + 2.0, bottom - 0.5],
+                    height: 3.0,
+                    text: format!("1:{}", view.settings.scale.round() as i64),
+                    centered: false,
+                });
+            }
         }
 
+        push_title_block(&mut combined, sheet, sw as f64, sh as f64);
         Some(combined)
     }
 
@@ -255,8 +350,10 @@ mod tests {
                 position: [1.0, 1.0],
                 height: 0.25,
                 text: "A1".into(),
+                centered: false,
             }],
             dimensions: vec![],
+            fills: vec![],
         };
         let dxf = drawing_to_dxf(&drawing);
         assert!(dxf.contains("$INSUNITS"));
@@ -299,7 +396,7 @@ mod tests {
         let drawing = project.vector_export_sheet(sheet_id).expect("export");
         let mut best = 0.0_f64;
         for line in &drawing.lines {
-            if line.layer != "WALL" {
+            if line.layer != "WALL_CUT" {
                 continue;
             }
             let len = ((line.b[0] - line.a[0]).powi(2) + (line.b[1] - line.a[1]).powi(2)).sqrt();
@@ -307,7 +404,7 @@ mod tests {
         }
         assert!(
             (best - 100.0).abs() < 1.0,
-            "expected ~100 mm wall on sheet, longest WALL segment was {best} mm"
+            "expected ~100 mm wall on sheet, longest WALL_CUT segment was {best} mm"
         );
     }
 }

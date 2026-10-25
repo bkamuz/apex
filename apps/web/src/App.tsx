@@ -54,6 +54,7 @@ import {
   apexUpdateGridAxis,
   apexUpdateSectionCut,
   apexUpdateSpace,
+  apexRenameSpace,
   apexSetActiveLevel,
   apexSetElementPlacement,
   apexSetLevelElevation,
@@ -127,7 +128,7 @@ import {
 } from './ui/viewModel';
 import { viewAnnotationSegments } from './ui/viewAnnotationSegments';
 import { pickAnnotationAnchor } from './annotations/pickAnchor';
-import { downloadTextFile, drawingToSvg, openSvgForPrint } from './ui/vectorExport';
+import { downloadBlob, downloadTextFile, drawingToPdf, drawingToSvg } from './ui/vectorExport';
 import type { VectorDrawing2d } from './types';
 import type { DocumentTab } from './ui/ViewTabBar';
 import { PropertiesPanel } from './ui/PropertiesPanel';
@@ -770,6 +771,24 @@ export default function App() {
         }
 
         const pickId = renderer.pick(clientX, clientY);
+        // Plan: a click inside a room (on its floor slab or on nothing) selects
+        // the room, so it can be renamed without hunting for its boundary.
+        if (!multi && renderer.isPlanNavigation() && (pickId == null || renderer.isSlabPick(pickId))) {
+          const elevation = activeElevationRef.current;
+          const ground = renderer.screenToGround(clientX, clientY, elevation);
+          const room = ground
+            ? (current?.spaces ?? []).find(
+                (space) =>
+                  space.anchors.length >= 3 &&
+                  Math.abs(space.anchors[0][1] - elevation) < 0.05 &&
+                  pointInPlanPolygon(ground, space.anchors),
+              )
+            : undefined;
+          if (room) {
+            applyScene(apexSelectSpace(room.id));
+            return;
+          }
+        }
         if (pickId != null) {
           applyScene(multi ? apexTogglePickById(pickId) : apexPickById(pickId));
           return;
@@ -1316,8 +1335,11 @@ export default function App() {
   const onExportActiveViewPdf = useCallback(() => {
     const drawing = loadActiveViewDrawing();
     if (!drawing) return;
-    openSvgForPrint(drawingToSvg(drawing));
-  }, [loadActiveViewDrawing]);
+    const view = scene ? findView(scene, activeViewId ?? '') : undefined;
+    const name = view?.name ?? 'view';
+    const pdf = drawingToPdf(drawing, { title: name });
+    downloadBlob(`${name.replace(/\s+/g, '_')}.pdf`, new Blob([pdf as BlobPart], { type: 'application/pdf' }));
+  }, [activeViewId, loadActiveViewDrawing, scene]);
 
   const onSheetViewportCropChange = useCallback(
     (viewportId: string, crop: import('./types').CropUvDto[]) => {
@@ -2042,6 +2064,16 @@ export default function App() {
     }
   };
 
+  const onRenameSpace = (name: string) => {
+    if (!selectedSpace) return;
+    try {
+      applyScene(apexRenameSpace(selectedSpace.id, name));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const onPlacementChange = (params: Record<string, ParamValue>) => {
     placementParamsRef.current = params;
     setPlacementDraft(params);
@@ -2202,6 +2234,7 @@ export default function App() {
       onUpdateConstructionLine={onUpdateConstructionLineParams}
       onUpdateSectionCut={onUpdateSectionCutParams}
       onUpdateSpace={onUpdateSpaceParams}
+      onRenameSpace={onRenameSpace}
       onPlacementChange={onPlacementChange}
       onEditType={onEditType}
       onNewProfile={onNewProfile}
@@ -2566,4 +2599,15 @@ export default function App() {
       ) : null}
     </div>
   );
+}
+
+/** Even-odd point-in-polygon test on the XZ plane. */
+function pointInPlanPolygon(p: Vec3, ring: Vec3[]): boolean {
+  let inside = false;
+  for (let i = 0, j = ring.length - 1; i < ring.length; j = i, i += 1) {
+    const [xi, , zi] = ring[i];
+    const [xj, , zj] = ring[j];
+    if (zi > p[2] !== zj > p[2] && p[0] < ((xj - xi) * (p[2] - zi)) / (zj - zi) + xi) inside = !inside;
+  }
+  return inside;
 }

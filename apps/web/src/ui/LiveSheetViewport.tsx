@@ -11,6 +11,9 @@ import { cropToCssClipPath } from './sheetCropModel';
 import { SheetViewAnnotationLabels } from './SheetViewAnnotationLabels';
 import { sheetViewportDrawableHeightMm } from './sheetViewportMetrics';
 
+/** Live renderers by sheet viewport id, so exports can rasterise 3D views. */
+export const sheetViewportRenderers = new Map<string, ViewportRenderer>();
+
 interface Props {
   scene: SceneDto;
   view: ViewDto;
@@ -39,7 +42,10 @@ export function LiveSheetViewport({ scene, view, viewport, syncScene }: Props) {
       rendererRef.current.setSheetPresentation(true);
       setRenderer(rendererRef.current);
     }
+    sheetViewportRenderers.set(viewport.id, rendererRef.current);
+    const id = viewport.id;
     return () => {
+      sheetViewportRenderers.delete(id);
       rendererRef.current?.dispose();
       rendererRef.current = null;
       setRenderer(null);

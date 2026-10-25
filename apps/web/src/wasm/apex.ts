@@ -65,6 +65,7 @@ import initWasm, {
   getSelectedSpace,
   setSpacePlacement,
   updateSpace,
+  renameSpace,
   deleteSelectedSpace,
   getSelectedElements,
   translateSelection,
@@ -529,6 +530,10 @@ export function apexSetSpacePlacement(
 
 export function apexUpdateSpace(id: string, params: Record<string, ParamValue>): SceneDto {
   return asScene(updateSpace(id, encodeParams(params)));
+}
+
+export function apexRenameSpace(id: string, name: string): SceneDto {
+  return asScene(renameSpace(id, name));
 }
 
 export function apexDeleteSelectedSpace(): SceneDto {

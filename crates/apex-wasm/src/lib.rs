@@ -1934,6 +1934,15 @@ pub fn update_space(id: &str, params_json: &str) -> Result<JsValue, JsValue> {
     })
 }
 
+#[wasm_bindgen(js_name = renameSpace)]
+pub fn rename_space(id: &str, name: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let space = space_id(id)?;
+        project.rename_space(space, name).map_err(err)?;
+        scene(project)
+    })
+}
+
 #[wasm_bindgen(js_name = deleteSelectedSpace)]
 pub fn delete_selected_space() -> Result<JsValue, JsValue> {
     with_project(|project| {

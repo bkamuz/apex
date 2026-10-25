@@ -963,6 +963,29 @@ impl Project {
         Ok(id)
     }
 
+    /// Rename a space (room tag text on plans and sheets). Undoable.
+    pub fn rename_space(&mut self, id: SpaceId, name: &str) -> Result<(), RegistryError> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(RegistryError::Unknown(
+                "space name cannot be empty".to_string(),
+            ));
+        }
+        let mut space = self
+            .document
+            .get_space(id)
+            .cloned()
+            .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
+        if space.name == name {
+            return Ok(());
+        }
+        let before = self.export_snapshot();
+        space.name = name.to_string();
+        self.document.upsert_space(space);
+        self.history.record_before(before);
+        Ok(())
+    }
+
     pub fn update_space(
         &mut self,
         id: SpaceId,
@@ -1706,16 +1729,16 @@ impl Project {
     }
 
     fn next_space_name(&mut self) -> String {
-        // Continue from the highest existing "Space N" so numbers stay
+        // Continue from the highest existing "Room N" so numbers stay
         // sequential after deletes/undo instead of drifting with a raw counter.
         let highest = self
             .document
             .spaces()
-            .filter_map(|s| s.name.strip_prefix("Space ")?.parse::<u32>().ok())
+            .filter_map(|s| s.name.strip_prefix("Room ")?.parse::<u32>().ok())
             .max()
             .unwrap_or(0);
         self.space_counter = highest + 1;
-        format!("Space {}", self.space_counter)
+        format!("Room {}", self.space_counter)
     }
 
     /// Serializable project: levels, elements, profiles, and extra components.

@@ -10,7 +10,10 @@
  *   APEX_SMOKE_URL=http://127.0.0.1:5173/ APEX_HOUSE_OUT=/tmp/house node scripts/house-e2e.mjs
  */
 import { chromium } from 'playwright';
-import { mkdirSync, writeFileSync } from 'fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'fs';
+
+/** Optional: skip the build and start from a saved project.json (sheet/export debugging). */
+const RESUME = process.env.APEX_HOUSE_RESUME ? readFileSync(process.env.APEX_HOUSE_RESUME, 'utf8') : null;
 
 const OUT = process.env.APEX_HOUSE_OUT ?? '/tmp/apex-house';
 const BASE = process.env.APEX_SMOKE_URL ?? 'http://localhost:5173/';
@@ -31,12 +34,13 @@ page.on('dialog', async (d) => {
   if (d.type() === 'prompt') await d.accept(promptAnswers.shift() ?? 'Note');
   else await d.dismiss();
 });
-await page.addInitScript(() => {
+await page.addInitScript((resume) => {
   if (sessionStorage.getItem('apex.house-e2e')) return;
   sessionStorage.setItem('apex.house-e2e', '1');
   localStorage.clear();
   localStorage.setItem('apex.gettingStarted.dismissed', '1');
-});
+  if (resume) localStorage.setItem('apex.project', resume);
+}, RESUME);
 await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.waitForSelector('canvas');
 await page.waitForTimeout(800);
@@ -189,6 +193,7 @@ async function drawStorey({ entrance }) {
   await checkError('openings');
 }
 
+if (!RESUME) {
 // ---------------------------------------------------------------- Level 0
 const firstViewRow = page.locator('[data-testid^="view-row-"]').filter({ hasText: /Plan/i }).first();
 await firstViewRow.click();
@@ -302,23 +307,31 @@ async function annotatePlan(levelIdx, e, names) {
   await dim([-1, 4], [-1, 8]);
   await dim([-1.8, 0], [-1.8, 8]);
   // Per-room clear dimensions (wall face to face).
-  await dim([0.1, 3], [4.9, 3]);
+  await dim([0.1, 1.2], [4.9, 1.2]);
   await dim([5.1, 1], [9.9, 1]);
-  await dim([7, 0.1], [7, 3.9]);
-  await dim([7, 4.1], [7, 7.9]);
+  await dim([9, 0.1], [9, 3.9]);
+  await dim([9, 4.1], [9, 7.9]);
   await checkError(`dimensions L${levelIdx}`);
+  // Room names: select the room and rename it in Properties (the plan tag
+  // and the sheet's room tag follow the space name).
   for (const [text, x, z] of names) {
-    promptAnswers.push(text);
-    await useTool('Text');
+    await page.keyboard.press('Escape');
     await clickW(x, z, { snap: false });
+    const input = page.getByTestId('space-name');
+    if (await input.isVisible().catch(() => false)) {
+      await input.fill(text);
+      await input.press('Enter');
+    } else {
+      note(`could not select the room at (${x}, ${z}) to rename it to ${text}`);
+    }
   }
   await page.keyboard.press('Escape');
   await page.waitForTimeout(400);
 }
-await annotatePlan(0, 0, [['LIVING 40 m²', 1.5, 6.5], ['BEDROOM 20 m²', 6, 2.5], ['KITCHEN 20 m²', 6, 6.5]]);
+await annotatePlan(0, 0, [['LIVING', 3.5, 6], ['BEDROOM', 7.5, 2], ['KITCHEN', 7.5, 6]]);
 await page.getByTestId('save-view').click().catch(() => {});
 await shot('plan-l0-dimensions');
-await annotatePlan(1, 3, [['HALL / STAIR', 1.5, 6.5], ['BEDROOM 2', 6, 2.5], ['BEDROOM 3', 6, 6.5]]);
+await annotatePlan(1, 3, [['HALL / STAIR', 3.5, 6], ['BEDROOM 2', 7.5, 2], ['BEDROOM 3', 7.5, 6]]);
 await page.getByTestId('save-view').click().catch(() => {});
 await shot('plan-l1-dimensions');
 
@@ -331,6 +344,8 @@ await fit();
 await page.getByTestId('save-view').click().catch(() => {});
 await shot('3d-view');
 
+writeFileSync(`${OUT}/project.json`, await page.evaluate(() => localStorage.getItem('apex.project') ?? ''));
+}
 // ---------------------------------------------------------------- Sheet
 await page.getByTestId('new-sheet-paper-size').selectOption('A1');
 await page.getByTestId('new-sheet-paper-orientation').selectOption('landscape');
@@ -388,15 +403,9 @@ async function download(testId, name) {
 }
 await download('export-sheet-svg', 'sheet.svg');
 await download('export-sheet-dxf', 'sheet.dxf');
-const popupPromise = page.waitForEvent('popup', { timeout: 3000 }).catch(() => null);
 const pdf = await download('export-sheet-pdf', 'sheet.pdf');
-if (!pdf) {
-  const popup = await popupPromise;
-  if (popup) {
-    note('PDF export opens a print window instead of a file');
-    await popup.close();
-  }
-}
+if (!pdf) note('PDF export did not download a file');
+else if (!readFileSync(pdf).subarray(0, 5).toString().startsWith('%PDF')) note('sheet.pdf is not a PDF');
 
 writeFileSync(`${OUT}/problems.json`, JSON.stringify(problems, null, 2));
 await context.close();

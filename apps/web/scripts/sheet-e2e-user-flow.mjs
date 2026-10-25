@@ -5,7 +5,7 @@ import { chromium } from 'playwright';
 import { mkdirSync } from 'fs';
 
 const OUT = process.env.APEX_DEMO_OUT ?? '/opt/cursor/artifacts/screenshots';
-const VIDEO_DIR = '/opt/cursor/artifacts';
+const VIDEO_DIR = process.env.APEX_DEMO_OUT || '/tmp/sheete2e';
 const BASE = process.env.APEX_SMOKE_URL ?? 'http://localhost:5173/';
 
 mkdirSync(OUT, { recursive: true });

@@ -368,6 +368,13 @@ export interface VectorText2dDto {
   position: [number, number];
   height: number;
   text: string;
+  /** Centre the text on `position` (room tags, grid bubbles). */
+  centered?: boolean;
+}
+
+export interface VectorFill2dDto {
+  layer: string;
+  ring: [number, number][];
 }
 
 export interface VectorDimension2dDto {
@@ -386,6 +393,7 @@ export interface VectorDrawing2d {
   lines: VectorLine2dDto[];
   texts: VectorText2dDto[];
   dimensions: VectorDimension2dDto[];
+  fills?: VectorFill2dDto[];
 }
 
 export interface SheetDto {
