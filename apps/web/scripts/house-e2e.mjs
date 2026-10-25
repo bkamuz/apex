@@ -343,6 +343,21 @@ await page.keyboard.press('3');
 await fit();
 await page.getByTestId('save-view').click().catch(() => {});
 await shot('3d-view');
+{
+  const c = page.locator('canvas').first();
+  const b = await c.boundingBox();
+  const cx = b.x + b.width / 2, cy = b.y + b.height / 2;
+  for (const [i, dx, dy, zoom] of [[1, 260, 0, 4], [2, -520, 120, 4], [3, 260, -260, 6], [4, 400, 200, 6]]) {
+    await page.mouse.move(cx, cy);
+    await page.mouse.down();
+    await page.mouse.move(cx + dx, cy + dy, { steps: 12 });
+    await page.mouse.up();
+    for (let k = 0; k < zoom; k++) { await page.mouse.wheel(0, -200); await page.waitForTimeout(60); }
+    await page.waitForTimeout(400);
+    await shot(`3d-angle-${i}`);
+    await fit();
+  }
+}
 
 writeFileSync(`${OUT}/project.json`, await page.evaluate(() => localStorage.getItem('apex.project') ?? ''));
 }
