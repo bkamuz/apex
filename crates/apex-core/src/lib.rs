@@ -9,6 +9,8 @@ mod element;
 mod expr;
 mod grid_axis;
 mod history;
+mod join_cluster;
+mod join_end;
 mod level;
 mod param;
 mod path_join;
@@ -38,11 +40,13 @@ pub use grid_axis::{
     grid_axis_param_specs, GridAxis, GridAxisError, GridAxisId, GridAxisLibrary, GridAxisOverlay,
 };
 pub use history::History;
+pub use join_cluster::{JoinClusterOutline, JoinConnectivity};
+pub use join_end::{JoinEndSettings, JoinStyle};
 pub use level::{Level, LevelId};
 pub use param::{ParamBinding, ParamError, ParamId, ParamKind, ParamMap, ParamSpec, ParamValue};
 pub use path_join::{
-    joinable_segment, peers_for, plan_joins, profile_half_width, JoinUpdate, JoinableSegment,
-    PATH_JOIN_SNAP,
+    joinable_segment, peers_for, plan_joins, plan_joins_all, profile_half_width, JoinUpdate,
+    JoinableSegment, PATH_JOIN_SNAP,
 };
 pub use placement::{Placement, PlacementError, PlacementKind};
 pub use project::Project;

@@ -251,6 +251,8 @@ struct SceneDto {
     /// Pick id per triangle.
     pick_ids: Vec<f64>,
     edge_positions: Vec<f32>,
+    join_outline_edges: Vec<f32>,
+    join_cluster_element_ids: Vec<String>,
     elements: Vec<ElementListDto>,
     references: Vec<ReferenceDto>,
     grid_axes: Vec<GridAxisDto>,
@@ -531,7 +533,7 @@ fn sorted_levels(project: &Project) -> Vec<LevelDto> {
 }
 
 fn scene_dto(project: &Project) -> SceneDto {
-    let buffers: SceneBuffers = project.document().build_scene_buffers();
+    let buffers: SceneBuffers = project.build_scene_buffers();
     let selected_ids = with_selection(|s| s.0.iter().map(|id| id.to_string()).collect::<Vec<_>>());
     let selected_ref_id = SELECTED_REF.with(|cell| cell.borrow().map(|id| id.to_string()));
     let selected_grid_axis_id =
@@ -582,6 +584,8 @@ fn scene_dto(project: &Project) -> SceneDto {
         indices: buffers.indices,
         pick_ids: buffers.pick_ids.iter().map(|id| *id as f64).collect(),
         edge_positions: buffers.edge_positions,
+        join_outline_edges: buffers.join_outline_edges,
+        join_cluster_element_ids: buffers.join_cluster_element_ids,
         elements: buffers
             .elements
             .iter()
@@ -1424,7 +1428,6 @@ pub fn toggle_pick_by_id(pick_id: f64) -> Result<JsValue, JsValue> {
 fn find_by_pick_id(project: &Project, pick_id: f64) -> Option<ElementId> {
     let target = pick_id as u64;
     project
-        .document()
         .build_scene_buffers()
         .elements
         .iter()

@@ -10,6 +10,7 @@ glam = { workspace = true }
 serde = { workspace = true }
 spade = { workspace = true }
 thiserror = { workspace = true }
+i_overlay = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

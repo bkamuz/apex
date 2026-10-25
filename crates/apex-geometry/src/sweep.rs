@@ -19,6 +19,10 @@ pub struct SweepOptions {
     pub tolerance: f32,
     /// Reference direction that keeps the profile's local Y upright.
     pub up: Vec3,
+    /// When false, the start end cap is omitted (joined end).
+    pub cap_start: bool,
+    /// When false, the finish end cap is omitted (joined end).
+    pub cap_end: bool,
 }
 
 impl Default for SweepOptions {
@@ -29,6 +33,8 @@ impl Default for SweepOptions {
             end_extension: 0.0,
             tolerance: DEFAULT_TOLERANCE,
             up: Vec3::Y,
+            cap_start: true,
+            cap_end: true,
         }
     }
 }
@@ -61,7 +67,13 @@ pub fn sweep(
         .map(|t| path.frame_at(t, options.up))
         .collect::<Result<Vec<_>, _>>()?;
 
-    build(&placed, &frames, path.is_closed())
+    build(
+        &placed,
+        &frames,
+        path.is_closed(),
+        options.cap_start,
+        options.cap_end,
+    )
 }
 
 /// Extrude a profile off its own plane along the frame's local Z.
@@ -74,14 +86,20 @@ pub fn extrude(
         return Err(GeometryError::InvalidHeight(height));
     }
     let top = base.translated(base.z * height);
-    build(profile, &[*base, top], false)
+    build(profile, &[*base, top], false, true, true)
 }
 
 /// Shared ring-and-cap builder for every swept solid.
 ///
 /// A profile with holes produces a swept tube: every loop becomes its own ring
 /// wall, and the caps are covered by the triangulated profile.
-fn build(profile: &Profile, frames: &[Frame], closed: bool) -> Result<TriangleMesh, GeometryError> {
+fn build(
+    profile: &Profile,
+    frames: &[Frame],
+    closed: bool,
+    cap_start: bool,
+    cap_end: bool,
+) -> Result<TriangleMesh, GeometryError> {
     let stations = frames.len();
     if stations < 2 {
         return Err(GeometryError::NotEnoughStations);
@@ -143,16 +161,20 @@ fn build(profile: &Profile, frames: &[Frame], closed: bool) -> Result<TriangleMe
             .collect();
 
         // Start cap faces backwards, so its winding is reversed.
-        let start_normal = (-frames[0].z).to_array();
-        for t in &triangles {
-            let (a, b, c) = (start_ring[t[0]], start_ring[t[1]], start_ring[t[2]]);
-            mesh.push_triangle(a.to_array(), c.to_array(), b.to_array(), start_normal);
+        if cap_start {
+            let start_normal = (-frames[0].z).to_array();
+            for t in &triangles {
+                let (a, b, c) = (start_ring[t[0]], start_ring[t[1]], start_ring[t[2]]);
+                mesh.push_triangle(a.to_array(), c.to_array(), b.to_array(), start_normal);
+            }
         }
 
-        let end_normal = frames[last].z.to_array();
-        for t in &triangles {
-            let (a, b, c) = (end_ring[t[0]], end_ring[t[1]], end_ring[t[2]]);
-            mesh.push_triangle(a.to_array(), b.to_array(), c.to_array(), end_normal);
+        if cap_end {
+            let end_normal = frames[last].z.to_array();
+            for t in &triangles {
+                let (a, b, c) = (end_ring[t[0]], end_ring[t[1]], end_ring[t[2]]);
+                mesh.push_triangle(a.to_array(), b.to_array(), c.to_array(), end_normal);
+            }
         }
     }
 
@@ -164,6 +186,8 @@ fn build(profile: &Profile, frames: &[Frame], closed: bool) -> Result<TriangleMe
             stations,
             closed,
             spans,
+            cap_start,
+            cap_end,
         );
     }
     Ok(mesh)
@@ -177,6 +201,7 @@ fn is_outline(loop_index: usize) -> bool {
 }
 
 /// CAD overlay lines: the profile outline at each open end, plus rails along the path.
+#[allow(clippy::too_many_arguments)]
 fn push_edges(
     mesh: &mut TriangleMesh,
     rings: &[Vec<Vec3>],
@@ -184,9 +209,19 @@ fn push_edges(
     stations: usize,
     closed: bool,
     spans: usize,
+    cap_start: bool,
+    cap_end: bool,
 ) {
     if !closed {
-        for ring in [&rings[0], &rings[stations - 1]] {
+        if cap_start {
+            let ring = &rings[0];
+            for j in 0..corners {
+                let j1 = (j + 1) % corners;
+                mesh.push_edge(ring[j].to_array(), ring[j1].to_array());
+            }
+        }
+        if cap_end {
+            let ring = &rings[stations - 1];
             for j in 0..corners {
                 let j1 = (j + 1) % corners;
                 mesh.push_edge(ring[j].to_array(), ring[j1].to_array());

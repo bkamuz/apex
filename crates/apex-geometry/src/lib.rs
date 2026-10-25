@@ -11,6 +11,8 @@ mod error;
 mod frame;
 mod join;
 mod mesh;
+mod path_footprint;
+mod polygon;
 mod profile;
 mod sweep;
 
@@ -18,9 +20,12 @@ pub use curve::{Curve, MIN_CURVE_LENGTH};
 pub use error::GeometryError;
 pub use frame::Frame;
 pub use join::{
-    adjust_end, angle_between, closest_on_segment_xz, inward_dir, miter_extension, outward_dir,
-    plan_distance, split_curve_at, stem_trim, JOIN_SNAP,
+    adjust_end, angle_between, closest_on_segment_xz, collapse_colinear_path, inward_dir,
+    miter_extension, outward_dir, plan_distance, segment_intersect_xz, split_curve_at, stem_trim,
+    JOIN_SNAP,
 };
+pub use path_footprint::{path_footprint_union, segment_footprint_rect};
+pub use polygon::{union_contours, Contour2};
 pub use mesh::TriangleMesh;
 pub use profile::{Justification, Point2, Profile};
 pub use sweep::{extrude, sweep, SweepOptions};

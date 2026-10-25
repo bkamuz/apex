@@ -3,7 +3,7 @@
 //! Keeping this in the core means the WASM façade stays a thin translation
 //! layer, and any other host gets the same behaviour for free.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 
 use apex_geometry::{Frame, TriangleMesh};
 use glam::Vec3;
@@ -13,13 +13,14 @@ use crate::component::{ComponentDefinition, ComponentSource, ProfileType};
 use crate::construction_line::{
     construction_line_param_specs, ConstructionLine, ConstructionLineId,
 };
-use crate::document::Document;
+use crate::document::{Document, SceneBuffers};
+use crate::join_cluster::{all_join_cluster_outlines, join_connectivity, JoinConnectivity};
 use crate::element::{Element, ElementId};
 use crate::grid_axis::{grid_axis_param_specs, GridAxis, GridAxisId};
 use crate::history::History;
 use crate::level::{Level, LevelId};
 use crate::param::{ParamMap, ParamValue};
-use crate::path_join::{joinable_segment, peers_for, plan_joins};
+use crate::path_join::{joinable_segment, plan_joins_all};
 use crate::placement::{Placement, PlacementKind};
 use crate::reference::{RefId, Reference, ReferenceKind};
 use crate::registry::{ComponentRegistry, RegistryError};
@@ -309,11 +310,31 @@ impl Project {
             .get_element(id)
             .cloned()
             .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
-        let Some(new_seg) = joinable_segment(&self.registry, &element) else {
+        let Some(_seg) = joinable_segment(&self.registry, &element) else {
             return Ok(0);
         };
-        let peers: Vec<_> = peers_for(&self.registry, self.document.elements(), &element);
-        let updates = plan_joins(&new_seg, &peers);
+        let level_id = element.level_id;
+        let component_id = element.component_id.clone();
+        self.recompute_joins_on_level(&level_id, &component_id, record)
+    }
+
+    /// Recompute path joins for every joinable instance of `component_id` on `level_id`.
+    pub fn recompute_joins_on_level(
+        &mut self,
+        level_id: &LevelId,
+        component_id: &str,
+        record: bool,
+    ) -> Result<usize, RegistryError> {
+        let segments: Vec<_> = self
+            .document
+            .elements()
+            .filter(|e| e.level_id == *level_id && e.component_id == component_id)
+            .filter_map(|e| joinable_segment(&self.registry, e))
+            .collect();
+        if segments.is_empty() {
+            return Ok(0);
+        }
+        let updates = plan_joins_all(&segments);
         if updates.is_empty() {
             return Ok(0);
         }
@@ -322,15 +343,41 @@ impl Project {
         if started {
             self.begin_undo_group();
         }
-        let mut count = 0usize;
+        let count = updates.len();
         for update in updates {
             self.apply_join_update(update, false)?;
-            count += 1;
         }
         if started {
             self.commit_undo_group();
         }
         Ok(count)
+    }
+
+    /// Scene buffers with united join-cluster plan linework.
+    pub fn build_scene_buffers(&self) -> SceneBuffers {
+        let clusters = all_join_cluster_outlines(self.registry(), self.document.elements());
+        let mut skip = HashSet::new();
+        let mut join_outline_edges = Vec::new();
+        for cluster in &clusters {
+            for id in &cluster.element_ids {
+                skip.insert(*id);
+            }
+            if cluster.points.len() < 2 {
+                continue;
+            }
+            for w in cluster.points.windows(2) {
+                join_outline_edges.extend_from_slice(&[
+                    w[0].x, w[0].y, w[0].z, w[1].x, w[1].y, w[1].z,
+                ]);
+            }
+            let first = cluster.points[0];
+            let last = cluster.points[cluster.points.len() - 1];
+            join_outline_edges.extend_from_slice(&[
+                last.x, last.y, last.z, first.x, first.y, first.z,
+            ]);
+        }
+        self.document
+            .build_scene_buffers_with_joins(&skip, &join_outline_edges)
     }
 
     fn apply_join_update(
@@ -408,6 +455,7 @@ impl Project {
             .document
             .effective_level_id(id)
             .unwrap_or(element.level_id);
+        let placement_changed = placement.is_some();
         if let Some(placement) = placement {
             let seat = self
                 .registry
@@ -431,12 +479,21 @@ impl Project {
             .and_then(|d| d.host_cut.as_ref())
             .is_some();
         let parent_id = element.parent_id;
+        let joinable = self
+            .registry
+            .get(&element.component_id)
+            .is_some_and(|d| d.joinable);
+        let join_level = element.level_id;
+        let join_component = element.component_id.clone();
         let mesh = self.build_element_mesh_with_cuts(&element)?;
         self.document.update_element(element, mesh);
         if is_opening {
             if let Some(parent_id) = parent_id {
                 let _ = self.rebuild_element(parent_id);
             }
+        }
+        if placement_changed && joinable {
+            let _ = self.recompute_joins_on_level(&join_level, &join_component, false);
         }
         if record {
             self.finish_recorded_edit(before);
@@ -1089,14 +1146,25 @@ impl Project {
             moving.extend(self.document.descendants_of(*id));
         }
 
-        for id in moving {
+        let mut join_groups: HashSet<(LevelId, String)> = HashSet::new();
+        for id in &moving {
             let element = self
                 .document
-                .get_element(id)
+                .get_element(*id)
                 .cloned()
                 .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
+            if self
+                .registry
+                .get(&element.component_id)
+                .is_some_and(|d| d.joinable)
+            {
+                join_groups.insert((element.level_id, element.component_id.clone()));
+            }
             let placement = element.placement.translated(delta);
-            self.update_element(id, None, Some(placement), false)?;
+            self.update_element(*id, None, Some(placement), false)?;
+        }
+        for (level_id, component_id) in join_groups {
+            let _ = self.recompute_joins_on_level(&level_id, &component_id, false)?;
         }
         if record {
             self.finish_recorded_edit(before);
@@ -1485,6 +1553,39 @@ impl Project {
         Ok(())
     }
 
+    fn join_caps_for(&self, element: &Element) -> JoinConnectivity {
+        let Some(def) = self.registry.get(&element.component_id) else {
+            return JoinConnectivity::open();
+        };
+        if !def.joinable {
+            return JoinConnectivity::open();
+        }
+        let segments: Vec<_> = self
+            .document
+            .elements()
+            .filter(|e| {
+                e.level_id == element.level_id && e.component_id == element.component_id
+            })
+            .filter_map(|e| joinable_segment(&self.registry, e))
+            .collect();
+        let curves: BTreeMap<_, _> = segments
+            .iter()
+            .map(|s| (s.id, s.curve.clone()))
+            .collect();
+        let join_start: BTreeMap<_, _> = segments
+            .iter()
+            .map(|s| (s.id, s.join_start))
+            .collect();
+        let join_end: BTreeMap<_, _> = segments
+            .iter()
+            .map(|s| (s.id, s.join_end))
+            .collect();
+        join_connectivity(&segments, &curves, &join_start, &join_end)
+            .get(&element.id)
+            .copied()
+            .unwrap_or_else(JoinConnectivity::open)
+    }
+
     fn build_element_mesh_with_cuts(
         &self,
         element: &Element,
@@ -1493,10 +1594,13 @@ impl Project {
             .document
             .effective_level_id(element.id)
             .unwrap_or(element.level_id);
-        let mut mesh = self.registry.build_element_mesh(
+        let caps = self.join_caps_for(element);
+        let mut mesh = self.registry.build_element_mesh_with_caps(
             element,
             self.work_plane(level_id),
             self.document.references(),
+            caps.cap_start,
+            caps.cap_end,
         )?;
         let voids = self.host_cut_voids(element.id);
         if !voids.is_empty() {

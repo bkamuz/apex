@@ -489,6 +489,15 @@ impl Document {
 
     /// Build a single scene mesh with per-triangle element pick ids and CAD edges.
     pub fn build_scene_buffers(&self) -> SceneBuffers {
+        self.build_scene_buffers_with_joins(&std::collections::HashSet::new(), &[])
+    }
+
+    /// Omit per-element CAD edges for join-cluster members; append united plan outlines.
+    pub fn build_scene_buffers_with_joins(
+        &self,
+        skip_edges_for: &std::collections::HashSet<crate::element::ElementId>,
+        join_outline_edges: &[f32],
+    ) -> SceneBuffers {
         let mut positions = Vec::new();
         let mut normals = Vec::new();
         let mut indices = Vec::new();
@@ -509,7 +518,9 @@ impl Document {
 
             positions.extend_from_slice(&mesh.positions);
             normals.extend_from_slice(&mesh.normals);
-            edge_positions.extend_from_slice(&mesh.edges);
+            if !skip_edges_for.contains(&element.id) {
+                edge_positions.extend_from_slice(&mesh.edges);
+            }
 
             for tri in mesh.indices.as_chunks::<3>().0 {
                 indices.push(base + tri[0]);
@@ -528,12 +539,16 @@ impl Document {
             });
         }
 
+        edge_positions.extend_from_slice(join_outline_edges);
+
         SceneBuffers {
             positions,
             normals,
             indices,
             pick_ids,
             edge_positions,
+            join_outline_edges: join_outline_edges.to_vec(),
+            join_cluster_element_ids: skip_edges_for.iter().map(|id| id.to_string()).collect(),
             elements: element_index,
             version: self.version,
         }
@@ -569,6 +584,10 @@ pub struct SceneBuffers {
     pub pick_ids: Vec<u64>,
     /// CAD edge segments: consecutive xyz pairs.
     pub edge_positions: Vec<f32>,
+    /// United join-cluster plan outlines (also included in `edge_positions`).
+    pub join_outline_edges: Vec<f32>,
+    /// Elements whose mesh edges were replaced by cluster outlines in plan linework.
+    pub join_cluster_element_ids: Vec<String>,
     pub elements: Vec<ElementSceneEntry>,
     pub version: u64,
 }

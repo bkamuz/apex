@@ -148,6 +148,59 @@ pub fn inward_dir(curve: &Curve, at_start: bool) -> Option<Vec3> {
     Some(-outward_dir(curve, at_start)?)
 }
 
+/// Proper intersection of two segments in XZ. Returns world point and parameters on each segment.
+pub fn segment_intersect_xz(
+    a0: Vec3,
+    a1: Vec3,
+    b0: Vec3,
+    b1: Vec3,
+    eps: f32,
+) -> Option<(Vec3, f32, f32)> {
+    let ax = a1.x - a0.x;
+    let az = a1.z - a0.z;
+    let bx = b1.x - b0.x;
+    let bz = b1.z - b0.z;
+    let denom = ax * bz - az * bx;
+    if denom.abs() < eps {
+        return None;
+    }
+    let cx = b0.x - a0.x;
+    let cz = b0.z - a0.z;
+    let t = (cx * bz - cz * bx) / denom;
+    let u = (cx * az - cz * ax) / denom;
+    if t < eps || t > 1.0 - eps || u < eps || u > 1.0 - eps {
+        return None;
+    }
+    let point = Vec3::new(a0.x + ax * t, a0.lerp(b0, 0.5).y, a0.z + az * t);
+    Some((point, t, u))
+}
+
+/// If every point of an open polyline lies on one line in XZ, collapse to a line.
+pub fn collapse_colinear_path(curve: &Curve, eps: f32) -> Curve {
+    match curve {
+        Curve::Polyline { points } if points.len() >= 2 => {
+            let start = points[0];
+            let end = points[points.len() - 1];
+            let dir = Vec3::new(end.x - start.x, 0.0, end.z - start.z);
+            if dir.length_squared() < eps * eps {
+                return curve.clone();
+            }
+            let dir_n = dir.normalize();
+            let all_on_line = points.iter().all(|p| {
+                let ap = Vec3::new(p.x - start.x, 0.0, p.z - start.z);
+                let cross = ap.x * dir_n.z - ap.z * dir_n.x;
+                cross.abs() < eps
+            });
+            if all_on_line {
+                Curve::line(start, end)
+            } else {
+                curve.clone()
+            }
+        }
+        other => other.clone(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

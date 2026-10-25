@@ -8,13 +8,15 @@
 //! a host polyline vertex and trim the stem via a negative join offset.
 
 use apex_geometry::{
-    angle_between, closest_on_segment_xz, miter_extension, outward_dir, plan_distance,
-    split_curve_at, stem_trim, Curve, JOIN_SNAP, MIN_CURVE_LENGTH,
+    angle_between, closest_on_segment_xz, collapse_colinear_path, miter_extension, outward_dir,
+    plan_distance, segment_intersect_xz, split_curve_at, stem_trim, Curve, JOIN_SNAP,
+    MIN_CURVE_LENGTH,
 };
 use glam::Vec3;
 
 use crate::component::GeometryRecipe;
 use crate::element::{Element, ElementId};
+use crate::join_end::{JoinEndSettings, JoinStyle};
 use crate::placement::Placement;
 use crate::registry::ComponentRegistry;
 
@@ -26,6 +28,8 @@ pub struct JoinableSegment {
     pub half_width: f32,
     pub join_start: f32,
     pub join_end: f32,
+    pub join_start_settings: JoinEndSettings,
+    pub join_end_settings: JoinEndSettings,
 }
 
 /// One rewrite produced by a join pass.
@@ -84,162 +88,172 @@ pub fn joinable_segment(
         half_width,
         join_start: element.join_start,
         join_end: element.join_end,
+        join_start_settings: element.join_start_settings,
+        join_end_settings: element.join_end_settings,
     })
 }
 
-/// Compute updates that join `new_seg` with existing peers.
-///
-/// Corner: two ends within [`JOIN_SNAP`] → miter extensions on both.
-/// T-junction: end hits mid-span of a peer → split host + trim stem.
-pub fn plan_joins(new_seg: &JoinableSegment, peers: &[JoinableSegment]) -> Vec<JoinUpdate> {
+/// Recompute joins for every segment in the slice (global pass, offsets reset).
+pub fn plan_joins_all(segments: &[JoinableSegment]) -> Vec<JoinUpdate> {
+    if segments.is_empty() {
+        return Vec::new();
+    }
     let mut state: std::collections::BTreeMap<ElementId, SegState> =
         std::collections::BTreeMap::new();
-
-    let mut ensure = |seg: &JoinableSegment| {
-        state.entry(seg.id).or_insert_with(|| SegState {
-            curve: seg.curve.clone(),
-            // Preserve existing join offsets on ends this pass does not touch.
-            join_start: seg.join_start,
-            join_end: seg.join_end,
-            placement_changed: false,
-            touched: false,
-        });
-    };
-    ensure(new_seg);
-    for peer in peers {
-        ensure(peer);
+    for seg in segments {
+        let curve = collapse_colinear_path(&seg.curve, JOIN_SNAP);
+        let canonicalized = curve != seg.curve;
+        state.insert(
+            seg.id,
+            SegState {
+                curve,
+                join_start: 0.0,
+                join_end: 0.0,
+                placement_changed: canonicalized,
+                touched: canonicalized,
+            },
+        );
     }
 
-    // --- Corner miters -------------------------------------------------------
-    for peer in peers {
-        if peer.id == new_seg.id {
-            continue;
-        }
-        for (new_at_start, peer_at_start) in
-            [(true, true), (true, false), (false, true), (false, false)]
-        {
-            let new_curve = state.get(&new_seg.id).unwrap().curve.clone();
-            let peer_curve = state.get(&peer.id).unwrap().curve.clone();
-            let new_end = endpoint(&new_curve, new_at_start);
-            let peer_end = endpoint(&peer_curve, peer_at_start);
-            if plan_distance(new_end, peer_end) > JOIN_SNAP {
-                continue;
-            }
+    let ids: Vec<ElementId> = state.keys().copied().collect();
 
-            let Some(dir_new) = outward_dir(&new_curve, new_at_start) else {
-                continue;
-            };
-            let Some(dir_peer) = outward_dir(&peer_curve, peer_at_start) else {
-                continue;
-            };
-            let Some(theta) = angle_between(dir_new, dir_peer) else {
-                continue;
-            };
-            if theta < 0.15 || (std::f32::consts::PI - theta) < 0.15 {
-                continue;
-            }
-
-            let ext_new = miter_extension(new_seg.half_width, theta);
-            let ext_peer = miter_extension(peer.half_width, theta);
-            if ext_new <= 0.0 && ext_peer <= 0.0 {
-                continue;
-            }
-
-            set_join_offset(&mut state, new_seg.id, new_at_start, ext_new);
-            set_join_offset(&mut state, peer.id, peer_at_start, ext_peer);
-        }
-    }
-
-    // --- T-junctions: new end → mid-span of peer -----------------------------
-    for peer in peers {
-        if peer.id == new_seg.id {
-            continue;
-        }
-        for new_at_start in [true, false] {
-            let new_curve = state.get(&new_seg.id).unwrap().curve.clone();
-            let peer_curve = state.get(&peer.id).unwrap().curve.clone();
-            let tip = endpoint(&new_curve, new_at_start);
-            let Some((hit, t, dist)) = closest_on_host(&peer_curve, tip) else {
-                continue;
-            };
-            if dist > JOIN_SNAP || !(0.05..=0.95).contains(&t) {
-                continue;
-            }
-            if plan_distance(tip, peer_curve.start()) <= JOIN_SNAP
-                || plan_distance(tip, peer_curve.end()) <= JOIN_SNAP
-            {
-                continue;
-            }
-
-            let Some(stem_out) = outward_dir(&new_curve, new_at_start) else {
-                continue;
-            };
-            let host_dir = host_tangent_at(&peer_curve, hit).unwrap_or(Vec3::X);
-            let Some(phi) = angle_between(stem_out, host_dir) else {
-                continue;
-            };
-            let hit_angle = phi.min(std::f32::consts::PI - phi);
-            if hit_angle < 0.15 {
-                continue;
-            }
-
-            let trim = stem_trim(peer.half_width, hit_angle);
-            // Keep centerline tip on host; negative extension pulls the mesh face back.
-            set_join_offset(&mut state, new_seg.id, new_at_start, -trim);
-
-            if let Some(split) = split_curve_at(&peer_curve, hit, JOIN_SNAP) {
-                if split != peer_curve {
-                    let s = state.get_mut(&peer.id).unwrap();
-                    s.curve = split;
-                    s.placement_changed = true;
-                    s.touched = true;
+    // --- X junctions: crossing mid-spans split both hosts ----------------------
+    for i in 0..ids.len() {
+        for j in (i + 1)..ids.len() {
+            let id_a = ids[i];
+            let id_b = ids[j];
+            let pairs_a = segment_pairs(state.get(&id_a).unwrap().curve.clone());
+            let pairs_b = segment_pairs(state.get(&id_b).unwrap().curve.clone());
+            for (a0, a1) in &pairs_a {
+                for (b0, b1) in &pairs_b {
+                    let Some((hit, _, _)) = segment_intersect_xz(*a0, *a1, *b0, *b1, 1e-4) else {
+                        continue;
+                    };
+                    if let Some(split) = split_curve_at(&state.get(&id_a).unwrap().curve, hit, JOIN_SNAP)
+                    {
+                        if split != state.get(&id_a).unwrap().curve {
+                            let s = state.get_mut(&id_a).unwrap();
+                            s.curve = split;
+                            s.placement_changed = true;
+                            s.touched = true;
+                        }
+                    }
+                    if let Some(split) = split_curve_at(&state.get(&id_b).unwrap().curve, hit, JOIN_SNAP)
+                    {
+                        if split != state.get(&id_b).unwrap().curve {
+                            let s = state.get_mut(&id_b).unwrap();
+                            s.curve = split;
+                            s.placement_changed = true;
+                            s.touched = true;
+                        }
+                    }
                 }
             }
         }
     }
 
-    // --- Inverse T: peer end → mid-span of new path --------------------------
-    for peer in peers {
-        if peer.id == new_seg.id {
-            continue;
-        }
-        for peer_at_start in [true, false] {
-            let new_curve = state.get(&new_seg.id).unwrap().curve.clone();
-            let peer_curve = state.get(&peer.id).unwrap().curve.clone();
-            let tip = endpoint(&peer_curve, peer_at_start);
-            let Some((hit, t, dist)) = closest_on_host(&new_curve, tip) else {
-                continue;
-            };
-            if dist > JOIN_SNAP || !(0.05..=0.95).contains(&t) {
+    // --- Corner miters -------------------------------------------------------
+    for i in 0..ids.len() {
+        for j in 0..ids.len() {
+            if i == j {
                 continue;
             }
-            if plan_distance(tip, new_curve.start()) <= JOIN_SNAP
-                || plan_distance(tip, new_curve.end()) <= JOIN_SNAP
+            let id_a = ids[i];
+            let id_b = ids[j];
+            let seg_a = segments.iter().find(|s| s.id == id_a).expect("seg");
+            let seg_b = segments.iter().find(|s| s.id == id_b).expect("seg");
+            for (a_at_start, b_at_start) in
+                [(true, true), (true, false), (false, true), (false, false)]
             {
+                if !end_allows(seg_a, a_at_start) || !end_allows(seg_b, b_at_start) {
+                    continue;
+                }
+                let curve_a = state.get(&id_a).unwrap().curve.clone();
+                let curve_b = state.get(&id_b).unwrap().curve.clone();
+                let end_a = endpoint(&curve_a, a_at_start);
+                let end_b = endpoint(&curve_b, b_at_start);
+                if plan_distance(end_a, end_b) > JOIN_SNAP {
+                    continue;
+                }
+                let Some(dir_a) = outward_dir(&curve_a, a_at_start) else {
+                    continue;
+                };
+                let Some(dir_b) = outward_dir(&curve_b, b_at_start) else {
+                    continue;
+                };
+                let Some(theta) = angle_between(dir_a, dir_b) else {
+                    continue;
+                };
+                if theta < 0.15 || (std::f32::consts::PI - theta) < 0.15 {
+                    continue;
+                }
+                let ext_a = style_extension(
+                    end_style(seg_a, a_at_start),
+                    seg_a.half_width,
+                    theta,
+                );
+                let ext_b = style_extension(
+                    end_style(seg_b, b_at_start),
+                    seg_b.half_width,
+                    theta,
+                );
+                if ext_a <= 0.0 && ext_b <= 0.0 {
+                    continue;
+                }
+                set_join_offset(&mut state, id_a, a_at_start, ext_a);
+                set_join_offset(&mut state, id_b, b_at_start, ext_b);
+            }
+        }
+    }
+
+    // --- T-junctions ---------------------------------------------------------
+    for i in 0..ids.len() {
+        for j in 0..ids.len() {
+            if i == j {
                 continue;
             }
-
-            let Some(stem_out) = outward_dir(&peer_curve, peer_at_start) else {
-                continue;
-            };
-            let host_dir = host_tangent_at(&new_curve, hit).unwrap_or(Vec3::X);
-            let Some(phi) = angle_between(stem_out, host_dir) else {
-                continue;
-            };
-            let hit_angle = phi.min(std::f32::consts::PI - phi);
-            if hit_angle < 0.15 {
-                continue;
-            }
-
-            let trim = stem_trim(new_seg.half_width, hit_angle);
-            set_join_offset(&mut state, peer.id, peer_at_start, -trim);
-
-            if let Some(split) = split_curve_at(&new_curve, hit, JOIN_SNAP) {
-                if split != new_curve {
-                    let s = state.get_mut(&new_seg.id).unwrap();
-                    s.curve = split;
-                    s.placement_changed = true;
-                    s.touched = true;
+            let stem_id = ids[i];
+            let host_id = ids[j];
+            let stem = segments.iter().find(|s| s.id == stem_id).expect("seg");
+            let host = segments.iter().find(|s| s.id == host_id).expect("seg");
+            for stem_at_start in [true, false] {
+                if !end_allows(stem, stem_at_start) {
+                    continue;
+                }
+                let stem_curve = state.get(&stem_id).unwrap().curve.clone();
+                let host_curve = state.get(&host_id).unwrap().curve.clone();
+                let tip = endpoint(&stem_curve, stem_at_start);
+                let Some((hit, t, dist)) = closest_on_host(&host_curve, tip) else {
+                    continue;
+                };
+                if dist > JOIN_SNAP || !(0.05..=0.95).contains(&t) {
+                    continue;
+                }
+                if plan_distance(tip, host_curve.start()) <= JOIN_SNAP
+                    || plan_distance(tip, host_curve.end()) <= JOIN_SNAP
+                {
+                    continue;
+                }
+                let Some(stem_out) = outward_dir(&stem_curve, stem_at_start) else {
+                    continue;
+                };
+                let host_dir = host_tangent_at(&host_curve, hit).unwrap_or(Vec3::X);
+                let Some(phi) = angle_between(stem_out, host_dir) else {
+                    continue;
+                };
+                let hit_angle = phi.min(std::f32::consts::PI - phi);
+                if hit_angle < 0.15 {
+                    continue;
+                }
+                let trim = stem_trim(host.half_width, hit_angle);
+                set_join_offset(&mut state, stem_id, stem_at_start, -trim);
+                if let Some(split) = split_curve_at(&host_curve, hit, JOIN_SNAP) {
+                    if split != host_curve {
+                        let s = state.get_mut(&host_id).unwrap();
+                        s.curve = split;
+                        s.placement_changed = true;
+                        s.touched = true;
+                    }
                 }
             }
         }
@@ -247,7 +261,6 @@ pub fn plan_joins(new_seg: &JoinableSegment, peers: &[JoinableSegment]) -> Vec<J
 
     state
         .into_iter()
-        .filter(|(_, s)| s.touched)
         .map(|(id, s)| JoinUpdate {
             id,
             placement: s
@@ -257,6 +270,15 @@ pub fn plan_joins(new_seg: &JoinableSegment, peers: &[JoinableSegment]) -> Vec<J
             join_end: s.join_end,
         })
         .collect()
+}
+
+/// Compute updates that join `new_seg` with existing peers (global pass on the set).
+pub fn plan_joins(new_seg: &JoinableSegment, peers: &[JoinableSegment]) -> Vec<JoinUpdate> {
+    let mut all: Vec<JoinableSegment> = peers.to_vec();
+    if !all.iter().any(|p| p.id == new_seg.id) {
+        all.push(new_seg.clone());
+    }
+    plan_joins_all(&all)
 }
 
 #[derive(Debug, Clone)]
@@ -273,6 +295,41 @@ fn endpoint(curve: &Curve, at_start: bool) -> Vec3 {
         curve.start()
     } else {
         curve.end()
+    }
+}
+
+fn end_allows(seg: &JoinableSegment, at_start: bool) -> bool {
+    if at_start {
+        seg.join_start_settings.allow_join
+    } else {
+        seg.join_end_settings.allow_join
+    }
+}
+
+fn end_style(seg: &JoinableSegment, at_start: bool) -> JoinStyle {
+    if at_start {
+        seg.join_start_settings.style
+    } else {
+        seg.join_end_settings.style
+    }
+}
+
+fn style_extension(style: JoinStyle, half_width: f32, theta: f32) -> f32 {
+    match style {
+        JoinStyle::Miter => miter_extension(half_width, theta),
+        JoinStyle::Butt => 0.0,
+        JoinStyle::Square => half_width,
+    }
+}
+
+fn segment_pairs(curve: Curve) -> Vec<(Vec3, Vec3)> {
+    match curve {
+        Curve::Line { a, b } => vec![(a, b)],
+        Curve::Polyline { points } => points
+            .windows(2)
+            .map(|w| (w[0], w[1]))
+            .collect(),
+        _ => Vec::new(),
     }
 }
 
@@ -375,6 +432,8 @@ mod tests {
             half_width: 0.1,
             join_start: 0.0,
             join_end: 0.0,
+            join_start_settings: JoinEndSettings::default(),
+            join_end_settings: JoinEndSettings::default(),
         };
         let b = JoinableSegment {
             id: ElementId::new(),
@@ -382,6 +441,8 @@ mod tests {
             half_width: 0.1,
             join_start: 0.0,
             join_end: 0.0,
+            join_start_settings: JoinEndSettings::default(),
+            join_end_settings: JoinEndSettings::default(),
         };
         let updates = plan_joins(&b, &[a.clone()]);
         assert!(
@@ -414,6 +475,8 @@ mod tests {
             half_width: 0.1,
             join_start: 0.0,
             join_end: 0.0,
+            join_start_settings: JoinEndSettings::default(),
+            join_end_settings: JoinEndSettings::default(),
         };
         let stem = JoinableSegment {
             id: ElementId::new(),
@@ -421,6 +484,8 @@ mod tests {
             half_width: 0.1,
             join_start: 0.0,
             join_end: 0.0,
+            join_start_settings: JoinEndSettings::default(),
+            join_end_settings: JoinEndSettings::default(),
         };
         let updates = plan_joins(&stem, &[host.clone()]);
         let host_u = updates.iter().find(|u| u.id == host.id).expect("host");
@@ -442,6 +507,67 @@ mod tests {
     }
 
     #[test]
+    fn x_junction_splits_both_walls_at_crossing() {
+        let a = JoinableSegment {
+            id: ElementId::new(),
+            curve: Curve::line(Vec3::ZERO, Vec3::new(10.0, 0.0, 0.0)),
+            half_width: 0.1,
+            join_start: 0.0,
+            join_end: 0.0,
+            join_start_settings: JoinEndSettings::default(),
+            join_end_settings: JoinEndSettings::default(),
+        };
+        let b = JoinableSegment {
+            id: ElementId::new(),
+            curve: Curve::line(Vec3::new(5.0, 0.0, -3.0), Vec3::new(5.0, 0.0, 3.0)),
+            half_width: 0.1,
+            join_start: 0.0,
+            join_end: 0.0,
+            join_start_settings: JoinEndSettings::default(),
+            join_end_settings: JoinEndSettings::default(),
+        };
+        let updates = plan_joins_all(&[a.clone(), b.clone()]);
+        let a_u = updates.iter().find(|u| u.id == a.id).expect("a");
+        let b_u = updates.iter().find(|u| u.id == b.id).expect("b");
+        match a_u.placement.as_ref().and_then(|p| p.curve()) {
+            Some(Curve::Polyline { points }) => assert_eq!(points.len(), 3),
+            other => panic!("wall a should split at cross, got {other:?}"),
+        }
+        match b_u.placement.as_ref().and_then(|p| p.curve()) {
+            Some(Curve::Polyline { points }) => assert_eq!(points.len(), 3),
+            other => panic!("wall b should split at cross, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn different_thickness_stem_trim_uses_host_half_width() {
+        let host = JoinableSegment {
+            id: ElementId::new(),
+            curve: Curve::line(Vec3::ZERO, Vec3::new(10.0, 0.0, 0.0)),
+            half_width: 0.2,
+            join_start: 0.0,
+            join_end: 0.0,
+            join_start_settings: JoinEndSettings::default(),
+            join_end_settings: JoinEndSettings::default(),
+        };
+        let stem = JoinableSegment {
+            id: ElementId::new(),
+            curve: Curve::line(Vec3::new(5.0, 0.0, 3.0), Vec3::new(5.0, 0.0, 0.0)),
+            half_width: 0.1,
+            join_start: 0.0,
+            join_end: 0.0,
+            join_start_settings: JoinEndSettings::default(),
+            join_end_settings: JoinEndSettings::default(),
+        };
+        let updates = plan_joins_all(&[host.clone(), stem.clone()]);
+        let stem_u = updates.iter().find(|u| u.id == stem.id).expect("stem");
+        assert!(
+            (stem_u.join_end + 0.2).abs() < 0.04,
+            "trim should use host half-width 0.2, got {}",
+            stem_u.join_end
+        );
+    }
+
     fn wall_profile_half_width_is_half_thickness() {
         let registry = ComponentRegistry::with_builtins();
         let element = Element::new(

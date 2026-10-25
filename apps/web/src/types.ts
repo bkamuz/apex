@@ -259,6 +259,8 @@ export interface MeshDto {
   normals: Float32Array | number[];
   indices: Uint32Array | number[];
   edge_positions: Float32Array | number[];
+  join_outline_edges?: Float32Array | number[];
+  join_cluster_element_ids?: string[];
 }
 
 export interface SceneDto {

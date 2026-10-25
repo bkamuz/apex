@@ -34,6 +34,8 @@ getrandom = { version = "0.2", features = ["js"] }
 # Constrained Delaunay triangulation for profiles with holes.
 # Runtime deps are only hashbrown, num-traits, robust and smallvec.
 spade = { version = "2.15", default-features = false, features = ["std"] }
+# Plan footprint union for join clusters (CAD-style clean outlines).
+i_overlay = { version = "9.1" }
 
 [profile.release]
 lto = true

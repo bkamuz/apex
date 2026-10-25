@@ -267,6 +267,8 @@ impl ComponentRegistry {
             references,
             0.0,
             0.0,
+            true,
+            true,
         )
     }
 
@@ -285,6 +287,30 @@ impl ComponentRegistry {
             references,
             element.join_start,
             element.join_end,
+            true,
+            true,
+        )
+    }
+
+    /// Build mesh with explicit join end-cap control (joined ends omit caps).
+    pub fn build_element_mesh_with_caps<'a>(
+        &self,
+        element: &Element,
+        work_plane: Frame,
+        references: impl IntoIterator<Item = &'a Reference>,
+        cap_start: bool,
+        cap_end: bool,
+    ) -> Result<TriangleMesh, RegistryError> {
+        self.eval_mesh(
+            &element.component_id,
+            &element.placement,
+            &element.params,
+            work_plane,
+            references,
+            element.join_start,
+            element.join_end,
+            cap_start,
+            cap_end,
         )
     }
 
@@ -298,6 +324,8 @@ impl ComponentRegistry {
         references: impl IntoIterator<Item = &'a Reference>,
         path_join_start: f32,
         path_join_end: f32,
+        path_join_cap_start: bool,
+        path_join_cap_end: bool,
     ) -> Result<TriangleMesh, RegistryError> {
         let definition = self.require(component_id)?;
         if !definition.placement.accepts(placement) {
@@ -321,6 +349,8 @@ impl ComponentRegistry {
             references: &reference_library,
             path_join_start,
             path_join_end,
+            path_join_cap_start,
+            path_join_cap_end,
         };
         Ok(evaluate_recipe(&definition.recipe, &ctx, &self.builders)?)
     }
@@ -373,6 +403,8 @@ impl ComponentRegistry {
             references: &reference_library,
             path_join_start: 0.0,
             path_join_end: 0.0,
+            path_join_cap_start: true,
+            path_join_cap_end: true,
         };
         Ok(evaluate_recipe(&definition.recipe, &ctx, &self.builders)?)
     }

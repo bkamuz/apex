@@ -424,6 +424,10 @@ pub struct RecipeContext<'a> {
     pub path_join_start: f32,
     /// Extra end extension from path joins (added to recipe `end_offset`).
     pub path_join_end: f32,
+    /// When false, the sweep omits the start end cap (joined end).
+    pub path_join_cap_start: bool,
+    /// When false, the sweep omits the finish end cap (joined end).
+    pub path_join_cap_end: bool,
 }
 
 /// A mesh generator supplied by a module, reached through `GeometryRecipe::Custom`.
@@ -460,6 +464,8 @@ pub fn evaluate_recipe(
                 start_extension: start_offset.eval_f32(ctx.params)? + ctx.path_join_start,
                 end_extension: end_offset.eval_f32(ctx.params)? + ctx.path_join_end,
                 up: ctx.work_plane.z,
+                cap_start: ctx.path_join_cap_start,
+                cap_end: ctx.path_join_cap_end,
                 ..SweepOptions::default()
             };
             Ok(sweep(&profile, curve, &options)?)
@@ -891,6 +897,8 @@ mod tests {
             references,
             path_join_start: 0.0,
             path_join_end: 0.0,
+            path_join_cap_start: true,
+            path_join_cap_end: true,
         }
     }
 

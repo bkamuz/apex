@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::join_end::JoinEndSettings;
 use crate::level::LevelId;
 use crate::param::ParamMap;
 use crate::placement::Placement;
@@ -77,6 +78,10 @@ pub struct Element {
     /// Sweep end extension from path joins (metres; negative shortens / trims).
     #[serde(default, skip_serializing_if = "is_zero_f32")]
     pub join_end: f32,
+    #[serde(default, skip_serializing_if = "JoinEndSettings::is_default")]
+    pub join_start_settings: JoinEndSettings,
+    #[serde(default, skip_serializing_if = "JoinEndSettings::is_default")]
+    pub join_end_settings: JoinEndSettings,
 }
 
 fn is_zero_f32(v: &f32) -> bool {
@@ -101,6 +106,8 @@ impl Element {
             params,
             join_start: 0.0,
             join_end: 0.0,
+            join_start_settings: JoinEndSettings::default(),
+            join_end_settings: JoinEndSettings::default(),
         }
     }
 
