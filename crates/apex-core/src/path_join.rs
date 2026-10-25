@@ -317,7 +317,7 @@ fn closest_on_host(curve: &Curve, tip: Vec3) -> Option<(Vec3, f32, f32)> {
     }
 }
 
-fn host_tangent_at(curve: &Curve, point: Vec3) -> Option<Vec3> {
+pub(crate) fn host_tangent_at(curve: &Curve, point: Vec3) -> Option<Vec3> {
     match curve {
         Curve::Line { a, b } => (*b - *a).try_normalize(),
         Curve::Polyline { points } => {

@@ -62,11 +62,13 @@ fn opening_frame(project: &Project, element: &Element) -> Option<OpeningFrame> {
         .and_then(|id| project.document().get_element(id));
     let (along, wall_thickness) = match host {
         Some(wall) => {
-            let anchors = wall.placement.anchors();
-            let dir = match anchors.as_slice() {
-                [a, b, ..] => Vec3::new(b.x - a.x, 0.0, b.z - a.z),
-                _ => Vec3::X,
-            };
+            // The segment the opening actually sits in, not the wall's first one.
+            let dir = wall
+                .placement
+                .curve()
+                .and_then(|c| crate::path_join::host_tangent_at(c, center))
+                .map(|d| Vec3::new(d.x, 0.0, d.z))
+                .unwrap_or(Vec3::X);
             (dir, wall_thickness(project, wall))
         }
         None => (Vec3::X, DEFAULT_WALL_THICKNESS),

@@ -39,6 +39,48 @@ fn xz_bounds(points: &[Vec3]) -> ((f32, f32), (f32, f32)) {
 }
 
 /// Axis-aligned void for a hosted opening, used by [`TriangleMesh::punch_aabbs`].
+/// Punch a box that is axis-aligned in a frame yawed by `yaw` about +Y
+/// through `center` (the box is given in world coordinates as if yaw = 0).
+fn punch_rotated_box(
+    mesh: &TriangleMesh,
+    yaw: f32,
+    center: Vec3,
+    min: [f32; 3],
+    max: [f32; 3],
+) -> TriangleMesh {
+    if yaw.abs() < 1e-6 {
+        return mesh.punch_aabbs(&[(min, max)]);
+    }
+    // World → local is a rotation by -yaw about +Y around `center`.
+    let rotate = |m: &TriangleMesh, a: f32| {
+        let (s, c) = a.sin_cos();
+        let mut out = m.clone();
+        let rot = |x: f32, z: f32, ox: f32, oz: f32| {
+            let (dx, dz) = (x - ox, z - oz);
+            (ox + dx * c + dz * s, oz - dx * s + dz * c)
+        };
+        for p in out.positions.chunks_mut(3) {
+            let (x, z) = rot(p[0], p[2], center.x, center.z);
+            p[0] = x;
+            p[2] = z;
+        }
+        for p in out.edges.chunks_mut(3) {
+            let (x, z) = rot(p[0], p[2], center.x, center.z);
+            p[0] = x;
+            p[2] = z;
+        }
+        for n in out.normals.chunks_mut(3) {
+            let (x, z) = rot(n[0], n[2], 0.0, 0.0);
+            n[0] = x;
+            n[2] = z;
+        }
+        out
+    };
+    // Rotating by -yaw with this convention maps the wall direction onto +X.
+    let local = rotate(mesh, -yaw);
+    rotate(&local.punch_aabbs(&[(min, max)]), yaw)
+}
+
 fn opening_void_aabb(
     opening: &Element,
     definition: &ComponentDefinition,
@@ -517,6 +559,20 @@ impl Project {
         if is_opening {
             if let Some(parent_id) = parent_id {
                 let _ = self.rebuild_element(parent_id);
+            }
+        } else {
+            // Hosted openings take their orientation from this host: refresh
+            // their meshes (not via update_element, which would recurse here).
+            for child_id in self.document.children_of(id) {
+                let Some(child) = self.document.get_element(child_id).cloned() else {
+                    continue;
+                };
+                if self.hosted_opening_yaw(&child).is_none() {
+                    continue;
+                }
+                if let Ok(mesh) = self.build_element_mesh_with_cuts(&child) {
+                    self.document.update_element(child, mesh);
+                }
             }
         }
         if record {
@@ -1582,20 +1638,51 @@ impl Project {
             .document
             .effective_level_id(element.id)
             .unwrap_or(element.level_id);
+        let oriented = self.oriented_hosted_opening(element);
+        let element = oriented.as_ref().unwrap_or(element);
         let mut mesh = self.registry.build_element_mesh(
             element,
             self.work_plane(level_id),
             self.document.references(),
         )?;
         let voids = self.host_cut_voids(element.id);
-        if !voids.is_empty() {
-            mesh = mesh.punch_aabbs(&voids);
+        for (yaw, center, min, max) in voids {
+            mesh = punch_rotated_box(&mesh, yaw, center, min, max);
         }
         Ok(mesh)
     }
 
+    /// Plan yaw of the host wall at a hosted opening's origin. Doors and
+    /// windows carry no orientation of their own: it always follows the wall
+    /// segment they sit in, so x, z, diagonal and polyline walls all agree.
+    pub(crate) fn hosted_opening_yaw(&self, element: &Element) -> Option<f32> {
+        let def = self.registry.get(&element.component_id)?;
+        def.host_cut.as_ref()?;
+        if def.placement != PlacementKind::Point {
+            return None;
+        }
+        let host = self.document.get_element(element.parent_id?)?;
+        let curve = host.placement.curve()?;
+        let dir = crate::path_join::host_tangent_at(curve, element.placement.origin())?;
+        let along = Vec3::new(dir.x, 0.0, dir.z).try_normalize()?;
+        // Frame::horizontal has x = +X, y = -Z; rotated(θ).x = X cosθ - Z sinθ.
+        Some((-along.z).atan2(along.x))
+    }
+
+    fn oriented_hosted_opening(&self, element: &Element) -> Option<Element> {
+        let yaw = self.hosted_opening_yaw(element)?;
+        let mut out = element.clone();
+        if let Placement::Point { rotation, .. } = &mut out.placement {
+            *rotation = yaw;
+        }
+        Some(out)
+    }
+
     /// AABB voids from child openings that declare a matching host_cut.
-    pub(crate) fn host_cut_voids(&self, host_id: ElementId) -> Vec<([f32; 3], [f32; 3])> {
+    pub(crate) fn host_cut_voids(
+        &self,
+        host_id: ElementId,
+    ) -> Vec<(f32, Vec3, [f32; 3], [f32; 3])> {
         let Some(host) = self.document.get_element(host_id) else {
             return Vec::new();
         };
@@ -1620,8 +1707,9 @@ impl Project {
             {
                 continue;
             }
-            if let Some(aabb) = opening_void_aabb(child, child_def) {
-                voids.push(aabb);
+            if let Some((min, max)) = opening_void_aabb(child, child_def) {
+                let yaw = self.hosted_opening_yaw(child).unwrap_or(0.0);
+                voids.push((yaw, child.placement.origin(), min, max));
             }
         }
         voids
@@ -3409,6 +3497,126 @@ mod plugin_first_tests {
         assert!((anchors[1].y - 1.5).abs() < 1e-4);
     }
 
+    /// Door/window leaf and its wall void must run along the wall axis for
+    /// walls in every plan direction, including the 2nd leg of a polyline.
+    #[test]
+    fn hosted_openings_align_with_the_wall_axis() {
+        let s = std::f32::consts::FRAC_1_SQRT_2 * 6.0;
+        let cases: Vec<(Placement, Vec3, Vec3)> = vec![
+            (
+                Placement::line(Vec3::ZERO, Vec3::new(6.0, 0.0, 0.0)),
+                Vec3::new(3.0, 0.0, 0.0),
+                Vec3::X,
+            ),
+            (
+                Placement::line(Vec3::ZERO, Vec3::new(0.0, 0.0, 6.0)),
+                Vec3::new(0.0, 0.0, 3.0),
+                Vec3::Z,
+            ),
+            (
+                Placement::line(Vec3::new(6.0, 0.0, 0.0), Vec3::ZERO),
+                Vec3::new(3.0, 0.0, 0.0),
+                -Vec3::X,
+            ),
+            (
+                Placement::line(Vec3::ZERO, Vec3::new(s, 0.0, s)),
+                Vec3::new(s / 2.0, 0.0, s / 2.0),
+                Vec3::new(1.0, 0.0, 1.0).normalize(),
+            ),
+            (
+                Placement::Curve {
+                    curve: apex_geometry::Curve::Polyline {
+                        points: vec![
+                            Vec3::ZERO,
+                            Vec3::new(6.0, 0.0, 0.0),
+                            Vec3::new(6.0, 0.0, 6.0),
+                        ],
+                    },
+                },
+                Vec3::new(6.0, 0.0, 3.0),
+                Vec3::Z,
+            ),
+        ];
+        for component in ["apex.door", "apex.window"] {
+            for (wall_placement, at, along) in &cases {
+                let mut project = Project::new();
+                let wall = project
+                    .create_element("apex.wall", wall_placement.clone(), ParamMap::new())
+                    .expect("wall");
+                let opening = project
+                    .create_element_with_parent(
+                        component,
+                        Placement::point(*at),
+                        ParamMap::new().with("width", ParamValue::Length(1.0)),
+                        Some(wall),
+                    )
+                    .expect("opening");
+                let across = Vec3::new(-along.z, 0.0, along.x);
+                let mesh = project.document().get_mesh(opening).expect("opening mesh");
+                let span = |dir: Vec3| {
+                    let (mut lo, mut hi) = (f32::MAX, f32::MIN);
+                    for p in mesh.positions.chunks(3) {
+                        let d = (Vec3::new(p[0], p[1], p[2]) - *at).dot(dir);
+                        lo = lo.min(d);
+                        hi = hi.max(d);
+                    }
+                    hi - lo
+                };
+                assert!(
+                    (span(*along) - 1.0).abs() < 1e-3,
+                    "{component} leaf along {along:?} spans {}",
+                    span(*along)
+                );
+                assert!(
+                    span(across) < 0.1,
+                    "{component} leaf across {along:?} spans {}",
+                    span(across)
+                );
+                // The wall is open on the axis at the opening centre and
+                // just inside both jambs, and closed just beyond them.
+                let wall_mesh = project.document().get_mesh(wall).expect("wall mesh");
+                let y = if component == "apex.door" { 1.0 } else { 1.5 };
+                let solid_at = |p: Vec3| {
+                    wall_mesh.indices.chunks(3).any(|tri| {
+                        let v = |i: u32| {
+                            let q = &wall_mesh.positions[i as usize * 3..i as usize * 3 + 3];
+                            Vec3::new(q[0], q[1], q[2])
+                        };
+                        // Vertical faces parallel to the wall containing p in projection.
+                        let (a, b, c) = (v(tri[0]), v(tri[1]), v(tri[2]));
+                        let n = (b - a).cross(c - a);
+                        if n.length() < 1e-9 || n.normalize().dot(across).abs() < 0.99 {
+                            return false;
+                        }
+                        let to2 = |w: Vec3| ((w - *at).dot(*along), w.y);
+                        let (p0, p1, p2, q) = (to2(a), to2(b), to2(c), to2(p));
+                        let sign = |a: (f32, f32), b: (f32, f32), c: (f32, f32)| {
+                            (a.0 - c.0) * (b.1 - c.1) - (b.0 - c.0) * (a.1 - c.1)
+                        };
+                        let (d1, d2, d3) = (sign(q, p0, p1), sign(q, p1, p2), sign(q, p2, p0));
+                        let neg = d1 < 0.0 || d2 < 0.0 || d3 < 0.0;
+                        let pos = d1 > 0.0 || d2 > 0.0 || d3 > 0.0;
+                        !(neg && pos)
+                    })
+                };
+                for k in [0.0, 0.4, -0.4] {
+                    let p = *at + *along * k + Vec3::Y * y;
+                    assert!(
+                        !solid_at(p),
+                        "{component} on {along:?}: wall not open at {k}"
+                    );
+                }
+                for k in [0.7, -0.7] {
+                    let p = *at + *along * k + Vec3::Y * y;
+                    assert!(
+                        solid_at(p),
+                        "{component} on {along:?}: wall open beyond jamb at {k}"
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn door_on_wall_punches_a_host_void() {
         let mut project = Project::new();
@@ -3440,7 +3648,7 @@ mod plugin_first_tests {
             "expected at least one host-cut void, got {voids:?}"
         );
         let mesh = project.document().get_mesh(wall).expect("wall mesh");
-        let (min, max) = voids[0];
+        let (_, _, min, max) = voids[0];
         let inside = mesh.indices.chunks(3).any(|tri| {
             let c = tri.iter().fold([0.0f32; 3], |acc, &i| {
                 let p = &mesh.positions[i as usize * 3..i as usize * 3 + 3];
