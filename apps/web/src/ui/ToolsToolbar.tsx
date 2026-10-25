@@ -170,64 +170,68 @@ export function ToolsToolbar({
         </div>
       ) : null}
 
-      <div className={scrollClass}>
-        <div className="tools" ref={toolsScrollRef} role="toolbar" aria-label="Tools">
-          {selectTools.length > 0 ? (
-            <ToolGroup label="Select">
-              {selectTools.map((tool) => (
-                <ToolButton
-                  key={tool.id}
-                  tool={tool}
-                  active={activeToolId === tool.id}
-                  onActivate={onActivateTool}
-                />
-              ))}
-            </ToolGroup>
-          ) : null}
+      <div className="tools-bar">
+        <div className={scrollClass}>
+          <div className="tools" ref={toolsScrollRef} role="toolbar" aria-label="Tools">
+            {selectTools.length > 0 ? (
+              <ToolGroup label="Select">
+                {selectTools.map((tool) => (
+                  <ToolButton
+                    key={tool.id}
+                    tool={tool}
+                    active={activeToolId === tool.id}
+                    onActivate={onActivateTool}
+                  />
+                ))}
+              </ToolGroup>
+            ) : null}
 
-          {transformTools.length > 0 ? (
-            <ToolGroup label="Transform">
-              {transformTools.map((tool) => (
-                <ToolButton
-                  key={tool.id}
-                  tool={tool}
-                  active={activeToolId === tool.id}
-                  onActivate={onActivateTool}
-                />
-              ))}
-            </ToolGroup>
-          ) : null}
+            {transformTools.length > 0 ? (
+              <ToolGroup label="Transform">
+                {transformTools.map((tool) => (
+                  <ToolButton
+                    key={tool.id}
+                    tool={tool}
+                    active={activeToolId === tool.id}
+                    onActivate={onActivateTool}
+                  />
+                ))}
+              </ToolGroup>
+            ) : null}
 
-          {createTools.length > 0 ? (
-            <ToolGroup label="Create">
-              {createTools.map((tool) => (
-                <ToolButton
-                  key={tool.id}
-                  tool={tool}
-                  active={activeToolId === tool.id}
-                  onActivate={onActivateTool}
-                />
-              ))}
-            </ToolGroup>
-          ) : null}
+            {createTools.length > 0 ? (
+              <ToolGroup label="Create">
+                {createTools.map((tool) => (
+                  <ToolButton
+                    key={tool.id}
+                    tool={tool}
+                    active={activeToolId === tool.id}
+                    onActivate={onActivateTool}
+                  />
+                ))}
+              </ToolGroup>
+            ) : null}
 
-          {showModes ? (
-            <ToolGroup label="Draw mode" className="tools-grp-modes">
-              {modes.map((mode) => (
-                <button
-                  key={mode.id}
-                  type="button"
-                  className={`mode${drawMode === mode.id ? ' active' : ''}`}
-                  aria-label={mode.label}
-                  title={mode.label}
-                  onClick={() => onActivateDrawMode(mode.id)}
-                >
-                  {mode.label}
-                </button>
-              ))}
-            </ToolGroup>
-          ) : null}
-
+            {showModes ? (
+              <ToolGroup label="Draw mode" className="tools-grp-modes">
+                {modes.map((mode) => (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    className={`mode${drawMode === mode.id ? ' active' : ''}`}
+                    aria-label={mode.label}
+                    title={mode.label}
+                    onClick={() => onActivateDrawMode(mode.id)}
+                  >
+                    {mode.label}
+                  </button>
+                ))}
+              </ToolGroup>
+            ) : null}
+          </div>
+        </div>
+        {/* View controls live outside the per-tab tools so they never move. */}
+        <div className="tools-view" role="toolbar" aria-label="View" data-testid="view-controls">
           <ToolGroup label="View">
             <button
               type="button"
