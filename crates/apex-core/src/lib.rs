@@ -14,6 +14,7 @@ mod level;
 mod param;
 mod path_join;
 mod placement;
+mod plan_symbols;
 mod project;
 mod project_view_annotations;
 mod project_views;
@@ -55,6 +56,7 @@ pub use path_join::{
     PATH_JOIN_SNAP,
 };
 pub use placement::{Placement, PlacementError, PlacementKind};
+pub use plan_symbols::opening_plan_symbols;
 pub use project::Project;
 pub use project::ProjectSnapshot;
 pub use reference::{

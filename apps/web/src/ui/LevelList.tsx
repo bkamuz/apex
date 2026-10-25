@@ -30,6 +30,7 @@ export function LevelList({
           </button>
         ) : null}
       </div>
+      <div className="level-panel-hint">Click or double-click a level to activate its work plane.</div>
       {levels.length === 0 ? (
         <div className="empty">No levels.</div>
       ) : (
@@ -42,10 +43,11 @@ export function LevelList({
                 key={level.id}
                 className={`${selected ? 'selected' : ''} ${active ? 'active-level' : ''}`.trim()}
                 onClick={() => onSelect(level.id)}
+                onDoubleClick={() => onSelect(level.id)}
                 title={
                   active
-                    ? 'Active work plane — double-click another level plane to switch'
-                    : 'Select to edit elevation · double-click plane/contour to activate'
+                    ? 'Active work plane'
+                    : 'Click to activate this level and edit elevation in Properties'
                 }
               >
                 <span>

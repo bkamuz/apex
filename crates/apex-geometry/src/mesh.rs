@@ -57,11 +57,11 @@ impl TriangleMesh {
         self.indices.is_empty()
     }
 
-    /// Drop triangles that intersect any AABB void.
+    /// Remove the parts of triangles inside any AABB void.
     ///
     /// A crude host-cut used until a full boolean solid engine lands: openings
-    /// punch see-through voids in walls and slabs without CSG. Intersection
-    /// (not centroid-in-box) matters because sweep meshes use large faces.
+    /// punch see-through voids in walls and slabs without CSG. Triangles are
+    /// clipped to the box (not dropped whole) because hosts use large faces.
     pub fn punch_aabbs(&self, boxes: &[([f32; 3], [f32; 3])]) -> Self {
         if boxes.is_empty() || self.is_empty() {
             return self.clone();
@@ -71,15 +71,30 @@ impl TriangleMesh {
             let a = self.vertex(tri[0] as usize);
             let b = self.vertex(tri[1] as usize);
             let c = self.vertex(tri[2] as usize);
-            if boxes
-                .iter()
-                .any(|(min, max)| triangle_hits_aabb(a, b, c, *min, *max))
-            {
-                continue;
-            }
             let na = self.normal(tri[0] as usize);
-            // Rebuild with the first vertex normal; host meshes are flat-shaded per tri.
-            out.push_triangle(a, b, c, na);
+            // Clip the triangle against each void so only the covered part
+            // goes: a big slab face keeps its surround around a stair hole.
+            let mut pieces = vec![vec![a, b, c]];
+            for (min, max) in boxes {
+                let mut kept = Vec::new();
+                for piece in pieces {
+                    if !polygon_hits_aabb(&piece, *min, *max) {
+                        kept.push(piece);
+                        continue;
+                    }
+                    kept.extend(subtract_aabb(piece, *min, *max));
+                }
+                pieces = kept;
+            }
+            for piece in pieces {
+                for i in 1..piece.len().saturating_sub(1) {
+                    let (p, q, r) = (piece[0], piece[i], piece[i + 1]);
+                    if triangle_area2(p, q, r) > 1e-10 {
+                        // Rebuild with the first vertex normal; hosts are flat per tri.
+                        out.push_triangle(p, q, r, na);
+                    }
+                }
+            }
         }
         // Keep edges that still have both endpoints outside every void.
         for edge in self.edges.as_chunks::<6>().0 {
@@ -132,6 +147,79 @@ impl TriangleMesh {
     }
 }
 
+fn polygon_hits_aabb(poly: &[[f32; 3]], min: [f32; 3], max: [f32; 3]) -> bool {
+    (0..3).all(|axis| {
+        let lo = poly.iter().map(|p| p[axis]).fold(f32::MAX, f32::min);
+        let hi = poly.iter().map(|p| p[axis]).fold(f32::MIN, f32::max);
+        hi > min[axis] && lo < max[axis]
+    })
+}
+
+/// Split a convex polygon by the plane `p[axis] = value`: (below, above).
+fn split_polygon(poly: &[[f32; 3]], axis: usize, value: f32) -> (Vec<[f32; 3]>, Vec<[f32; 3]>) {
+    let mut below = Vec::new();
+    let mut above = Vec::new();
+    for i in 0..poly.len() {
+        let p = poly[i];
+        let q = poly[(i + 1) % poly.len()];
+        let dp = p[axis] - value;
+        let dq = q[axis] - value;
+        if dp <= 0.0 {
+            below.push(p);
+        }
+        if dp >= 0.0 {
+            above.push(p);
+        }
+        if (dp < 0.0 && dq > 0.0) || (dp > 0.0 && dq < 0.0) {
+            let t = dp / (dp - dq);
+            let x = [
+                p[0] + (q[0] - p[0]) * t,
+                p[1] + (q[1] - p[1]) * t,
+                p[2] + (q[2] - p[2]) * t,
+            ];
+            below.push(x);
+            above.push(x);
+        }
+    }
+    (below, above)
+}
+
+/// Convex pieces of `poly` lying outside the box.
+fn subtract_aabb(poly: Vec<[f32; 3]>, min: [f32; 3], max: [f32; 3]) -> Vec<Vec<[f32; 3]>> {
+    let mut outside = Vec::new();
+    let mut rest = poly;
+    for axis in 0..3 {
+        let (below, above) = split_polygon(&rest, axis, min[axis]);
+        if below.len() >= 3 {
+            outside.push(below);
+        }
+        rest = above;
+        if rest.len() < 3 {
+            return outside;
+        }
+        let (below, above) = split_polygon(&rest, axis, max[axis]);
+        if above.len() >= 3 {
+            outside.push(above);
+        }
+        rest = below;
+        if rest.len() < 3 {
+            return outside;
+        }
+    }
+    outside
+}
+
+fn triangle_area2(a: [f32; 3], b: [f32; 3], c: [f32; 3]) -> f32 {
+    let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+    let v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+    let n = [
+        u[1] * v[2] - u[2] * v[1],
+        u[2] * v[0] - u[0] * v[2],
+        u[0] * v[1] - u[1] * v[0],
+    ];
+    n[0] * n[0] + n[1] * n[1] + n[2] * n[2]
+}
+
 fn point_in_aabb(p: [f32; 3], min: [f32; 3], max: [f32; 3]) -> bool {
     p[0] >= min[0]
         && p[0] <= max[0]
@@ -139,29 +227,6 @@ fn point_in_aabb(p: [f32; 3], min: [f32; 3], max: [f32; 3]) -> bool {
         && p[1] <= max[1]
         && p[2] >= min[2]
         && p[2] <= max[2]
-}
-
-fn triangle_hits_aabb(a: [f32; 3], b: [f32; 3], c: [f32; 3], min: [f32; 3], max: [f32; 3]) -> bool {
-    // Any vertex inside, or the triangle's AABB overlaps the void.
-    if point_in_aabb(a, min, max) || point_in_aabb(b, min, max) || point_in_aabb(c, min, max) {
-        return true;
-    }
-    let tmin = [
-        a[0].min(b[0]).min(c[0]),
-        a[1].min(b[1]).min(c[1]),
-        a[2].min(b[2]).min(c[2]),
-    ];
-    let tmax = [
-        a[0].max(b[0]).max(c[0]),
-        a[1].max(b[1]).max(c[1]),
-        a[2].max(b[2]).max(c[2]),
-    ];
-    tmin[0] <= max[0]
-        && tmax[0] >= min[0]
-        && tmin[1] <= max[1]
-        && tmax[1] >= min[1]
-        && tmin[2] <= max[2]
-        && tmax[2] >= min[2]
 }
 
 #[cfg(test)]

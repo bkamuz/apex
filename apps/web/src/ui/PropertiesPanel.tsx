@@ -25,6 +25,7 @@ interface Props {
   selected: ElementDto | null;
   /** Total selection size (0, 1, or many). */
   selectedCount: number;
+  selectedReference: ReferenceDto | null;
   selectedGridAxis: GridAxisDto | null;
   selectedConstructionLine: ConstructionLineDto | null;
   selectedSectionCut: SectionCutDto | null;
@@ -45,7 +46,12 @@ interface Props {
   onEditType: (profileId: string) => void;
   onNewProfile: (category: string) => void;
   onUpdateLevelElevation: (id: string, elevation: number) => void;
+  onUpdateWallThickness: (thickness: number) => void;
   onDelete: () => void;
+  /** Display name of the selected element's parent, when it has one. */
+  parentName?: string | null;
+  /** Clear the selected element's parent (same as the Detach tool). */
+  onDetach?: () => void;
   onDeleteGridAxis: () => void;
   onDeleteConstructionLine: () => void;
   onDeleteSectionCut: () => void;
@@ -244,7 +250,7 @@ function TypeBlock({
       </div>
       {specs.length === 0 ? (
         <div className="empty" style={{ padding: 0 }}>
-          {profile ? 'No type parameters' : 'Pick a profile'}
+          {profile ? 'No type parameters' : 'Built-in defaults — no shared type needed'}
         </div>
       ) : (
         specs.map((spec) => (
@@ -290,9 +296,20 @@ function emptyComponent(): ComponentDto {
   };
 }
 
+function wallThicknessValue(
+  selected: ElementDto,
+  profile: ProfileTypeDto | undefined,
+): number {
+  const fromType = selected.type_values?.thickness;
+  if (typeof fromType === 'number') return fromType;
+  const fromProfile = profile?.type_values?.thickness ?? profile?.params.find((p) => p.id === 'thickness')?.default;
+  return typeof fromProfile === 'number' ? fromProfile : 0.2;
+}
+
 export function PropertiesPanel({
   selected,
   selectedCount,
+  selectedReference,
   selectedGridAxis,
   selectedConstructionLine,
   selectedSectionCut,
@@ -311,7 +328,10 @@ export function PropertiesPanel({
   onEditType,
   onNewProfile,
   onUpdateLevelElevation,
+  onUpdateWallThickness,
   onDelete,
+  parentName = null,
+  onDetach,
   onDeleteGridAxis,
   onDeleteConstructionLine,
   onDeleteSectionCut,
@@ -387,6 +407,43 @@ export function PropertiesPanel({
           onEditType={onEditType}
           onNewProfile={() => onNewProfile(placement.component.category)}
         />
+      </div>
+    );
+  }
+
+  if (selectedReference) {
+    const [ox, oy, oz] = selectedReference.origin ?? selectedReference.anchors[0] ?? [0, 0, 0];
+    const [nx, ny, nz] = selectedReference.normal ?? [0, 1, 0];
+    return (
+      <div className="inspector-body shell-scroll">
+        <div className="field">
+          <label>Name</label>
+          <div>{selectedReference.name}</div>
+        </div>
+        <div className="field">
+          <label>Type</label>
+          <div>{selectedReference.kind === 'plane' ? 'Ref plane' : 'Ref point'}</div>
+        </div>
+        <div className="field">
+          <label>Origin</label>
+          <div>
+            {ox.toFixed(3)}, {oy.toFixed(3)}, {oz.toFixed(3)} m
+          </div>
+        </div>
+        {selectedReference.kind === 'plane' ? (
+          <>
+            <div className="field">
+              <label>Normal</label>
+              <div>
+                {nx.toFixed(3)}, {ny.toFixed(3)}, {nz.toFixed(3)}
+              </div>
+            </div>
+            <div className="field">
+              <label>Offset</label>
+              <div>{(selectedReference.offset ?? 0).toFixed(3)} m</div>
+            </div>
+          </>
+        ) : null}
       </div>
     );
   }
@@ -568,10 +625,41 @@ export function PropertiesPanel({
           <label>Type</label>
           <div>{component?.display_name ?? selected.component_id}</div>
         </div>
+        <div className="field" data-field="parent">
+          <label>Parent</label>
+          {parentName ? (
+            <div className="parent-row">
+              <span data-testid="parent-name">{parentName}</span>
+              {onDetach ? (
+                <button type="button" onClick={onDetach}>
+                  Detach
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            <div className="muted">None</div>
+          )}
+        </div>
         {selected.length != null ? (
           <div className="field">
             <label>Length</label>
             <div>{selected.length.toFixed(3)} m</div>
+          </div>
+        ) : null}
+
+        {selected.category === 'wall' ? (
+          <div className="field" data-testid="wall-thickness-field">
+            <label>Thickness (this wall)</label>
+            <input
+              type="number"
+              step={0.01}
+              min={0.02}
+              value={Number(wallThicknessValue(selected, profile).toFixed(3))}
+              onChange={(e) => onUpdateWallThickness(Number(e.target.value))}
+            />
+            <div className="empty" style={{ padding: 0, marginTop: 4 }}>
+              Assigns a dedicated profile variant for this wall only.
+            </div>
           </div>
         ) : null}
 

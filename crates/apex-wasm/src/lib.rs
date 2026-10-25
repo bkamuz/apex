@@ -181,6 +181,20 @@ struct ReferenceDto {
     level_id: String,
     anchors: Vec<[f32; 3]>,
     gizmo_segments: Vec<[f32; 3]>,
+    origin: [f32; 3],
+    normal: [f32; 3],
+    offset: f32,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+struct RoomDetectReportDto {
+    created: usize,
+    loops_found: usize,
+}
+
+thread_local! {
+    static ROOM_DETECT_REPORT: std::cell::RefCell<Option<RoomDetectReportDto>> =
+        const { std::cell::RefCell::new(None) };
 }
 
 #[derive(Serialize)]
@@ -310,8 +324,13 @@ struct SceneDto {
     views: Vec<ViewDto>,
     sheets: Vec<SheetDto>,
     view_annotations: Vec<ViewAnnotationDto>,
+    /// Door swing / window glazing segment pairs for the active level's plan.
+    plan_symbols: Vec<[f32; 3]>,
     levels: Vec<LevelDto>,
     active_level_id: Option<String>,
+    fit_bounds_min: Option<[f32; 3]>,
+    fit_bounds_max: Option<[f32; 3]>,
+    room_detect_report: Option<RoomDetectReportDto>,
     version: u64,
     selected_ids: Vec<String>,
     selected_id: Option<String>,
@@ -520,6 +539,10 @@ fn reference_dto(project: &Project, reference: &Reference) -> ReferenceDto {
         .into_iter()
         .map(|p| p.to_array())
         .collect();
+    let frame = reference.frame(&work_plane).unwrap_or(work_plane);
+    let origin = frame.origin.to_array();
+    let normal = frame.z.to_array();
+    let offset = frame.origin.dot(frame.z);
     ReferenceDto {
         id: reference.id.to_string(),
         name: reference.name.clone(),
@@ -532,6 +555,9 @@ fn reference_dto(project: &Project, reference: &Reference) -> ReferenceDto {
             .map(|p| p.to_array())
             .collect(),
         gizmo_segments,
+        origin,
+        normal,
+        offset,
     }
 }
 
@@ -627,7 +653,14 @@ fn scene_dto(project: &Project) -> SceneDto {
         .spaces()
         .map(|space| space_dto(project, space))
         .collect();
-    spaces.sort_by(|a, b| a.name.cmp(&b.name));
+    spaces.sort_by(|a, b| (a.name.len(), &a.name).cmp(&(b.name.len(), &b.name)));
+
+    let (fit_bounds_min, fit_bounds_max) = project
+        .document()
+        .model_fit_bounds()
+        .map(|(min, max)| (Some(min.to_array()), Some(max.to_array())))
+        .unwrap_or((None, None));
+    let room_detect_report = ROOM_DETECT_REPORT.with(|cell| cell.borrow_mut().take());
 
     let mut views: Vec<_> = project.views().map(view_dto).collect();
     views.sort_by(|a, b| a.name.cmp(&b.name));
@@ -687,11 +720,21 @@ fn scene_dto(project: &Project) -> SceneDto {
         views,
         sheets,
         view_annotations,
+        plan_symbols: apex_core::opening_plan_symbols(
+            project,
+            project.document().active_level_id(),
+        )
+        .iter()
+        .map(|p| p.to_array())
+        .collect(),
         levels: sorted_levels(project),
         active_level_id: project
             .document()
             .active_level_id()
             .map(|id| id.to_string()),
+        fit_bounds_min,
+        fit_bounds_max,
+        room_detect_report,
         version: buffers.version,
         selected_id: selected_ids.first().cloned(),
         selected_ids,
@@ -1919,7 +1962,30 @@ pub fn join_paths(id: &str) -> Result<JsValue, JsValue> {
 #[wasm_bindgen(js_name = detectRoomsFromWalls)]
 pub fn detect_rooms_from_walls() -> Result<JsValue, JsValue> {
     with_project(|project| {
+        let level_id = project
+            .document()
+            .active_level_id()
+            .ok_or_else(|| err("no active level"))?;
+        let mut segments = Vec::new();
+        for id in project.document().elements_on_level(level_id) {
+            let Some(element) = project.document().get_element(id) else {
+                continue;
+            };
+            if element.component_id != "apex.wall" {
+                continue;
+            }
+            segments.extend(apex_core::wall_centerline_segments(element));
+        }
+        let loops_found =
+            apex_core::detect_room_polygons(&segments, apex_core::ENDPOINT_SNAP).len();
+
         let created = project.detect_rooms_from_walls().map_err(err)?;
+        ROOM_DETECT_REPORT.with(|cell| {
+            *cell.borrow_mut() = Some(RoomDetectReportDto {
+                created,
+                loops_found,
+            });
+        });
         // Prefer selecting a newly created auto space when present.
         if created > 0 {
             clear_element_selection();

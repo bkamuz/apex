@@ -748,12 +748,15 @@ fn stair() -> ComponentDefinition {
             ParamSpec::length("width", "Width", 1.0),
             ParamSpec::length("riser", "Riser", 0.17),
             ParamSpec::length("tread", "Tread", 0.28),
+            // Base level → top level: seeded from the storey rise so a new
+            // stair lands on the next level up.
+            ParamSpec::length("height", "Height to top level", 0.0).with_range(Some(0.0), None),
         ],
         recipe: GeometryRecipe::Custom {
             builder_id: "apex.stair.run".into(),
         },
         host_cut: None,
-        level_height_params: vec![],
+        level_height_params: vec!["height".into()],
         ifc_entity: Some("IfcStair".into()),
         joinable: false,
     }
@@ -792,12 +795,15 @@ fn roof_pitched() -> ComponentDefinition {
             ParamSpec::length("width", "Width", 8.0),
             ParamSpec::length("rise", "Rise", 1.8),
             ParamSpec::length("thickness", "Thickness", 0.15),
+            // Eave height above the level: new roofs are seeded from the storey rise so the
+            // roof sits on top of the walls; 0 keeps older documents unchanged.
+            ParamSpec::length("base_offset", "Eave elevation offset", 0.0).with_range(None, None),
         ],
         recipe: GeometryRecipe::Custom {
             builder_id: "apex.roof.pitched".into(),
         },
         host_cut: None,
-        level_height_params: vec![],
+        level_height_params: vec!["base_offset".into()],
         ifc_entity: Some("IfcRoof".into()),
         joinable: false,
     }
@@ -1631,6 +1637,7 @@ mod tests {
                 type_values: ParamMap::new(),
                 formulas: Default::default(),
                 sketch: Some(ProfileSketch {
+                    holes: Vec::new(),
                     vertices: vec![
                         [0.0, 0.0],
                         [1.0, 0.0],

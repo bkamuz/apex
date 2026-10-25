@@ -128,6 +128,8 @@ export interface ProfileSketchDto {
     vertices: [number, number][];
     dimensions?: SketchDimensionDto[];
     constraints?: SketchConstraintDto[];
+    /** Inner loops (holes), fixed geometry in profile XY. */
+    holes?: [number, number][][];
 }
 
 export interface ProfilePreviewDto {
@@ -195,6 +197,14 @@ export interface ReferenceDto {
   level_id: string;
   anchors: Vec3[];
   gizmo_segments: Vec3[];
+  origin?: Vec3;
+  normal?: Vec3;
+  offset?: number;
+}
+
+export interface RoomDetectReportDto {
+  created: number;
+  loops_found: number;
 }
 
 export interface GridAxisLabelDto {
@@ -413,6 +423,8 @@ export interface SceneDto {
   views?: ViewDto[];
   sheets?: SheetDto[];
   view_annotations?: ViewAnnotationDto[];
+  /** Door swing / window glazing segment pairs on the active level. */
+  plan_symbols?: Vec3[];
   levels: LevelDto[];
   active_level_id: string | null;
   version: number;
@@ -426,4 +438,7 @@ export interface SceneDto {
   selected_space_id?: string | null;
   can_undo?: boolean;
   can_redo?: boolean;
+  fit_bounds_min?: Vec3 | null;
+  fit_bounds_max?: Vec3 | null;
+  room_detect_report?: RoomDetectReportDto | null;
 }

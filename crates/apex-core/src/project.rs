@@ -29,6 +29,14 @@ use crate::space::{space_is_auto, space_param_specs, Space, SpaceId};
 
 /// Fallback storey height when a level has no level above it.
 const DEFAULT_STOREY_RISE: f32 = 3.0;
+const STAIR_COMPONENT: &str = "apex.stair";
+
+fn xz_bounds(points: &[Vec3]) -> ((f32, f32), (f32, f32)) {
+    points.iter().fold(
+        ((f32::MAX, f32::MAX), (f32::MIN, f32::MIN)),
+        |((ax, az), (bx, bz)), p| ((ax.min(p.x), az.min(p.z)), (bx.max(p.x), bz.max(p.z))),
+    )
+}
 
 /// Axis-aligned void for a hosted opening, used by [`TriangleMesh::punch_aabbs`].
 fn opening_void_aabb(
@@ -259,7 +267,8 @@ impl Project {
         parent: Option<ElementId>,
     ) -> Result<ElementId, RegistryError> {
         let definition = self.registry.require(component_id)?.clone();
-        let auto_join = definition.joinable && !self.history.has_pending();
+        let is_stair = component_id == STAIR_COMPONENT;
+        let auto_join = (definition.joinable || is_stair) && !self.history.has_pending();
         if auto_join {
             self.begin_undo_group();
         }
@@ -308,10 +317,82 @@ impl Project {
         if definition.joinable {
             let _ = self.apply_path_joins(id, false)?;
         }
+        if is_stair {
+            // Best effort: a stair still places when no slab needs cutting.
+            let _ = self.cut_slab_openings_for_stair(id);
+        }
         if auto_join {
             self.commit_undo_group();
         }
         Ok(id)
+    }
+
+    /// Punch a slab opening over a stair's footprint in every slab sitting at
+    /// the stair's top (base level elevation + `height`). Returns the openings.
+    pub fn cut_slab_openings_for_stair(
+        &mut self,
+        stair_id: ElementId,
+    ) -> Result<Vec<ElementId>, RegistryError> {
+        let stair = self
+            .document
+            .get_element(stair_id)
+            .cloned()
+            .ok_or_else(|| RegistryError::Unknown(stair_id.to_string()))?;
+        let params = self
+            .registry
+            .persistable_params(&stair.component_id, &stair.params)?;
+        let height = params.number("height").unwrap_or(0.0) as f32;
+        let width = params.number("width").unwrap_or(1.0) as f32;
+        let anchors = stair.placement.anchors();
+        let [a, b, ..] = anchors.as_slice() else {
+            return Ok(Vec::new());
+        };
+        if height <= 1e-3 {
+            return Ok(Vec::new());
+        }
+        let top = a.y + height;
+        let dir = Vec3::new(b.x - a.x, 0.0, b.z - a.z).normalize_or_zero();
+        let side = Vec3::new(-dir.z, 0.0, dir.x) * (width * 0.5);
+        let footprint = [*a - side, *b - side, *b + side, *a + side];
+        let (fmin, fmax) = xz_bounds(&footprint);
+
+        let slabs: Vec<ElementId> = self
+            .document
+            .elements()
+            .filter(|e| e.component_id == "apex.slab")
+            .filter(|e| {
+                self.document
+                    .effective_level_id(e.id)
+                    .and_then(|level| self.document.get_level(level))
+                    .is_some_and(|level| (level.elevation - top).abs() < 0.05)
+            })
+            .filter(|e| {
+                self.document.get_mesh(e.id).is_some_and(|mesh| {
+                    let pts: Vec<Vec3> = mesh
+                        .positions
+                        .chunks(3)
+                        .map(|p| Vec3::new(p[0], p[1], p[2]))
+                        .collect();
+                    let (smin, smax) = xz_bounds(&pts);
+                    smin.0 < fmax.0 && smax.0 > fmin.0 && smin.1 < fmax.1 && smax.1 > fmin.1
+                })
+            })
+            .map(|e| e.id)
+            .collect();
+
+        let mut openings = Vec::new();
+        for slab in slabs {
+            let placement = self
+                .placement_from_points("apex.slab_opening", &footprint, 0.0)?
+                .with_elevation(top);
+            openings.push(self.create_element_with_parent(
+                "apex.slab_opening",
+                placement,
+                ParamMap::new(),
+                Some(slab),
+            )?);
+        }
+        Ok(openings)
     }
 
     /// Recompute path joins for a joinable element against peers on its level.
@@ -561,6 +642,13 @@ impl Project {
         let name = self.next_grid_axis_name();
         let elevation = self.work_plane(level_id).origin.y;
         let placement = placement.with_elevation(elevation);
+        let mut params = params;
+        if params.get("label").is_none() {
+            params.set(
+                "label",
+                ParamValue::Text(self.next_grid_axis_label(&placement)),
+            );
+        }
         let params = params.resolve(&grid_axis_param_specs())?;
         let axis = GridAxis::new(name, level_id, placement, params);
         let id = axis.id;
@@ -1469,7 +1557,8 @@ impl Project {
         let rise = self.storey_rise(level_id) as f64;
         for param_id in &definition.level_height_params {
             // Honour an explicit authoring value; otherwise seed from storey rise.
-            if raw.get(param_id).is_none() {
+            // Zero means "auto" (the stair/roof defaults), so it seeds too.
+            if raw.get(param_id).is_none() || raw.number(param_id) == Some(0.0) {
                 params.set(param_id.clone(), ParamValue::Length(rise));
             }
         }
@@ -1570,6 +1659,37 @@ impl Project {
         format!("{} {counter}", kind.display_name())
     }
 
+    /// Next free label in the axis' family: axes running mostly along plan Z
+    /// (vertical on screen) are numbered 1, 2, 3…; axes running along X are
+    /// lettered A, B, C…
+    fn next_grid_axis_label(&self, placement: &Placement) -> String {
+        let numbered = match placement.curve() {
+            Some(apex_geometry::Curve::Line { a, b }) => (b.z - a.z).abs() >= (b.x - a.x).abs(),
+            _ => true,
+        };
+        let labels: Vec<String> = self
+            .document
+            .grid_axes()
+            .filter_map(|axis| axis.params.text("label").map(str::to_string))
+            .collect();
+        if numbered {
+            let max = labels
+                .iter()
+                .filter_map(|l| l.trim().parse::<u32>().ok())
+                .max()
+                .unwrap_or(0);
+            (max + 1).to_string()
+        } else {
+            let max = labels
+                .iter()
+                .filter_map(|l| letter_index(l.trim()))
+                .max()
+                .map(|i| i + 1)
+                .unwrap_or(0);
+            letter_label(max)
+        }
+    }
+
     fn next_grid_axis_name(&mut self) -> String {
         self.grid_axis_counter += 1;
         format!("Grid {}", self.grid_axis_counter)
@@ -1586,7 +1706,15 @@ impl Project {
     }
 
     fn next_space_name(&mut self) -> String {
-        self.space_counter += 1;
+        // Continue from the highest existing "Space N" so numbers stay
+        // sequential after deletes/undo instead of drifting with a raw counter.
+        let highest = self
+            .document
+            .spaces()
+            .filter_map(|s| s.name.strip_prefix("Space ")?.parse::<u32>().ok())
+            .max()
+            .unwrap_or(0);
+        self.space_counter = highest + 1;
         format!("Space {}", self.space_counter)
     }
 
@@ -2421,6 +2549,7 @@ mod tests {
             type_values: ParamMap::new(),
             formulas: Default::default(),
             sketch: Some(ProfileSketch {
+                holes: Vec::new(),
                 vertices: vec![[-0.15, -1.5], [0.15, -1.5], [0.15, 1.5], [-0.15, 1.5]],
                 dimensions: vec![
                     SketchDimension {
@@ -3416,14 +3545,22 @@ mod plugin_first_tests {
             !voids.is_empty(),
             "expected at least one host-cut void, got {voids:?}"
         );
-        let after = project
-            .document()
-            .get_mesh(wall)
-            .map(|m| m.triangle_count())
-            .unwrap_or(0);
+        let mesh = project.document().get_mesh(wall).expect("wall mesh");
+        let (min, max) = voids[0];
+        let inside = mesh.indices.chunks(3).any(|tri| {
+            let c = tri.iter().fold([0.0f32; 3], |acc, &i| {
+                let p = &mesh.positions[i as usize * 3..i as usize * 3 + 3];
+                [
+                    acc[0] + p[0] / 3.0,
+                    acc[1] + p[1] / 3.0,
+                    acc[2] + p[2] / 3.0,
+                ]
+            });
+            (0..3).all(|k| c[k] > min[k] + 1e-4 && c[k] < max[k] - 1e-4)
+        });
         assert!(
-            after < before,
-            "host mesh should lose triangles inside the opening void ({after} vs {before}, voids={voids:?})"
+            !inside && mesh.triangle_count() >= before,
+            "wall keeps its surround but nothing inside the opening void ({voids:?})"
         );
         assert_eq!(
             project.document().get_element(_door).unwrap().parent_id,
@@ -3451,5 +3588,143 @@ mod plugin_first_tests {
             .number("height");
         assert_eq!(height, Some(3.5));
         assert!((project.storey_rise(ground) - 3.5).abs() < 1e-4);
+    }
+
+    #[test]
+    fn pitched_roof_and_stair_reach_the_next_level() {
+        let mut project = Project::new();
+        project.add_level("Level 1", 3.2);
+        let line = Placement::line(Vec3::ZERO, Vec3::new(4.0, 0.0, 0.0));
+        let roof = project
+            .create_element("apex.roof.pitched", line.clone(), ParamMap::new())
+            .expect("roof");
+        let stair = project
+            .create_element("apex.stair", line, ParamMap::new())
+            .expect("stair");
+        let param = |id, key| {
+            project
+                .document()
+                .get_element(id)
+                .unwrap()
+                .params
+                .number(key)
+        };
+        assert_eq!(param(roof, "base_offset"), Some(3.2_f32 as f64));
+        assert_eq!(param(stair, "height"), Some(3.2_f32 as f64));
+        // Roof eaves sit at the next level; stair top lands on it.
+        let y_range = |id| {
+            let ys: Vec<f32> = project
+                .document()
+                .get_mesh(id)
+                .expect("mesh")
+                .positions
+                .chunks(3)
+                .map(|p| p[1])
+                .collect();
+            (
+                ys.iter().cloned().fold(f32::MAX, f32::min),
+                ys.iter().cloned().fold(f32::MIN, f32::max),
+            )
+        };
+        let (roof_min, _) = y_range(roof);
+        assert!(roof_min > 3.0, "roof min y {roof_min}");
+        let (_, stair_max) = y_range(stair);
+        assert!((stair_max - 3.2).abs() < 1e-3, "stair top {stair_max}");
+    }
+
+    #[test]
+    fn stair_cuts_the_slab_on_its_top_level() {
+        let mut project = Project::new();
+        let upper = project.add_level("Level 1", 3.0);
+        project.set_active_level(upper).unwrap();
+        let slab_pts = [
+            Vec3::new(-5.0, 0.0, -5.0),
+            Vec3::new(5.0, 0.0, -5.0),
+            Vec3::new(5.0, 0.0, 5.0),
+            Vec3::new(-5.0, 0.0, 5.0),
+        ];
+        let placement = project
+            .placement_from_points("apex.slab", &slab_pts, 0.0)
+            .unwrap();
+        let slab = project
+            .create_element("apex.slab", placement, ParamMap::new())
+            .unwrap();
+        let ground = project
+            .document()
+            .levels()
+            .find(|l| l.id != upper)
+            .unwrap()
+            .id;
+        project.set_active_level(ground).unwrap();
+        let stair = project
+            .create_element(
+                "apex.stair",
+                Placement::line(Vec3::ZERO, Vec3::new(4.0, 0.0, 0.0)),
+                ParamMap::new(),
+            )
+            .unwrap();
+        let children = project.document().children_of(slab);
+        assert_eq!(children.len(), 1, "one opening in the upper slab");
+        assert!(!project.host_cut_voids(slab).is_empty());
+        let slab_mesh = project.document().get_mesh(slab).unwrap();
+        eprintln!(
+            "slab tris {} voids {:?}",
+            slab_mesh.triangle_count(),
+            project.host_cut_voids(slab)
+        );
+        let ys: Vec<f32> = slab_mesh.positions.chunks(3).map(|p| p[1]).collect();
+        eprintln!(
+            "slab y {:?}",
+            (
+                ys.iter().cloned().fold(f32::MAX, f32::min),
+                ys.iter().cloned().fold(f32::MIN, f32::max)
+            )
+        );
+        assert!(slab_mesh.triangle_count() > 12, "slab survives the cut");
+        // One undo removes the stair and its opening together.
+        project.undo().unwrap();
+        assert!(project.document().get_element(stair).is_none());
+        assert!(project.document().children_of(slab).is_empty());
+    }
+}
+
+/// `A`→0 … `Z`→25, `AA`→26 … ; `None` for anything that is not all letters.
+fn letter_index(label: &str) -> Option<u32> {
+    if label.is_empty() || !label.chars().all(|c| c.is_ascii_alphabetic()) {
+        return None;
+    }
+    let mut n: u32 = 0;
+    for c in label.chars() {
+        n = n
+            .checked_mul(26)?
+            .checked_add(c.to_ascii_uppercase() as u32 - 'A' as u32 + 1)?;
+    }
+    Some(n - 1)
+}
+
+fn letter_label(index: u32) -> String {
+    let mut n = index + 1;
+    let mut out = Vec::new();
+    while n > 0 {
+        let r = (n - 1) % 26;
+        out.push((b'A' + r as u8) as char);
+        n = (n - 1) / 26;
+    }
+    out.iter().rev().collect()
+}
+
+#[cfg(test)]
+mod grid_label_tests {
+    use super::{letter_index, letter_label};
+
+    #[test]
+    fn letter_labels_round_trip() {
+        assert_eq!(letter_label(0), "A");
+        assert_eq!(letter_label(25), "Z");
+        assert_eq!(letter_label(26), "AA");
+        for i in 0..100 {
+            assert_eq!(letter_index(&letter_label(i)), Some(i));
+        }
+        assert_eq!(letter_index("1"), None);
     }
 }

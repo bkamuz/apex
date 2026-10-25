@@ -6,6 +6,7 @@ import {
   apexCopySelection,
   apexCreateElement,
   apexCreateElementWithParent,
+  apexSetElementParent,
   apexCreateLevel,
   apexCreateConstructionLine,
   apexCreateGridAxis,
@@ -79,6 +80,7 @@ import {
   apexSetSheetViewportCrop,
   apexResetSheetViewportCrop,
   apexSetSheetViewportScale,
+  apexUpdateProfileType,
   initApex,
 } from './wasm/apex';
 import {
@@ -130,6 +132,8 @@ import type { VectorDrawing2d } from './types';
 import type { DocumentTab } from './ui/ViewTabBar';
 import { PropertiesPanel } from './ui/PropertiesPanel';
 import { ToolsToolbar } from './ui/ToolsToolbar';
+import { GettingStartedPanel } from './ui/GettingStartedPanel';
+import { buildSampleProject } from './ui/sampleProject';
 import { defaultNewProfile, defaultPlacementParams, nextProfileId } from './ui/profileModel';
 import { clearStoredProject, downloadText, loadStoredProject, storeProject } from './persist';
 import { useMediaQuery } from './hooks/useMediaQuery';
@@ -209,6 +213,14 @@ export default function App() {
 
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [info, setInfo] = useState<string | null>(null);
+  const [showGettingStarted, setShowGettingStarted] = useState(() => {
+    try {
+      return localStorage.getItem('apex.gettingStarted.dismissed') !== '1';
+    } catch {
+      return true;
+    }
+  });
   const [components, setComponents] = useState<ComponentDto[]>([]);
   const [exporters, setExporters] = useState(() => exporterRegistry.list());
   const [profiles, setProfiles] = useState<ProfileTypeDto[]>([]);
@@ -253,8 +265,16 @@ export default function App() {
   const [selectedSpace, setSelectedSpace] = useState<SpaceDto | null>(null);
   const [selectedLevelId, setSelectedLevelId] = useState<string | null>(null);
   const [pending, setPending] = useState<Vec3[]>([]);
+  /** Digits typed mid-gesture: the next segment's length in metres. */
+  const [typedLength, setTypedLength] = useState('');
+  const typedLengthRef = useRef('');
+  typedLengthRef.current = typedLength;
+  const lastPointerRef = useRef<{ x: number; y: number } | null>(null);
   const pendingRef = useRef<Vec3[]>([]);
   pendingRef.current = pending;
+  useEffect(() => {
+    if (pending.length === 0) setTypedLength('');
+  }, [pending.length]);
   const [fps, setFps] = useState(0);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mobileMenuTab, setMobileMenuTab] = useState<MobileMenuTab>('levels');
@@ -342,9 +362,11 @@ export default function App() {
     rendererRef.current?.setViewAnnotationOverlays(segs.length >= 2 ? segs : null);
   }, []);
 
-  const syncSpaceOverlays = useCallback((items: SpaceDto[]) => {
+  const syncSpaceOverlays = useCallback((items: SpaceDto[], activeLevelId?: string | null) => {
     const lines: Vec3[] = [];
     for (const item of items) {
+      // Spaces are per-storey plan annotations: only the active level's show.
+      if (activeLevelId && item.level_id !== activeLevelId) continue;
       if (item.line_segments?.length) lines.push(...item.line_segments);
     }
     rendererRef.current?.setSpaceOverlays(lines.length >= 2 ? lines : null);
@@ -391,6 +413,19 @@ export default function App() {
     setExporters(exporterRegistry.list());
   }, []);
 
+  const sceneFitBounds = useCallback((next: SceneDto) => {
+    if (next.fit_bounds_min && next.fit_bounds_max) {
+      return { min: next.fit_bounds_min, max: next.fit_bounds_max };
+    }
+    return null;
+  }, []);
+
+  const slabPickIds = useCallback((next: SceneDto) => {
+    return (next.elements ?? [])
+      .filter((el) => el.category === 'slab' || el.component_id === 'apex.slab')
+      .map((el) => el.pick_id);
+  }, []);
+
   const syncSceneToRenderer = useCallback(
     (
       renderer: ViewportRenderer,
@@ -408,19 +443,24 @@ export default function App() {
         pickIds: filterPickIdsForCategories(next, hidden),
         edgePositions: next.edge_positions ? toFloatArray(next.edge_positions) : [],
         selectedPickIds: selectedPickIds(next),
+        fitBounds: sceneFitBounds(next),
+        slabPickIds: slabPickIds(next),
         fitCamera,
       });
       syncLevelPlanes(renderer, next);
+      renderer.setPlanSymbols(next.plan_symbols?.length ? next.plan_symbols : null);
       if (syncGizmos) {
         syncReferenceGizmos(next.references ?? []);
         syncGridAxisGizmos(next.grid_axes ?? []);
         syncConstructionLineOverlays(next.construction_lines ?? []);
         syncSectionCutOverlays(next.section_cuts ?? []);
-        syncSpaceOverlays(next.spaces ?? []);
+        syncSpaceOverlays(next.spaces ?? [], next.active_level_id);
         syncViewAnnotationOverlays(next, viewId);
       }
     },
     [
+      sceneFitBounds,
+      slabPickIds,
       syncConstructionLineOverlays,
       syncGridAxisGizmos,
       syncReferenceGizmos,
@@ -443,17 +483,33 @@ export default function App() {
         pickIds: filterPickIdsForCategories(next, hidden),
         edgePositions: next.edge_positions ? toFloatArray(next.edge_positions) : [],
         selectedPickIds: [],
+        slabPickIds: slabPickIds(next),
         fitCamera: false,
       });
+      renderer.setPlanSymbols(next.plan_symbols?.length ? next.plan_symbols : null);
       const segs = viewId ? viewAnnotationSegments(next, viewId) : [];
       renderer.setViewAnnotationOverlays(segs.length >= 2 ? segs : null);
     },
-    [],
+    [slabPickIds],
   );
 
   const applyScene = useCallback(
     (next: SceneDto, fitCamera = false) => {
       setScene(next);
+      if (next.room_detect_report) {
+        const { created, loops_found } = next.room_detect_report;
+        if (created > 0) {
+          setInfo(`Detect rooms: ${created} room${created === 1 ? '' : 's'} found on the active level.`);
+        } else if (loops_found === 0) {
+          setInfo(
+            'Detect rooms: 0 rooms — add closed wall loops with joined endpoints on this level.',
+          );
+        } else {
+          setInfo(
+            `Detect rooms: 0 new rooms (${loops_found} loop${loops_found === 1 ? '' : 's'} found; walls may already have spaces).`,
+          );
+        }
+      }
       const renderer = rendererRef.current;
       if (renderer) {
         syncSceneToRenderer(renderer, next, fitCamera, activeViewId, true);
@@ -535,6 +591,19 @@ export default function App() {
           setError(e instanceof Error ? e.message : String(e));
         }
       },
+
+      hostCandidates: () => {
+        const active = sceneRef.current?.active_level_id ?? null;
+        return apexListElements()
+          .filter((element) => !active || element.effective_level_id === active)
+          .map((element) => ({
+            id: element.id,
+            category: element.category,
+            anchors: element.anchors,
+          }));
+      },
+
+      worldToClient: (point) => renderer.worldToClient(point),
 
       elementCategory: (id) => {
         const element = sceneRef.current?.elements.find((item) => item.id === id);
@@ -783,7 +852,7 @@ export default function App() {
         if (spaceSel) {
           try {
             applyLive(apexSetSpacePlacement(spaceSel.id, anchors, 0, false), (next) =>
-              syncSpaceOverlays(next.spaces ?? []),
+              syncSpaceOverlays(next.spaces ?? [], next.active_level_id),
             );
           } catch {
             /* keep dragging */
@@ -1135,8 +1204,12 @@ export default function App() {
     }
   }, [applyScene]);
 
-  /** Escape: abandon the gesture, clear selection, fall back to Select. */
+  /** Escape: clear an in-progress create pick chain; otherwise fall back to Select. */
   const onEscape = useCallback(() => {
+    if (toolRef.current.group === 'create' && pendingRef.current.length > 0) {
+      cancelGesture();
+      return;
+    }
     cancelGesture();
     setToolId(ToolRegistry.selectId);
     const active = document.activeElement;
@@ -1381,7 +1454,15 @@ export default function App() {
       const typing =
         active instanceof HTMLElement &&
         (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT');
-      if (!typing && (e.key === 'Delete' || e.key === 'Backspace')) {
+      // A focused dropdown or checkbox (e.g. after editing a property) must not
+      // swallow Delete; only real text entry keeps the key for itself.
+      const textEntry =
+        active instanceof HTMLTextAreaElement ||
+        (active instanceof HTMLInputElement &&
+          !['checkbox', 'radio', 'button', 'range', 'color'].includes(active.type));
+      const deleteKey = e.key === 'Delete' || (e.key === 'Backspace' && !typing);
+      if (!textEntry && deleteKey) {
+        if (active instanceof HTMLElement && active !== document.body) active.blur();
         if (selectedGridAxisRef.current) {
           e.preventDefault();
           try {
@@ -1438,6 +1519,52 @@ export default function App() {
         }
       }
       const mod = e.ctrlKey || e.metaKey;
+      // Typed length: with a gesture in progress, digits set the next
+      // segment's length along the cursor direction; Enter commits it.
+      const gesture = pendingRef.current ?? [];
+      if (!typing && !mod && gesture.length > 0 && toolRef.current.group === 'create') {
+        const buffer = typedLengthRef.current;
+        if (/^[0-9.,]$/.test(e.key)) {
+          e.preventDefault();
+          setTypedLength(buffer + (e.key === ',' ? '.' : e.key));
+          return;
+        }
+        if (buffer && e.key === 'Backspace') {
+          e.preventDefault();
+          setTypedLength(buffer.slice(0, -1));
+          return;
+        }
+        if (buffer && (e.key === 'Enter' || e.code === 'Enter')) {
+          e.preventDefault();
+          setTypedLength('');
+          const length = Number.parseFloat(buffer);
+          const anchor = gesture[gesture.length - 1]!;
+          const last = lastPointerRef.current;
+          const ctx = toolContext();
+          const cursor = last ? ctx.resolvePoint(last.x, last.y, false, anchor) : null;
+          let dx = cursor ? cursor[0] - anchor[0] : 1;
+          let dz = cursor ? cursor[2] - anchor[2] : 0;
+          if (shiftHeldRef.current) {
+            if (Math.abs(dx) >= Math.abs(dz)) dz = 0;
+            else dx = 0;
+          }
+          const norm = Math.hypot(dx, dz);
+          if (!(length > 0) || norm < 1e-6) return;
+          const target: Vec3 = [
+            anchor[0] + (dx / norm) * length,
+            anchor[1],
+            anchor[2] + (dz / norm) * length,
+          ];
+          const client = ctx.worldToClient(target);
+          if (!client) return;
+          const info = { clientX: client[0], clientY: client[1], shift: false, multi: false };
+          const active = toolRef.current;
+          // Gesture tools claim pointerdown; placement tools commit on click.
+          if (active.onPointerDown?.(info, ctx)) active.onPointerUp?.(info, ctx);
+          else active.onClick?.(info, ctx);
+          return;
+        }
+      }
       if (!typing && mod && e.key.toLowerCase() === 'z') {
         e.preventDefault();
         if (e.shiftKey) onRedo();
@@ -1615,6 +1742,14 @@ export default function App() {
   }, [ready, syncCatalog, applyScene]);
 
   const elements: ElementListDto[] = useMemo(() => scene?.elements ?? [], [scene]);
+  /** Space labels follow the outlines: only the active storey's spaces. */
+  const activeLevelSpaces = useMemo(
+    () =>
+      (scene?.spaces ?? []).filter(
+        (s) => !scene?.active_level_id || s.level_id === scene.active_level_id,
+      ),
+    [scene],
+  );
 
   const browserViewsProps = {
     views: scene?.views ?? [],
@@ -1670,6 +1805,7 @@ export default function App() {
 
   const onCanvasPointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!ready || !rendererRef.current) return;
+    lastPointerRef.current = { x: e.clientX, y: e.clientY };
     tool.onPointerMove?.(pointerInfo(e), toolContext());
   };
 
@@ -1777,10 +1913,14 @@ export default function App() {
 
   const onSelectLevel = (id: string) => {
     setSelectedLevelId(id);
+    const levelName = levels.find((l) => l.id === id)?.name ?? 'Level';
     try {
+      apexSetActiveLevel(id);
       applyScene(apexSelectElement(null));
-    } catch {
-      setSelected(null);
+      setInfo(`Active level: ${levelName}`);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
     }
   };
 
@@ -1815,6 +1955,34 @@ export default function App() {
     if (!selected) return;
     try {
       applyScene(apexUpdateElement(selected.id, params));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const onUpdateWallThickness = (thickness: number) => {
+    if (!selected || selected.category !== 'wall' || !Number.isFinite(thickness) || thickness <= 0) {
+      return;
+    }
+    const profileId = selected.profile_id ?? String(selected.params.profile ?? 'apex.wall.rect');
+    const profile = profiles.find((item) => item.id === profileId);
+    if (!profile) return;
+    const dedicatedId = `user.wall.${selected.id.replace(/-/g, '').slice(0, 12)}`;
+    try {
+      const existing = profiles.find((item) => item.id === dedicatedId);
+      if (!existing) {
+        apexRegisterProfile({
+          ...profile,
+          id: dedicatedId,
+          display_name: `${profile.display_name} · ${selected.name}`,
+          type_values: { ...profile.type_values, thickness },
+        });
+      } else {
+        apexUpdateProfileType(dedicatedId, { thickness });
+      }
+      applyScene(apexUpdateElement(selected.id, { profile: dedicatedId }));
+      setProfiles(apexListProfiles());
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -1966,6 +2134,13 @@ export default function App() {
       syncCatalog();
       setPlacementDraft({});
       setError(null);
+      try {
+        if (localStorage.getItem('apex.gettingStarted.dismissed') !== '1') {
+          setShowGettingStarted(true);
+        }
+      } catch {
+        setShowGettingStarted(true);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -1985,6 +2160,7 @@ export default function App() {
     <PropertiesPanel
       selected={selected}
       selectedCount={selectedIds.length}
+      selectedReference={selectedReference}
       selectedGridAxis={selectedGridAxis}
       selectedConstructionLine={selectedConstructionLine}
       selectedSectionCut={selectedSectionCut}
@@ -2017,7 +2193,24 @@ export default function App() {
       onEditType={onEditType}
       onNewProfile={onNewProfile}
       onUpdateLevelElevation={onUpdateLevelElevation}
+      onUpdateWallThickness={onUpdateWallThickness}
       onDelete={onDelete}
+      parentName={(() => {
+        if (!selected) return null;
+        const list = scene?.elements ?? [];
+        const parentId = list.find((element) => element.id === selected.id)?.parent_id;
+        if (!parentId) return null;
+        return list.find((element) => element.id === parentId)?.name ?? parentId;
+      })()}
+      onDetach={() => {
+        if (!selected) return;
+        try {
+          applyScene(apexSetElementParent(selected.id, null));
+          setError(null);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+        }
+      }}
       onDeleteGridAxis={() => applyScene(apexDeleteSelectedGridAxis())}
       onDeleteConstructionLine={() => applyScene(apexDeleteSelectedConstructionLine())}
       onDeleteSectionCut={() => applyScene(apexDeleteSelectedSectionCut())}
@@ -2112,7 +2305,14 @@ export default function App() {
         />
         <div className="topbar-hint" data-testid="topbar-hint">
           <b>INFO</b>
-          <span>{tool.hint(pending.length)}</span>
+          <span>
+            {info ?? tool.hint(pending.length)}
+            {pending.length > 0 && tool.group === 'create'
+              ? typedLength
+                ? ` — length ${typedLength} m (Enter)`
+                : ' — type a length, Shift snaps to grid'
+              : ''}
+          </span>
         </div>
       </header>
 
@@ -2163,6 +2363,27 @@ export default function App() {
       <div className="viewport-wrap">
         {!ready && !error && <div className="loading">Loading Apex core…</div>}
         {error && <div className="error-banner">{error}</div>}
+        {showGettingStarted && elements.length === 0 ? (
+          <GettingStartedPanel
+            onDismiss={() => {
+              setShowGettingStarted(false);
+              try {
+                localStorage.setItem('apex.gettingStarted.dismissed', '1');
+              } catch {
+                /* ignore */
+              }
+            }}
+            onLoadSample={() => {
+              try {
+                applyScene(buildSampleProject(), true);
+                setInfo('Sample project loaded');
+                setError(null);
+              } catch (err) {
+                setError(err instanceof Error ? err.message : String(err));
+              }
+            }}
+          />
+        ) : null}
         <DocumentViewsHost
           scene={scene}
           tabs={openTabs}
@@ -2190,7 +2411,7 @@ export default function App() {
             <>
               <GridAxisLabels
                 axes={scene?.grid_axes ?? []}
-                spaces={scene?.spaces ?? []}
+                spaces={activeLevelSpaces}
                 renderer={ready ? rendererRef.current : null}
               />
               <canvas

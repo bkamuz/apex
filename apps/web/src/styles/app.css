@@ -326,8 +326,28 @@ input[type="radio"] {
   outline-offset: -1px;
 }
 
+.tools-bar {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  background: var(--chrome-bg-tools);
+}
+
+/* Persistent view group (3D / Plan / Fit / Axon / Persp), pinned right of the
+   scrolling, per-tab tool strip. */
+.tools-view {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 3px 4px;
+  border-left: 1px solid var(--chrome-border, #2a2f3a);
+  background: var(--chrome-bg-tools);
+}
+
 .tools-scroll {
   position: relative;
+  flex: 1 1 auto;
+  min-width: 0;
   width: 100%;
   background: var(--chrome-bg-tools);
 }
@@ -486,6 +506,49 @@ input[type="radio"] {
   color: var(--chrome-info);
   font-weight: 600;
   letter-spacing: 0.04em;
+}
+
+.level-panel-hint {
+  padding: 0 10px 6px;
+  font-size: 11px;
+  color: var(--chrome-muted);
+  line-height: 1.35;
+}
+
+.getting-started {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  z-index: 12;
+  max-width: min(360px, calc(100vw - 32px));
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: rgba(18, 24, 34, 0.94);
+  border: 1px solid var(--chrome-line);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.getting-started-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.getting-started kbd {
+  font-family: var(--mono);
+  font-size: 11px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px solid var(--chrome-line);
+  background: var(--chrome-bg-hint);
+}
+
+.getting-started-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  flex-wrap: wrap;
 }
 
 .hint {

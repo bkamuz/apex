@@ -114,21 +114,25 @@ export function inferSketch(
   closed: boolean;
   dimensions: SketchDimensionDto[];
   constraints: SketchConstraintDto[];
+  holes: [number, number][][];
 } {
+  const copyLoops = (loops: [number, number][][] | undefined) =>
+    (loops ?? []).map((loop) => loop.map(([x, y]) => [x, y] as [number, number]));
   if (profile.sketch && profile.sketch.vertices.length >= 3) {
     return {
       vertices: profile.sketch.vertices.map(([x, y]) => [x, y]),
       closed: true,
       dimensions: [...(profile.sketch.dimensions ?? [])],
       constraints: [...(profile.sketch.constraints ?? [])],
+      holes: copyLoops(profile.sketch.holes),
     };
   }
   if (profile.spec.shape === 'circle') {
-    return { vertices: [], closed: false, dimensions: [], constraints: [] };
+    return { vertices: [], closed: false, dimensions: [], constraints: [], holes: [] };
   }
   const verts = (preview?.outer ?? []).map(([x, y]) => [x, y] as [number, number]);
   if (verts.length < 3) {
-    return { vertices: [], closed: false, dimensions: [], constraints: [] };
+    return { vertices: [], closed: false, dimensions: [], constraints: [], holes: [] };
   }
   const dimensions: SketchDimensionDto[] = [];
   const n = verts.length;
@@ -139,7 +143,13 @@ export function inferSketch(
     );
     if (match) dimensions.push({ edge: i, param: match.id });
   }
-  return { vertices: verts, closed: true, dimensions, constraints: [] };
+  return {
+    vertices: verts,
+    closed: true,
+    dimensions,
+    constraints: [],
+    holes: profile.spec.shape === 'polygon' ? copyLoops(preview?.holes) : [],
+  };
 }
 
 export function suggestDimension(
@@ -177,11 +187,13 @@ export function sketchPayload(
   vertices: [number, number][],
   dimensions: SketchDimensionDto[],
   constraints: SketchConstraintDto[] = [],
+  holes: [number, number][][] = [],
 ): ProfileSketchDto {
   return {
     vertices,
     dimensions,
     constraints: constraints.length > 0 ? constraints : undefined,
+    holes: holes.length > 0 ? holes : undefined,
   };
 }
 
