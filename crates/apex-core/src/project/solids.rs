@@ -376,9 +376,27 @@ impl Project {
     /// Final mesh for prism hosts and joinable elements, or `None` to fall
     /// back to the plain recipe mesh.
     pub(crate) fn solid_mesh(&self, element: &Element) -> Option<TriangleMesh> {
+        let (piece, whole) = self.solid_piece(element)?;
+        Some(match whole {
+            Some(whole) => piece.to_mesh_within(&whole),
+            None => piece.to_mesh(),
+        })
+    }
+
+    /// The plan region this element owns at height `y` (world), after joins
+    /// and openings. Pieces of one cluster tile it without overlap, so their
+    /// fills never double up or spill.
+    pub fn plan_cut_region(&self, element: &Element, y: f32) -> Option<Region> {
+        let (piece, _) = self.solid_piece(element)?;
+        piece.region_at(y as f64).cloned()
+    }
+
+    /// This element's share of its join cluster plus the cluster's whole
+    /// solid (None when it joins nothing).
+    fn solid_piece(&self, element: &Element) -> Option<(LayeredSolid, Option<LayeredSolid>)> {
         let own = self.own_solid(element)?;
         if !self.joinable(element) {
-            return Some(own.to_mesh());
+            return Some((own, None));
         }
         let hw = profile_half_width(&self.registry, element).unwrap_or(0.0);
         let mine = own.footprint();
@@ -409,11 +427,7 @@ impl Project {
                 clustered = true;
             }
         }
-        Some(if clustered {
-            piece.to_mesh_within(&whole)
-        } else {
-            piece.to_mesh()
-        })
+        Some((piece, clustered.then_some(whole)))
     }
 
     /// False when the contact with `other` sits at an end where joining is
