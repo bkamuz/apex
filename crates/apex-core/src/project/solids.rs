@@ -704,6 +704,33 @@ mod tests {
     }
 
     #[test]
+    fn x_join_plan_edges_have_no_ticks() {
+        let mut project = Project::new();
+        let cases = [([0.0, 0.0], [6.0, 0.0]), ([3.0, -3.0], [3.0, 3.0])];
+        let ids: Vec<_> = cases
+            .iter()
+            .map(|(a, b)| wall(&mut project, *a, *b, false))
+            .collect();
+        let rects: Vec<_> = cases.iter().map(|(a, b)| rect(*a, *b, 0.2)).collect();
+        for id in ids {
+            let m = project.document().get_mesh(id).unwrap();
+            for e in m.edges.chunks(6) {
+                let (a, b) = (Vec3::new(e[0], e[1], e[2]), Vec3::new(e[3], e[4], e[5]));
+                let mid = (a + b) * 0.5;
+                if (a.y - b.y).abs() > 1e-4 {
+                    continue;
+                }
+                // A plan edge whose midpoint is buried inside the mass is a tick.
+                let d = (b - a).normalize_or_zero();
+                let n = Vec3::new(-d.z, 0.0, d.x) * 0.01;
+                let buried = inside(&rects, mid.x + n.x, mid.z + n.z)
+                    && inside(&rects, mid.x - n.x, mid.z - n.z);
+                assert!(!buried, "tick edge {a:?} -> {b:?}");
+            }
+        }
+    }
+
+    #[test]
     fn joins_follow_moves_and_undo() {
         let mut project = Project::new();
         let a = wall(&mut project, [0.0, 0.0], [5.0, 0.0], false);

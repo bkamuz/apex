@@ -296,7 +296,12 @@ impl Project {
                 continue;
             };
             // Hosted doors/windows draw as plan symbols, never as their 3D body.
-            if category == "opening" {
+            // Stairs draw as a symbol (treads, cut line, arrow), not a box.
+            // Boolean operands are a modelling aid (shown as ghosts) only.
+            if category == "opening"
+                || category == "stair"
+                || !self.boolean_consumers(element.id).is_empty()
+            {
                 continue;
             }
             // Cut elements (walls, columns): poché section at the cut plane.
@@ -447,10 +452,11 @@ impl Project {
                 ) {
                     let dim = linear_dimension_overlay(pa, pb, *offset);
                     if dim.line_segments.len() >= 6 {
-                        let a2 = plan_point(dim.line_segments[2]);
-                        let b2 = plan_point(dim.line_segments[3]);
+                        // Segments: a→a2, b→b2, a2→b2 (see linear_dimension_overlay).
                         let ea = plan_point(dim.line_segments[0]);
-                        let eb = plan_point(dim.line_segments[1]);
+                        let a2 = plan_point(dim.line_segments[1]);
+                        let eb = plan_point(dim.line_segments[2]);
+                        let b2 = plan_point(dim.line_segments[3]);
                         let text = dim
                             .labels
                             .first()

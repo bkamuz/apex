@@ -14,6 +14,12 @@ const DEFAULT_WALL_THICKNESS: f32 = 0.2;
 pub fn opening_plan_symbols(project: &Project, level: Option<crate::LevelId>) -> Vec<Vec3> {
     let mut out = Vec::new();
     for element in project.document().elements() {
+        if element.component_id == "apex.stair" {
+            if level.is_none_or(|l| project.effective_level_id(element.id) == Some(l)) {
+                stair_symbol(project, element, &mut out);
+            }
+            continue;
+        }
         let kind = match element.component_id.as_str() {
             "apex.door" => Kind::Door,
             "apex.window" => Kind::Window,
@@ -140,6 +146,66 @@ fn window_symbol(f: &OpeningFrame, out: &mut Vec<Vec3>) {
     push(out, l + half_t, r + half_t);
 }
 
+/// Height above the stair base where the plan cut line is drawn.
+const STAIR_CUT_HEIGHT: f32 = 1.2;
+
+/// Stair plan symbol: outline, treads up to the cut, a diagonal cut line and
+/// a walking-line arrow pointing up the run.
+fn stair_symbol(project: &Project, stair: &Element, out: &mut Vec<Vec3>) {
+    let Some((corners, top)) = project.stair_footprint(stair) else {
+        return;
+    };
+    let params = project
+        .registry()
+        .persistable_params(&stair.component_id, &stair.params)
+        .unwrap_or_else(|_| stair.params.clone());
+    let riser = (params.number("riser").unwrap_or(0.17) as f32).max(0.05);
+    let height = top - corners[0].y;
+    let steps = ((height / riser).round() as u32).max(1);
+    stair_lines(corners, steps, height, out);
+}
+
+fn stair_lines(c: [Vec3; 4], steps: u32, height: f32, out: &mut Vec<Vec3>) {
+    // c: [a-side, b-side, b+side, a+side]; run goes a→b.
+    let lift = |p: Vec3| Vec3::new(p.x, c[0].y + 0.01, p.z);
+    let c = c.map(lift);
+    let run = c[1] - c[0];
+    let span = c[3] - c[0];
+    let riser = height / steps as f32;
+    let cut_step = ((STAIR_CUT_HEIGHT / riser).ceil() as u32).clamp(1, steps);
+    let t_cut = cut_step as f32 / steps as f32;
+    // Outline up to the cut on both sides, plus the start nosing.
+    push(out, c[0], c[3]);
+    push(out, c[0], c[0] + run * t_cut);
+    push(out, c[3], c[3] + run * t_cut);
+    for i in 1..cut_step {
+        let t = i as f32 / steps as f32;
+        push(out, c[0] + run * t, c[3] + run * t);
+    }
+    // Diagonal cut line across the run, with a break zig-zag in the middle.
+    let step_len = run / steps as f32;
+    let p0 = c[0] + run * t_cut - step_len * 0.5;
+    let p1 = c[3] + run * t_cut + step_len * 0.5;
+    let m = (p0 + p1) * 0.5;
+    let d = (p1 - p0).normalize_or_zero();
+    let n = run.normalize_or_zero() * step_len.length().max(0.08) * 0.6;
+    let z0 = m - d * 0.08;
+    let z1 = m + d * 0.08;
+    push(out, p0, z0);
+    push(out, z0, z0 + n * 0.5 + d * 0.04);
+    push(out, z0 + n * 0.5 + d * 0.04, z1 - n * 0.5 - d * 0.04);
+    push(out, z1 - n * 0.5 - d * 0.04, z1);
+    push(out, z1, p1);
+    // Walking line from the first step to the cut, arrowhead at the end.
+    let s = c[0] + span * 0.5 + step_len * 0.3;
+    let e = c[0] + span * 0.5 + run * t_cut - step_len * 0.9;
+    push(out, s, e);
+    let back = (s - e).normalize_or_zero() * 0.18;
+    let side = span.normalize_or_zero() * 0.1;
+    push(out, e, e + back + side);
+    push(out, e, e + back - side);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -161,6 +227,24 @@ mod tests {
         assert_eq!(out.len(), 2 * (1 + ARC_SEGMENTS));
         // Arc ends at the open leaf tip.
         assert!((out[out.len() - 1] - out[1]).length() < 1e-4);
+    }
+
+    #[test]
+    fn stair_draws_treads_cut_line_and_arrow() {
+        let c = [
+            Vec3::new(0.0, 0.0, -0.5),
+            Vec3::new(4.0, 0.0, -0.5),
+            Vec3::new(4.0, 0.0, 0.5),
+            Vec3::new(0.0, 0.0, 0.5),
+        ];
+        let mut out = Vec::new();
+        stair_lines(c, 18, 3.0, &mut out);
+        // 3 outline + (cut_step-1) treads + 5 cut + 3 arrow segments.
+        let cut_step = (1.2_f32 / (3.0 / 18.0)).ceil() as usize;
+        assert_eq!(out.len() / 2, 3 + (cut_step - 1) + 5 + 3);
+        // Nothing past the cut line.
+        let x_cut = 4.0 * cut_step as f32 / 18.0;
+        assert!(out.iter().all(|p| p.x <= x_cut + 0.3));
     }
 
     #[test]
