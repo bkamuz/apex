@@ -1081,12 +1081,21 @@ input[type="radio"] {
   flex: 1;
   overflow: auto;
   padding: 16px;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.sheet-fit-host {
+  position: relative;
+  flex-shrink: 0;
 }
 
 .sheet-paper {
   position: relative;
-  margin: 0 auto;
+  margin: 0;
   background: #fff;
+  border: 1px solid #222;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);
 }
 
@@ -1153,13 +1162,38 @@ input[type="radio"] {
   pointer-events: none;
 }
 
-.sheet-viewport-label {
-  height: 18px;
-  line-height: 18px;
+.sheet-viewport-caption {
+  box-sizing: border-box;
+  min-height: 20px;
+  padding: 2px 6px 0;
+  text-align: center;
+  color: #111;
+  background: transparent;
+}
+
+.sheet-viewport-caption-name {
+  display: block;
   font-size: 10px;
-  padding: 0 4px;
-  background: rgba(0, 0, 0, 0.06);
-  color: #222;
+  font-weight: 600;
+  line-height: 1.2;
+  border-bottom: 1px solid #222;
+  padding-bottom: 1px;
+}
+
+.sheet-viewport-caption-scale {
+  display: block;
+  margin-top: 2px;
+  font-size: 9px;
+  line-height: 1.2;
+  letter-spacing: 0.02em;
+}
+
+.sheet-viewport-caption-hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 8px;
+  color: #555;
+  font-weight: 400;
 }
 
 .sheet-viewport-placeholder {

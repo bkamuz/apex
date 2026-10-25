@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { CropUvDto, SceneDto, SheetDto, SheetViewportDto, VectorDrawing2d } from '../types';
 import { apexExportSheetDxf, apexExportSheetVector } from '../wasm/apex';
 import { exportSheetSvgFromDrawing } from './sheetExport';
@@ -16,6 +16,7 @@ import {
 import { formatViewScale, STANDARD_VIEW_SCALES } from './sheetScales';
 import { SheetLayoutControls, sheetLayoutFromDto } from './SheetLayoutControls';
 import type { PaperOrientation, PaperSize } from '../types';
+import { SHEET_MM_TO_PX, SHEET_VIEWPORT_TITLE_BAND_MM } from './sheetViewportMetrics';
 
 interface Props {
   sheet: SheetDto;
@@ -35,8 +36,8 @@ interface Props {
   ) => void;
 }
 
-const MM_TO_PX = 2.5;
-const LABEL_H = 18;
+const MM_TO_PX = SHEET_MM_TO_PX;
+const TITLE_BAND_PX = SHEET_VIEWPORT_TITLE_BAND_MM * MM_TO_PX;
 
 export function SheetPaperView({
   sheet,
@@ -51,6 +52,8 @@ export function SheetPaperView({
   onUpdateSheetLayout,
 }: Props) {
   const paperRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [fitScale, setFitScale] = useState(1);
   const [dragViewport, setDragViewport] = useState<string | null>(null);
   const [selectedViewportId, setSelectedViewportId] = useState<string | null>(null);
   const [customScaleDraft, setCustomScaleDraft] = useState('');
@@ -59,6 +62,21 @@ export function SheetPaperView({
   const widthPx = sheet.width_mm * MM_TO_PX;
   const heightPx = sheet.height_mm * MM_TO_PX;
   const viewports = sheet.viewports;
+
+  useLayoutEffect(() => {
+    const scroll = scrollRef.current;
+    if (!scroll) return;
+    const update = () => {
+      const pad = 32;
+      const availW = Math.max(1, scroll.clientWidth - pad);
+      const availH = Math.max(1, scroll.clientHeight - pad);
+      setFitScale(Math.min(1, availW / widthPx, availH / heightPx));
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(scroll);
+    return () => ro.disconnect();
+  }, [widthPx, heightPx]);
 
   const loadSheetDrawing = useCallback((): VectorDrawing2d | null => {
     try {
@@ -257,11 +275,20 @@ export function SheetPaperView({
           Export PDF
         </button>
       </div>
-      <div className="sheet-scroll shell-scroll">
+      <div className="sheet-scroll shell-scroll" ref={scrollRef}>
+        <div
+          className="sheet-fit-host"
+          style={{ width: widthPx * fitScale, height: heightPx * fitScale }}
+        >
         <div
           ref={paperRef}
           className="sheet-paper"
-          style={{ width: widthPx, height: heightPx }}
+          style={{
+            width: widthPx,
+            height: heightPx,
+            transform: `scale(${fitScale})`,
+            transformOrigin: 'top left',
+          }}
           onDragOver={(e) => {
             if (e.dataTransfer.types.includes('application/x-apex-view-id')) e.preventDefault();
           }}
@@ -282,6 +309,7 @@ export function SheetPaperView({
             </div>
           </div>
           {viewportNodes}
+        </div>
         </div>
       </div>
     </div>
@@ -328,7 +356,7 @@ function SheetViewportFrame({
   const top = (sheet.height_mm - (viewport.center_y_mm + viewport.height_mm / 2)) * mmToPx;
   const w = viewport.width_mm * mmToPx;
   const h = viewport.height_mm * mmToPx;
-  const canvasH = Math.max(1, h - LABEL_H);
+  const canvasH = Math.max(1, h - TITLE_BAND_PX);
   const crop = cropRing(viewport);
 
   const clientToUv = (clientX: number, clientY: number, rect: DOMRect): CropUv => {
@@ -452,9 +480,16 @@ function SheetViewportFrame({
           </svg>
         ) : null}
       </div>
-      <div className="sheet-viewport-label" data-testid={`viewport-title-${viewport.id}`}>
-        {view?.name ?? 'View'} · {formatViewScale(view?.settings.scale ?? 100)}
-        {selected ? ' · drag vertices · dbl-click + on edge · right-click remove' : ''}
+      <div className="sheet-viewport-caption" data-testid={`viewport-title-${viewport.id}`}>
+        <span className="sheet-viewport-caption-name">{view?.name ?? 'View'}</span>
+        <span className="sheet-viewport-caption-scale">
+          {formatViewScale(view?.settings.scale ?? 100)}
+        </span>
+        {selected ? (
+          <span className="sheet-viewport-caption-hint">
+            drag vertices · dbl-click + on edge · right-click remove
+          </span>
+        ) : null}
       </div>
     </div>
   );

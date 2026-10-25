@@ -11,6 +11,7 @@ use crate::view::{
 use crate::view_annotation::ViewAnnotationId;
 
 const DEFAULT_STOREY_RISE: f32 = 3.0;
+const SHEET_VIEWPORT_MARGIN_MM: f32 = 12.0;
 
 impl Project {
     pub fn views(&self) -> impl Iterator<Item = &View> {
@@ -336,6 +337,27 @@ impl Project {
     }
 
     /// True-scale viewport frame + world anchor for a plan view.
+    fn clamp_viewport_center_on_sheet(
+        sheet: &Sheet,
+        center_x_mm: f32,
+        center_y_mm: f32,
+        width_mm: f32,
+        height_mm: f32,
+    ) -> (f32, f32) {
+        let (sw, sh) = sheet.paper_size_mm();
+        let half_w = width_mm / 2.0;
+        let half_h = height_mm / 2.0;
+        let margin = SHEET_VIEWPORT_MARGIN_MM;
+        let min_x = (margin + half_w).min(sw);
+        let max_x = (sw - margin - half_w).max(min_x);
+        let min_y = (margin + half_h).min(sh);
+        let max_y = (sh - margin - half_h).max(min_y);
+        (
+            center_x_mm.clamp(min_x, max_x),
+            center_y_mm.clamp(min_y, max_y),
+        )
+    }
+
     fn sheet_viewport_layout_for_view(&self, view_id: ViewId) -> (f32, f32, f32, f32, f32) {
         let scale = self
             .views
@@ -381,6 +403,8 @@ impl Project {
             self.sheet_viewport_layout_for_view(view_id);
         let before = self.export_snapshot();
         let sheet = self.sheets.get_mut(&sheet_id).ok_or(SheetError::NotFound)?;
+        let (center_x_mm, center_y_mm) =
+            Self::clamp_viewport_center_on_sheet(sheet, center_x_mm, center_y_mm, auto_w, auto_h);
         if let Some(vp_id) = existing_id {
             let existing = sheet
                 .viewports
@@ -479,6 +503,21 @@ impl Project {
         }
         let before = self.export_snapshot();
         let sheet = self.sheets.get_mut(&sheet_id).ok_or(SheetError::NotFound)?;
+        let (width_mm, height_mm) = {
+            let vp = sheet
+                .viewports
+                .iter()
+                .find(|vp| vp.id == viewport_id)
+                .expect("viewport exists");
+            (vp.width_mm, vp.height_mm)
+        };
+        let (center_x_mm, center_y_mm) = Self::clamp_viewport_center_on_sheet(
+            sheet,
+            center_x_mm,
+            center_y_mm,
+            width_mm,
+            height_mm,
+        );
         let vp = sheet
             .viewports
             .iter_mut()

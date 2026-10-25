@@ -107,6 +107,8 @@ pub fn bounds_2d(drawing: &VectorDrawing2d) -> Option<([f64; 2], [f64; 2])> {
         visit(text.position);
     }
     for dim in &drawing.dimensions {
+        visit(dim.extension_a);
+        visit(dim.extension_b);
         visit(dim.dim_a);
         visit(dim.dim_b);
         visit(dim.text_position);

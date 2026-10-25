@@ -30,13 +30,13 @@ export function SheetViewAnnotationLabels({ scene, viewId, renderer }: Props) {
       for (const ann of scene.view_annotations ?? []) {
         if (ann.view_id !== viewId) continue;
         for (const label of ann.labels ?? []) {
-          const screen = renderer.worldToClient(label.position);
-          if (!screen) continue;
+          const canvasPos = renderer.worldToCanvas(label.position);
+          if (!canvasPos) continue;
           next.push({
             key: `${ann.id}:${label.text}:${label.position.join(',')}`,
             text: label.text,
-            left: screen[0],
-            top: screen[1],
+            left: canvasPos[0],
+            top: canvasPos[1],
           });
         }
       }

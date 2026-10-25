@@ -9,6 +9,7 @@ import {
 import { viewAnnotationSegments } from './viewAnnotationSegments';
 import { cropToCssClipPath } from './sheetCropModel';
 import { SheetViewAnnotationLabels } from './SheetViewAnnotationLabels';
+import { sheetViewportDrawableHeightMm } from './sheetViewportMetrics';
 
 interface Props {
   scene: SceneDto;
@@ -58,9 +59,10 @@ export function LiveSheetViewport({ scene, view, viewport, syncScene }: Props) {
       r.setViewNavigation('plan');
       r.setPlanCutHeight(kind.cut_height);
       const scale = view.settings.scale;
+      const drawableH = sheetViewportDrawableHeightMm(viewport.height_mm);
       r.setSheetPlanFrustum(
         viewport.width_mm,
-        viewport.height_mm,
+        drawableH,
         scale,
         viewport.anchor_x_m ?? 0,
         viewport.anchor_z_m ?? 0,

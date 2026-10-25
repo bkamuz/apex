@@ -6,6 +6,12 @@ pub const PAPER_TEXT_HEIGHT_MM: f64 = 2.5;
 
 pub const STANDARD_VIEW_SCALES: &[u32] = &[1, 2, 5, 10, 20, 25, 50, 100, 200, 500, 1000];
 
+/// Space below the viewport frame reserved for the drawing title (mm on paper).
+pub const VIEWPORT_TITLE_BAND_MM: f32 = 8.0;
+
+/// Inset around exported plan bounds inside the viewport canvas (mm on paper).
+pub const VIEWPORT_CONTENT_PADDING_MM: f32 = 6.0;
+
 pub fn mm_per_model_metre(scale_denominator: f32) -> f64 {
     1000.0 / f64::from(scale_denominator.max(1.0))
 }
@@ -33,7 +39,11 @@ pub fn viewport_size_mm_for_bounds(
     let h_m = (max[1] - min[1]).max(0.01);
     let w_mm = model_metres_to_paper_mm(w_m, scale_denominator) as f32;
     let h_mm = model_metres_to_paper_mm(h_m, scale_denominator) as f32;
-    (w_mm.max(10.0), h_mm.max(10.0))
+    let pad = VIEWPORT_CONTENT_PADDING_MM * 2.0;
+    (
+        (w_mm + pad).max(10.0),
+        (h_mm + pad + VIEWPORT_TITLE_BAND_MM).max(10.0),
+    )
 }
 
 /// Map a plan-space view export (metres) onto sheet coordinates (mm) at true scale.

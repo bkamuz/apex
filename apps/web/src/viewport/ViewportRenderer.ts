@@ -1517,8 +1517,16 @@ export class ViewportRenderer {
     this.snapCount = 1;
   }
 
-  /** Project world point to CSS client coordinates (relative to canvas). */
+  /** Project world point to CSS client coordinates (viewport-relative). */
   worldToClient(p: [number, number, number]): [number, number] | null {
+    const local = this.worldToCanvas(p);
+    if (!local) return null;
+    const rect = this.canvas.getBoundingClientRect();
+    return [rect.left + local[0], rect.top + local[1]];
+  }
+
+  /** Project world point to coordinates relative to this canvas (top-left origin). */
+  worldToCanvas(p: [number, number, number]): [number, number] | null {
     const { viewProj } = this.cameraMatrices();
     const x = viewProj[0] * p[0] + viewProj[4] * p[1] + viewProj[8] * p[2] + viewProj[12];
     const y = viewProj[1] * p[0] + viewProj[5] * p[1] + viewProj[9] * p[2] + viewProj[13];
@@ -1527,7 +1535,7 @@ export class ViewportRenderer {
     const ndcX = x / w;
     const ndcY = y / w;
     const rect = this.canvas.getBoundingClientRect();
-    return [rect.left + ((ndcX + 1) * 0.5) * rect.width, rect.top + ((1 - ndcY) * 0.5) * rect.height];
+    return [((ndcX + 1) * 0.5) * rect.width, ((1 - ndcY) * 0.5) * rect.height];
   }
 
   /** Hit-test edit handles in screen space; returns the anchor index. */

@@ -445,9 +445,10 @@ export default function App() {
         selectedPickIds: [],
         fitCamera: false,
       });
-      syncViewAnnotationOverlays(next, viewId);
+      const segs = viewId ? viewAnnotationSegments(next, viewId) : [];
+      renderer.setViewAnnotationOverlays(segs.length >= 2 ? segs : null);
     },
-    [syncViewAnnotationOverlays],
+    [],
   );
 
   const applyScene = useCallback(
@@ -1638,7 +1639,7 @@ export default function App() {
       const paperWasm = paper === 'custom' ? 'CUSTOM' : paper.toUpperCase();
       runViewAction(() =>
         apexCreateSheetWithLayout(
-          `A${n}`,
+          `S-${100 + n}`,
           `Sheet ${n}`,
           paperWasm,
           orientation,

@@ -1,5 +1,5 @@
 import type { PaperOrientation, PaperSize, SheetDto } from '../types';
-import { ISO_PAPER_SIZES, PAPER_ORIENTATIONS } from './sheetLayoutOptions';
+import { ISO_PAPER_SIZES, PAPER_ORIENTATIONS, paperSizeFromDto } from './sheetLayoutOptions';
 
 interface Props {
   paper: PaperSize;
@@ -90,7 +90,7 @@ export function sheetLayoutFromDto(sheet: SheetDto): {
   customHeightMm: number;
 } {
   return {
-    paper: sheet.paper,
+    paper: paperSizeFromDto(sheet.paper),
     orientation: sheet.orientation,
     customWidthMm: sheet.custom_width_mm ?? 420,
     customHeightMm: sheet.custom_height_mm ?? 297,

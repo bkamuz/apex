@@ -46,14 +46,19 @@ impl FromStr for SheetId {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
 pub enum PaperSize {
+    #[serde(rename = "A4", alias = "a4")]
     A4,
     #[default]
+    #[serde(rename = "A3", alias = "a3")]
     A3,
+    #[serde(rename = "A2", alias = "a2")]
     A2,
+    #[serde(rename = "A1", alias = "a1")]
     A1,
+    #[serde(rename = "A0", alias = "a0")]
     A0,
+    #[serde(rename = "custom")]
     Custom,
 }
 

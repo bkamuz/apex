@@ -74,9 +74,14 @@ await page.screenshot({ path: `${OUT}/e2e-01-walls-in-viewport.png`, fullPage: t
 // 2. Plan view + annotations
 await page.getByTestId('new-plan-view').click();
 await page.waitForTimeout(400);
-const planRow = page.locator('[data-testid^="view-row-"]').first();
+const planRow = page.locator('[data-testid^="view-row-"]').filter({ hasText: /Plan/i }).first();
 await planRow.click();
 await page.waitForTimeout(600);
+const planDocTab = page.locator('.view-tab-open').filter({ hasText: /Plan/i }).first();
+if ((await planDocTab.count()) > 0) {
+  await planDocTab.click();
+  await page.waitForTimeout(400);
+}
 await page.screenshot({ path: `${OUT}/e2e-02-plan-view-open.png`, fullPage: true });
 
 const annotateTab = page.getByTestId('tools-tab-apex.annotate');
@@ -103,6 +108,12 @@ await page.locator('[data-testid^="sheet-row-"]').first().dblclick();
 await page.waitForTimeout(800);
 await page.screenshot({ path: `${OUT}/e2e-04-empty-sheet-a2.png`, fullPage: true });
 
+const sheetNumber = await page.locator('[data-testid^="sheet-row-"]').first().textContent();
+if (!sheetNumber?.includes('S-101')) {
+  console.error('FAIL: expected default sheet number S-101, got', sheetNumber);
+  process.exitCode = 1;
+}
+
 const paper = page.locator('.sheet-paper');
 await paper.waitFor({ state: 'visible' });
 const paperBox = await paper.boundingBox();
@@ -127,6 +138,13 @@ if (paperBox) {
 }
 await page.waitForTimeout(800);
 await page.screenshot({ path: `${OUT}/e2e-05-sheet-with-viewports.png`, fullPage: true });
+
+const paperSelect = page.getByTestId('sheet-properties-paper-size');
+const paperValue = await paperSelect.inputValue();
+if (paperValue !== 'A2') {
+  console.error('FAIL: sheet toolbar paper should be A2, got', paperValue);
+  process.exitCode = 1;
+}
 
 // Sample sheet viewport canvas — should not be solid black
 const sheetCanvas = page.locator('.sheet-viewport-canvas').first();
