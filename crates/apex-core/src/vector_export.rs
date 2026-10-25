@@ -392,7 +392,8 @@ impl Project {
                 continue;
             }
             // Rooms print as a name + area tag; the boundary is a modelling aid.
-            if let Ok(overlay) = space.overlay_geometry(&work_plane) {
+            {
+                let overlay = self.space_overlay(space);
                 let area = polygon_area(&overlay.line_segments);
                 for label in overlay.labels {
                     let p = plan_point(label.position);

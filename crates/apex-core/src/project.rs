@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 
 mod booleans;
 mod solids;
+mod space_labels;
 pub use booleans::boolean_params;
 
 use apex_geometry::{Frame, TriangleMesh};
@@ -3303,7 +3304,7 @@ mod tests {
 
     #[test]
     fn format_six_import_gets_default_views() {
-        let mut project = Project::new();
+        let project = Project::new();
         let mut snap = project.export_snapshot();
         snap.format = 6;
         snap.views.clear();

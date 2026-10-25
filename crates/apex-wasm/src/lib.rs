@@ -500,8 +500,7 @@ fn section_cut_dto(project: &Project, cut: &SectionCut) -> SectionCutDto {
 }
 
 fn space_dto(project: &Project, space: &Space) -> SpaceDto {
-    let work_plane = project.work_plane(space.level_id);
-    let overlay = space.overlay_geometry(&work_plane).unwrap_or_default();
+    let overlay = project.space_overlay(space);
     let params = space.resolved_params();
     SpaceDto {
         id: space.id.to_string(),
