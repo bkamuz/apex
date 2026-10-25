@@ -13,7 +13,7 @@ name = "apex-core"
 version = "0.1.0"
 dependencies = [
  "apex-geometry",
- "glam",
+ "glam 0.29.3",
  "serde",
  "serde_json",
  "thiserror",
@@ -24,7 +24,8 @@ dependencies = [
 name = "apex-geometry"
 version = "0.1.0"
 dependencies = [
- "glam",
+ "boolmesh",
+ "glam 0.29.3",
  "i_overlay",
  "serde",
  "serde_json",
@@ -38,7 +39,7 @@ version = "0.1.0"
 dependencies = [
  "apex-core",
  "apex-geometry",
- "glam",
+ "glam 0.29.3",
  "serde",
  "serde_json",
  "uuid",
@@ -53,7 +54,7 @@ dependencies = [
  "apex-ifc",
  "console_error_panic_hook",
  "getrandom 0.2.17",
- "glam",
+ "glam 0.29.3",
  "js-sys",
  "serde",
  "serde-wasm-bindgen",
@@ -67,6 +68,15 @@ name = "autocfg"
 version = "1.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
+
+[[package]]
+name = "boolmesh"
+version = "0.2.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "db6504723206a532f9cace8eb63d339c14a17ad9c2b06d7c35b1c3127f7b945f"
+dependencies = [
+ "glam 0.32.1",
+]
 
 [[package]]
 name = "bumpalo"
@@ -158,6 +168,12 @@ checksum = "8babf46d4c1c9d92deac9f7be466f76dfc4482b6452fc5024b5e8daf6ffeb3ee"
 dependencies = [
  "serde",
 ]
+
+[[package]]
+name = "glam"
+version = "0.32.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f70749695b063ecbf6b62949ccccde2e733ec3ecbbd71d467dca4e5c6c97cca0"
 
 [[package]]
 name = "hashbrown"

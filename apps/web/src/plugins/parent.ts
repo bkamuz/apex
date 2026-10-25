@@ -1,4 +1,5 @@
 import { createDetachTool, createParentTool } from '../tools/parentTool';
+import { createBooleanTool } from '../tools/booleanTool';
 import type { Plugin } from './types';
 
 /**
@@ -14,5 +15,6 @@ export const parentPlugin: Plugin = {
   install(host) {
     host.registerTool(createParentTool());
     host.registerTool(createDetachTool());
+    host.registerTool(createBooleanTool());
   },
 };

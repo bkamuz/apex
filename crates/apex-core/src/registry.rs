@@ -64,6 +64,8 @@ impl ComponentRegistry {
         let mut registry = Self::new();
         registry.register_builder("apex.stair.run", Box::new(stair_run));
         registry.register_builder("apex.roof.pitched", Box::new(pitched_roof));
+        // Booleans are meshed by the project from their operands.
+        registry.register_builder("apex.boolean", Box::new(empty_builder));
         for profile in builtin_profiles() {
             registry
                 .upsert_profile(profile)
@@ -531,6 +533,7 @@ pub fn builtin_components() -> Vec<ComponentDefinition> {
         pipe(),
         duct(),
         cable_tray(),
+        boolean(),
     ]
 }
 
@@ -646,6 +649,38 @@ fn slab() -> ComponentDefinition {
         host_cut: None,
         level_height_params: vec![],
         ifc_entity: Some("IfcSlab".into()),
+        joinable: false,
+    }
+}
+
+fn empty_builder(_: &RecipeContext<'_>) -> Result<TriangleMesh, RecipeError> {
+    Ok(TriangleMesh::empty())
+}
+
+fn boolean() -> ComponentDefinition {
+    ComponentDefinition {
+        id: "apex.boolean".to_string(),
+        display_name: "Boolean".to_string(),
+        category: "modifier".to_string(),
+        source: ComponentSource::BuiltIn,
+        placement: PlacementKind::Point,
+        placement_options: PlacementOptions::default(),
+        params: vec![
+            ParamSpec::text("operand_a", "Solid A", ""),
+            ParamSpec::text("operand_b", "Solid B", ""),
+            ParamSpec::choice(
+                "operation",
+                "Operation",
+                &["subtract", "union", "intersect"],
+                "subtract",
+            ),
+        ],
+        recipe: GeometryRecipe::Custom {
+            builder_id: "apex.boolean".into(),
+        },
+        host_cut: None,
+        level_height_params: vec![],
+        ifc_entity: Some("IfcBooleanResult".into()),
         joinable: false,
     }
 }

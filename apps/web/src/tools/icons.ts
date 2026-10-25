@@ -14,6 +14,7 @@ export const TOOL_ICONS = {
   copy: 'copy',
   parent: 'parent',
   detach: 'detach',
+  boolean: 'boolean',
   wall: 'wall',
   column: 'column',
   beam: 'beam',
@@ -56,6 +57,8 @@ const CATALOG_SVG: Readonly<Record<string, string>> = {
   copy: '<rect x="2.5" y="4" width="6.5" height="7.5" fill="none" stroke="currentColor" stroke-width="1.25"/><path d="M5.5 4V2.5h6.5V10H10" fill="none" stroke="currentColor" stroke-width="1.25"/>',
   parent:
     '<circle cx="7" cy="3.5" r="1.75" fill="none" stroke="currentColor" stroke-width="1.25"/><circle cx="3.5" cy="10.5" r="1.75" fill="none" stroke="currentColor" stroke-width="1.25"/><circle cx="10.5" cy="10.5" r="1.75" fill="none" stroke="currentColor" stroke-width="1.25"/><path d="M7 5.25v2M7 7.25L3.5 9M7 7.25l3.5 1.75" fill="none" stroke="currentColor" stroke-width="1.25"/>',
+  boolean:
+    '<rect x="2" y="2" width="6.5" height="6.5" fill="none" stroke="currentColor" stroke-width="1.25"/><circle cx="9" cy="9" r="3.25" fill="none" stroke="currentColor" stroke-width="1.25"/>',
   detach:
     '<circle cx="4" cy="7" r="2" fill="none" stroke="currentColor" stroke-width="1.25"/><circle cx="10" cy="7" r="2" fill="none" stroke="currentColor" stroke-width="1.25"/><path d="M6 7h2" fill="none" stroke="currentColor" stroke-width="1.25" stroke-dasharray="1.5 1"/>',
   wall: '<path d="M2 11L7 3l5 8" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/><path d="M3.2 9h7.6" fill="none" stroke="currentColor" stroke-width="1.25"/>',
