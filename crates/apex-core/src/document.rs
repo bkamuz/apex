@@ -552,10 +552,10 @@ impl Document {
             let Some(mesh) = self.meshes.get(&element.id) else {
                 continue;
             };
-            for chunk in mesh.positions.chunks_exact(3) {
-                let x = chunk[0].clamp(-CLAMP, CLAMP);
-                let y = chunk[1].clamp(-CLAMP, CLAMP);
-                let z = chunk[2].clamp(-CLAMP, CLAMP);
+            for [x, y, z] in mesh.positions.as_chunks::<3>().0 {
+                let x = x.clamp(-CLAMP, CLAMP);
+                let y = y.clamp(-CLAMP, CLAMP);
+                let z = z.clamp(-CLAMP, CLAMP);
                 if !x.is_finite() || !y.is_finite() || !z.is_finite() {
                     continue;
                 }
