@@ -53,6 +53,19 @@ impl Project {
             .collect()
     }
 
+    /// True when a boolean consumes `id` and none of its consumers asks to
+    /// show its operands (so they can be picked and edited in place).
+    pub(crate) fn boolean_hides(&self, id: ElementId) -> bool {
+        let consumers = self.boolean_consumers(id);
+        !consumers.is_empty()
+            && consumers.iter().all(|c| {
+                self.document
+                    .get_element(*c)
+                    .and_then(|e| e.params.bool("show_operands"))
+                    != Some(true)
+            })
+    }
+
     /// Everything whose mesh depends on `element` through booleans: the
     /// booleans consuming it (transitively), and a boolean's own operands
     /// (they hide or show as it comes and goes).
@@ -178,6 +191,14 @@ mod tests {
         p.undo().unwrap();
         assert!(p.document().get_mesh(w).unwrap().is_empty());
         assert!(!p.document().get_mesh(b).unwrap().is_empty());
+        // "Show operands" brings them back for picking; the result stays.
+        let mut shown = boolean_params(w, c, "subtract");
+        shown.set("show_operands", crate::param::ParamValue::Bool(true));
+        p.update_element(b, Some(shown), None, true).expect("show");
+        assert!((vol(&p, w) - wall_v).abs() < 1e-3);
+        assert!(!p.document().get_mesh(b).unwrap().is_empty());
+        p.undo().unwrap();
+        assert!(p.document().get_mesh(w).unwrap().is_empty());
     }
 
     #[test]

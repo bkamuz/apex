@@ -382,7 +382,8 @@ export default function App() {
       cut: SectionCutDto | null = null,
       space: SpaceDto | null = null,
     ) => {
-      const anchors = el?.anchors?.length
+      // A boolean has no geometry of its own to drag; its origin is noise.
+      const anchors = el?.anchors?.length && el.component_id !== 'apex.boolean'
         ? el.anchors
         : ref?.anchors?.length
           ? ref.anchors
@@ -2243,6 +2244,15 @@ export default function App() {
       onUpdateLevelElevation={onUpdateLevelElevation}
       onUpdateWallThickness={onUpdateWallThickness}
       onDelete={onDelete}
+      booleanOperands={(() => {
+        if (!selected || selected.component_id !== 'apex.boolean') return null;
+        const list = scene?.elements ?? [];
+        return (['operand_a', 'operand_b'] as const).map((key) => {
+          const id = String(selected.params[key] ?? '');
+          return { key, id, name: list.find((element) => element.id === id)?.name ?? '(missing)' };
+        });
+      })()}
+      onSelectElement={(id) => onSelectFromTree(id, false)}
       parentName={(() => {
         if (!selected) return null;
         const list = scene?.elements ?? [];

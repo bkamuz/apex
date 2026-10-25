@@ -1778,7 +1778,7 @@ impl Project {
         if element.component_id == booleans::BOOLEAN {
             return Ok(self.boolean_mesh(element));
         }
-        if !self.boolean_consumers(element.id).is_empty() {
+        if self.boolean_hides(element.id) {
             // Consumed by a boolean: the boolean renders it.
             return Ok(TriangleMesh::default());
         }
