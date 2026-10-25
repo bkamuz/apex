@@ -271,6 +271,9 @@ impl Project {
             }
         };
 
+        let mut cut_meshes: std::collections::BTreeMap<String, apex_geometry::TriangleMesh> =
+            Default::default();
+        let section_y = cut_y + PLAN_CUT_ABOVE_FLOOR_M + 1e-4;
         for element in self.document().elements() {
             if self.effective_level_id(element.id) != Some(plan_level) {
                 continue;
@@ -298,15 +301,23 @@ impl Project {
             }
             // Cut elements (walls, columns): poché section at the cut plane.
             if matches!(category, "wall" | "column") {
-                let section_y = cut_y + PLAN_CUT_ABOVE_FLOOR_M + 1e-4;
-                for ring in mesh_section_loops(mesh, section_y) {
-                    for i in 0..ring.len() {
-                        out.lines.push(VectorLine2d {
-                            layer: format!("{layer}_CUT"),
-                            a: ring[i],
-                            b: ring[(i + 1) % ring.len()],
-                        });
-                    }
+                // Outline: joined walls are sectioned together so a cluster
+                // reads as one outline without internal join lines.
+                let merged = cut_meshes.entry(format!("{layer}_CUT")).or_default();
+                let base = (merged.positions.len() / 3) as u32;
+                merged.positions.extend_from_slice(&mesh.positions);
+                merged.indices.extend(mesh.indices.iter().map(|i| i + base));
+                // Fill: each element's own share of the cluster. Shares tile
+                // without overlap and never cover an enclosed room.
+                let rings: Vec<Vec<[f64; 2]>> = match self.plan_cut_region(element, section_y) {
+                    Some(region) => region
+                        .into_iter()
+                        .filter_map(|shape| shape.into_iter().next())
+                        .map(|ring| ring.into_iter().map(|[x, z]| [x, -z]).collect())
+                        .collect(),
+                    None => mesh_section_loops(mesh, section_y),
+                };
+                for ring in rings {
                     out.fills.push(VectorFill2d {
                         layer: format!("{layer}_CUT"),
                         ring,
@@ -332,6 +343,17 @@ impl Project {
                     a: pa,
                     b: pb,
                 });
+            }
+        }
+        for (layer, mesh) in &cut_meshes {
+            for ring in mesh_section_loops(mesh, section_y) {
+                for i in 0..ring.len() {
+                    out.lines.push(VectorLine2d {
+                        layer: layer.clone(),
+                        a: ring[i],
+                        b: ring[(i + 1) % ring.len()],
+                    });
+                }
             }
         }
         // Door leaves/swings and window glazing.
@@ -519,5 +541,60 @@ mod tests {
     fn section_above_box_is_empty() {
         let mesh = box_mesh([0.0, 0.0, 0.0], [4.0, 1.0, 0.2]);
         assert!(mesh_section_loops(&mesh, 1.2).is_empty());
+    }
+
+    /// A closed room of four walls exports as one outer and one inner
+    /// outline: no lines across the joins, and no fill over the room.
+    #[test]
+    fn joined_room_exports_one_outline_without_spill() {
+        use crate::param::ParamMap;
+        use crate::placement::Placement;
+        use crate::Project;
+
+        let mut project = Project::new();
+        let level = project.document().active_level_id().expect("level");
+        let view_id = project.create_plan_view(level).expect("view");
+        let pts = [(0.0, 0.0), (6.0, 0.0), (6.0, 4.0), (0.0, 4.0)];
+        for i in 0..4 {
+            let (a, b) = (pts[i], pts[(i + 1) % 4]);
+            project
+                .create_element(
+                    "apex.wall",
+                    Placement::line(Vec3::new(a.0, 0.0, a.1), Vec3::new(b.0, 0.0, b.1)),
+                    ParamMap::new(),
+                )
+                .expect("wall");
+        }
+        let drawing = project.vector_export_view(view_id).expect("drawing");
+        let cut: Vec<_> = drawing
+            .lines
+            .iter()
+            .filter(|l| l.layer.ends_with("_CUT"))
+            .collect();
+        // Every outline line sits on the outer (±0.1 beyond) or inner face.
+        for l in &cut {
+            for p in [l.a, l.b] {
+                let on = |v: f64, lo: f64, hi: f64| (v - lo).abs() < 1e-3 || (v - hi).abs() < 1e-3;
+                let x_face = on(p[0], -0.1, 6.1) || on(p[0], 0.1, 5.9);
+                let z_face = on(-p[1], -0.1, 4.1) || on(-p[1], 0.1, 3.9);
+                assert!(x_face && z_face, "outline corner off the faces: {p:?}");
+            }
+        }
+        assert_eq!(cut.len(), 8, "outer + inner rectangle");
+        let centre = [3.0, -2.0];
+        for fill in &drawing.fills {
+            let r = &fill.ring;
+            let mut inside = false;
+            for i in 0..r.len() {
+                let (a, b) = (r[i], r[(i + 1) % r.len()]);
+                if (a[1] > centre[1]) != (b[1] > centre[1])
+                    && centre[0] < a[0] + (centre[1] - a[1]) / (b[1] - a[1]) * (b[0] - a[0])
+                {
+                    inside = !inside;
+                }
+            }
+            assert!(!inside, "fill spills over the room");
+        }
+        assert_eq!(drawing.fills.len(), 4, "one fill per wall share");
     }
 }
