@@ -35,13 +35,6 @@ use crate::space::{space_is_auto, space_param_specs, Space, SpaceId};
 const DEFAULT_STOREY_RISE: f32 = 3.0;
 const STAIR_COMPONENT: &str = "apex.stair";
 
-fn xz_bounds(points: &[Vec3]) -> ((f32, f32), (f32, f32)) {
-    points.iter().fold(
-        ((f32::MAX, f32::MAX), (f32::MIN, f32::MIN)),
-        |((ax, az), (bx, bz)), p| ((ax.min(p.x), az.min(p.z)), (bx.max(p.x), bz.max(p.z))),
-    )
-}
-
 /// Axis-aligned void for a hosted opening, used by [`TriangleMesh::punch_aabbs`].
 /// Punch a box that is axis-aligned in a frame yawed by `yaw` about +Y
 /// through `center` (the box is given in world coordinates as if yaw = 0).
@@ -455,74 +448,6 @@ impl Project {
             self.commit_undo_group();
         }
         Ok(id)
-    }
-
-    /// Punch a slab opening over a stair's footprint in every slab sitting at
-    /// the stair's top (base level elevation + `height`). Returns the openings.
-    pub fn cut_slab_openings_for_stair(
-        &mut self,
-        stair_id: ElementId,
-    ) -> Result<Vec<ElementId>, RegistryError> {
-        let stair = self
-            .document
-            .get_element(stair_id)
-            .cloned()
-            .ok_or_else(|| RegistryError::Unknown(stair_id.to_string()))?;
-        let params = self
-            .registry
-            .persistable_params(&stair.component_id, &stair.params)?;
-        let height = params.number("height").unwrap_or(0.0) as f32;
-        let width = params.number("width").unwrap_or(1.0) as f32;
-        let anchors = stair.placement.anchors();
-        let [a, b, ..] = anchors.as_slice() else {
-            return Ok(Vec::new());
-        };
-        if height <= 1e-3 {
-            return Ok(Vec::new());
-        }
-        let top = a.y + height;
-        let dir = Vec3::new(b.x - a.x, 0.0, b.z - a.z).normalize_or_zero();
-        let side = Vec3::new(-dir.z, 0.0, dir.x) * (width * 0.5);
-        let footprint = [*a - side, *b - side, *b + side, *a + side];
-        let (fmin, fmax) = xz_bounds(&footprint);
-
-        let slabs: Vec<ElementId> = self
-            .document
-            .elements()
-            .filter(|e| e.component_id == "apex.slab")
-            .filter(|e| {
-                self.document
-                    .effective_level_id(e.id)
-                    .and_then(|level| self.document.get_level(level))
-                    .is_some_and(|level| (level.elevation - top).abs() < 0.05)
-            })
-            .filter(|e| {
-                self.document.get_mesh(e.id).is_some_and(|mesh| {
-                    let pts: Vec<Vec3> = mesh
-                        .positions
-                        .chunks(3)
-                        .map(|p| Vec3::new(p[0], p[1], p[2]))
-                        .collect();
-                    let (smin, smax) = xz_bounds(&pts);
-                    smin.0 < fmax.0 && smax.0 > fmin.0 && smin.1 < fmax.1 && smax.1 > fmin.1
-                })
-            })
-            .map(|e| e.id)
-            .collect();
-
-        let mut openings = Vec::new();
-        for slab in slabs {
-            let placement = self
-                .placement_from_points("apex.slab_opening", &footprint, 0.0)?
-                .with_elevation(top);
-            openings.push(self.create_element_with_parent(
-                "apex.slab_opening",
-                placement,
-                ParamMap::new(),
-                Some(slab),
-            )?);
-        }
-        Ok(openings)
     }
 
     /// Recompute path joins for a joinable element against peers on its level.
