@@ -81,6 +81,10 @@ export interface ToolContext {
   anchorOf(id: string): Vec3;
   /** Apply a scene returned by a core mutation. */
   applyScene(scene: unknown): void;
+  /** Active saved view tab id, or null when a sheet or no view tab is open. */
+  activeViewId(): string | null;
+  /** Create a view-owned annotation on a saved view. */
+  createViewAnnotation(viewId: string, kind: unknown): void;
 }
 
 /** Toolbar clusters: select, transform (move/copy/…), then create tools. */

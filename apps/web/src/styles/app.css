@@ -1134,6 +1134,35 @@ input[type="radio"] {
   font-size: 12px;
 }
 
+.sheet-viewport-canvas {
+  width: 100%;
+  height: calc(100% - 18px);
+  display: block;
+  pointer-events: auto;
+}
+
+.sheet-viewport-canvas--active {
+  outline: 2px solid #3b82f6;
+  outline-offset: -2px;
+}
+
+.sheet-viewport--dimmed {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.sheet-viewport--active {
+  z-index: 2;
+}
+
+.sheet-viewport-dim {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.08);
+  pointer-events: none;
+  z-index: 1;
+}
+
 .viewport-wrap {
   position: relative;
   min-width: 0;

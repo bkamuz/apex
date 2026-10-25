@@ -772,6 +772,9 @@ export class ViewportRenderer {
   private spaceLineVao: WebGLVertexArrayObject;
   private spaceLineBuf: WebGLBuffer;
   private spaceLineCount = 0;
+  private viewAnnotationLineVao: WebGLVertexArrayObject;
+  private viewAnnotationLineBuf: WebGLBuffer;
+  private viewAnnotationLineCount = 0;
   private editHandles: Vec3[] | null = null;
   private indexCount = 0;
   private pickFbo: WebGLFramebuffer | null = null;
@@ -951,6 +954,9 @@ export class ViewportRenderer {
     this.spaceLineVao = gl.createVertexArray()!;
     this.spaceLineBuf = gl.createBuffer()!;
     this.bindThickLineVao(this.spaceLineVao, this.spaceLineBuf);
+    this.viewAnnotationLineVao = gl.createVertexArray()!;
+    this.viewAnnotationLineBuf = gl.createBuffer()!;
+    this.bindThickLineVao(this.viewAnnotationLineVao, this.viewAnnotationLineBuf);
 
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
@@ -1454,6 +1460,19 @@ export class ViewportRenderer {
     }
     this.includePoints(lines);
     this.spaceLineCount = this.uploadThickLines(this.spaceLineBuf, flatten(lines));
+  }
+
+  /** Saved-view annotations (dimensions, notes) — gold overlay. */
+  setViewAnnotationOverlays(lines: Vec3[] | null): void {
+    if (!lines || lines.length < 2) {
+      this.viewAnnotationLineCount = 0;
+      return;
+    }
+    this.includePoints(lines);
+    this.viewAnnotationLineCount = this.uploadThickLines(
+      this.viewAnnotationLineBuf,
+      flatten(lines),
+    );
   }
 
   setEditGizmo(anchors: Vec3[] | null): void {
@@ -2423,6 +2442,12 @@ export class ViewportRenderer {
     this.drawOccludedAxis(this.sectionCutFillVao, this.sectionCutFillCount, [0.95, 0.58, 0.28, 0.45], 1.6);
     // Spaces: teal closed boundary.
     this.drawOccludedAxis(this.spaceLineVao, this.spaceLineCount, [0.35, 0.78, 0.88, 0.95], 2.8);
+    this.drawOccludedAxis(
+      this.viewAnnotationLineVao,
+      this.viewAnnotationLineCount,
+      [0.98, 0.82, 0.35, 0.98],
+      2.6,
+    );
     this.drawHandles();
     this.drawSnapMarker();
     this.frameMats = null;

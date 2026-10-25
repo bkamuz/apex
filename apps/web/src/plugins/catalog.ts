@@ -12,6 +12,7 @@ import { refPlanePlugin } from './refPlane';
 import { refPointPlugin } from './refPoint';
 import { sectionCutPlugin } from './sectionCut';
 import { selectPlugin } from './select';
+import { annotatePlugin } from './annotate';
 import { spacePlugin } from './space';
 import { wallPlugin } from './wall';
 import type { Plugin } from './types';
@@ -52,5 +53,6 @@ export const firstPartyPlugins: Plugin[] = [
   componentPlugin('apex.cable_tray', { tab: ApexTabs.engineering }),
   // Spaces tab (after Engineering).
   spacePlugin,
+  annotatePlugin,
   exportIfcPlugin,
 ];

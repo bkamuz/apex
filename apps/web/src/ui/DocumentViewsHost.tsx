@@ -1,7 +1,8 @@
 import type { ReactNode } from 'react';
-import type { SceneDto, SheetDto } from '../types';
+import type { SceneDto, SheetDto, StoredCameraDto } from '../types';
 import { ViewTabBar, type DocumentTab } from './ViewTabBar';
 import { SheetPaperView } from './SheetPaperView';
+import type { ViewportRenderer } from '../viewport/ViewportRenderer';
 
 interface Props {
   scene: SceneDto | null;
@@ -17,7 +18,16 @@ interface Props {
   onSaveView: () => void;
   onPlaceViewOnSheet: (viewId: string, centerXmm: number, centerYmm: number) => void;
   onMoveSheetViewport: (viewportId: string, centerXmm: number, centerYmm: number) => void;
-  captureViewportImage: (viewId: string, widthPx: number, heightPx: number) => Promise<string | null>;
+  syncSheetViewportScene: (renderer: ViewportRenderer, scene: SceneDto, viewId: string) => void;
+  onSheetViewportStateChange: (
+    viewportId: string,
+    camera: StoredCameraDto | null,
+    lockNavigation: boolean,
+  ) => void;
+  onExportActiveViewSvg?: () => void;
+  onExportActiveViewDxf?: () => void;
+  onExportActiveViewPdf?: () => void;
+  activeViewIsPlan?: boolean;
   viewport: ReactNode;
   splitViewport?: ReactNode;
 }
@@ -36,7 +46,12 @@ export function DocumentViewsHost({
   onSaveView,
   onPlaceViewOnSheet,
   onMoveSheetViewport,
-  captureViewportImage,
+  syncSheetViewportScene,
+  onSheetViewportStateChange,
+  onExportActiveViewSvg,
+  onExportActiveViewDxf,
+  onExportActiveViewPdf,
+  activeViewIsPlan,
   viewport,
   splitViewport,
 }: Props) {
@@ -56,6 +71,10 @@ export function DocumentViewsHost({
         onToggleSplit={onToggleSplit}
         onSaveView={onSaveView}
         activeIsView={activeIsView}
+        onExportViewSvg={onExportActiveViewSvg}
+        onExportViewDxf={onExportActiveViewDxf}
+        onExportViewPdf={onExportActiveViewPdf}
+        showViewExport={activeViewIsPlan ?? false}
       />
       {showSheet ? (
         <SheetPaperView
@@ -63,7 +82,8 @@ export function DocumentViewsHost({
           scene={scene}
           onPlaceView={(viewId, cx, cy) => onPlaceViewOnSheet(viewId, cx, cy)}
           onMoveViewport={onMoveSheetViewport}
-          captureViewportImage={captureViewportImage}
+          syncScene={syncSheetViewportScene}
+          onViewportStateChange={onSheetViewportStateChange}
         />
       ) : (
         <div className={`view-panes${splitEnabled ? ' view-panes--split' : ''}`}>

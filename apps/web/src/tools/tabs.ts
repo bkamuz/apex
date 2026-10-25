@@ -30,6 +30,11 @@ export const TOOL_TABS = {
     id: 'apex.spaces',
     label: 'Spaces',
   },
+  /** View-owned dimensions and notes (saved views). */
+  annotate: {
+    id: 'apex.annotate',
+    label: 'Annotate',
+  },
 } as const satisfies Record<string, ResolvedToolTab>;
 
 /** Alias preferred in SDK / examples (`ApexTabs.building` / `ApexTabs.spaces`). */

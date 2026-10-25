@@ -8,6 +8,7 @@ use crate::sheet::{
 use crate::view::{
     StoredCamera, StoredProjection, View, ViewError, ViewId, ViewKind, ViewSettings,
 };
+use crate::view_annotation::ViewAnnotationId;
 
 const DEFAULT_STOREY_RISE: f32 = 3.0;
 
@@ -110,7 +111,9 @@ impl Project {
             },
         );
         let id = view.id;
+        let before = self.export_snapshot();
         self.views.insert(id, view);
+        self.push_undo_snapshot(before);
         Ok(id)
     }
 
@@ -125,7 +128,9 @@ impl Project {
             },
         );
         let id = view.id;
+        let before = self.export_snapshot();
         self.views.insert(id, view);
+        self.push_undo_snapshot(before);
         id
     }
 
@@ -142,13 +147,31 @@ impl Project {
         copy.id = ViewId::new();
         copy.name = format!("{base_name} (Copy {n})");
         let id = copy.id;
+        let before = self.export_snapshot();
         self.views.insert(id, copy);
+        let cloned: Vec<_> = self
+            .view_annotations
+            .values()
+            .filter(|a| a.view_id == source_id)
+            .cloned()
+            .collect();
+        for mut ann in cloned {
+            ann.id = ViewAnnotationId::new();
+            ann.view_id = id;
+            self.view_annotations.insert(ann.id, ann);
+        }
+        self.push_undo_snapshot(before);
         Ok(id)
     }
 
     pub fn rename_view(&mut self, id: ViewId, name: String) -> Result<(), ViewError> {
+        if !self.views.contains_key(&id) {
+            return Err(ViewError::NotFound);
+        }
+        let before = self.export_snapshot();
         let view = self.views.get_mut(&id).ok_or(ViewError::NotFound)?;
         view.name = name;
+        self.push_undo_snapshot(before);
         Ok(())
     }
 
@@ -156,10 +179,13 @@ impl Project {
         if !self.views.contains_key(&id) {
             return Err(ViewError::NotFound);
         }
+        let before = self.export_snapshot();
         for sheet in self.sheets.values_mut() {
             sheet.viewports.retain(|vp| vp.view_id != id);
         }
+        self.delete_annotations_for_view(id);
         self.views.remove(&id);
+        self.push_undo_snapshot(before);
         Ok(())
     }
 
@@ -168,14 +194,24 @@ impl Project {
         id: ViewId,
         settings: ViewSettings,
     ) -> Result<(), ViewError> {
+        if !self.views.contains_key(&id) {
+            return Err(ViewError::NotFound);
+        }
+        let before = self.export_snapshot();
         let view = self.views.get_mut(&id).ok_or(ViewError::NotFound)?;
         view.settings = settings;
+        self.push_undo_snapshot(before);
         Ok(())
     }
 
     pub fn save_view_camera(&mut self, id: ViewId, kind: ViewKind) -> Result<(), ViewError> {
+        if !self.views.contains_key(&id) {
+            return Err(ViewError::NotFound);
+        }
+        let before = self.export_snapshot();
         let view = self.views.get_mut(&id).ok_or(ViewError::NotFound)?;
         view.kind = kind;
+        self.push_undo_snapshot(before);
         Ok(())
     }
 
@@ -183,7 +219,9 @@ impl Project {
         self.sheet_counter += 1;
         let sheet = Sheet::new(number, name);
         let id = sheet.id;
+        let before = self.export_snapshot();
         self.sheets.insert(id, sheet);
+        self.push_undo_snapshot(before);
         id
     }
 
@@ -193,9 +231,14 @@ impl Project {
         number: String,
         name: String,
     ) -> Result<(), SheetError> {
+        if !self.sheets.contains_key(&id) {
+            return Err(SheetError::NotFound);
+        }
+        let before = self.export_snapshot();
         let sheet = self.sheets.get_mut(&id).ok_or(SheetError::NotFound)?;
         sheet.number = number;
         sheet.name = name;
+        self.push_undo_snapshot(before);
         Ok(())
     }
 
@@ -205,16 +248,24 @@ impl Project {
         paper: PaperSize,
         orientation: PaperOrientation,
     ) -> Result<(), SheetError> {
+        if !self.sheets.contains_key(&id) {
+            return Err(SheetError::NotFound);
+        }
+        let before = self.export_snapshot();
         let sheet = self.sheets.get_mut(&id).ok_or(SheetError::NotFound)?;
         sheet.paper = paper;
         sheet.orientation = orientation;
+        self.push_undo_snapshot(before);
         Ok(())
     }
 
     pub fn delete_sheet(&mut self, id: SheetId) -> Result<(), SheetError> {
-        if self.sheets.remove(&id).is_none() {
+        if !self.sheets.contains_key(&id) {
             return Err(SheetError::NotFound);
         }
+        let before = self.export_snapshot();
+        self.sheets.remove(&id);
+        self.push_undo_snapshot(before);
         Ok(())
     }
 
@@ -241,17 +292,33 @@ impl Project {
                 return Err(SheetError::ViewAlreadyPlaced(other.number.clone()));
             }
         }
+        let existing_id = self
+            .sheets
+            .get(&sheet_id)
+            .ok_or(SheetError::NotFound)?
+            .viewports
+            .iter()
+            .find(|vp| vp.view_id == view_id)
+            .map(|vp| vp.id);
+        let before = self.export_snapshot();
         let sheet = self.sheets.get_mut(&sheet_id).ok_or(SheetError::NotFound)?;
-        if let Some(existing) = sheet.viewports.iter_mut().find(|vp| vp.view_id == view_id) {
+        if let Some(vp_id) = existing_id {
+            let existing = sheet
+                .viewports
+                .iter_mut()
+                .find(|vp| vp.id == vp_id)
+                .expect("viewport id from same sheet");
             existing.center_x_mm = center_x_mm;
             existing.center_y_mm = center_y_mm;
             existing.width_mm = width_mm;
             existing.height_mm = height_mm;
-            return Ok(existing.id);
+            self.push_undo_snapshot(before);
+            return Ok(vp_id);
         }
         let vp = SheetViewport::new(view_id, center_x_mm, center_y_mm, width_mm, height_mm);
         let vp_id = vp.id;
         sheet.viewports.push(vp);
+        self.push_undo_snapshot(before);
         Ok(vp_id)
     }
 
@@ -262,14 +329,56 @@ impl Project {
         center_x_mm: f32,
         center_y_mm: f32,
     ) -> Result<(), SheetError> {
+        if !self
+            .sheets
+            .get(&sheet_id)
+            .ok_or(SheetError::NotFound)?
+            .viewports
+            .iter()
+            .any(|vp| vp.id == viewport_id)
+        {
+            return Err(SheetError::ViewportNotFound);
+        }
+        let before = self.export_snapshot();
         let sheet = self.sheets.get_mut(&sheet_id).ok_or(SheetError::NotFound)?;
         let vp = sheet
             .viewports
             .iter_mut()
             .find(|vp| vp.id == viewport_id)
-            .ok_or(SheetError::ViewportNotFound)?;
+            .expect("viewport exists");
         vp.center_x_mm = center_x_mm;
         vp.center_y_mm = center_y_mm;
+        self.push_undo_snapshot(before);
+        Ok(())
+    }
+
+    pub fn update_sheet_viewport_state(
+        &mut self,
+        sheet_id: SheetId,
+        viewport_id: SheetViewportId,
+        camera: Option<StoredCamera>,
+        lock_navigation: bool,
+    ) -> Result<(), SheetError> {
+        if !self
+            .sheets
+            .get(&sheet_id)
+            .ok_or(SheetError::NotFound)?
+            .viewports
+            .iter()
+            .any(|vp| vp.id == viewport_id)
+        {
+            return Err(SheetError::ViewportNotFound);
+        }
+        let before = self.export_snapshot();
+        let sheet = self.sheets.get_mut(&sheet_id).ok_or(SheetError::NotFound)?;
+        let vp = sheet
+            .viewports
+            .iter_mut()
+            .find(|vp| vp.id == viewport_id)
+            .expect("viewport exists");
+        vp.camera = camera;
+        vp.lock_navigation = lock_navigation;
+        self.push_undo_snapshot(before);
         Ok(())
     }
 
@@ -278,12 +387,20 @@ impl Project {
         sheet_id: SheetId,
         viewport_id: SheetViewportId,
     ) -> Result<(), SheetError> {
-        let sheet = self.sheets.get_mut(&sheet_id).ok_or(SheetError::NotFound)?;
-        let before = sheet.viewports.len();
-        sheet.viewports.retain(|vp| vp.id != viewport_id);
-        if sheet.viewports.len() == before {
+        if !self
+            .sheets
+            .get(&sheet_id)
+            .ok_or(SheetError::NotFound)?
+            .viewports
+            .iter()
+            .any(|vp| vp.id == viewport_id)
+        {
             return Err(SheetError::ViewportNotFound);
         }
+        let before = self.export_snapshot();
+        let sheet = self.sheets.get_mut(&sheet_id).ok_or(SheetError::NotFound)?;
+        sheet.viewports.retain(|vp| vp.id != viewport_id);
+        self.push_undo_snapshot(before);
         Ok(())
     }
 }

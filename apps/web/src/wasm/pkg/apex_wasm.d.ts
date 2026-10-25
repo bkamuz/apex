@@ -57,6 +57,8 @@ export function createSpace(points_json: string, params_json: string, rotation: 
 
 export function createThreeDView(): any;
 
+export function createViewAnnotation(view_id_str: string, kind_json: string): any;
+
 /**
  * Delete every selected element.
  */
@@ -75,6 +77,8 @@ export function deleteSelectedSpace(): any;
 export function deleteSheet(id: string): any;
 
 export function deleteView(id: string): any;
+
+export function deleteViewAnnotation(id: string): any;
 
 /**
  * Every descendant of an element, breadth first.
@@ -102,6 +106,14 @@ export function exportIfc(mapping_json: string): string;
  * JSON snapshot of the document, profiles, and extra components.
  */
 export function exportProject(): string;
+
+export function exportSheetDxf(sheet_id_str: string): string;
+
+export function exportSheetVector(sheet_id_str: string): string;
+
+export function exportViewDxf(view_id_str: string): string;
+
+export function exportViewVector(view_id_str: string): string;
 
 export function getScene(): any;
 
@@ -286,7 +298,11 @@ export function updateSectionCut(id: string, params_json: string): any;
 
 export function updateSheetLayout(id: string, paper: string, orientation: string): any;
 
+export function updateSheetViewportState(sheet_id_str: string, viewport_id_str: string, camera_json: string, lock_navigation: boolean): any;
+
 export function updateSpace(id: string, params_json: string): any;
+
+export function updateViewAnnotation(id: string, kind_json: string): any;
 
 export function updateViewSettings(id: string, settings_json: string): any;
 
@@ -311,6 +327,7 @@ export interface InitOutput {
     readonly createSheet: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly createSpace: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly createThreeDView: () => [number, number, number];
+    readonly createViewAnnotation: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly deleteSelected: () => [number, number, number];
     readonly deleteSelectedConstructionLine: () => [number, number, number];
     readonly deleteSelectedGridAxis: () => [number, number, number];
@@ -319,12 +336,17 @@ export interface InitOutput {
     readonly deleteSelectedSpace: () => [number, number, number];
     readonly deleteSheet: (a: number, b: number) => [number, number, number];
     readonly deleteView: (a: number, b: number) => [number, number, number];
+    readonly deleteViewAnnotation: (a: number, b: number) => [number, number, number];
     readonly descendantsOf: (a: number, b: number) => [number, number, number];
     readonly detectRoomsFromWalls: () => [number, number, number];
     readonly duplicateView: (a: number, b: number) => [number, number, number];
     readonly effectiveLevelOf: (a: number, b: number) => [number, number, number, number];
     readonly exportIfc: (a: number, b: number) => [number, number, number, number];
     readonly exportProject: () => [number, number, number, number];
+    readonly exportSheetDxf: (a: number, b: number) => [number, number, number, number];
+    readonly exportSheetVector: (a: number, b: number) => [number, number, number, number];
+    readonly exportViewDxf: (a: number, b: number) => [number, number, number, number];
+    readonly exportViewVector: (a: number, b: number) => [number, number, number, number];
     readonly getScene: () => [number, number, number];
     readonly getSelected: () => [number, number, number];
     readonly getSelectedConstructionLine: () => [number, number, number];
@@ -378,7 +400,9 @@ export interface InitOutput {
     readonly updateProfileType: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly updateSectionCut: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly updateSheetLayout: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
+    readonly updateSheetViewportState: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
     readonly updateSpace: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly updateViewAnnotation: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly updateViewSettings: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;

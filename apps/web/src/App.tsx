@@ -72,6 +72,10 @@ import {
   apexDeleteSheet,
   apexPlaceViewOnSheet,
   apexMoveSheetViewport,
+  apexCreateViewAnnotation,
+  apexExportViewVector,
+  apexExportViewDxf,
+  apexUpdateSheetViewportState,
   initApex,
 } from './wasm/apex';
 import {
@@ -98,6 +102,7 @@ import type {
   SceneDto,
   SectionCutDto,
   SpaceDto,
+  StoredCameraDto,
 } from './types';
 import { GridAxisLabels } from './ui/GridAxisLabels';
 import { LevelList } from './ui/LevelList';
@@ -108,7 +113,6 @@ import { defaultNewComponent, isUserAuthoredComponent, nextComponentId } from '.
 import { ProjectBrowser } from './ui/ProjectBrowser';
 import { DocumentViewsHost } from './ui/DocumentViewsHost';
 import { useDocumentTabs } from './hooks/useDocumentTabs';
-import { captureViewImage } from './ui/viewportCapture';
 import {
   applyViewToRenderer,
   buildViewKindFromRenderer,
@@ -117,6 +121,9 @@ import {
   hiddenCategoriesForView,
   projectionFromStored,
 } from './ui/viewModel';
+import { viewAnnotationSegments } from './ui/viewAnnotationSegments';
+import { downloadTextFile, drawingToSvg, openSvgForPrint } from './ui/vectorExport';
+import type { VectorDrawing2d } from './types';
 import type { DocumentTab } from './ui/ViewTabBar';
 import { PropertiesPanel } from './ui/PropertiesPanel';
 import { ToolsToolbar } from './ui/ToolsToolbar';
@@ -326,6 +333,11 @@ export default function App() {
     );
   }, []);
 
+  const syncViewAnnotationOverlays = useCallback((next: SceneDto, viewId: string | null) => {
+    const segs = viewId ? viewAnnotationSegments(next, viewId) : [];
+    rendererRef.current?.setViewAnnotationOverlays(segs.length >= 2 ? segs : null);
+  }, []);
+
   const syncSpaceOverlays = useCallback((items: SpaceDto[]) => {
     const lines: Vec3[] = [];
     for (const item of items) {
@@ -401,6 +413,7 @@ export default function App() {
         syncConstructionLineOverlays(next.construction_lines ?? []);
         syncSectionCutOverlays(next.section_cuts ?? []);
         syncSpaceOverlays(next.spaces ?? []);
+        syncViewAnnotationOverlays(next, viewId);
       }
     },
     [
@@ -409,7 +422,15 @@ export default function App() {
       syncReferenceGizmos,
       syncSectionCutOverlays,
       syncSpaceOverlays,
+      syncViewAnnotationOverlays,
     ],
+  );
+
+  const syncSheetViewportScene = useCallback(
+    (renderer: ViewportRenderer, next: SceneDto, viewId: string) => {
+      syncSceneToRenderer(renderer, next, false, viewId, true);
+    },
+    [syncSceneToRenderer],
   );
 
   const applyScene = useCallback(
@@ -967,6 +988,17 @@ export default function App() {
         applyScene(scene as SceneDto);
       },
 
+      activeViewId: () => activeViewId,
+
+      createViewAnnotation: (viewId, kind) => {
+        try {
+          applyScene(apexCreateViewAnnotation(viewId, kind));
+          setError(null);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+        }
+      },
+
       setError,
       setPending,
       setTouchOrbitEnabled: (enabled) => renderer.setTouchOrbitEnabled(enabled),
@@ -980,6 +1012,7 @@ export default function App() {
     syncReferenceGizmos,
     syncSectionCutOverlays,
     syncSpaceOverlays,
+    activeViewId,
   ]);
 
   const cancelGesture = useCallback(() => {
@@ -1147,19 +1180,55 @@ export default function App() {
     runViewAction(() => apexSaveViewState(activeViewId, kind));
   }, [activeViewId, runViewAction, scene]);
 
-  const captureViewportImage = useCallback(
-    async (viewId: string, widthPx: number, heightPx: number) => {
-      if (!scene) return null;
-      const view = findView(scene, viewId);
-      if (!view) return null;
-      try {
-        return await captureViewImage(scene, view, widthPx, heightPx);
-      } catch {
-        return null;
-      }
+  const loadActiveViewDrawing = useCallback((): VectorDrawing2d | null => {
+    if (!activeViewId) return null;
+    try {
+      return JSON.parse(apexExportViewVector(activeViewId)) as VectorDrawing2d;
+    } catch {
+      return null;
+    }
+  }, [activeViewId]);
+
+  const onExportActiveViewSvg = useCallback(() => {
+    const drawing = loadActiveViewDrawing();
+    if (!drawing) return;
+    const view = scene ? findView(scene, activeViewId ?? '') : undefined;
+    const name = view?.name ?? 'view';
+    downloadTextFile(`${name.replace(/\s+/g, '_')}.svg`, drawingToSvg(drawing), 'image/svg+xml');
+  }, [activeViewId, loadActiveViewDrawing, scene]);
+
+  const onExportActiveViewDxf = useCallback(() => {
+    if (!activeViewId) return;
+    try {
+      const dxf = apexExportViewDxf(activeViewId);
+      const view = scene ? findView(scene, activeViewId) : undefined;
+      const name = view?.name ?? 'view';
+      downloadTextFile(`${name.replace(/\s+/g, '_')}.dxf`, dxf, 'application/dxf');
+    } catch {
+      /* ignore */
+    }
+  }, [activeViewId, scene]);
+
+  const onExportActiveViewPdf = useCallback(() => {
+    const drawing = loadActiveViewDrawing();
+    if (!drawing) return;
+    openSvgForPrint(drawingToSvg(drawing));
+  }, [loadActiveViewDrawing]);
+
+  const onSheetViewportStateChange = useCallback(
+    (viewportId: string, camera: StoredCameraDto | null, lockNavigation: boolean) => {
+      if (!activeSheet) return;
+      runViewAction(() =>
+        apexUpdateSheetViewportState(activeSheet.id, viewportId, camera, lockNavigation),
+      );
     },
-    [scene],
+    [activeSheet, runViewAction],
   );
+
+  const activeViewIsPlan = useMemo(() => {
+    if (!activeViewId || !scene) return false;
+    return findView(scene, activeViewId)?.kind.kind === 'plan';
+  }, [activeViewId, scene]);
 
   const onPlaceViewOnSheet = useCallback(
     (viewId: string, centerXmm: number, centerYmm: number) => {
@@ -2001,7 +2070,12 @@ export default function App() {
           onSaveView={onSaveActiveView}
           onPlaceViewOnSheet={onPlaceViewOnSheet}
           onMoveSheetViewport={onMoveSheetViewport}
-          captureViewportImage={captureViewportImage}
+          syncSheetViewportScene={syncSheetViewportScene}
+          onSheetViewportStateChange={onSheetViewportStateChange}
+          onExportActiveViewSvg={onExportActiveViewSvg}
+          onExportActiveViewDxf={onExportActiveViewDxf}
+          onExportActiveViewPdf={onExportActiveViewPdf}
+          activeViewIsPlan={activeViewIsPlan}
           viewport={
             <>
               <GridAxisLabels

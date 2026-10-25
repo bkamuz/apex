@@ -90,6 +90,8 @@ pub struct Project {
     pub(crate) sheets: crate::sheet::SheetLibrary,
     pub(crate) view_counter: u32,
     pub(crate) sheet_counter: u32,
+    pub(crate) view_annotations: crate::view_annotation::ViewAnnotationLibrary,
+    pub(crate) view_annotation_counter: u32,
     history: History,
 }
 
@@ -115,6 +117,8 @@ impl Project {
             sheets: Default::default(),
             view_counter: 0,
             sheet_counter: 0,
+            view_annotations: Default::default(),
+            view_annotation_counter: 0,
             history: History::default(),
         };
         project.ensure_default_views();
@@ -177,6 +181,11 @@ impl Project {
         } else {
             self.history.commit_transaction();
         }
+    }
+
+    /// Record a snapshot for undo after a view/sheet/annotation edit (sibling modules).
+    pub(crate) fn push_undo_snapshot(&mut self, before: ProjectSnapshot) {
+        self.history.record_before(before);
     }
 
     pub fn document(&self) -> &Document {
@@ -1645,6 +1654,8 @@ impl Project {
             sheets: self.sheets.values().cloned().collect(),
             view_counter: self.view_counter,
             sheet_counter: self.sheet_counter,
+            view_annotations: self.view_annotations.values().cloned().collect(),
+            view_annotation_counter: self.view_annotation_counter,
         }
     }
 
@@ -1660,13 +1671,15 @@ impl Project {
         // Format ≤4 predates construction lines / section cuts (empty via default).
         // Format ≤5 predates spaces (empty via default).
         // Format ≤6 predates saved views / sheets (empty via default + migration).
+        // Format ≤7 predates view annotations (empty via default).
         let known = snap.format == PROJECT_FORMAT
             || snap.format == 1
             || snap.format == 2
             || snap.format == 3
             || snap.format == 4
             || snap.format == 5
-            || snap.format == 6;
+            || snap.format == 6
+            || snap.format == 7;
         if !known {
             return Err(RegistryError::Unknown(format!(
                 "unsupported project format {}",
@@ -1687,6 +1700,12 @@ impl Project {
         next.sheets = snap.sheets.into_iter().map(|s| (s.id, s)).collect();
         next.view_counter = snap.view_counter;
         next.sheet_counter = snap.sheet_counter;
+        next.view_annotations = snap
+            .view_annotations
+            .into_iter()
+            .map(|a| (a.id, a))
+            .collect();
+        next.view_annotation_counter = snap.view_annotation_counter;
 
         for profile in snap.profiles {
             next.registry.upsert_profile(profile)?;
@@ -1719,7 +1738,7 @@ impl Project {
 }
 
 /// On-disk / download format. Bump [`PROJECT_FORMAT`] when the shape changes.
-pub const PROJECT_FORMAT: u32 = 7;
+pub const PROJECT_FORMAT: u32 = 8;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectSnapshot {
@@ -1762,6 +1781,10 @@ pub struct ProjectSnapshot {
     pub view_counter: u32,
     #[serde(default)]
     pub sheet_counter: u32,
+    #[serde(default)]
+    pub view_annotations: Vec<crate::view_annotation::ViewAnnotation>,
+    #[serde(default)]
+    pub view_annotation_counter: u32,
 }
 
 #[cfg(test)]

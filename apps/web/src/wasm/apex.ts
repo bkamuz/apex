@@ -83,6 +83,14 @@ import initWasm, {
   placeViewOnSheet,
   moveSheetViewport,
   removeSheetViewport,
+  createViewAnnotation,
+  updateViewAnnotation,
+  deleteViewAnnotation,
+  exportViewVector,
+  exportViewDxf,
+  exportSheetVector,
+  exportSheetDxf,
+  updateSheetViewportState,
 } from './pkg/apex_wasm.js';
 import type {
   ComponentDto,
@@ -602,4 +610,42 @@ export function apexMoveSheetViewport(
 
 export function apexRemoveSheetViewport(sheetId: string, viewportId: string): SceneDto {
   return asScene(removeSheetViewport(sheetId, viewportId));
+}
+
+export function apexCreateViewAnnotation(viewId: string, kind: unknown): SceneDto {
+  return asScene(createViewAnnotation(viewId, JSON.stringify(kind)));
+}
+
+export function apexUpdateViewAnnotation(id: string, kind: unknown): SceneDto {
+  return asScene(updateViewAnnotation(id, JSON.stringify(kind)));
+}
+
+export function apexDeleteViewAnnotation(id: string): SceneDto {
+  return asScene(deleteViewAnnotation(id));
+}
+
+export function apexExportViewVector(viewId: string): string {
+  return exportViewVector(viewId);
+}
+
+export function apexExportViewDxf(viewId: string): string {
+  return exportViewDxf(viewId);
+}
+
+export function apexExportSheetVector(sheetId: string): string {
+  return exportSheetVector(sheetId);
+}
+
+export function apexExportSheetDxf(sheetId: string): string {
+  return exportSheetDxf(sheetId);
+}
+
+export function apexUpdateSheetViewportState(
+  sheetId: string,
+  viewportId: string,
+  camera: unknown | null,
+  lockNavigation: boolean,
+): SceneDto {
+  const cameraJson = camera ? JSON.stringify(camera) : '';
+  return asScene(updateSheetViewportState(sheetId, viewportId, cameraJson, lockNavigation));
 }

@@ -16,6 +16,10 @@ interface Props {
   onToggleSplit: () => void;
   onSaveView?: () => void;
   activeIsView: boolean;
+  showViewExport?: boolean;
+  onExportViewSvg?: () => void;
+  onExportViewDxf?: () => void;
+  onExportViewPdf?: () => void;
 }
 
 function tabLabel(tab: DocumentTab, views: ViewDto[], sheets: SheetDto[]): string {
@@ -38,6 +42,10 @@ export function ViewTabBar({
   onToggleSplit,
   onSaveView,
   activeIsView,
+  showViewExport,
+  onExportViewSvg,
+  onExportViewDxf,
+  onExportViewPdf,
 }: Props) {
   return (
     <div className="view-tab-bar" data-testid="view-tab-bar">
@@ -75,6 +83,21 @@ export function ViewTabBar({
         {activeIsView && onSaveView ? (
           <button type="button" data-testid="save-view" onClick={onSaveView}>
             Save view
+          </button>
+        ) : null}
+        {showViewExport && onExportViewSvg ? (
+          <button type="button" data-testid="export-view-svg" onClick={onExportViewSvg}>
+            Export SVG
+          </button>
+        ) : null}
+        {showViewExport && onExportViewDxf ? (
+          <button type="button" data-testid="export-view-dxf" onClick={onExportViewDxf}>
+            Export DXF
+          </button>
+        ) : null}
+        {showViewExport && onExportViewPdf ? (
+          <button type="button" data-testid="export-view-pdf" onClick={onExportViewPdf}>
+            Export PDF
           </button>
         ) : null}
         <button

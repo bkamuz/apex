@@ -137,6 +137,8 @@ mod tests {
             sheets: Vec::new(),
             view_counter: 0,
             sheet_counter: 0,
+            view_annotations: Vec::new(),
+            view_annotation_counter: 0,
         }
     }
 

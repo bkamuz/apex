@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use uuid::Uuid;
 
-use crate::view::ViewId;
+use crate::view::{StoredCamera, ViewId};
 
 pub type SheetLibrary = BTreeMap<SheetId, Sheet>;
 
@@ -111,6 +111,12 @@ pub struct SheetViewport {
     /// Viewport frame size on the sheet (mm).
     pub width_mm: f32,
     pub height_mm: f32,
+    /// Per-sheet viewport camera override (live on sheet).
+    #[serde(default)]
+    pub camera: Option<StoredCamera>,
+    /// When true, pan/zoom is disabled for this viewport on the sheet.
+    #[serde(default)]
+    pub lock_navigation: bool,
 }
 
 impl SheetViewport {
@@ -128,6 +134,8 @@ impl SheetViewport {
             center_y_mm,
             width_mm,
             height_mm,
+            camera: None,
+            lock_navigation: false,
         }
     }
 }

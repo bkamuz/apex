@@ -1,6 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { SceneDto, SheetDto, SheetViewportDto } from '../types';
-import { exportSheetSvg } from './sheetExport';
+import type { SceneDto, SheetDto, SheetViewportDto, StoredCameraDto, VectorDrawing2d } from '../types';
+import { apexExportSheetDxf, apexExportSheetVector } from '../wasm/apex';
+import { exportSheetSvgFromDrawing } from './sheetExport';
+import { downloadTextFile, openSvgForPrint } from './vectorExport';
+import { LiveSheetViewport, resolveView } from './LiveSheetViewport';
+import type { ViewportRenderer } from '../viewport/ViewportRenderer';
 
 interface Props {
   sheet: SheetDto;
@@ -8,7 +12,12 @@ interface Props {
   projectTitle?: string;
   onMoveViewport: (viewportId: string, centerXmm: number, centerYmm: number) => void;
   onPlaceView: (viewId: string, centerXmm: number, centerYmm: number) => void;
-  captureViewportImage: (viewId: string, widthPx: number, heightPx: number) => Promise<string | null>;
+  syncScene: (renderer: ViewportRenderer, scene: SceneDto, viewId: string) => void;
+  onViewportStateChange: (
+    viewportId: string,
+    camera: StoredCameraDto | null,
+    lockNavigation: boolean,
+  ) => void;
 }
 
 const MM_TO_PX = 2.5;
@@ -19,35 +28,57 @@ export function SheetPaperView({
   projectTitle = 'Apex Project',
   onMoveViewport,
   onPlaceView,
-  captureViewportImage,
+  syncScene,
+  onViewportStateChange,
 }: Props) {
   const paperRef = useRef<HTMLDivElement>(null);
   const [dragViewport, setDragViewport] = useState<string | null>(null);
+  const [activatedViewportId, setActivatedViewportId] = useState<string | null>(null);
 
   const widthPx = sheet.width_mm * MM_TO_PX;
   const heightPx = sheet.height_mm * MM_TO_PX;
 
   const viewports = sheet.viewports;
 
-  const onExportSvg = useCallback(async () => {
-    const images = new Map<string, string>();
-    for (const vp of viewports) {
-      const data = await captureViewportImage(
-        vp.view_id,
-        Math.round(vp.width_mm * MM_TO_PX),
-        Math.round(vp.height_mm * MM_TO_PX),
-      );
-      if (data) images.set(vp.id, data);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setActivatedViewportId(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const loadSheetDrawing = useCallback((): VectorDrawing2d | null => {
+    try {
+      const json = apexExportSheetVector(sheet.id);
+      return JSON.parse(json) as VectorDrawing2d;
+    } catch {
+      return null;
     }
-    const svg = exportSheetSvg(sheet, scene, projectTitle, images);
-    const blob = new Blob([svg], { type: 'image/svg+xml' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${sheet.number.replace(/\s+/g, '_')}.svg`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [captureViewportImage, projectTitle, scene, sheet, viewports]);
+  }, [sheet.id]);
+
+  const onExportSvg = useCallback(() => {
+    const drawing = loadSheetDrawing();
+    if (!drawing) return;
+    const svg = exportSheetSvgFromDrawing(sheet.number, drawing);
+    downloadTextFile(`${sheet.number.replace(/\s+/g, '_')}.svg`, svg, 'image/svg+xml');
+  }, [loadSheetDrawing, sheet.number]);
+
+  const onExportDxf = useCallback(() => {
+    try {
+      const dxf = apexExportSheetDxf(sheet.id);
+      downloadTextFile(`${sheet.number.replace(/\s+/g, '_')}.dxf`, dxf, 'application/dxf');
+    } catch {
+      /* ignore */
+    }
+  }, [sheet.id, sheet.number]);
+
+  const onExportPdf = useCallback(() => {
+    const drawing = loadSheetDrawing();
+    if (!drawing) return;
+    const svg = exportSheetSvgFromDrawing(sheet.number, drawing);
+    openSvgForPrint(svg);
+  }, [loadSheetDrawing, sheet.number]);
 
   const clientToMm = useCallback(
     (clientX: number, clientY: number): [number, number] | null => {
@@ -88,20 +119,32 @@ export function SheetPaperView({
           scene={scene}
           mmToPx={MM_TO_PX}
           dragging={dragViewport === vp.id}
-          onDragStart={() => setDragViewport(vp.id)}
+          activated={activatedViewportId === vp.id}
+          dimmed={activatedViewportId !== null && activatedViewportId !== vp.id}
+          onDragStart={() => {
+            if (activatedViewportId) return;
+            setDragViewport(vp.id);
+          }}
           onDragEnd={() => setDragViewport(null)}
           onMove={(cx, cy) => onMoveViewport(vp.id, cx, cy)}
           clientToMm={clientToMm}
-          captureViewportImage={captureViewportImage}
+          syncScene={syncScene}
+          onActivate={() => setActivatedViewportId(vp.id)}
+          onDeactivate={(camera) => {
+            setActivatedViewportId(null);
+            onViewportStateChange(vp.id, camera, true);
+          }}
         />
       )),
     [
-      captureViewportImage,
+      activatedViewportId,
       clientToMm,
       dragViewport,
       onMoveViewport,
+      onViewportStateChange,
       scene,
       sheet,
+      syncScene,
       viewports,
     ],
   );
@@ -115,6 +158,12 @@ export function SheetPaperView({
         <button type="button" data-testid="export-sheet-svg" onClick={onExportSvg}>
           Export SVG
         </button>
+        <button type="button" data-testid="export-sheet-dxf" onClick={onExportDxf}>
+          Export DXF
+        </button>
+        <button type="button" data-testid="export-sheet-pdf" onClick={onExportPdf}>
+          Export PDF
+        </button>
       </div>
       <div className="sheet-scroll shell-scroll">
         <div
@@ -123,7 +172,9 @@ export function SheetPaperView({
           style={{ width: widthPx, height: heightPx }}
           onDragOver={onDragOver}
           onDrop={onDrop}
+          onPointerDown={() => setActivatedViewportId(null)}
         >
+          {activatedViewportId ? <div className="sheet-viewport-dim" aria-hidden="true" /> : null}
           <div className="sheet-title-block">
             <strong>{projectTitle}</strong>
             <div>
@@ -143,48 +194,45 @@ function SheetViewportFrame({
   scene,
   mmToPx,
   dragging,
+  activated,
+  dimmed,
   onDragStart,
   onDragEnd,
   onMove,
   clientToMm,
-  captureViewportImage,
+  syncScene,
+  onActivate,
+  onDeactivate,
 }: {
   viewport: SheetViewportDto;
   sheet: SheetDto;
   scene: SceneDto;
   mmToPx: number;
   dragging: boolean;
+  activated: boolean;
+  dimmed: boolean;
   onDragStart: () => void;
   onDragEnd: () => void;
   onMove: (centerXmm: number, centerYmm: number) => void;
   clientToMm: (clientX: number, clientY: number) => [number, number] | null;
-  captureViewportImage: (viewId: string, widthPx: number, heightPx: number) => Promise<string | null>;
+  syncScene: (renderer: ViewportRenderer, scene: SceneDto, viewId: string) => void;
+  onActivate: () => void;
+  onDeactivate: (camera: StoredCameraDto | null) => void;
 }) {
-  const view = scene.views?.find((v) => v.id === viewport.view_id);
+  const view = resolveView(scene, viewport.view_id);
   const left = (viewport.center_x_mm - viewport.width_mm / 2) * mmToPx;
   const top = (sheet.height_mm - (viewport.center_y_mm + viewport.height_mm / 2)) * mmToPx;
   const w = viewport.width_mm * mmToPx;
   const h = viewport.height_mm * mmToPx;
-  const [img, setImg] = useState<string | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    void captureViewportImage(
-      viewport.view_id,
-      Math.max(64, Math.round(w)),
-      Math.max(64, Math.round(h)),
-    ).then((url) => {
-      if (!cancelled) setImg(url);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [captureViewportImage, h, scene.version, viewport.view_id, w]);
+  const rendererRef = useRef<ViewportRenderer | null>(null);
 
   return (
     <div
-      className={`sheet-viewport${dragging ? ' sheet-viewport--drag' : ''}`}
+      className={`sheet-viewport${dragging ? ' sheet-viewport--drag' : ''}${dimmed ? ' sheet-viewport--dimmed' : ''}${activated ? ' sheet-viewport--active' : ''}`}
       style={{ left, top, width: w, height: h }}
       onPointerDown={(e) => {
+        e.stopPropagation();
+        if (activated) return;
         if (e.button !== 0) return;
         onDragStart();
         const start = clientToMm(e.clientX, e.clientY);
@@ -205,13 +253,37 @@ function SheetViewportFrame({
         window.addEventListener('pointerup', onUp);
       }}
     >
-      {img ? (
-        <img src={img} alt="" className="sheet-viewport-img" draggable={false} />
+      {view ? (
+        <LiveSheetViewport
+          scene={scene}
+          view={view}
+          viewport={viewport}
+          syncScene={(renderer, next, viewId) => {
+            rendererRef.current = renderer;
+            syncScene(renderer, next, viewId);
+          }}
+          activated={activated}
+          onActivate={onActivate}
+          onDeactivate={() => {
+            const cam = rendererRef.current?.getCamera();
+            onDeactivate(
+              cam
+                ? {
+                    target: cam.target,
+                    distance: cam.distance,
+                    yaw: cam.yaw,
+                    pitch: cam.pitch,
+                  }
+                : null,
+            );
+          }}
+        />
       ) : (
         <div className="sheet-viewport-placeholder">Viewport</div>
       )}
       <div className="sheet-viewport-label">
         {view?.name ?? 'View'} · 1:{Math.round(view?.settings.scale ?? 100)}
+        {activated ? ' · editing (Esc to exit)' : ' · double-click to edit'}
       </div>
     </div>
   );

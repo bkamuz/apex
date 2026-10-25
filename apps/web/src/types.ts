@@ -308,6 +308,68 @@ export interface SheetViewportDto {
   center_y_mm: number;
   width_mm: number;
   height_mm: number;
+  camera?: StoredCameraDto | null;
+  lock_navigation?: boolean;
+}
+
+export interface ViewAnnotationDto {
+  id: string;
+  view_id: string;
+  category: string;
+  kind: ViewAnnotationKindDto;
+  line_segments: Vec3[];
+  labels: GridAxisLabelDto[];
+}
+
+export type ViewAnnotationKindDto =
+  | {
+      kind: 'linear_dimension';
+      a: AnnotationAnchorDto;
+      b: AnnotationAnchorDto;
+      offset: number;
+    }
+  | { kind: 'text_note'; position: AnnotationAnchorDto; text: string }
+  | {
+      kind: 'leader_tag';
+      head: AnnotationAnchorDto;
+      tail: AnnotationAnchorDto;
+      text: string;
+    };
+
+export type AnnotationAnchorDto =
+  | { kind: 'world'; point: Vec3 }
+  | { kind: 'element_anchor'; element_id: string; anchor_index: number }
+  | { kind: 'grid_axis_end'; grid_axis_id: string; end: 'start' | 'end' };
+
+export interface VectorLine2dDto {
+  layer: string;
+  a: [number, number];
+  b: [number, number];
+}
+
+export interface VectorText2dDto {
+  layer: string;
+  position: [number, number];
+  height: number;
+  text: string;
+}
+
+export interface VectorDimension2dDto {
+  layer: string;
+  extension_a: [number, number];
+  extension_b: [number, number];
+  dim_a: [number, number];
+  dim_b: [number, number];
+  text_position: [number, number];
+  text: string;
+}
+
+export interface VectorDrawing2d {
+  units: 'metres' | 'millimetres';
+  scale_denominator: number;
+  lines: VectorLine2dDto[];
+  texts: VectorText2dDto[];
+  dimensions: VectorDimension2dDto[];
 }
 
 export interface SheetDto {
@@ -342,6 +404,7 @@ export interface SceneDto {
   spaces?: SpaceDto[];
   views?: ViewDto[];
   sheets?: SheetDto[];
+  view_annotations?: ViewAnnotationDto[];
   levels: LevelDto[];
   active_level_id: string | null;
   version: number;

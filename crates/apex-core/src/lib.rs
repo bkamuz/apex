@@ -5,6 +5,7 @@ mod builders;
 mod component;
 mod construction_line;
 mod document;
+mod dxf_export;
 mod element;
 mod expr;
 mod grid_axis;
@@ -14,6 +15,7 @@ mod param;
 mod path_join;
 mod placement;
 mod project;
+mod project_view_annotations;
 mod project_views;
 mod reference;
 mod registry;
@@ -22,7 +24,9 @@ mod section_cut;
 mod sheet;
 mod sketch;
 mod space;
+mod vector_export;
 mod view;
+mod view_annotation;
 
 pub use annotation::{AnnotationLabel, PlanAnnotation};
 pub use component::{
@@ -35,6 +39,7 @@ pub use construction_line::{
     ConstructionLineLibrary, ConstructionLineOverlay,
 };
 pub use document::{Document, DocumentChange, DocumentChangeKind, ElementSceneEntry, SceneBuffers};
+pub use dxf_export::drawing_to_dxf;
 pub use element::{ComponentId, Element, ElementId};
 pub use expr::{Expr, ExprError};
 pub use grid_axis::{
@@ -67,9 +72,16 @@ pub use sketch::{ProfileSketch, SketchConstraint, SketchDimension, SketchError};
 pub use space::{
     space_is_auto, space_param_specs, Space, SpaceError, SpaceId, SpaceLibrary, SpaceOverlay,
 };
+pub use vector_export::{
+    ExportUnits, VectorDimension2d, VectorDrawing2d, VectorLine2d, VectorText2d,
+};
 pub use view::{
     DetailLevel, EdgeStyle, StoredCamera, StoredProjection, View, ViewError, ViewId, ViewKind,
     ViewLibrary, ViewSettings,
+};
+pub use view_annotation::{
+    AnnotationAnchor, GridAxisEnd, ViewAnnotation, ViewAnnotationError, ViewAnnotationId,
+    ViewAnnotationKind, ViewAnnotationLibrary, ViewAnnotationOverlay,
 };
 
 /// Geometry primitives the document is expressed in, re-exported for convenience.
