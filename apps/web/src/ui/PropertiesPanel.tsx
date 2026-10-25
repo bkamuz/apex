@@ -51,6 +51,10 @@ interface Props {
   onDelete: () => void;
   /** Display name of the selected element's parent, when it has one. */
   parentName?: string | null;
+  /** For a boolean: its operands by display name, in A/B order. */
+  booleanOperands?: { key: string; id: string; name: string }[] | null;
+  /** Select another element (used to jump to a boolean operand). */
+  onSelectElement?: (id: string) => void;
   /** Clear the selected element's parent (same as the Detach tool). */
   onDetach?: () => void;
   onDeleteGridAxis: () => void;
@@ -333,6 +337,8 @@ export function PropertiesPanel({
   onUpdateWallThickness,
   onDelete,
   parentName = null,
+  booleanOperands = null,
+  onSelectElement,
   onDetach,
   onDeleteGridAxis,
   onDeleteConstructionLine,
@@ -679,10 +685,32 @@ export function PropertiesPanel({
           </div>
         ) : null}
 
+        {booleanOperands ? (
+          <div className="inspector-section" data-section="boolean-operands">
+            {booleanOperands.map((operand) => (
+              <div className="field" key={operand.key}>
+                <label>{operand.key === 'operand_a' ? 'Solid A' : 'Solid B'}</label>
+                <div className="parent-row">
+                  <span data-testid={`boolean-${operand.key}`}>{operand.name}</span>
+                  {onSelectElement && operand.name !== '(missing)' ? (
+                    <button type="button" onClick={() => onSelectElement(operand.id)}>
+                      Select
+                    </button>
+                  ) : null}
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : null}
+
         <div className="inspector-section" data-section="instance">
           <div className="section-title">This element</div>
           <SchemaFields
-            specs={specs}
+            specs={
+              booleanOperands
+                ? specs.filter((spec) => spec.id !== 'operand_a' && spec.id !== 'operand_b')
+                : specs
+            }
             values={draft}
             profiles={profiles}
             references={references}

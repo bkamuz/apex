@@ -674,6 +674,7 @@ fn boolean() -> ComponentDefinition {
                 &["subtract", "union", "intersect"],
                 "subtract",
             ),
+            ParamSpec::flag("show_operands", "Show operands", false),
         ],
         recipe: GeometryRecipe::Custom {
             builder_id: "apex.boolean".into(),
