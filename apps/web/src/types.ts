@@ -257,7 +257,7 @@ export interface LevelDto {
 export type DetailLevel = 'coarse' | 'medium' | 'fine';
 export type EdgeStyle = 'hidden' | 'simple' | 'detailed';
 export type StoredProjection = 'perspective' | 'orthographic';
-export type PaperSize = 'A4' | 'A3' | 'A2' | 'A1' | 'A0';
+export type PaperSize = 'A4' | 'A3' | 'A2' | 'A1' | 'A0' | 'custom';
 export type PaperOrientation = 'portrait' | 'landscape';
 
 export interface StoredCameraDto {
@@ -384,6 +384,8 @@ export interface SheetDto {
   name: string;
   paper: PaperSize;
   orientation: PaperOrientation;
+  custom_width_mm?: number;
+  custom_height_mm?: number;
   width_mm: number;
   height_mm: number;
   viewports: SheetViewportDto[];

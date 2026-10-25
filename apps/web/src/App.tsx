@@ -67,7 +67,8 @@ import {
   apexRenameView,
   apexDeleteView,
   apexSaveViewState,
-  apexCreateSheet,
+  apexCreateSheetWithLayout,
+  apexUpdateSheetLayout,
   apexRenameSheet,
   apexDeleteSheet,
   apexPlaceViewOnSheet,
@@ -185,6 +186,7 @@ function pointerInfo(e: React.PointerEvent | React.MouseEvent): PointerInfo {
 }
 
 export default function App() {
+  const projectRestoreDoneRef = useRef(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const canvasSplitRef = useRef<HTMLCanvasElement>(null);
   const rendererRef = useRef<ViewportRenderer | null>(null);
@@ -1284,6 +1286,28 @@ export default function App() {
     [activeSheet, runViewAction],
   );
 
+  const onUpdateSheetLayout = useCallback(
+    (
+      paper: import('./types').PaperSize,
+      orientation: import('./types').PaperOrientation,
+      customWidthMm: number,
+      customHeightMm: number,
+    ) => {
+      if (!activeSheet) return;
+      const paperWasm = paper === 'custom' ? 'CUSTOM' : paper.toUpperCase();
+      runViewAction(() =>
+        apexUpdateSheetLayout(
+          activeSheet.id,
+          paperWasm,
+          orientation,
+          customWidthMm,
+          customHeightMm,
+        ),
+      );
+    },
+    [activeSheet, runViewAction],
+  );
+
   const onSetSheetViewportScale = useCallback(
     (viewportId: string, scale: number) => {
       if (!activeSheet) return;
@@ -1516,10 +1540,22 @@ export default function App() {
         syncCatalog();
         installGlobalSdk();
 
-        const initial = apexGetScene();
+        let initial = apexGetScene();
+        if (
+          stored?.includes('"sheets":[{') &&
+          (initial.sheets?.length ?? 0) === 0
+        ) {
+          try {
+            apexImportProject(stored);
+            initial = apexGetScene();
+          } catch {
+            /* ignore */
+          }
+        }
         if (!cancelled) {
           applyScene(initial, false);
           setSelectedLevelId(initial.active_level_id);
+          projectRestoreDoneRef.current = true;
           setReady(true);
         }
       } catch (e) {
@@ -1540,14 +1576,23 @@ export default function App() {
     setMobileMenuOpen(true);
   }, []);
 
+  const persistSceneKey = scene
+    ? [
+        scene.version,
+        scene.views?.length ?? 0,
+        scene.sheets?.length ?? 0,
+        scene.view_annotations?.length ?? 0,
+      ].join(':')
+    : '';
+
   useEffect(() => {
-    if (!ready || !scene) return;
+    if (!ready || !scene || !projectRestoreDoneRef.current) return;
     try {
       storeProject(apexExportProject());
     } catch {
       /* ignore */
     }
-  }, [ready, scene?.version]);
+  }, [ready, persistSceneKey, scene]);
 
   useEffect(() => {
     if (!ready) return;
@@ -1583,9 +1628,24 @@ export default function App() {
     onDuplicateView: (id: string) => runViewAction(() => apexDuplicateView(id)),
     onRenameView: (id: string, name: string) => runViewAction(() => apexRenameView(id, name)),
     onDeleteView: (id: string) => runViewAction(() => apexDeleteView(id)),
-    onNewSheet: () => {
+    onCreateSheetWithLayout: (
+      paper: import('./types').PaperSize,
+      orientation: import('./types').PaperOrientation,
+      customWidthMm: number,
+      customHeightMm: number,
+    ) => {
       const n = (scene?.sheets?.length ?? 0) + 1;
-      runViewAction(() => apexCreateSheet(`A${n}`, `Sheet ${n}`));
+      const paperWasm = paper === 'custom' ? 'CUSTOM' : paper.toUpperCase();
+      runViewAction(() =>
+        apexCreateSheetWithLayout(
+          `A${n}`,
+          `Sheet ${n}`,
+          paperWasm,
+          orientation,
+          customWidthMm,
+          customHeightMm,
+        ),
+      );
     },
     onRenameSheet: (id: string, number: string, name: string) =>
       runViewAction(() => apexRenameSheet(id, number, name)),
@@ -2120,6 +2180,7 @@ export default function App() {
           onSheetViewportCropChange={onSheetViewportCropChange}
           onResetSheetViewportCrop={onResetSheetViewportCrop}
           onSetSheetViewportScale={onSetSheetViewportScale}
+          onUpdateSheetLayout={onUpdateSheetLayout}
           onExportActiveViewSvg={onExportActiveViewSvg}
           onExportActiveViewDxf={onExportActiveViewDxf}
           onExportActiveViewPdf={onExportActiveViewPdf}

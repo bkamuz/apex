@@ -60,7 +60,12 @@ interface Props {
   onDuplicateView?: (id: string) => void;
   onRenameView?: (id: string, name: string) => void;
   onDeleteView?: (id: string) => void;
-  onNewSheet?: () => void;
+  onCreateSheetWithLayout?: (
+    paper: import('../types').PaperSize,
+    orientation: import('../types').PaperOrientation,
+    customWidthMm: number,
+    customHeightMm: number,
+  ) => void;
   onRenameSheet?: (id: string, number: string, name: string) => void;
   onDeleteSheet?: (id: string) => void;
 }
@@ -488,7 +493,7 @@ export function ProjectBrowser({
   onDuplicateView,
   onRenameView,
   onDeleteView,
-  onNewSheet,
+  onCreateSheetWithLayout,
   onRenameSheet,
   onDeleteSheet,
 }: Props) {
@@ -766,7 +771,12 @@ export function ProjectBrowser({
           onDuplicateView={onDuplicateView ?? (() => {})}
           onRenameView={onRenameView ?? (() => {})}
           onDeleteView={onDeleteView ?? (() => {})}
-          onNewSheet={onNewSheet ?? (() => {})}
+          onCreateSheetWithLayout={
+            onCreateSheetWithLayout ??
+            (() => {
+              /* noop */
+            })
+          }
           onRenameSheet={onRenameSheet ?? (() => {})}
           onDeleteSheet={onDeleteSheet ?? (() => {})}
         />

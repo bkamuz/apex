@@ -77,6 +77,7 @@ import initWasm, {
   updateViewSettings,
   saveViewState,
   createSheet,
+  createSheetWithLayout,
   renameSheet,
   updateSheetLayout,
   deleteSheet,
@@ -579,12 +580,31 @@ export function apexCreateSheet(number: string, name: string): SceneDto {
   return asScene(createSheet(number, name));
 }
 
+export function apexCreateSheetWithLayout(
+  number: string,
+  name: string,
+  paper: string,
+  orientation: string,
+  customWidthMm: number,
+  customHeightMm: number,
+): SceneDto {
+  return asScene(
+    createSheetWithLayout(number, name, paper, orientation, customWidthMm, customHeightMm),
+  );
+}
+
 export function apexRenameSheet(id: string, number: string, name: string): SceneDto {
   return asScene(renameSheet(id, number, name));
 }
 
-export function apexUpdateSheetLayout(id: string, paper: string, orientation: string): SceneDto {
-  return asScene(updateSheetLayout(id, paper, orientation));
+export function apexUpdateSheetLayout(
+  id: string,
+  paper: string,
+  orientation: string,
+  customWidthMm: number,
+  customHeightMm: number,
+): SceneDto {
+  return asScene(updateSheetLayout(id, paper, orientation, customWidthMm, customHeightMm));
 }
 
 export function apexDeleteSheet(id: string): SceneDto {

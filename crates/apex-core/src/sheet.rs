@@ -54,6 +54,7 @@ pub enum PaperSize {
     A2,
     A1,
     A0,
+    Custom,
 }
 
 impl PaperSize {
@@ -65,6 +66,7 @@ impl PaperSize {
             PaperSize::A2 => (420.0, 594.0),
             PaperSize::A1 => (594.0, 841.0),
             PaperSize::A0 => (841.0, 1189.0),
+            PaperSize::Custom => (420.0, 297.0),
         }
     }
 }
@@ -188,7 +190,20 @@ pub struct Sheet {
     pub name: String,
     pub paper: PaperSize,
     pub orientation: PaperOrientation,
+    /// Used when `paper` is [`PaperSize::Custom`].
+    #[serde(default = "default_custom_width_mm")]
+    pub custom_width_mm: f32,
+    #[serde(default = "default_custom_height_mm")]
+    pub custom_height_mm: f32,
     pub viewports: Vec<SheetViewport>,
+}
+
+fn default_custom_width_mm() -> f32 {
+    420.0
+}
+
+fn default_custom_height_mm() -> f32 {
+    297.0
 }
 
 impl Sheet {
@@ -199,12 +214,20 @@ impl Sheet {
             name: name.into(),
             paper: PaperSize::default(),
             orientation: PaperOrientation::default(),
+            custom_width_mm: default_custom_width_mm(),
+            custom_height_mm: default_custom_height_mm(),
             viewports: Vec::new(),
         }
     }
 
     pub fn paper_size_mm(&self) -> (f32, f32) {
-        let (w, h) = self.paper.dimensions_mm();
+        let (w, h) = match self.paper {
+            PaperSize::Custom => (
+                self.custom_width_mm.max(10.0),
+                self.custom_height_mm.max(10.0),
+            ),
+            other => other.dimensions_mm(),
+        };
         match self.orientation {
             PaperOrientation::Portrait => (w, h),
             PaperOrientation::Landscape => (h, w),

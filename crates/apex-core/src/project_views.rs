@@ -247,6 +247,8 @@ impl Project {
         id: SheetId,
         paper: PaperSize,
         orientation: PaperOrientation,
+        custom_width_mm: Option<f32>,
+        custom_height_mm: Option<f32>,
     ) -> Result<(), SheetError> {
         if !self.sheets.contains_key(&id) {
             return Err(SheetError::NotFound);
@@ -255,8 +257,66 @@ impl Project {
         let sheet = self.sheets.get_mut(&id).ok_or(SheetError::NotFound)?;
         sheet.paper = paper;
         sheet.orientation = orientation;
+        if paper == PaperSize::Custom {
+            if let Some(w) = custom_width_mm {
+                sheet.custom_width_mm = w.max(10.0);
+            }
+            if let Some(h) = custom_height_mm {
+                sheet.custom_height_mm = h.max(10.0);
+            }
+        }
         self.push_undo_snapshot(before);
         Ok(())
+    }
+
+    pub fn create_sheet_with_layout(
+        &mut self,
+        number: String,
+        name: String,
+        paper: PaperSize,
+        orientation: PaperOrientation,
+        custom_width_mm: Option<f32>,
+        custom_height_mm: Option<f32>,
+    ) -> SheetId {
+        let mut sheet = Sheet::new(number, name);
+        sheet.paper = paper;
+        sheet.orientation = orientation;
+        if paper == PaperSize::Custom {
+            if let Some(w) = custom_width_mm {
+                sheet.custom_width_mm = w.max(10.0);
+            }
+            if let Some(h) = custom_height_mm {
+                sheet.custom_height_mm = h.max(10.0);
+            }
+        }
+        let id = sheet.id;
+        let before = self.export_snapshot();
+        self.sheets.insert(id, sheet);
+        self.push_undo_snapshot(before);
+        id
+    }
+
+    /// Fix legacy viewports saved before world anchors were persisted.
+    pub fn repair_sheet_viewport_anchors(&mut self) {
+        let mut updates: Vec<(SheetId, SheetViewportId, f32, f32)> = Vec::new();
+        for sheet in self.sheets.values() {
+            for vp in &sheet.viewports {
+                if vp.anchor_x_m == 0.0 && vp.anchor_z_m == 0.0 {
+                    if let Some((min, max)) = self.view_plan_bounds_m(vp.view_id) {
+                        let (ax, az) = crate::sheet_scale::plan_bounds_center(min, max);
+                        updates.push((sheet.id, vp.id, ax, az));
+                    }
+                }
+            }
+        }
+        for (sheet_id, vp_id, ax, az) in updates {
+            if let Some(sheet) = self.sheets.get_mut(&sheet_id) {
+                if let Some(vp) = sheet.viewports.iter_mut().find(|v| v.id == vp_id) {
+                    vp.anchor_x_m = ax;
+                    vp.anchor_z_m = az;
+                }
+            }
+        }
     }
 
     pub fn delete_sheet(&mut self, id: SheetId) -> Result<(), SheetError> {

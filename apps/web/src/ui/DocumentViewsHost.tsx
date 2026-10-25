@@ -22,6 +22,12 @@ interface Props {
   onSheetViewportCropChange: (viewportId: string, crop: CropUvDto[]) => void;
   onResetSheetViewportCrop: (viewportId: string) => void;
   onSetSheetViewportScale: (viewportId: string, scale: number) => void;
+  onUpdateSheetLayout: (
+    paper: import('../types').PaperSize,
+    orientation: import('../types').PaperOrientation,
+    customWidthMm: number,
+    customHeightMm: number,
+  ) => void;
   onExportActiveViewSvg?: () => void;
   onExportActiveViewDxf?: () => void;
   onExportActiveViewPdf?: () => void;
@@ -48,6 +54,7 @@ export function DocumentViewsHost({
   onSheetViewportCropChange,
   onResetSheetViewportCrop,
   onSetSheetViewportScale,
+  onUpdateSheetLayout,
   onExportActiveViewSvg,
   onExportActiveViewDxf,
   onExportActiveViewPdf,
@@ -86,6 +93,7 @@ export function DocumentViewsHost({
           onCropChange={onSheetViewportCropChange}
           onResetCrop={onResetSheetViewportCrop}
           onSetViewportScale={onSetSheetViewportScale}
+          onUpdateSheetLayout={onUpdateSheetLayout}
         />
       ) : (
         <div className={`view-panes${splitEnabled ? ' view-panes--split' : ''}`}>

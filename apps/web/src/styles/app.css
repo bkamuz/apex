@@ -1122,6 +1122,29 @@ input[type="radio"] {
   padding: 2px 4px;
 }
 
+.sheet-layout-controls {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.sheet-layout-controls label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.sheet-create-block {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px 10px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
 .sheet-viewport-img {
   width: 100%;
   height: calc(100% - 18px);
@@ -1178,8 +1201,26 @@ input[type="radio"] {
 }
 
 .sheet-viewport-clip {
+  position: relative;
   width: 100%;
   height: 100%;
+}
+
+.sheet-view-annotation-labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.sheet-view-annotation-label {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  font-size: 10px;
+  line-height: 1.1;
+  color: #111;
+  white-space: nowrap;
+  font-family: system-ui, sans-serif;
 }
 
 .sheet-crop-overlay {

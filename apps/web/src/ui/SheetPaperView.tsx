@@ -14,6 +14,8 @@ import {
   type CropUv,
 } from './sheetCropModel';
 import { formatViewScale, STANDARD_VIEW_SCALES } from './sheetScales';
+import { SheetLayoutControls, sheetLayoutFromDto } from './SheetLayoutControls';
+import type { PaperOrientation, PaperSize } from '../types';
 
 interface Props {
   sheet: SheetDto;
@@ -25,6 +27,12 @@ interface Props {
   onCropChange: (viewportId: string, crop: CropUvDto[]) => void;
   onResetCrop: (viewportId: string) => void;
   onSetViewportScale: (viewportId: string, scale: number) => void;
+  onUpdateSheetLayout: (
+    paper: PaperSize,
+    orientation: PaperOrientation,
+    customWidthMm: number,
+    customHeightMm: number,
+  ) => void;
 }
 
 const MM_TO_PX = 2.5;
@@ -40,11 +48,13 @@ export function SheetPaperView({
   onCropChange,
   onResetCrop,
   onSetViewportScale,
+  onUpdateSheetLayout,
 }: Props) {
   const paperRef = useRef<HTMLDivElement>(null);
   const [dragViewport, setDragViewport] = useState<string | null>(null);
   const [selectedViewportId, setSelectedViewportId] = useState<string | null>(null);
   const [customScaleDraft, setCustomScaleDraft] = useState('');
+  const layout = sheetLayoutFromDto(sheet);
 
   const widthPx = sheet.width_mm * MM_TO_PX;
   const heightPx = sheet.height_mm * MM_TO_PX;
@@ -145,8 +155,47 @@ export function SheetPaperView({
     <div className="sheet-workspace" data-testid="sheet-workspace">
       <div className="sheet-toolbar">
         <span>
-          {sheet.number} — {sheet.name} ({sheet.paper} {sheet.orientation})
+          {sheet.number} — {sheet.name}
         </span>
+        <SheetLayoutControls
+          testIdPrefix="sheet-properties"
+          paper={layout.paper}
+          orientation={layout.orientation}
+          customWidthMm={layout.customWidthMm}
+          customHeightMm={layout.customHeightMm}
+          onPaperChange={(paper) =>
+            onUpdateSheetLayout(
+              paper,
+              layout.orientation,
+              layout.customWidthMm,
+              layout.customHeightMm,
+            )
+          }
+          onOrientationChange={(orientation) =>
+            onUpdateSheetLayout(
+              layout.paper,
+              orientation,
+              layout.customWidthMm,
+              layout.customHeightMm,
+            )
+          }
+          onCustomWidthChange={(customWidthMm) =>
+            onUpdateSheetLayout(
+              layout.paper,
+              layout.orientation,
+              customWidthMm,
+              layout.customHeightMm,
+            )
+          }
+          onCustomHeightChange={(customHeightMm) =>
+            onUpdateSheetLayout(
+              layout.paper,
+              layout.orientation,
+              layout.customWidthMm,
+              customHeightMm,
+            )
+          }
+        />
         {selectedViewportId && selectedViewport ? (
           <>
             <label className="sheet-scale-control">

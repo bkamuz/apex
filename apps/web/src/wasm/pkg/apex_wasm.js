@@ -248,6 +248,31 @@ export function createSheet(number, name) {
 }
 
 /**
+ * @param {string} number
+ * @param {string} name
+ * @param {string} paper
+ * @param {string} orientation
+ * @param {number} custom_width_mm
+ * @param {number} custom_height_mm
+ * @returns {any}
+ */
+export function createSheetWithLayout(number, name, paper, orientation, custom_width_mm, custom_height_mm) {
+    const ptr0 = passStringToWasm0(number, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passStringToWasm0(paper, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ptr3 = passStringToWasm0(orientation, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len3 = WASM_VECTOR_LEN;
+    const ret = wasm.createSheetWithLayout(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, custom_width_mm, custom_height_mm);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * @param {string} points_json
  * @param {string} params_json
  * @param {number} rotation
@@ -1486,16 +1511,18 @@ export function updateSectionCut(id, params_json) {
  * @param {string} id
  * @param {string} paper
  * @param {string} orientation
+ * @param {number} custom_width_mm
+ * @param {number} custom_height_mm
  * @returns {any}
  */
-export function updateSheetLayout(id, paper, orientation) {
+export function updateSheetLayout(id, paper, orientation, custom_width_mm, custom_height_mm) {
     const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
     const ptr1 = passStringToWasm0(paper, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len1 = WASM_VECTOR_LEN;
     const ptr2 = passStringToWasm0(orientation, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len2 = WASM_VECTOR_LEN;
-    const ret = wasm.updateSheetLayout(ptr0, len0, ptr1, len1, ptr2, len2);
+    const ret = wasm.updateSheetLayout(ptr0, len0, ptr1, len1, ptr2, len2, custom_width_mm, custom_height_mm);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }

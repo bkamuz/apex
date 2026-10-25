@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
-import type { LevelDto, SheetDto, ViewDto } from '../types';
+import type { LevelDto, PaperOrientation, PaperSize, SheetDto, ViewDto } from '../types';
 import { viewsByType } from './viewModel';
+import { SheetLayoutControls } from './SheetLayoutControls';
 
 interface Props {
   views: ViewDto[];
@@ -16,7 +17,12 @@ interface Props {
   onDuplicateView: (id: string) => void;
   onRenameView: (id: string, name: string) => void;
   onDeleteView: (id: string) => void;
-  onNewSheet: () => void;
+  onCreateSheetWithLayout: (
+    paper: PaperSize,
+    orientation: PaperOrientation,
+    customWidthMm: number,
+    customHeightMm: number,
+  ) => void;
   onRenameSheet: (id: string, number: string, name: string) => void;
   onDeleteSheet: (id: string) => void;
 }
@@ -109,12 +115,16 @@ export function ViewsSheetsPanel({
   onDuplicateView,
   onRenameView,
   onDeleteView,
-  onNewSheet,
+  onCreateSheetWithLayout,
   onRenameSheet,
   onDeleteSheet,
 }: Props) {
   const [viewsOpen, setViewsOpen] = useState(true);
   const [sheetsOpen, setSheetsOpen] = useState(true);
+  const [newPaper, setNewPaper] = useState<PaperSize>('A3');
+  const [newOrientation, setNewOrientation] = useState<PaperOrientation>('landscape');
+  const [newCustomW, setNewCustomW] = useState(420);
+  const [newCustomH, setNewCustomH] = useState(297);
   const grouped = useMemo(() => viewsByType(views), [views]);
   const levelId = activeLevelId ?? levels[0]?.id ?? '';
 
@@ -166,10 +176,32 @@ export function ViewsSheetsPanel({
           </button>
           <span className="browser-tree-group-label">Sheets</span>
           <span className="browser-tree-group-count">{sheets.length}</span>
-          <button type="button" className="panel-action" data-testid="new-sheet" onClick={onNewSheet}>
-            + Sheet
-          </button>
         </div>
+        {sheetsOpen ? (
+          <div className="sheet-create-block">
+            <SheetLayoutControls
+              testIdPrefix="new-sheet"
+              paper={newPaper}
+              orientation={newOrientation}
+              customWidthMm={newCustomW}
+              customHeightMm={newCustomH}
+              onPaperChange={setNewPaper}
+              onOrientationChange={setNewOrientation}
+              onCustomWidthChange={setNewCustomW}
+              onCustomHeightChange={setNewCustomH}
+            />
+            <button
+              type="button"
+              className="panel-action"
+              data-testid="new-sheet"
+              onClick={() =>
+                onCreateSheetWithLayout(newPaper, newOrientation, newCustomW, newCustomH)
+              }
+            >
+              + Create sheet
+            </button>
+          </div>
+        ) : null}
         {sheetsOpen ? (
           <ul className="browser-tree-items">
             {sheets.map((sheet) => (

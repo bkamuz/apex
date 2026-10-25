@@ -286,6 +286,8 @@ struct SheetDto {
     name: String,
     paper: PaperSize,
     orientation: PaperOrientation,
+    custom_width_mm: f32,
+    custom_height_mm: f32,
     width_mm: f32,
     height_mm: f32,
     viewports: Vec<SheetViewportDto>,
@@ -790,6 +792,8 @@ fn sheet_dto(sheet: &Sheet) -> SheetDto {
         name: sheet.name.clone(),
         paper: sheet.paper,
         orientation: sheet.orientation,
+        custom_width_mm: sheet.custom_width_mm,
+        custom_height_mm: sheet.custom_height_mm,
         width_mm,
         height_mm,
         viewports: sheet
@@ -861,6 +865,7 @@ fn parse_paper_size(name: &str) -> Result<PaperSize, JsValue> {
         "A2" => Ok(PaperSize::A2),
         "A1" => Ok(PaperSize::A1),
         "A0" => Ok(PaperSize::A0),
+        "CUSTOM" => Ok(PaperSize::Custom),
         other => Err(err(format!("unknown paper size '{other}'"))),
     }
 }
@@ -2224,6 +2229,40 @@ pub fn create_sheet(number: &str, name: &str) -> Result<JsValue, JsValue> {
     })
 }
 
+#[wasm_bindgen(js_name = createSheetWithLayout)]
+pub fn create_sheet_with_layout(
+    number: &str,
+    name: &str,
+    paper: &str,
+    orientation: &str,
+    custom_width_mm: f32,
+    custom_height_mm: f32,
+) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let paper = parse_paper_size(paper)?;
+        let orientation = parse_paper_orientation(orientation)?;
+        let custom_w = if paper == PaperSize::Custom {
+            Some(custom_width_mm)
+        } else {
+            None
+        };
+        let custom_h = if paper == PaperSize::Custom {
+            Some(custom_height_mm)
+        } else {
+            None
+        };
+        project.create_sheet_with_layout(
+            number.to_string(),
+            name.to_string(),
+            paper,
+            orientation,
+            custom_w,
+            custom_h,
+        );
+        scene(project)
+    })
+}
+
 #[wasm_bindgen(js_name = renameSheet)]
 pub fn rename_sheet(id: &str, number: &str, name: &str) -> Result<JsValue, JsValue> {
     with_project(|project| {
@@ -2236,13 +2275,29 @@ pub fn rename_sheet(id: &str, number: &str, name: &str) -> Result<JsValue, JsVal
 }
 
 #[wasm_bindgen(js_name = updateSheetLayout)]
-pub fn update_sheet_layout(id: &str, paper: &str, orientation: &str) -> Result<JsValue, JsValue> {
+pub fn update_sheet_layout(
+    id: &str,
+    paper: &str,
+    orientation: &str,
+    custom_width_mm: f32,
+    custom_height_mm: f32,
+) -> Result<JsValue, JsValue> {
     with_project(|project| {
         let sheet = parse_sheet_id(id)?;
         let paper = parse_paper_size(paper)?;
         let orientation = parse_paper_orientation(orientation)?;
+        let custom_w = if paper == PaperSize::Custom {
+            Some(custom_width_mm)
+        } else {
+            None
+        };
+        let custom_h = if paper == PaperSize::Custom {
+            Some(custom_height_mm)
+        } else {
+            None
+        };
         project
-            .update_sheet_layout(sheet, paper, orientation)
+            .update_sheet_layout(sheet, paper, orientation, custom_w, custom_h)
             .map_err(err)?;
         scene(project)
     })

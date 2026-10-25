@@ -814,6 +814,7 @@ export class ViewportRenderer {
   private touchOrbitEnabled = true;
   /** Sheet paper viewport: transparent drawing, no camera interaction. */
   private sheetPresentation = false;
+  private readonly transparentBackground: boolean;
   private pinchStartSpan = 0;
   private pinchStartDistance = 0;
   private lastCentroidX = 0;
@@ -839,14 +840,18 @@ export class ViewportRenderer {
   private fpsWindowStart = 0;
   private readonly eventAbort = new AbortController();
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(
+    canvas: HTMLCanvasElement,
+    options?: { transparentBackground?: boolean },
+  ) {
     this.canvas = canvas;
+    this.transparentBackground = options?.transparentBackground === true;
     const gl = canvas.getContext('webgl2', {
       antialias: true,
-      alpha: false,
+      alpha: this.transparentBackground,
       depth: true,
       stencil: false,
-      premultipliedAlpha: false,
+      premultipliedAlpha: this.transparentBackground,
       // false: cheaper swap-chain on high-Hz displays; pick uses an offscreen FBO.
       preserveDrawingBuffer: false,
       powerPreference: 'high-performance',
@@ -1720,10 +1725,6 @@ export class ViewportRenderer {
     this.sheetPresentation = enabled;
     if (enabled) {
       this.touchOrbitEnabled = false;
-      this.projection = 'orthographic';
-      this.viewNavigation = 'plan';
-      this.camera.yaw = 0;
-      this.camera.pitch = PITCH_LIMIT;
     }
     this.frameMats = null;
   }
@@ -2448,15 +2449,17 @@ export class ViewportRenderer {
     gl.depthMask(true);
 
     if (this.sheetPresentation) {
-      gl.clearColor(0, 0, 0, 0);
+      if (this.transparentBackground) {
+        gl.clearColor(0, 0, 0, 0);
+      } else {
+        gl.clearColor(1, 1, 1, 1);
+      }
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-      this.drawLines(this.edgeVao, this.edgeCount, [0.12, 0.12, 0.12, 1], 2.2);
-      this.drawOccludedAxis(
-        this.viewAnnotationLineVao,
-        this.viewAnnotationLineCount,
-        [0.08, 0.08, 0.08, 1],
-        2.0,
-      );
+      const lineColor: [number, number, number, number] = [0.15, 0.15, 0.15, 1];
+      this.drawLines(this.edgeVao, this.edgeCount, lineColor, 2.2, { overlay: true });
+      this.drawLines(this.viewAnnotationLineVao, this.viewAnnotationLineCount, lineColor, 2.0, {
+        overlay: true,
+      });
       this.frameMats = null;
       return;
     }

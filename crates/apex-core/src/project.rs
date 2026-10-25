@@ -1747,6 +1747,7 @@ impl Project {
         }
 
         next.ensure_default_views();
+        next.repair_sheet_viewport_anchors();
 
         *self = next;
         Ok(())
@@ -2578,6 +2579,30 @@ mod tests {
         project.import_snapshot(snap).expect("import");
         assert!(!project.can_undo());
         assert!(!project.can_redo());
+    }
+
+    #[test]
+    fn sheet_snapshot_round_trips_through_json() {
+        use crate::sheet::{PaperOrientation, PaperSize};
+
+        let mut project = Project::new();
+        project.create_sheet_with_layout(
+            "A1".into(),
+            "Sheet 1".into(),
+            PaperSize::A2,
+            PaperOrientation::Portrait,
+            None,
+            None,
+        );
+        assert_eq!(project.sheets.len(), 1);
+        let json = serde_json::to_string(&project.export_snapshot()).expect("serialize");
+        let snap: ProjectSnapshot = serde_json::from_str(&json).expect("deserialize");
+        let mut fresh = Project::new();
+        fresh.import_snapshot(snap).expect("import");
+        assert_eq!(fresh.sheets.len(), 1);
+        let sheet = fresh.sheets.values().next().expect("sheet");
+        assert_eq!(sheet.paper, PaperSize::A2);
+        assert_eq!(sheet.orientation, PaperOrientation::Portrait);
     }
 
     #[test]

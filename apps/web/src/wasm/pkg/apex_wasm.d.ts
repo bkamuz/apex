@@ -53,6 +53,8 @@ export function createSectionCut(points_json: string, params_json: string, rotat
 
 export function createSheet(number: string, name: string): any;
 
+export function createSheetWithLayout(number: string, name: string, paper: string, orientation: string, custom_width_mm: number, custom_height_mm: number): any;
+
 export function createSpace(points_json: string, params_json: string, rotation: number): any;
 
 export function createThreeDView(): any;
@@ -302,7 +304,7 @@ export function updateProfileType(id: string, params_json: string): any;
 
 export function updateSectionCut(id: string, params_json: string): any;
 
-export function updateSheetLayout(id: string, paper: string, orientation: string): any;
+export function updateSheetLayout(id: string, paper: string, orientation: string, custom_width_mm: number, custom_height_mm: number): any;
 
 export function updateSheetViewportState(sheet_id_str: string, viewport_id_str: string, camera_json: string, lock_navigation: boolean): any;
 
@@ -331,6 +333,7 @@ export interface InitOutput {
     readonly createReference: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly createSectionCut: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly createSheet: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly createSheetWithLayout: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number, j: number) => [number, number, number];
     readonly createSpace: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly createThreeDView: () => [number, number, number];
     readonly createViewAnnotation: (a: number, b: number, c: number, d: number) => [number, number, number];
@@ -408,7 +411,7 @@ export interface InitOutput {
     readonly updateGridAxis: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly updateProfileType: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly updateSectionCut: (a: number, b: number, c: number, d: number) => [number, number, number];
-    readonly updateSheetLayout: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
+    readonly updateSheetLayout: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number];
     readonly updateSheetViewportState: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
     readonly updateSpace: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly updateViewAnnotation: (a: number, b: number, c: number, d: number) => [number, number, number];
