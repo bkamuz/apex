@@ -163,21 +163,10 @@ pub fn clip_drawing_to_polygon(drawing: &VectorDrawing2d, ring: &[[f64; 2]]) -> 
             (dim.dim_a[0] + dim.dim_b[0]) * 0.5,
             (dim.dim_a[1] + dim.dim_b[1]) * 0.5,
         ];
+        // A dimension is kept whole: trimming one leg would silently change
+        // the measured length (and the old trimming collapsed dim_a onto dim_b).
         if point_in_polygon(mid, ring) || point_in_polygon(dim.text_position, ring) {
-            let mut clipped = dim.clone();
-            for (a, b) in [
-                (dim.extension_a, dim.dim_a),
-                (dim.extension_b, dim.dim_b),
-                (dim.dim_a, dim.dim_b),
-            ] {
-                for (ca, cb) in clip_segment_to_polygon(a, b, ring) {
-                    if (ca[0] - a[0]).abs() + (ca[1] - a[1]).abs() < 1e-6 {
-                        clipped.extension_a = ca;
-                        clipped.dim_a = cb;
-                    }
-                }
-            }
-            out.dimensions.push(clipped);
+            out.dimensions.push(dim.clone());
         }
     }
     out

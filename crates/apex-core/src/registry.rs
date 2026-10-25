@@ -670,7 +670,7 @@ fn door() -> ComponentDefinition {
                 width: Expr::param("width"),
                 height: Expr::param("thickness"),
             },
-            frame: FrameSource::WorkPlane,
+            frame: FrameSource::PlacementCurve { t: Expr::zero() },
             height: Expr::param("height"),
         },
         host_cut: Some(HostCutSpec {
@@ -701,7 +701,7 @@ fn window() -> ComponentDefinition {
                 width: Expr::param("width"),
                 height: Expr::param("thickness"),
             },
-            frame: FrameSource::WorkPlane,
+            frame: FrameSource::PlacementCurve { t: Expr::zero() },
             height: Expr::param("height"),
         },
         host_cut: Some(HostCutSpec {

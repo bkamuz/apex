@@ -58,7 +58,7 @@ pub fn map_view_drawing_to_sheet_mm(
     let map = |p: [f64; 2]| -> [f64; 2] {
         [
             center_x_mm + (p[0] - anchor_x_m) * k,
-            center_y_mm + (p[1] - anchor_z_m) * k,
+            center_y_mm + (p[1] + anchor_z_m) * k,
         ]
     };
 

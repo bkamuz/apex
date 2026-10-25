@@ -90,7 +90,7 @@ pub fn mesh_section_loops(mesh: &apex_geometry::TriangleMesh, y: f32) -> Vec<Vec
             if (da < 0.0) != (db < 0.0) {
                 let t = da / (da - db);
                 let p = a + (b - a) * t;
-                pts.push([p.x as f64, p.z as f64]);
+                pts.push([p.x as f64, -p.z as f64]);
             }
         }
         if pts.len() == 2 && key(pts[0]) != key(pts[1]) {
@@ -207,7 +207,7 @@ fn drop_collinear(mut ring: Vec<[f64; 2]>) -> Vec<[f64; 2]> {
 }
 
 fn plan_point(p: Vec3) -> [f64; 2] {
-    [p.x as f64, p.z as f64]
+    [p.x as f64, -p.z as f64]
 }
 
 fn layer_name(category: &str) -> String {
@@ -397,8 +397,16 @@ impl Project {
         for annotation in self.view_annotations_for(view_id) {
             let overlay = self.annotation_overlay(annotation);
             let layer = layer_name(annotation.kind.category());
-            push_segment_lines(&mut out, &layer, &overlay.line_segments);
-            for label in overlay.labels {
+            let is_dimension = matches!(
+                annotation.kind,
+                crate::view_annotation::ViewAnnotationKind::LinearDimension { .. }
+            );
+            if !is_dimension {
+                push_segment_lines(&mut out, &layer, &overlay.line_segments);
+            }
+            // A dimension's lines and text come from its VectorDimension2d
+            // below; pushing the overlay too drew every value twice.
+            for label in overlay.labels.into_iter().filter(|_| !is_dimension) {
                 out.texts.push(VectorText2d {
                     layer: layer.clone(),
                     position: plan_point(label.position),
@@ -450,7 +458,9 @@ impl Project {
     /// Plan extents of a view export in metres (XZ plane).
     pub fn view_plan_bounds_m(&self, view_id: ViewId) -> Option<([f64; 2], [f64; 2])> {
         let drawing = self.vector_export_view(view_id)?;
-        crate::dxf_export::bounds_2d(&drawing)
+        // Drawing y is -world Z; callers want world (x, z) bounds.
+        let (min, max) = crate::dxf_export::bounds_2d(&drawing)?;
+        Some(([min[0], -max[1]], [max[0], -min[1]]))
     }
 }
 
@@ -484,6 +494,13 @@ mod tests {
             indices,
             edges: Vec::new(),
         }
+    }
+
+    /// Plans are drawn north-up (world -Z up the page), never mirrored:
+    /// y-up 2D coordinates must negate world Z.
+    #[test]
+    fn plan_points_are_not_mirrored() {
+        assert_eq!(plan_point(Vec3::new(1.0, 0.0, 2.0)), [1.0, -2.0]);
     }
 
     #[test]
