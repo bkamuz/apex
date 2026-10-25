@@ -5,7 +5,9 @@ use crate::project::Project;
 use crate::sheet::{
     PaperOrientation, PaperSize, Sheet, SheetError, SheetId, SheetViewport, SheetViewportId,
 };
-use crate::view::{StoredCamera, StoredProjection, View, ViewError, ViewId, ViewKind, ViewSettings};
+use crate::view::{
+    StoredCamera, StoredProjection, View, ViewError, ViewId, ViewKind, ViewSettings,
+};
 
 const DEFAULT_STOREY_RISE: f32 = 3.0;
 
@@ -284,5 +286,4 @@ impl Project {
         }
         Ok(())
     }
-
 }
