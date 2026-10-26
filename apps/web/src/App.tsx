@@ -746,7 +746,14 @@ export default function App() {
         if (spaceHit)
           candidates.push({ kind: 'space', id: spaceHit.id, distance: spaceHit.distance });
         candidates.sort((a, b) => a.distance - b.distance);
-        const overlayHit = candidates[0] ?? null;
+        let overlayHit: (typeof candidates)[number] | null = candidates[0] ?? null;
+        // A wall drawn on a grid line must stay selectable: a model element
+        // (not a floor slab) under the cursor beats a grid axis. The axis is
+        // still picked off the element, e.g. at its bubble.
+        if (overlayHit?.kind === 'grid_axis') {
+          const under = renderer.pick(clientX, clientY);
+          if (under != null && !renderer.isSlabPick(under)) overlayHit = null;
+        }
 
         if (overlayHit) {
           switch (overlayHit.kind) {

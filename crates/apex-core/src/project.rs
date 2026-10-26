@@ -6,6 +6,7 @@
 use std::collections::BTreeMap;
 
 mod booleans;
+mod roof_attach;
 mod solids;
 mod space_labels;
 pub use booleans::boolean_params;

@@ -278,6 +278,22 @@ await clickW(10.5, 4);
 await page.keyboard.press('Escape');
 await checkError('roof');
 
+// Close the gables the BIM way: attach the L1 end walls' tops to the roof.
+for (const [x, z] of [[0, 1], [10, 1]]) {
+  await page.keyboard.press('Escape');
+  await clickW(x, z, { snap: false });
+  await page.waitForTimeout(200);
+  const box = page.locator('.field').filter({ hasText: 'Attach top to roof' }).locator('input[type=checkbox]');
+  if ((await box.count()) === 0) {
+    note(`gable wall at x=${x}: no "Attach top to roof" field (selection missed?)`);
+    continue;
+  }
+  await box.first().check();
+  await page.waitForTimeout(300);
+}
+await page.keyboard.press('Escape');
+await checkError('attach gables');
+
 // Rooms on both levels.
 for (const [i, e] of [[0, 0], [1, 3]]) {
   await page.locator('.level-list li').nth(i).click();
@@ -372,6 +388,17 @@ await shot('3d-view');
       await page.waitForTimeout(250);
       await shot(`3d-close-${name}-${k}`);
     }
+  }
+  // Gable ends: far views of both, then the wall/roof junction.
+  for (const [name, t, dist, yaw, pitch] of [
+    ['gable-far-a', [5, 4, 4], 24, 0.9, 0.25],
+    ['gable-far-b', [5, 4, 4], 24, 0.9 + Math.PI, 0.25],
+    ['gable-junction-a', [10, 6.8, 1.5], 7, 0.9, 0.15],
+    ['gable-junction-b', [0, 6.8, 6.5], 7, 0.9 + Math.PI, 0.15],
+  ]) {
+    await page.evaluate(([t, d, yaw, pitch]) => window.__apexTest.setCamera({ target: t, distance: d, yaw, pitch }), [t, dist, yaw, pitch]);
+    await page.waitForTimeout(300);
+    await shot(`3d-${name}`);
   }
   await fit();
 }
