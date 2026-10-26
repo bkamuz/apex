@@ -6,6 +6,7 @@
 use std::collections::BTreeMap;
 
 mod booleans;
+pub mod commands;
 mod roof_attach;
 mod slab_shape;
 pub use slab_shape::{ShapeHandle, ShapeInfo, SlabShape};
@@ -2263,7 +2264,9 @@ pub struct ProjectSnapshot {
     #[serde(default)]
     pub spaces: Vec<Space>,
     pub profiles: Vec<ProfileType>,
-    #[serde(default)]
+    /// Files saved before descriptors existed have user components without
+    /// one; they load with a placeholder purpose so old projects still open.
+    #[serde(default, deserialize_with = "legacy_components")]
     pub components: Vec<ComponentDefinition>,
     #[serde(default)]
     pub counters: BTreeMap<String, u32>,
@@ -2291,6 +2294,31 @@ pub struct ProjectSnapshot {
     pub view_annotations: Vec<crate::view_annotation::ViewAnnotation>,
     #[serde(default)]
     pub view_annotation_counter: u32,
+}
+
+fn legacy_components<'de, D>(de: D) -> Result<Vec<ComponentDefinition>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let mut raw: Vec<serde_json::Value> = Deserialize::deserialize(de)?;
+    for value in &mut raw {
+        if let Some(map) = value.as_object_mut() {
+            if !map.contains_key("descriptor") {
+                let name = map
+                    .get("display_name")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("component")
+                    .to_string();
+                map.insert(
+                    "descriptor".into(),
+                    serde_json::json!({ "purpose": format!("{name} (saved before descriptors; edit to describe it)") }),
+                );
+            }
+        }
+    }
+    raw.into_iter()
+        .map(|v| serde_json::from_value(v).map_err(serde::de::Error::custom))
+        .collect()
 }
 
 #[cfg(test)]
@@ -2697,6 +2725,7 @@ mod tests {
         let mut project = Project::new();
         let json = r#"{
             "id": "acme.bollard",
+            "descriptor": {"purpose": "Test component acme.bollard."},
             "display_name": "Bollard",
             "category": "site",
             "source": "visual",
@@ -2733,6 +2762,7 @@ mod tests {
         let definition: ComponentDefinition = serde_json::from_str(
             r#"{
             "id": "user.preview.box",
+            "descriptor": {"purpose": "Test component user.preview.box."},
             "display_name": "Preview box",
             "category": "custom",
             "source": "visual",

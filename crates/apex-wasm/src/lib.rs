@@ -2554,3 +2554,46 @@ pub fn abort_undo_group() -> Result<(), JsValue> {
         Ok(())
     })
 }
+
+// ---------------------------------------------------------------------------
+// Command layer (headless / MCP)
+// ---------------------------------------------------------------------------
+
+/// Run one serialized `Command` (`{"op": ...}`) as a single undo step.
+/// Returns the JSON result; errors are readable strings.
+#[wasm_bindgen(js_name = executeCommand)]
+pub fn execute_command(command_json: &str) -> Result<String, JsValue> {
+    with_project(|project| {
+        let out = project.execute_json(command_json).map_err(err)?;
+        with_selection(|s| s.set(None));
+        clear_datum_selections();
+        Ok(out.to_string())
+    })
+}
+
+/// Run one serialized read-only `Query` (`{"op": ...}`).
+/// `export_ifc` is handled here because core cannot depend on apex-ifc.
+#[wasm_bindgen(js_name = runQuery)]
+pub fn run_query(query_json: &str) -> Result<String, JsValue> {
+    with_project(|project| {
+        let value: serde_json::Value = parse_json("query", query_json)?;
+        if value.get("op").and_then(|v| v.as_str()) == Some("export_ifc") {
+            let mapping: apex_ifc::IfcMapping = match value.get("mapping") {
+                Some(m) if !m.is_null() => {
+                    serde_json::from_value(m.clone()).map_err(|e| err(e.to_string()))?
+                }
+                _ => Default::default(),
+            };
+            let ifc = apex_ifc::export_ifc4(project, &mapping);
+            return Ok(serde_json::json!({ "format": "ifc", "content": ifc }).to_string());
+        }
+        Ok(project.query_json(query_json).map_err(err)?.to_string())
+    })
+}
+
+/// Full machine-readable API: conventions, components, commands, queries,
+/// annotation kinds — every entry with its descriptor.
+#[wasm_bindgen(js_name = describeApi)]
+pub fn describe_api() -> Result<String, JsValue> {
+    with_project(|project| Ok(apex_core::api_catalog(project).to_string()))
+}

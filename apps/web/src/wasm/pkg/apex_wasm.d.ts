@@ -88,6 +88,12 @@ export function deleteViewAnnotation(id: string): any;
 export function descendantsOf(id: string): any;
 
 /**
+ * Full machine-readable API: conventions, components, commands, queries,
+ * annotation kinds — every entry with its descriptor.
+ */
+export function describeApi(): string;
+
+/**
  * Detect enclosed rooms from walls on the active level; refresh auto spaces.
  */
 export function detectRoomsFromWalls(): any;
@@ -98,6 +104,12 @@ export function duplicateView(id: string): any;
  * The level an element actually sits on, following parent inheritance.
  */
 export function effectiveLevelOf(id: string): string | undefined;
+
+/**
+ * Run one serialized `Command` (`{"op": ...}`) as a single undo step.
+ * Returns the JSON result; errors are readable strings.
+ */
+export function executeCommand(command_json: string): string;
 
 /**
  * IFC4 STEP export. `mapping_json` is an optional `{ componentId: IfcEntity }` object.
@@ -226,6 +238,12 @@ export function renameSpace(id: string, name: string): any;
 export function renameView(id: string, name: string): any;
 
 export function resetSheetViewportCrop(sheet_id: string, viewport_id: string): any;
+
+/**
+ * Run one serialized read-only `Query` (`{"op": ...}`).
+ * `export_ifc` is handled here because core cannot depend on apex-ifc.
+ */
+export function runQuery(query_json: string): string;
 
 /**
  * Persist camera / plan parameters from the shell into a saved view.
@@ -360,9 +378,11 @@ export interface InitOutput {
     readonly deleteView: (a: number, b: number) => [number, number, number];
     readonly deleteViewAnnotation: (a: number, b: number) => [number, number, number];
     readonly descendantsOf: (a: number, b: number) => [number, number, number];
+    readonly describeApi: () => [number, number, number, number];
     readonly detectRoomsFromWalls: () => [number, number, number];
     readonly duplicateView: (a: number, b: number) => [number, number, number];
     readonly effectiveLevelOf: (a: number, b: number) => [number, number, number, number];
+    readonly executeCommand: (a: number, b: number) => [number, number, number, number];
     readonly exportIfc: (a: number, b: number) => [number, number, number, number];
     readonly exportProject: () => [number, number, number, number];
     readonly exportSheetDxf: (a: number, b: number) => [number, number, number, number];
@@ -398,6 +418,7 @@ export interface InitOutput {
     readonly renameSpace: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly renameView: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly resetSheetViewportCrop: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly runQuery: (a: number, b: number) => [number, number, number, number];
     readonly saveViewState: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly selectConstructionLine: (a: number, b: number) => [number, number, number];
     readonly selectElement: (a: number, b: number) => [number, number, number];

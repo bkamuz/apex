@@ -520,6 +520,10 @@ pub enum DefinitionError {
     #[error("component id must not be empty")]
     EmptyId,
     #[error(
+        "component '{component}' has no descriptor: set `descriptor.purpose` (see docs/descriptors.md)"
+    )]
+    MissingDescriptor { component: ComponentId },
+    #[error(
         "profile '{profile}' type parameter '{param}' depends on instance parameter '{referenced}'"
     )]
     TypeDependsOnInstance {
@@ -635,6 +639,10 @@ pub struct ComponentDefinition {
     /// this on their definition — no `apex.wall` branches in App or geometry.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub joinable: bool,
+    /// Machine-readable description for agents and docs. Required: a JSON
+    /// definition without it fails to parse, and an empty purpose fails
+    /// [`ComponentDefinition::validate`].
+    pub descriptor: crate::descriptor::Descriptor,
 }
 
 impl ComponentDefinition {
@@ -642,6 +650,11 @@ impl ComponentDefinition {
     pub fn validate(&self) -> Result<(), DefinitionError> {
         if self.id.trim().is_empty() {
             return Err(DefinitionError::EmptyId);
+        }
+        if self.descriptor.is_missing() {
+            return Err(DefinitionError::MissingDescriptor {
+                component: self.id.clone(),
+            });
         }
 
         let mut seen = std::collections::BTreeSet::new();
@@ -1330,6 +1343,7 @@ mod tests {
     #[test]
     fn validate_rejects_a_recipe_that_uses_an_undeclared_param() {
         let def = ComponentDefinition {
+            descriptor: crate::Descriptor::new("test"),
             id: "acme.thing".into(),
             display_name: "Thing".into(),
             category: "generic".into(),
@@ -1365,6 +1379,7 @@ mod tests {
     #[test]
     fn validate_rejects_duplicate_and_empty_ids() {
         let mut def = ComponentDefinition {
+            descriptor: crate::Descriptor::new("test"),
             id: "acme.thing".into(),
             display_name: "Thing".into(),
             category: "generic".into(),
@@ -1406,6 +1421,7 @@ mod tests {
     #[test]
     fn a_definition_round_trips_through_json() {
         let def = ComponentDefinition {
+            descriptor: crate::Descriptor::new("test"),
             id: "acme.table".into(),
             display_name: "Table".into(),
             category: "furniture".into(),
@@ -1443,6 +1459,7 @@ mod tests {
         // The shape a module or the visual editor would hand us.
         let json = r#"{
             "id": "acme.post",
+            "descriptor": {"purpose": "Test component acme.post."},
             "display_name": "Post",
             "category": "structure",
             "source": "visual",
@@ -1482,6 +1499,7 @@ mod tests {
     #[test]
     fn resolve_params_applies_this_components_schema() {
         let def = ComponentDefinition {
+            descriptor: crate::Descriptor::new("test"),
             id: "acme.thing".into(),
             display_name: "Thing".into(),
             category: "generic".into(),
