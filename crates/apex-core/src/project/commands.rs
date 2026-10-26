@@ -8,7 +8,7 @@
 
 use std::str::FromStr;
 
-use apex_geometry::{is_watertight, mesh_volume};
+use apex_geometry::{is_closed, is_watertight, mesh_volume};
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
@@ -156,6 +156,13 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         name: Option<String>,
     },
+    UpdateSpace {
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        params: Option<ParamMap>,
+    },
     DeleteSpace {
         id: String,
     },
@@ -268,6 +275,7 @@ impl Command {
             Self::CreateReference { .. } => "create_reference",
             Self::DeleteReference { .. } => "delete_reference",
             Self::CreateSpace { .. } => "create_space",
+            Self::UpdateSpace { .. } => "update_space",
             Self::DeleteSpace { .. } => "delete_space",
             Self::DetectRooms => "detect_rooms",
             Self::CreatePlanView { .. } => "create_plan_view",
@@ -621,6 +629,16 @@ impl Project {
                 }
                 Ok(json!({ "id": id.to_string() }))
             }
+            Command::UpdateSpace { id, name, params } => {
+                let id: SpaceId = parse_id("space", &id)?;
+                if let Some(params) = params {
+                    self.update_space(id, Some(params), None, true).map_err(e)?;
+                }
+                if let Some(name) = name {
+                    self.rename_space(id, &name).map_err(e)?;
+                }
+                Ok(json!({ "id": id.to_string() }))
+            }
             Command::DeleteSpace { id } => {
                 let id: SpaceId = parse_id("space", &id)?;
                 Ok(json!({ "deleted": self.delete_space(id) }))
@@ -779,6 +797,7 @@ impl Project {
                             "id": s.id.to_string(),
                             "name": s.name,
                             "level": s.level_id.to_string(),
+                            "outline": s.placement.anchors().iter().map(|v| v.to_array()).collect::<Vec<_>>(),
                             "params": s.params,
                         })
                     })
@@ -861,13 +880,34 @@ impl Project {
             "bbox": { "min": min, "max": max, "size": size },
             "volume": mesh_volume(mesh),
             "triangles": mesh.indices.len() / 3,
-            "watertight": is_watertight(mesh),
+            "watertight": self.closed_solid_ids().contains(&id),
+            "piece_closed": is_closed(mesh),
+            "manifold": is_watertight(mesh),
             "joins": { "start": el.join_start, "end": el.join_end },
             "children": ids_json(&doc.children_of(id)),
         })
     }
 
+    /// Elements whose solid is closed. Joined walls render without the faces
+    /// they share (each render piece is open there), so the check uses the
+    /// element's own closed share of its join cluster, the same solid booleans
+    /// consume.
+    fn closed_solid_ids(&self) -> std::collections::HashSet<ElementId> {
+        let doc = self.document();
+        doc.elements()
+            .filter(|el| {
+                let own = self.closed_solid_mesh(el);
+                match own.as_ref().or_else(|| doc.get_mesh(el.id)) {
+                    Some(mesh) => !mesh.indices.is_empty() && is_closed(mesh),
+                    None => false,
+                }
+            })
+            .map(|el| el.id)
+            .collect()
+    }
+
     fn validate_json(&self) -> Value {
+        let closed = self.closed_solid_ids();
         let doc = self.document();
         let mut issues = Vec::new();
         let issue = |sev: &str, el: &crate::element::Element, text: &str| json!({"severity": sev, "element": el.id.to_string(), "name": el.name, "component": el.component_id, "message": text});
@@ -887,7 +927,7 @@ impl Project {
             }
             match doc.get_mesh(el.id) {
                 Some(mesh) if !mesh.indices.is_empty() => {
-                    if !is_watertight(mesh) {
+                    if !closed.contains(&el.id) {
                         issues.push(issue("error", el, "mesh is not watertight"));
                     }
                 }
@@ -1018,6 +1058,8 @@ pub fn command_descriptors() -> Vec<PublishedDescriptor> {
         ("delete_reference", "Delete reference", Descriptor::new("Remove a reference point or plane."), one("delete_reference")),
         ("create_space", "Create space", Descriptor::new("Add a room/space from a closed plan polygon (3+ points) on the active level.").points("closed outline, first point not repeated"),
          obj("create_space", json!({"points": points_schema(), "params": {"type": "object", "properties": space_props}, "name": {"type": "string"}}), &["points"])),
+        ("update_space", "Update space", Descriptor::new("Rename a room/space (its plan tag follows) and/or change its params.").example("Name a room", json!({"op": "update_space", "id": "<space id>", "name": "KITCHEN"})),
+         obj("update_space", json!({"id": {"type": "string"}, "name": {"type": "string"}, "params": {"type": "object", "properties": space_props}}), &["id"])),
         ("delete_space", "Delete space", Descriptor::new("Remove a space."), one("delete_space")),
         ("detect_rooms", "Detect rooms", Descriptor::new("Find closed wall loops on the active level and create or refresh automatic spaces."), none("detect_rooms")),
         ("create_plan_view", "Create plan view", Descriptor::new("Add a plan view for a level (id or name)."),
@@ -1054,11 +1096,11 @@ pub fn query_descriptors() -> Vec<PublishedDescriptor> {
         ("list_levels", "List levels", "Levels sorted by elevation, with the active one marked.", simple("list_levels", json!({}), &[])),
         ("list_elements", "List elements", "Elements, optionally filtered by level (id or name) and element type id.", simple("list_elements", json!({"level": {"type": "string"}, "component": {"type": "string"}}), &[])),
         ("get_element", "Get element", "One element: params, placement, anchors, parent and children.", simple("get_element", json!({"id": id_schema()}), &["id"])),
-        ("element_geometry", "Element geometry", "Geometry summary: bbox (m), volume (m3), triangle count, watertight flag and path join extensions.", simple("element_geometry", json!({"id": id_schema()}), &["id"])),
+        ("element_geometry", "Element geometry", "Geometry summary: bbox (m), volume (m3), triangle count, watertight flag (closed surface, T-junctions allowed), strict manifold flag and path join extensions.", simple("element_geometry", json!({"id": id_schema()}), &["id"])),
         ("validate", "Validate model", "Check every element: known type, geometry present, watertight, parent exists. `ok` is false on any error.", simple("validate", json!({}), &[])),
         ("list_components", "List element types", "Every installed element type (plugins included) with descriptor and params JSON Schema.", simple("list_components", json!({}), &[])),
         ("list_grid_axes", "List grid axes", "Grid axes with labels and end points.", simple("list_grid_axes", json!({}), &[])),
-        ("list_spaces", "List spaces", "Rooms/spaces with names and levels.", simple("list_spaces", json!({}), &[])),
+        ("list_spaces", "List spaces", "Rooms/spaces with names, levels and outline (world points, m).", simple("list_spaces", json!({}), &[])),
         ("list_views", "List views", "Saved views (plans and 3D).", simple("list_views", json!({}), &[])),
         ("list_sheets", "List sheets", "Sheets with viewport counts.", simple("list_sheets", json!({}), &[])),
         ("export_view", "Export view", "Export a plan view drawing as svg, dxf or json.", simple("export_view", json!({"id": id_schema(), "format": fmt.clone()}), &["id", "format"])),
@@ -1177,6 +1219,7 @@ mod tests {
             json!({"op": "create_reference", "kind": "point", "points": []}),
             json!({"op": "delete_reference", "id": "x"}),
             json!({"op": "create_space", "points": []}),
+            json!({"op": "update_space", "id": "x", "name": "y"}),
             json!({"op": "delete_space", "id": "x"}),
             json!({"op": "detect_rooms"}),
             json!({"op": "create_plan_view", "level": "x"}),
@@ -1436,5 +1479,24 @@ mod tests {
         let err = p.execute_json(r#"{"op": "create_element", "component": "apex.wall", "points": [[0,0,0]], "bogus": 1}"#).unwrap_err();
         assert!(err.0.contains("bogus"), "{err}");
         assert!(!p.can_undo());
+    }
+
+    #[test]
+    fn tee_joined_walls_validate_as_one_closed_mass() {
+        let mut p = Project::new();
+        let a = new_id(
+            &mut p,
+            json!({"op": "create_element", "component": "apex.wall", "points": [[0, 0, 0], [10, 0, 0]]}),
+        );
+        let b = new_id(
+            &mut p,
+            json!({"op": "create_element", "component": "apex.wall", "points": [[5, 0, 0], [5, 0, 8]]}),
+        );
+        for id in [&a, &b] {
+            let g = q(&p, json!({"op": "element_geometry", "id": id}));
+            assert_eq!(g["watertight"], true, "{g}");
+        }
+        let v = q(&p, json!({"op": "validate"}));
+        assert_eq!(v["ok"], true, "{v}");
     }
 }

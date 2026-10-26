@@ -4,6 +4,9 @@ import initWasm, {
   createLevel,
   deleteSelected,
   getScene,
+  executeCommand,
+  runQuery,
+  describeApi,
   getSelected,
   initApp,
   setElementParent,
@@ -713,4 +716,23 @@ export function apexSetSheetViewportScale(
   scaleDenominator: number,
 ): SceneDto {
   return asScene(setSheetViewportScale(sheetId, viewportId, scaleDenominator));
+}
+
+// ---------------------------------------------------------------------------
+// Headless command layer (the same API the MCP server drives).
+// ---------------------------------------------------------------------------
+
+/** Run one serialized command (`{op, ...}`); one undo step. Returns its JSON result. */
+export function apexExecuteCommand(command: Record<string, unknown>): unknown {
+  return JSON.parse(executeCommand(JSON.stringify(command)));
+}
+
+/** Run one read-only query or export (`{op, ...}`). */
+export function apexRunQuery(query: Record<string, unknown>): unknown {
+  return JSON.parse(runQuery(JSON.stringify(query)));
+}
+
+/** Machine-readable catalog of element types, commands, queries and annotation kinds. */
+export function apexDescribeApi(): unknown {
+  return JSON.parse(describeApi());
 }

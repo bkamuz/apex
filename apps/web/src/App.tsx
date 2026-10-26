@@ -141,6 +141,7 @@ import { ToolsToolbar } from './ui/ToolsToolbar';
 import { GettingStartedPanel } from './ui/GettingStartedPanel';
 import { buildSampleProject } from './ui/sampleProject';
 import { defaultNewProfile, defaultPlacementParams, nextProfileId } from './ui/profileModel';
+import { AgentBridgeControl } from './ui/AgentBridgeControl';
 import { clearStoredProject, downloadText, loadStoredProject, storeProject } from './persist';
 import { useMediaQuery } from './hooks/useMediaQuery';
 import { ToolRegistry } from './tools/registry';
@@ -2507,6 +2508,17 @@ export default function App() {
             <button type="button" onClick={onNewProject} data-testid="new-project">
               New
             </button>
+            <AgentBridgeControl
+              onModelChanged={(fit) => {
+                applyScene(apexGetScene(), fit);
+                syncCatalog();
+              }}
+              screenshot={async () => {
+                const r = rendererRef.current;
+                if (!r) throw new Error('no 3D viewport is open');
+                return r.snapshotDataUrl();
+              }}
+            />
             <input
               ref={fileRef}
               type="file"

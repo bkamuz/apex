@@ -247,6 +247,11 @@ export function ComponentEditor({ initial, originalId, profiles, onSave, onClose
       category: component.category.trim(),
       source: 'visual',
     };
+    // Descriptors are mandatory in core; default the purpose when left blank.
+    const purpose =
+      component.descriptor?.purpose?.trim() ||
+      `${component.display_name.trim() || component.id.trim()}: user-authored ${component.placement} element.`;
+    component = { ...component, descriptor: { ...component.descriptor, purpose } };
     const validation = validateComponentDraft(component);
     if (validation) {
       setError(validation);
@@ -369,6 +374,18 @@ export function ComponentEditor({ initial, originalId, profiles, onSave, onClose
                   type="text"
                   value={draft.category}
                   onChange={(e) => setDraft((prev) => ({ ...prev, category: e.target.value }))}
+                />
+              </div>
+              <div className="field">
+                <label>Purpose</label>
+                <textarea
+                  data-testid="component-purpose"
+                  rows={2}
+                  placeholder="What it models and when to use it (shown to agents)"
+                  value={draft.descriptor?.purpose ?? ''}
+                  onChange={(e) =>
+                    setDraft((prev) => ({ ...prev, descriptor: { ...prev.descriptor, purpose: e.target.value } }))
+                  }
                 />
               </div>
 
