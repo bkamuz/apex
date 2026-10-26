@@ -152,6 +152,84 @@ fn project_onto_curve_xz(curve: &apex_geometry::Curve, p: Vec3) -> Option<Vec3> 
     best.map(|(q, _)| q)
 }
 
+/// One closed solid for a door/window frame (or a window sash): the outer
+/// rectangle `[a0, a1] x [y0, y1]` (along the wall `u`, height `y`) minus the
+/// inner clear opening `[b0, b1] x [z0, z1]`, `hn` either side of the wall
+/// centre along `n`. When `z0 <= y0` the bottom member is omitted (a door):
+/// the section is a U. Cap faces are split into coplanar trapezoids that
+/// share only true corners, and edges are emitted only for real outline
+/// corners, so mitred member joints draw no seam line and nothing overlaps
+/// (no z-fighting).
+const SASH_GAP: f32 = 0.002;
+
+#[allow(clippy::too_many_arguments)]
+fn push_frame(
+    mesh: &mut TriangleMesh,
+    c: Vec3,
+    u: Vec3,
+    n: Vec3,
+    outer: [f32; 4],
+    inner: [f32; 4],
+    hn: f32,
+) {
+    let [a0, a1, y0, y1] = outer;
+    let [b0, b1, z0, z1] = inner;
+    let open_bottom = z0 <= y0 + 1e-6;
+    let (o0, o1, o2, o3) = ([a0, y0], [a1, y0], [a1, y1], [a0, y1]);
+    let (i0, i1, i2, i3) = ([b0, y0.max(z0)], [b1, y0.max(z0)], [b1, z1], [b0, z1]);
+    // Boundary loops, material on the left (outer CCW, hole CW).
+    let loops: Vec<Vec<[f32; 2]>> = if open_bottom {
+        vec![vec![o0, i0, i3, i2, i1, o1, o2, o3]]
+    } else {
+        vec![vec![o0, o1, o2, o3], vec![i0, i3, i2, i1]]
+    };
+    let caps: Vec<[[f32; 2]; 4]> = if open_bottom {
+        vec![[o0, i0, i3, o3], [o3, i3, i2, o2], [i1, o1, o2, i2]]
+    } else {
+        vec![
+            [o0, o1, i1, i0],
+            [o1, o2, i2, i1],
+            [o2, o3, i3, i2],
+            [o3, o0, i0, i3],
+        ]
+    };
+    let pt = |q: [f32; 2], s: f32| -> Vec3 {
+        let p = c + u * q[0] + n * (s * hn);
+        Vec3::new(p.x, q[1], p.z)
+    };
+    let mut tri = |a: Vec3, b: Vec3, d: Vec3, nn: Vec3| {
+        if (b - a).cross(d - a).dot(nn) >= 0.0 {
+            mesh.push_triangle(a.to_array(), b.to_array(), d.to_array(), nn.to_array());
+        } else {
+            mesh.push_triangle(a.to_array(), d.to_array(), b.to_array(), nn.to_array());
+        }
+    };
+    for s in [-1.0_f32, 1.0] {
+        for q in &caps {
+            let v = q.map(|p| pt(p, s));
+            tri(v[0], v[1], v[2], n * s);
+            tri(v[0], v[2], v[3], n * s);
+        }
+    }
+    let mut edges = Vec::new();
+    for lp in &loops {
+        for k in 0..lp.len() {
+            let (p, q) = (lp[k], lp[(k + 1) % lp.len()]);
+            let (da, dy) = (q[0] - p[0], q[1] - p[1]);
+            let nn = (u * dy + Vec3::Y * -da).normalize_or_zero();
+            let (pa, pb, qa, qb) = (pt(p, -1.0), pt(p, 1.0), pt(q, -1.0), pt(q, 1.0));
+            tri(pa, qa, qb, nn);
+            tri(pa, qb, pb, nn);
+            edges.push((pa, qa));
+            edges.push((pb, qb));
+            edges.push((pa, pb));
+        }
+    }
+    for (a, b) in edges {
+        mesh.push_edge(a.to_array(), b.to_array());
+    }
+}
+
 /// Box in a wall frame: `u` along the wall, `n` across, +Y up. `cu`/`hu` are
 /// centre and half length along `u`; `hn` is half depth along `n`.
 #[allow(clippy::too_many_arguments)]
@@ -1879,29 +1957,19 @@ impl Project {
         let y1 = y0 + height;
         let hw = width * 0.5;
         let fd = half_t; // frame fills the wall depth
-                         // Jambs.
-        for s in [-1.0_f32, 1.0] {
-            push_box(
-                &mut mesh,
-                center,
-                u,
-                n,
-                s * (hw - fw * 0.5),
-                fw * 0.5,
-                y0,
-                y1,
-                fd,
-            );
-        }
-        // Head.
-        push_box(&mut mesh, center, u, n, 0.0, hw, y1 - fw, y1, fd);
-        // Sill / threshold.
-        // Doors get no threshold: the plan reads the opening as a clean
-        // break in the wall with jamb lines only.
+                         // Doors get no threshold: the plan reads the opening as a clean
+                         // break in the wall with jamb lines only.
         let sill_t = if is_door { 0.0 } else { fw };
-        if !is_door {
-            push_box(&mut mesh, center, u, n, 0.0, hw, y0, y0 + sill_t, fd);
-        }
+        // Jambs, head and sill as one mitred solid (no member seams).
+        push_frame(
+            &mut mesh,
+            center,
+            u,
+            n,
+            [-hw, hw, y0, y1],
+            [-(hw - fw), hw - fw, y0 + sill_t, y1 - fw],
+            fd,
+        );
         // Leaf or glass, centred in the hole.
         let inner = hw - fw;
         let (py0, py1, pt) = (y0 + sill_t, y1 - fw, 0.025);
@@ -1929,23 +1997,24 @@ impl Project {
                     mesh.push_edge(at(t0), at(t1));
                 }
             } else {
-                // Mullion-free sash frame around the glass.
+                // Mullion-free sash frame around the glass, one solid.
                 let sf = 0.03;
-                for s in [-1.0_f32, 1.0] {
-                    push_box(
-                        &mut mesh,
-                        center,
-                        u,
-                        n,
-                        s * (inner - sf * 0.5),
-                        sf * 0.5,
-                        py0,
-                        py1,
-                        0.03,
-                    );
-                }
-                push_box(&mut mesh, center, u, n, 0.0, inner, py1 - sf, py1, 0.03);
-                push_box(&mut mesh, center, u, n, 0.0, inner, py0, py0 + sf, 0.03);
+                push_frame(
+                    &mut mesh,
+                    center,
+                    u,
+                    n,
+                    // 2 mm gap to the frame: a separate body, no coplanar
+                    // faces (the gap line is a real one).
+                    [
+                        -(inner - SASH_GAP),
+                        inner - SASH_GAP,
+                        py0 + SASH_GAP,
+                        py1 - SASH_GAP,
+                    ],
+                    [-(inner - sf), inner - sf, py0 + sf, py1 - sf],
+                    0.03,
+                );
                 // Glass pane: normals tagged (length 2) so the renderer draws
                 // it in its translucent glass pass instead of as a solid.
                 let first = mesh.normals.len();
@@ -3923,6 +3992,81 @@ mod plugin_first_tests {
 
     /// Door/window leaf and its wall void must run along the wall axis for
     /// walls in every plan direction, including the 2nd leg of a polyline.
+    fn frame_edges_local(mesh: &TriangleMesh) -> Vec<([f32; 3], [f32; 3])> {
+        mesh.edges
+            .chunks(6)
+            .map(|e| ([e[0], e[1], e[2]], [e[3], e[4], e[5]]))
+            .collect()
+    }
+
+    /// Frames are one mitred solid: watertight (so no internal or
+    /// overlapping faces), and no seam/mitre edge at member joints.
+    #[test]
+    fn opening_frames_are_one_seamless_solid() {
+        for open_bottom in [false, true] {
+            let mut mesh = TriangleMesh::empty();
+            let z0 = if open_bottom { 0.0 } else { 0.06 };
+            push_frame(
+                &mut mesh,
+                Vec3::ZERO,
+                Vec3::X,
+                Vec3::Z,
+                [-0.5, 0.5, 0.0, 2.0],
+                [-0.44, 0.44, z0, 1.94],
+                0.1,
+            );
+            assert!(apex_geometry::is_watertight(&mesh), "frame watertight");
+            let edges = frame_edges_local(&mesh);
+            assert_eq!(edges.len(), 24);
+            for (a, b) in edges {
+                let axes = (0..3).filter(|&k| (a[k] - b[k]).abs() > 1e-6).count();
+                assert_eq!(axes, 1, "diagonal (mitre/seam) edge {a:?}-{b:?}");
+                // No edge across the cap at a member joint (inner corner
+                // to outer corner).
+                let on_cap = (a[2] - b[2]).abs() < 1e-6;
+                if on_cap {
+                    let ys = [a[1], b[1]];
+                    let xs = [a[0], b[0]];
+                    let inside_x = xs.iter().all(|x| x.abs() <= 0.44 + 1e-6)
+                        || xs.iter().all(|x| x.abs() >= 0.44 - 1e-6);
+                    assert!(inside_x || ys[0] == ys[1], "joint seam {a:?}-{b:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn hosted_window_and_door_frames_have_no_member_seams() {
+        for component in ["apex.window", "apex.door"] {
+            let mut project = Project::new();
+            let wall = project
+                .create_element(
+                    "apex.wall",
+                    Placement::line(Vec3::ZERO, Vec3::new(6.0, 0.0, 0.0)),
+                    ParamMap::new(),
+                )
+                .expect("wall");
+            let opening = project
+                .create_element_with_parent(
+                    component,
+                    Placement::point(Vec3::new(3.0, 0.0, 0.0)),
+                    ParamMap::new().with("width", ParamValue::Length(1.0)),
+                    Some(wall),
+                )
+                .expect("opening");
+            let mesh = project.document().get_mesh(opening).expect("mesh");
+            // Before: 4 boxes x 12 edges for the frame alone, plus seams.
+            // Now frame 24 + (window: sash 24 + glass 12 | door: leaf 12 + arc 16).
+            let expected = if component == "apex.window" { 60 } else { 52 };
+            assert_eq!(mesh.edges.len() / 6, expected, "{component}");
+            // Deterministic.
+            let again = project
+                .build_uncombined_mesh(project.document().get_element(opening).unwrap())
+                .unwrap();
+            assert_eq!(again.positions, mesh.positions);
+        }
+    }
+
     #[test]
     fn hosted_openings_align_with_the_wall_axis() {
         let s = std::f32::consts::FRAC_1_SQRT_2 * 6.0;
