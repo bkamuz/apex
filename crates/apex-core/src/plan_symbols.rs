@@ -202,8 +202,13 @@ fn stair_lines(c: [Vec3; 4], steps: u32, height: f32, out: &mut Vec<Vec3>) {
     push(out, z0 + n * 0.5 + d * 0.04, z1 - n * 0.5 - d * 0.04);
     push(out, z1 - n * 0.5 - d * 0.04, z1);
     push(out, z1, p1);
-    // Walking line from the first step to the cut, arrowhead at the end.
-    let s = c[0] + span * 0.5 + step_len * 0.3;
+    // "UP" label at the foot of the run, always upright on the sheet (plan up
+    // is -Z), then the walking line from it to the cut, arrowhead at the end.
+    let up_dir = run.normalize_or_zero();
+    let h = (span.length() * 0.22).clamp(0.08, 0.2);
+    let label = c[0] + span * 0.5 + up_dir * (step_len.length() * 0.3 + h * 0.8);
+    up_label(label + Vec3::Z * (h * 0.5), Vec3::X, Vec3::NEG_Z, h, out);
+    let s = label + up_dir * (h * 1.4);
     let e = c[0] + span * 0.5 + run * t_cut - step_len * 0.9;
     push(out, s, e);
     let back = (s - e).normalize_or_zero() * 0.18;
@@ -211,6 +216,29 @@ fn stair_lines(c: [Vec3; 4], steps: u32, height: f32, out: &mut Vec<Vec3>) {
     push(out, e, e + back + side);
     push(out, e, e + back - side);
 }
+
+/// Line glyphs for "UP": `base` is the bottom centre, letters `h` tall.
+fn up_label(base: Vec3, right: Vec3, up: Vec3, h: f32, out: &mut Vec<Vec3>) {
+    let w = h * 0.6;
+    let gap = h * 0.3;
+    let x0 = -(2.0 * w + gap) * 0.5;
+    let at = |x: f32, y: f32| base + right * x + up * (y * h);
+    // U
+    let (u0, u1) = (x0, x0 + w);
+    push(out, at(u0, 1.0), at(u0, 0.0));
+    push(out, at(u0, 0.0), at(u1, 0.0));
+    push(out, at(u1, 0.0), at(u1, 1.0));
+    // P
+    let (p0, p1) = (u1 + gap, u1 + gap + w);
+    push(out, at(p0, 0.0), at(p0, 1.0));
+    push(out, at(p0, 1.0), at(p1, 1.0));
+    push(out, at(p1, 1.0), at(p1, 0.5));
+    push(out, at(p1, 0.5), at(p0, 0.5));
+}
+
+/// Segments drawn by [`up_label`].
+#[cfg(test)]
+const UP_LABEL_SEGMENTS: usize = 7;
 
 #[cfg(test)]
 mod tests {
@@ -245,9 +273,18 @@ mod tests {
         ];
         let mut out = Vec::new();
         stair_lines(c, 18, 3.0, &mut out);
-        // 3 outline + (cut_step-1) treads + 5 cut + 3 arrow segments.
+        // 3 outline + (cut_step-1) treads + 5 cut + UP label + 3 arrow segments.
         let cut_step = (1.2_f32 / (3.0 / 18.0)).ceil() as usize;
-        assert_eq!(out.len() / 2, 3 + (cut_step - 1) + 5 + 3);
+        assert_eq!(
+            out.len() / 2,
+            3 + (cut_step - 1) + 5 + UP_LABEL_SEGMENTS + 3
+        );
+        // The arrow points up the run (a→b, +x here) and starts past the label.
+        let n = out.len();
+        let label = &out[n - 6 - 2 * UP_LABEL_SEGMENTS..n - 6];
+        let (start, tip) = (out[n - 6], out[n - 5]);
+        assert!(tip.x > start.x + 0.3);
+        assert!(label.iter().all(|p| p.x < start.x + 1e-4 && p.x > 0.0));
         // Nothing past the cut line.
         let x_cut = 4.0 * cut_step as f32 / 18.0;
         assert!(out.iter().all(|p| p.x <= x_cut + 0.3));

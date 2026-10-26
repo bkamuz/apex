@@ -501,20 +501,28 @@ impl LayeredSolid {
                         if !keep(mid, normal) {
                             continue;
                         }
+                        // Each chain clipped to [ta, tb]; a breakpoint that only
+                        // the other chain carries gets an interpolated point so
+                        // both sides of the strip always reach its ends.
+                        let at = |t: f64| (t, [p[0] + d[0] * t, p[1] + d[1] * t]);
                         let within = |c: &[(f64, [f64; 2])]| -> Vec<(f64, [f64; 2])> {
-                            c.iter()
-                                .filter(|(t, _)| *t >= ta - 1e-12 && *t <= tb + 1e-12)
+                            let mut v: Vec<(f64, [f64; 2])> = c
+                                .iter()
+                                .filter(|(t, _)| *t > ta + 1e-12 && *t < tb - 1e-12)
                                 .copied()
-                                .collect()
+                                .collect();
+                            let end = |t: f64| {
+                                c.iter()
+                                    .copied()
+                                    .find(|(u, _)| (u - t).abs() <= 1e-12)
+                                    .unwrap_or(at(t))
+                            };
+                            v.insert(0, end(ta));
+                            v.push(end(tb));
+                            v
                         };
                         let (bs, ts) = (within(&bottom), within(&top));
-                        if bs.len() >= 2 && ts.len() >= 2 {
-                            zipper(&mut mesh, &bs, yb, &ts, yt, normal);
-                        } else if bs.len() >= 2 {
-                            // Top chain has no point at ta/tb: cannot happen as
-                            // both chains carry the edge endpoints, but stay safe.
-                            zipper(&mut mesh, &bs, yb, &top, yt, normal);
-                        }
+                        zipper(&mut mesh, &bs, yb, &ts, yt, normal);
                     }
                 }
             }
@@ -1011,5 +1019,59 @@ mod tests {
         let back = LayeredSolid::from_vertical_prism_mesh(&mesh).unwrap();
         assert!(close(back.volume(), 2.0));
         assert_eq!(back.y_range(), Some((0.5, 1.5)));
+    }
+}
+
+#[cfg(test)]
+mod side_strip_tests {
+    use super::*;
+
+    fn mesh_area(m: &TriangleMesh) -> f64 {
+        let p = |i: u32| {
+            let i = i as usize * 3;
+            [
+                m.positions[i] as f64,
+                m.positions[i + 1] as f64,
+                m.positions[i + 2] as f64,
+            ]
+        };
+        m.indices
+            .chunks(3)
+            .map(|t| {
+                let (a, b, c) = (p(t[0]), p(t[1]), p(t[2]));
+                let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+                let w = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+                let n = [
+                    u[1] * w[2] - u[2] * w[1],
+                    u[2] * w[0] - u[0] * w[2],
+                    u[0] * w[1] - u[1] * w[0],
+                ];
+                0.5 * (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt()
+            })
+            .sum()
+    }
+
+    /// A wall with a window: the band under the sill has no breakpoints on
+    /// its bottom chain, only on its top one (the window jambs). Meshing it
+    /// inside a cluster must still emit the full face below the sill.
+    #[test]
+    fn face_below_window_sill_survives_meshing_within_cluster() {
+        let wall = LayeredSolid::polygon_prism(
+            &[[0.0, -0.1], [8.0, -0.1], [8.0, 0.1], [0.0, 0.1]],
+            0.0,
+            3.0,
+        );
+        let window = LayeredSolid::polygon_prism(
+            &[[3.4, -0.6], [4.6, -0.6], [4.6, 0.6], [3.4, 0.6]],
+            0.88,
+            2.32,
+        );
+        let piece = wall.subtract(&window);
+        let alone = mesh_area(&piece.to_mesh());
+        let within = mesh_area(&piece.to_mesh_within(&piece));
+        assert!(
+            (alone - within).abs() < 1e-3,
+            "alone {alone} within {within}"
+        );
     }
 }
