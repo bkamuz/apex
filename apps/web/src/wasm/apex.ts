@@ -26,6 +26,8 @@ import initWasm, {
   togglePickById,
   toggleSelectElement,
   updateElement,
+  slabShapeInfo,
+  setSlabShape,
   updateProfileType,
   exportProject,
   exportIfc,
@@ -113,6 +115,8 @@ import type {
   SectionCutDto,
   SpaceDto,
   Vec3,
+  SlabShapeDto,
+  SlabShapeInfoDto,
 } from '../types';
 
 let ready = false;
@@ -340,6 +344,16 @@ export function apexImportProject(json: string): SceneDto {
 
 export function apexNewProject(): SceneDto {
   return asScene(newProject());
+}
+
+/** Editable shape of a slab / flat roof, or null. */
+export function apexSlabShapeInfo(id: string): SlabShapeInfoDto | null {
+  return (slabShapeInfo(id) as SlabShapeInfoDto | undefined) ?? null;
+}
+
+/** Replace a slab's shape; one undo step. */
+export function apexSetSlabShape(id: string, shape: SlabShapeDto): SceneDto {
+  return asScene(setSlabShape(id, JSON.stringify(shape)));
 }
 
 export function apexUndo(): SceneDto {

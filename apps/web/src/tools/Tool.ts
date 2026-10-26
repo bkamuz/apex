@@ -53,6 +53,13 @@ export interface ToolContext {
   selectAt(clientX: number, clientY: number, multi: boolean): void;
   /** Anchor index of the edit handle under the cursor, or null. */
   hitEditHandle(clientX: number, clientY: number): number | null;
+  /** Shape-edit handle under the cursor (slab sub-element mode), or null. */
+  hitShapeHandle?(clientX: number, clientY: number): number | null;
+  /** Start dragging a shape handle vertically. */
+  beginShapeDrag?(index: number, clientX: number, clientY: number): void;
+  moveShapeDrag?(clientX: number, clientY: number): void;
+  /** Commit the dragged offset (one undo step). */
+  endShapeDrag?(): void;
   /** Anchors of the selected element, when exactly one is selected. */
   selectedAnchors(): Vec3[] | null;
   /** Live-update the selected element's placement while dragging. */

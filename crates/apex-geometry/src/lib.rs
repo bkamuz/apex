@@ -14,6 +14,7 @@ mod join;
 mod mesh;
 mod prism;
 mod profile;
+mod shaped;
 mod sweep;
 
 pub use csg::{box_mesh, cylinder_mesh, mesh_boolean, mesh_volume, CsgError};
@@ -30,4 +31,5 @@ pub use prism::{
     region_union, BooleanOp, LayeredSolid, Region, Ring,
 };
 pub use profile::{Justification, Point2, Profile};
+pub use shaped::{ShapedSurface, SurfaceMesh, Underside};
 pub use sweep::{extrude, sweep, SweepOptions};

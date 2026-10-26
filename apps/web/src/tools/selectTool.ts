@@ -18,6 +18,7 @@ interface AnchorDrag {
  */
 export function createSelectTool(): Tool {
   let drag: AnchorDrag | null = null;
+  let shapeDrag = false;
 
   return {
     id: SELECT_TOOL_ID,
@@ -30,6 +31,13 @@ export function createSelectTool(): Tool {
     },
 
     onPointerDown(e, ctx) {
+      const shapeIndex = ctx.hitShapeHandle?.(e.clientX, e.clientY) ?? null;
+      if (shapeIndex !== null) {
+        shapeDrag = true;
+        ctx.beginShapeDrag?.(shapeIndex, e.clientX, e.clientY);
+        ctx.setTouchOrbitEnabled(false);
+        return true;
+      }
       const anchors = ctx.selectedAnchors();
       if (!anchors) return false;
       const index = ctx.hitEditHandle(e.clientX, e.clientY);
@@ -42,6 +50,10 @@ export function createSelectTool(): Tool {
     },
 
     onPointerMove(e, ctx) {
+      if (shapeDrag) {
+        ctx.moveShapeDrag?.(e.clientX, e.clientY);
+        return;
+      }
       if (!drag) {
         const point = ctx.resolvePoint(e.clientX, e.clientY, e.shift, null);
         ctx.showSnapMarker(point, e.shift);
@@ -60,6 +72,12 @@ export function createSelectTool(): Tool {
     },
 
     onPointerUp(_e, ctx) {
+      if (shapeDrag) {
+        shapeDrag = false;
+        ctx.setTouchOrbitEnabled(true);
+        ctx.endShapeDrag?.();
+        return;
+      }
       const current = drag;
       drag = null;
       ctx.setTouchOrbitEnabled(true);
@@ -69,11 +87,13 @@ export function createSelectTool(): Tool {
     onClick(e, ctx) {
       // A click on a handle should edit, not deselect.
       if (ctx.hitEditHandle(e.clientX, e.clientY) !== null) return;
+      if ((ctx.hitShapeHandle?.(e.clientX, e.clientY) ?? null) !== null) return;
       ctx.selectAt(e.clientX, e.clientY, e.multi);
     },
 
     cancel(ctx) {
       drag = null;
+      shapeDrag = false;
       ctx.setTouchOrbitEnabled(true);
     },
   };

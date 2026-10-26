@@ -1366,6 +1366,24 @@ export function setSheetViewportScale(sheet_id, viewport_id, scale_denominator) 
 }
 
 /**
+ * Replace a slab's shape (`{z, points, creases}`); one undo step.
+ * @param {string} id
+ * @param {string} shape_json
+ * @returns {any}
+ */
+export function setSlabShape(id, shape_json) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(shape_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.setSlabShape(ptr0, len0, ptr1, len1);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * @param {string} id
  * @param {string} points_json
  * @param {number} rotation
@@ -1378,6 +1396,22 @@ export function setSpacePlacement(id, points_json, rotation, record_history) {
     const ptr1 = passStringToWasm0(points_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len1 = WASM_VECTOR_LEN;
     const ret = wasm.setSpacePlacement(ptr0, len0, ptr1, len1, rotation, record_history);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * A slab's editable shape (`{shape, handles, creases, thickness}`), or
+ * `null` when the element has none.
+ * @param {string} id
+ * @returns {any}
+ */
+export function slabShapeInfo(id) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.slabShapeInfo(ptr0, len0);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }

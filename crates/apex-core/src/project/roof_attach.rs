@@ -7,10 +7,12 @@
 //! live because roofs list attached walls as solid dependents.
 
 use apex_geometry::{
-    extrude, mesh_boolean, polygon_region, BooleanOp, Frame, LayeredSolid, Profile, TriangleMesh,
+    mesh_boolean, polygon_region, BooleanOp, LayeredSolid, ShapedSurface, TriangleMesh, Underside,
 };
+#[cfg(test)]
 use glam::Vec3;
 
+use crate::builders::RoofShape;
 use crate::element::{Element, ElementId};
 
 use super::Project;
@@ -20,59 +22,35 @@ pub(crate) const ATTACH_TOP: &str = "attach_top";
 const WALL: &str = "apex.wall";
 const FAR: f64 = 1.0e4;
 
-/// The underside of a pitched roof: two planes meeting at the ridge.
-#[derive(Debug, Clone, Copy)]
+/// The underside of a pitched (gable or hip) roof.
+#[derive(Debug, Clone)]
 pub(crate) struct RoofUnderside {
-    /// Ridge start (at eave height, on the centre line).
-    pub a: Vec3,
-    /// Unit ridge direction (horizontal).
-    pub dir: Vec3,
-    pub run: f32,
-    /// Unit horizontal direction across the ridge.
-    pub side: Vec3,
-    pub half: f32,
-    /// Underside height at the eave line and at the ridge.
+    pub surface: ShapedSurface,
+    pub footprint: [[f64; 2]; 4],
+    /// Underside height at the wall line and at the ridge.
+    #[allow(dead_code)]
     pub eave_y: f32,
     pub ridge_y: f32,
 }
 
 impl RoofUnderside {
-    /// Plan footprint corners (XZ).
+    /// Plan footprint corners (XZ), overhang included.
     pub fn footprint(&self) -> Vec<[f64; 2]> {
-        let b = self.a + self.dir * self.run;
-        let s = self.side * self.half;
-        [self.a - s, b - s, b + s, self.a + s]
-            .iter()
-            .map(|p| [p.x as f64, p.z as f64])
-            .collect()
+        self.footprint.to_vec()
     }
 
-    /// Underside height above plan point `p` (ignores the footprint bounds).
+    /// Underside height above plan point `p` (None outside the footprint).
     #[cfg(test)]
     pub fn height_at(&self, p: Vec3) -> f32 {
-        let s = (p - self.a).dot(self.side).abs().min(self.half);
-        self.ridge_y + (self.eave_y - self.ridge_y) * (s / self.half)
+        self.surface
+            .height_at(p.x as f64, p.z as f64)
+            .unwrap_or(f64::NAN) as f32
     }
 
     /// Closed solid of everything under the roof underside inside the
     /// footprint, from `y_low` up.
     pub fn below_mesh(&self, y_low: f32) -> Option<TriangleMesh> {
-        let frame = Frame {
-            origin: Vec3::new(self.a.x, 0.0, self.a.z),
-            x: self.side,
-            y: Vec3::Y,
-            z: self.dir,
-        };
-        let h = self.half;
-        let pts = vec![
-            [-h, y_low],
-            [h, y_low],
-            [h, self.eave_y],
-            [0.0, self.ridge_y],
-            [-h, self.eave_y],
-        ];
-        let profile = Profile::polygon(pts).ok()?;
-        extrude(&profile, &frame, self.run).ok()
+        self.surface.solid(Underside::Flat(y_low as f64)).ok()
     }
 }
 
@@ -95,34 +73,17 @@ impl Project {
             .registry
             .eval_params(&roof.component_id, &roof.params)
             .ok()?;
-        let num = |k: &str, d: f64| p.number(k).unwrap_or(d) as f32;
-        let half = num("width", 8.0).max(0.2) * 0.5;
-        let rise = num("rise", 1.8).max(0.05);
-        let thickness = num("thickness", 0.15).max(0.02);
-        let lift = num("base_offset", 0.0);
         let anchors = roof.placement.anchors();
         let [a, b, ..] = anchors.as_slice() else {
             return None;
         };
-        let flat = Vec3::new(b.x - a.x, 0.0, b.z - a.z);
-        let run = flat.length();
-        if run < 1e-4 {
-            return None;
-        }
-        let dir = flat / run;
-        let side = Vec3::Y.cross(dir).normalize();
-        // The roof slab is centred on the eave–ridge plane: its underside
-        // sits half a thickness lower, measured along the slope normal.
-        let drop = thickness * 0.5 * (half * half + rise * rise).sqrt() / half;
-        let eave_y = a.y + lift - drop;
+        let shape = RoofShape::from_params(&p, *a, *b)?;
+        let eave_y = (a.y as f64 + p.number("base_offset").unwrap_or(0.0)) as f32;
         Some(RoofUnderside {
-            a: Vec3::new(a.x, 0.0, a.z),
-            dir,
-            run,
-            side,
-            half,
+            surface: shape.underside(),
+            footprint: shape.footprint,
             eave_y,
-            ridge_y: eave_y + rise,
+            ridge_y: (shape.ridge_top - shape.drop) as f32,
         })
     }
 

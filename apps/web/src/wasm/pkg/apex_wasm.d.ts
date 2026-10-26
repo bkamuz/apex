@@ -277,7 +277,18 @@ export function setSheetViewportCrop(sheet_id: string, viewport_id: string, crop
 
 export function setSheetViewportScale(sheet_id: string, viewport_id: string, scale_denominator: number): any;
 
+/**
+ * Replace a slab's shape (`{z, points, creases}`); one undo step.
+ */
+export function setSlabShape(id: string, shape_json: string): any;
+
 export function setSpacePlacement(id: string, points_json: string, rotation: number, record_history: boolean): any;
+
+/**
+ * A slab's editable shape (`{shape, handles, creases, thickness}`), or
+ * `null` when the element has none.
+ */
+export function slabShapeInfo(id: string): any;
 
 export function togglePickById(pick_id: number): any;
 
@@ -404,7 +415,9 @@ export interface InitOutput {
     readonly setSectionCutPlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly setSheetViewportCrop: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly setSheetViewportScale: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
+    readonly setSlabShape: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly setSpacePlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
+    readonly slabShapeInfo: (a: number, b: number) => [number, number, number];
     readonly togglePickById: (a: number) => [number, number, number];
     readonly toggleSelectElement: (a: number, b: number) => [number, number, number];
     readonly translateSelection: (a: number, b: number, c: number) => [number, number, number];

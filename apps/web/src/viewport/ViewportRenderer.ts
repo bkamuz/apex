@@ -1589,7 +1589,12 @@ export class ViewportRenderer {
     );
   }
 
-  setEditGizmo(anchors: Vec3[] | null): void {
+  /**
+   * Edit handles plus the lines between them. `segments` (pairs of points)
+   * replaces the default polyline through the anchors, e.g. a slab's shape
+   * outline and creases.
+   */
+  setEditGizmo(anchors: Vec3[] | null, segments?: Vec3[]): void {
     const gl = this.gl;
     if (!anchors || anchors.length === 0) {
       this.editLineCount = 0;
@@ -1600,8 +1605,11 @@ export class ViewportRenderer {
     this.includePoints(anchors);
 
     // Seat on the level plane; overlay + point eye-pull keep the gizmo readable.
-    this.editLineCount =
-      anchors.length >= 2
+    this.editLineCount = segments
+      ? segments.length >= 2
+        ? this.uploadThickLines(this.editLineBuf, flatten(segments))
+        : 0
+      : anchors.length >= 2
         ? this.uploadThickLines(this.editLineBuf, segmentsThrough(anchors))
         : 0;
 

@@ -9,8 +9,6 @@ description = "Apex BIM document model: elements, levels, parameters"
 apex-geometry = { workspace = true }
 glam = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 thiserror = { workspace = true }
 uuid = { workspace = true }
-
-[dev-dependencies]
-serde_json = { workspace = true }

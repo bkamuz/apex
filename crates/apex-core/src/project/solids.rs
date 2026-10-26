@@ -212,6 +212,10 @@ impl Project {
         if def.host_cut.is_some() {
             return None;
         }
+        if self.shaped_surface(element).is_some() {
+            // Not a vertical prism: built by `shaped_slab_mesh` instead.
+            return None;
+        }
         let joinable = def.joinable;
         let voids = self.void_solids(element);
         if !joinable && voids.is_empty() {
@@ -422,6 +426,9 @@ impl Project {
     /// face, including the ones shared with peers). Boolean operands need it:
     /// the render mesh drops faces inside the cluster and is open there.
     pub(crate) fn closed_solid_mesh(&self, element: &Element) -> Option<TriangleMesh> {
+        if let Some(mesh) = self.shaped_slab_mesh(element) {
+            return Some(mesh);
+        }
         let (piece, _) = self.solid_piece(element)?;
         if let Some(clipped) = self.roof_clipped(element, &piece) {
             return Some(clipped);
