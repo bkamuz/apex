@@ -22,22 +22,42 @@ fn write_line(out: &mut String, layer: &str, a: [f64; 2], b: [f64; 2], z: f64) {
 }
 
 fn write_text(out: &mut String, text: &VectorText2d, z: f64) {
+    // Centred labels (grid bubbles, room tags) align middle-centre on
+    // their position, like the SVG export.
+    let align = text.centered.then_some((1, 2));
+    write_text_at(out, text, z, 0.0, align);
+}
+
+/// TEXT entity. `angle_deg` is group 50; `align` = (72 horizontal, 73
+/// vertical) justification, which DXF anchors at the second point (11/21).
+fn write_text_at(
+    out: &mut String,
+    text: &VectorText2d,
+    z: f64,
+    angle_deg: f64,
+    align: Option<(i32, i32)>,
+) {
+    let [x, y] = text.position;
     out.push_str("  0\nTEXT\n  8\n");
     out.push_str(&text.layer);
-    out.push_str("\n 10\n");
-    out.push_str(&format!(
-        "{}\n 20\n{}\n 30\n{}\n",
-        text.position[0], text.position[1], z
-    ));
-    out.push_str(" 40\n");
-    out.push_str(&format!("{}\n  1\n{}\n", text.height, text.text));
+    out.push_str(&format!("\n 10\n{x}\n 20\n{y}\n 30\n{z}\n"));
+    out.push_str(&format!(" 40\n{}\n  1\n{}\n", text.height, text.text));
+    if angle_deg.abs() > 1e-9 {
+        out.push_str(&format!(" 50\n{angle_deg}\n"));
+    }
+    if let Some((h, v)) = align {
+        out.push_str(&format!(
+            " 72\n{h}\n 11\n{x}\n 21\n{y}\n 31\n{z}\n 73\n{v}\n"
+        ));
+    }
 }
 
 fn write_dimension_lines(out: &mut String, dim: &crate::vector_export::VectorDimension2d, z: f64) {
     write_line(out, &dim.layer, dim.extension_a, dim.dim_a, z);
     write_line(out, &dim.layer, dim.extension_b, dim.dim_b, z);
     write_line(out, &dim.layer, dim.dim_a, dim.dim_b, z);
-    write_text(
+    // Rotated along the dimension line and centred on it, as in the SVG.
+    write_text_at(
         out,
         &VectorText2d {
             layer: dim.layer.clone(),
@@ -47,6 +67,8 @@ fn write_dimension_lines(out: &mut String, dim: &crate::vector_export::VectorDim
             centered: false,
         },
         z,
+        dim.text_angle.to_degrees(),
+        Some((1, 0)),
     );
 }
 
@@ -395,5 +417,23 @@ mod tests {
             (best - 100.0).abs() < 1.0,
             "expected ~100 mm wall on sheet, longest WALL_CUT segment was {best} mm"
         );
+    }
+
+    #[test]
+    fn dimension_text_is_rotated_and_centred_like_svg() {
+        let dim = crate::vector_export::VectorDimension2d {
+            layer: "DIM".into(),
+            extension_a: [0.0, 0.0],
+            extension_b: [0.0, 4.0],
+            dim_a: [-1.0, 0.0],
+            dim_b: [-1.0, 4.0],
+            text: "4000".into(),
+            text_position: [-1.2, 2.0],
+            text_angle: std::f64::consts::FRAC_PI_2,
+        };
+        let mut out = String::new();
+        write_dimension_lines(&mut out, &dim, 0.0);
+        assert!(out.contains(" 50\n90\n"), "{out}");
+        assert!(out.contains(" 72\n1\n 11\n-1.2\n 21\n2\n"), "{out}");
     }
 }

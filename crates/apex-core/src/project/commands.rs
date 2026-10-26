@@ -13,7 +13,7 @@ use glam::Vec3;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-use super::{Project, SlabShape};
+use super::{AttachEnd, Project, SlabShape};
 use crate::descriptor::{params_json_schema, Descriptor, PublishedDescriptor};
 use crate::element::ElementId;
 use crate::grid_axis::{grid_axis_param_specs, GridAxisId};
@@ -136,6 +136,20 @@ pub enum Command {
     SetSlabShape {
         id: String,
         shape: SlabShape,
+    },
+    AttachTop {
+        ids: Vec<String>,
+        #[serde(default)]
+        targets: Vec<String>,
+    },
+    AttachBase {
+        ids: Vec<String>,
+        targets: Vec<String>,
+    },
+    Detach {
+        ids: Vec<String>,
+        #[serde(default = "detach_both")]
+        end: String,
     },
     JoinPaths {
         id: String,
@@ -312,6 +326,9 @@ impl Command {
             Self::CopyElements { .. } => "copy_elements",
             Self::Boolean { .. } => "boolean",
             Self::SetSlabShape { .. } => "set_slab_shape",
+            Self::AttachTop { .. } => "attach_top",
+            Self::AttachBase { .. } => "attach_base",
+            Self::Detach { .. } => "detach",
             Self::JoinPaths { .. } => "join_paths",
             Self::CreateLevel { .. } => "create_level",
             Self::SetActiveLevel { .. } => "set_active_level",
@@ -963,6 +980,46 @@ impl Project {
                 self.set_slab_shape(id, &shape).map_err(e)?;
                 Ok(json!({ "id": id.to_string() }))
             }
+            cmd @ (Command::AttachTop { .. } | Command::AttachBase { .. }) => {
+                let (end, ids, targets) = match cmd {
+                    Command::AttachBase { ids, targets } => (AttachEnd::Base, ids, targets),
+                    Command::AttachTop { ids, targets } => (AttachEnd::Top, ids, targets),
+                    _ => unreachable!(),
+                };
+                let ids = ids
+                    .iter()
+                    .map(|i| self.resolve_element(i))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let targets = targets
+                    .iter()
+                    .map(|i| self.resolve_element(i))
+                    .collect::<Result<Vec<_>, _>>()?;
+                self.set_attach(&ids, end, Some(&targets)).map_err(msg)?;
+                Ok(json!({ "ids": ids.iter().map(|i| i.to_string()).collect::<Vec<_>>() }))
+            }
+            Command::Detach { ids, end } => {
+                let ids = ids
+                    .iter()
+                    .map(|i| self.resolve_element(i))
+                    .collect::<Result<Vec<_>, _>>()?;
+                let ends: &[AttachEnd] = match end.as_str() {
+                    "top" => &[AttachEnd::Top],
+                    "base" => &[AttachEnd::Base],
+                    "both" => &[AttachEnd::Top, AttachEnd::Base],
+                    other => {
+                        return Err(msg(format!("end must be top, base or both, not {other}")))
+                    }
+                };
+                self.begin_undo_group();
+                for end in ends {
+                    if let Err(err) = self.set_attach(&ids, *end, None) {
+                        self.abort_undo_group();
+                        return Err(msg(err));
+                    }
+                }
+                self.commit_undo_group();
+                Ok(json!({ "ids": ids.iter().map(|i| i.to_string()).collect::<Vec<_>>() }))
+            }
             Command::JoinPaths { id } => {
                 let id = self.resolve_element(&id)?;
                 self.join_paths(id).map_err(e)?;
@@ -1575,6 +1632,10 @@ fn points_schema() -> Value {
     json!({"type": "array", "items": point_schema(), "description": "placement picks in world metres"})
 }
 
+fn detach_both() -> String {
+    "both".into()
+}
+
 fn id_schema() -> Value {
     json!({"type": "string"})
 }
@@ -1634,6 +1695,18 @@ pub fn command_descriptors() -> Vec<PublishedDescriptor> {
             .units("metres, offsets relative to the flat top")
             .example("Lift vertices 1 and 2", json!({"op": "set_slab_shape", "id": "<slab id>", "shape": {"z": [0, 0.6, 0.6, 0]}})),
          obj("set_slab_shape", json!({"id": id_schema(), "shape": {"type": "object", "properties": {"z": {"type": "array", "items": {"type": "number"}}, "points": {"type": "array", "items": point_schema()}, "creases": {"type": "array", "items": {"type": "array", "items": {"type": "integer"}}}}}}), &["id", "shape"])),
+        ("attach_top", "Attach top",
+         Descriptor::new("Revit-style Attach Top: clip/raise the tops of walls or columns to the underside of roofs or slabs (pitched gable/hip, flat or shaped roofs, sloped slabs). With several targets the lowest underside wins; outside every target footprint the element keeps its own height. Live: follows target edits; a deleted target detaches. Empty `targets` = every roof above. One undo step.")
+            .example("Walls under a hip roof", json!({"op": "attach_top", "ids": ["<wall id>", "<wall id>"], "targets": ["<roof id>"]})),
+         obj("attach_top", json!({"ids": {"type": "array", "items": id_schema(), "minItems": 1}, "targets": {"type": "array", "items": id_schema(), "description": "roof/slab ids; empty = every roof above"}}), &["ids"])),
+        ("attach_base", "Attach base",
+         Descriptor::new("Revit-style Attach Base: seat the bottoms of walls or columns on the top surface of slabs or roofs (sloped/shaped too). The element is extended down or trimmed up to the target top inside its footprint. One undo step.")
+            .example("Walls on a sloped slab", json!({"op": "attach_base", "ids": ["<wall id>"], "targets": ["<slab id>"]})),
+         obj("attach_base", json!({"ids": {"type": "array", "items": id_schema(), "minItems": 1}, "targets": {"type": "array", "items": id_schema(), "minItems": 1}}), &["ids", "targets"])),
+        ("detach", "Detach top/base",
+         Descriptor::new("Detach the top, base or both of walls/columns: they return to their own height. One undo step.")
+            .example("Detach tops", json!({"op": "detach", "ids": ["<wall id>"], "end": "top"})),
+         obj("detach", json!({"ids": {"type": "array", "items": id_schema(), "minItems": 1}, "end": {"enum": ["top", "base", "both"], "default": "both"}}), &["ids"])),
         ("join_paths", "Join paths", Descriptor::new("Recompute corner/T joins for a joinable path element (walls join automatically on create)."), one("join_paths")),
         ("create_level", "Create level", Descriptor::new("Add a storey at an elevation.").example("First floor", json!({"op": "create_level", "name": "Level 2", "elevation": 3.0})),
          obj("create_level", json!({"name": {"type": "string"}, "elevation": {"type": "number"}}), &["name", "elevation"])),
@@ -1851,6 +1924,9 @@ mod tests {
             json!({"op": "redo"}),
             json!({"op": "batch", "commands": []}),
             json!({"op": "create_wall_type", "name": "x", "thickness": 0.3}),
+            json!({"op": "attach_top", "ids": ["x"]}),
+            json!({"op": "attach_base", "ids": ["x"], "targets": ["y"]}),
+            json!({"op": "detach", "ids": ["x"]}),
         ];
         assert_eq!(samples.len(), described.len());
         for s in samples {
@@ -2309,6 +2385,41 @@ mod tests {
                 &json!({"op": "create_wall_type", "name": "x", "thickness": -1}).to_string()
             )
             .is_err());
+    }
+
+    #[test]
+    fn per_wall_thickness_is_one_undo_step() {
+        let mut p = Project::new();
+        let w = new_id(
+            &mut p,
+            json!({"op": "create_element", "component": "apex.wall", "points": [[0,0,0],[5,0,0]]}),
+        );
+        exec(
+            &mut p,
+            json!({"op": "update_element", "id": w, "params": {"thickness": 0.35}}),
+        );
+        assert!((wall_thickness(&p, &w) - 0.35).abs() < 1e-9);
+        p.undo().unwrap();
+        assert!(
+            (wall_thickness(&p, &w) - 0.2).abs() < 1e-9,
+            "one undo restores"
+        );
+        p.undo().unwrap();
+        assert!(
+            p.document().elements().next().is_none(),
+            "second undo removes the wall"
+        );
+        // Creating with a thickness is one step too.
+        p.redo().unwrap();
+        p.redo().unwrap();
+        assert!((wall_thickness(&p, &w) - 0.35).abs() < 1e-9);
+        let w2 = new_id(
+            &mut p,
+            json!({"op": "create_element", "component": "apex.wall", "points": [[0,3,0],[5,3,0]], "params": {"thickness": 0.45}}),
+        );
+        p.undo().unwrap();
+        assert!(p.document().get_element(w2.parse().unwrap()).is_none());
+        assert!(p.document().get_element(w.parse().unwrap()).is_some());
     }
 
     #[test]

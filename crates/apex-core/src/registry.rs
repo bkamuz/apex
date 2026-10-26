@@ -558,7 +558,10 @@ fn wall() -> ComponentDefinition {
             ParamSpec::profile("profile", "Profile", "apex.wall.rect", &[]),
             ParamSpec::flag("allow_join_start", "Join at start", true),
             ParamSpec::flag("allow_join_end", "Join at end", true),
-            ParamSpec::flag("attach_top", "Attach top to roof", false),
+            ParamSpec::flag("attach_top", "Attach top", false),
+            ParamSpec::text("attach_top_to", "Top targets", ""),
+            ParamSpec::flag("attach_base", "Attach base", false),
+            ParamSpec::text("attach_base_to", "Base targets", ""),
         ],
         recipe: GeometryRecipe::Sweep {
             profile: ProfileSpec::FromParam {
@@ -571,7 +574,7 @@ fn wall() -> ComponentDefinition {
         descriptor: Descriptor::new("Vertical wall: a profile swept along a centreline on the level. Height follows the storey rise; corners and T-junctions with other walls on the level join automatically (thicker wall wins).")
             .points("path: 2+ plan points [x, y, z] along the centreline (y = level elevation, may be 0). placement_kind 'polyline' for a chain, 'three_point_arc' for an arc (start, mid, end). Closing a loop: repeat the first point at the end.")
             .constraint("points must not repeat consecutively; segments shorter than 1 mm are refused")
-            .constraint("attach_top=true raises the wall to the underside of a pitched roof above it")
+            .constraint("attach_top=true clips/raises the wall top to the underside of its targets: attach_top_to = comma-separated roof/slab ids, empty = every roof above it (lowest underside wins). attach_base=true seats the base on the top of the attach_base_to slabs/roofs. Prefer the attach_top / attach_base / detach tools.")
             .example("A 10 m straight wall", json!({"component": "apex.wall", "points": [[0, 0, 0], [10, 0, 0]], "placement_kind": "polyline"})),
         host_cut: None,
         level_height_params: vec!["height".into()],
@@ -594,6 +597,10 @@ fn column() -> ComponentDefinition {
             ParamSpec::profile("profile", "Profile", "apex.rect", &[]),
             ParamSpec::length("height", "Height", 3.0),
             ParamSpec::reference("frame_ref", "Frame reference", ReferenceFilter::Point, &[]),
+            ParamSpec::flag("attach_top", "Attach top", false),
+            ParamSpec::text("attach_top_to", "Top targets", ""),
+            ParamSpec::flag("attach_base", "Attach base", false),
+            ParamSpec::text("attach_base_to", "Base targets", ""),
         ],
         recipe: GeometryRecipe::Extrude {
             profile: ProfileSpec::FromParam {
@@ -607,6 +614,7 @@ fn column() -> ComponentDefinition {
         },
         descriptor: Descriptor::new("Vertical column: a profile (rectangular or round, chosen by the `profile` param) extruded upward from a point on the level.")
             .points("point: one plan point [x, y, z] for the column axis")
+            .constraint("attach_top / attach_base work like on walls (see apex.wall)")
             .example("Round column", json!({"component": "apex.column", "points": [[2, 0, 2]], "params": {"profile": "apex.round"}})),
         host_cut: None,
         level_height_params: vec!["height".into()],
@@ -1638,7 +1646,10 @@ mod tests {
                 "profile",
                 "allow_join_start",
                 "allow_join_end",
-                "attach_top"
+                "attach_top",
+                "attach_top_to",
+                "attach_base",
+                "attach_base_to"
             ]
         );
         let profile = registry.profile("apex.wall.rect").expect("rect");

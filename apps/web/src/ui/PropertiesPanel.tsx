@@ -40,6 +40,8 @@ interface Props {
   onUpdate: (params: Record<string, ParamValue>) => void;
   /** Sub-element shape editor for slabs / flat roofs. */
   shapeSection?: ReactNode;
+  /** Attach Top/Base controls for walls and columns. */
+  attachSection?: ReactNode;
   onUpdateGridAxis: (params: Record<string, ParamValue>) => void;
   onUpdateConstructionLine: (params: Record<string, ParamValue>) => void;
   onUpdateSectionCut: (params: Record<string, ParamValue>) => void;
@@ -328,6 +330,7 @@ export function PropertiesPanel({
   placement,
   onUpdate,
   shapeSection,
+  attachSection,
   onUpdateGridAxis,
   onUpdateConstructionLine,
   onUpdateSectionCut,
@@ -725,6 +728,8 @@ export function PropertiesPanel({
         </div>
 
         {shapeSection}
+
+        {attachSection}
 
         <TypeBlock
           profile={profile}

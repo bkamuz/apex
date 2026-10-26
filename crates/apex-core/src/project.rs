@@ -9,6 +9,7 @@ mod booleans;
 pub mod commands;
 mod roof_attach;
 mod slab_shape;
+pub use roof_attach::AttachEnd;
 pub use slab_shape::{ShapeHandle, ShapeInfo, SlabShape};
 mod solids;
 mod space_labels;
