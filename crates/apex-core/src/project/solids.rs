@@ -525,6 +525,7 @@ impl Project {
         let mut piece = own.clone();
         let mut whole = own.clone();
         let mut clustered = false;
+        let mut outside = Vec::new();
         for peer_id in self.join_candidates(element) {
             let Some(peer) = self.document.get_element(peer_id) else {
                 continue;
@@ -542,12 +543,27 @@ impl Project {
             if peer_wins {
                 piece = piece.subtract(&theirs);
             }
-            if self.ends_allow_cluster(element, &their_fp, hw)
+            // A peer consumed by a boolean renders through the boolean's
+            // own closed solid, not as a cluster piece: faces shared with
+            // it must stay or the seam is left open.
+            let peer_in_boolean = !self.boolean_consumers(peer_id).is_empty();
+            let me_in_boolean = !self.boolean_consumers(element.id).is_empty();
+            if !peer_in_boolean
+                && !me_in_boolean
+                && self.ends_allow_cluster(element, &their_fp, hw)
                 && self.ends_allow_cluster(peer, &mine, phw)
             {
                 whole = whole.union(&theirs);
                 clustered = true;
+            } else if peer_wins {
+                // Not clustered but it still trims this piece: the trimmed
+                // end must stay a face of the cluster solid, or it is left
+                // open against the peer.
+                outside.push(theirs);
             }
+        }
+        for o in &outside {
+            whole = whole.subtract(o);
         }
         Some((piece, clustered.then_some(whole)))
     }

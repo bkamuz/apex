@@ -41,6 +41,86 @@ pub struct VectorDimension2d {
     pub dim_b: [f64; 2],
     pub text_position: [f64; 2],
     pub text: String,
+    /// Text baseline direction (radians, CCW from +X): along the dimension
+    /// line, flipped to read left-to-right / bottom-to-top.
+    #[serde(default)]
+    pub text_angle: f64,
+}
+
+/// Nominal dimension text height (metres) used for placement.
+const DIM_TEXT_H: f64 = 0.25;
+
+/// Where a dimension's text goes: centred on the dimension line, on the side
+/// away from the measured points, rotated along the line, and slid along it
+/// (never past its ends) until it clears every grid bubble.
+fn place_dimension_text(
+    ea: [f64; 2],
+    eb: [f64; 2],
+    a2: [f64; 2],
+    b2: [f64; 2],
+    text: &str,
+    bubbles: &[[f64; 2]],
+) -> ([f64; 2], f64) {
+    let d = [b2[0] - a2[0], b2[1] - a2[1]];
+    let len = (d[0] * d[0] + d[1] * d[1]).sqrt().max(1e-9);
+    let mut u = [d[0] / len, d[1] / len];
+    // Read left-to-right, or bottom-to-top for vertical lines.
+    if u[0] < -1e-6 || (u[0].abs() <= 1e-6 && u[1] < 0.0) {
+        u = [-u[0], -u[1]];
+    }
+    let angle = u[1].atan2(u[0]);
+    let mut n = [-u[1], u[0]];
+    // Outward: from the measured points towards the dimension line.
+    let out_dir = [a2[0] - ea[0] + b2[0] - eb[0], a2[1] - ea[1] + b2[1] - eb[1]];
+    if out_dir[0] * n[0] + out_dir[1] * n[1] < 0.0 {
+        n = [-n[0], -n[1]];
+    }
+    let mid = [(a2[0] + b2[0]) * 0.5, (a2[1] + b2[1]) * 0.5];
+    let gap = DIM_TEXT_H * 0.3;
+    // A baseline on the outward side; a text whose "up" points inward
+    // (n opposite the reading up) sits fully past the line instead.
+    let up = [-u[1], u[0]];
+    let base_off = if n[0] * up[0] + n[1] * up[1] >= 0.0 {
+        gap
+    } else {
+        gap + DIM_TEXT_H
+    };
+    let half_w = 0.3 * DIM_TEXT_H * text.chars().count() as f64;
+    const BUBBLE_CLEAR: f64 = 0.35;
+    let clear = |c: [f64; 2]| {
+        bubbles.iter().all(|b| {
+            // Distance from the bubble centre to the text box (a segment
+            // of half-width half_w, thickened by half the text height).
+            let rel = [b[0] - c[0], b[1] - c[1]];
+            let along = (rel[0] * u[0] + rel[1] * u[1]).clamp(-half_w, half_w);
+            let q = [rel[0] - along * u[0], rel[1] - along * u[1]];
+            (q[0] * q[0] + q[1] * q[1]).sqrt() > BUBBLE_CLEAR + DIM_TEXT_H * 0.5
+        })
+    };
+    let at = |s: f64| {
+        let base = [
+            mid[0] + u[0] * s + n[0] * base_off,
+            mid[1] + u[1] * s + n[1] * base_off,
+        ];
+        let centre = [
+            base[0] + up[0] * DIM_TEXT_H * 0.5,
+            base[1] + up[1] * DIM_TEXT_H * 0.5,
+        ];
+        (base, centre)
+    };
+    let limit = (len * 0.5 - half_w).max(0.0);
+    let mut best = at(0.0).0;
+    'search: for k in 0..=20 {
+        let s = limit * k as f64 / 20.0;
+        for s in [s, -s] {
+            let (base, centre) = at(s);
+            if clear(centre) {
+                best = base;
+                break 'search;
+            }
+        }
+    }
+    (best, angle)
 }
 
 /// Closed filled region (e.g. wall poché cut by the plan plane).
@@ -422,6 +502,13 @@ impl Project {
             }
         }
 
+        // Grid bubble centres: dimension text is kept clear of them.
+        let bubbles: Vec<[f64; 2]> = out
+            .texts
+            .iter()
+            .filter(|t| t.layer == "GRID_BUBBLE")
+            .map(|t| t.position)
+            .collect();
         for annotation in self.view_annotations_for(view_id) {
             let overlay = self.annotation_overlay(annotation);
             let layer = layer_name(annotation.kind.category());
@@ -462,11 +549,8 @@ impl Project {
                             .first()
                             .map(|l| l.text.clone())
                             .unwrap_or_default();
-                        let text_pos = dim
-                            .labels
-                            .first()
-                            .map(|l| plan_point(l.position))
-                            .unwrap_or([(a2[0] + b2[0]) * 0.5, (a2[1] + b2[1]) * 0.5]);
+                        let (text_pos, text_angle) =
+                            place_dimension_text(ea, eb, a2, b2, &text, &bubbles);
                         out.dimensions.push(VectorDimension2d {
                             layer: layer.clone(),
                             extension_a: ea,
@@ -475,6 +559,7 @@ impl Project {
                             dim_b: b2,
                             text_position: text_pos,
                             text,
+                            text_angle,
                         });
                     }
                 }
@@ -496,6 +581,43 @@ impl Project {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dimension_text_is_outside_rotated_and_clear_of_bubbles() {
+        // Horizontal dim below the measured edge (y-up plan coords).
+        let (p, ang) = place_dimension_text(
+            [0.0, 0.0],
+            [12.0, 0.0],
+            [0.0, 1.0],
+            [12.0, 1.0],
+            "12.00",
+            &[],
+        );
+        assert!(
+            ang.abs() < 1e-9 && p[1] > 1.0 && (p[0] - 6.0).abs() < 1e-9,
+            "{p:?}"
+        );
+        // A bubble right at the midpoint pushes the text along the line.
+        let (q, _) = place_dimension_text(
+            [0.0, 0.0],
+            [12.0, 0.0],
+            [0.0, 1.0],
+            [12.0, 1.0],
+            "12.00",
+            &[[6.0, 1.2]],
+        );
+        assert!((q[0] - 6.0).abs() > 0.6, "{q:?}");
+        // Vertical dim reads bottom-to-top.
+        let (_, v) = place_dimension_text(
+            [0.0, 0.0],
+            [0.0, -9.0],
+            [-1.0, 0.0],
+            [-1.0, -9.0],
+            "9.00",
+            &[],
+        );
+        assert!((v - std::f64::consts::FRAC_PI_2).abs() < 1e-9);
+    }
 
     fn box_mesh(min: [f32; 3], max: [f32; 3]) -> apex_geometry::TriangleMesh {
         let mut positions = Vec::new();

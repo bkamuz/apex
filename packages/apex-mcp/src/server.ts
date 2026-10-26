@@ -11,6 +11,7 @@ import {
   type CallToolResult,
 } from '@modelcontextprotocol/sdk/types.js';
 import type { ApiCatalog, Backend } from './backend.js';
+import { rasterizeSvg } from './raster.js';
 import { buildTools, conventionsMarkdown, FILE_EXPORTS, type ToolSpec } from './tools.js';
 
 export const SERVER_NAME = 'apex';
@@ -139,8 +140,33 @@ export async function createApexServer(backend: Backend, catalog?: Backend): Pro
             return text(out.content);
           }
           case 'screenshot': {
-            if (!backend.screenshot) return fail('screenshots need the live app (start with --bridge and connect Apex)');
-            const shot = await backend.screenshot({ width: args.width as number | undefined, height: args.height as number | undefined });
+            const width = args.width as number | undefined;
+            const height = args.height as number | undefined;
+            const headlessTarget = typeof args.view === 'string' || typeof args.sheet === 'string' || args.mode === '3d';
+            let shot: { data: string; mimeType: 'image/png' } | undefined;
+            if (!headlessTarget && backend.screenshot) {
+              try {
+                shot = await backend.screenshot({ width, height });
+              } catch (e) {
+                if (args.mode === 'live') throw e;
+              }
+            } else if (args.mode === 'live') {
+              return fail('screenshots of the live viewport need the live app (start with --bridge and connect Apex)');
+            }
+            if (!shot) {
+              let svg: string;
+              if (typeof args.view === 'string') {
+                svg = ((await backend.query({ op: 'export_view', id: args.view, format: 'svg' })) as { content: string }).content;
+              } else if (typeof args.sheet === 'string') {
+                svg = ((await backend.query({ op: 'export_sheet', id: args.sheet, format: 'svg' })) as { content: string }).content;
+              } else {
+                const q: Record<string, unknown> = { op: 'render_3d' };
+                for (const k of ['yaw', 'pitch', 'width', 'height']) if (typeof args[k] === 'number') q[k] = args[k];
+                svg = ((await backend.query(q)) as { content: string }).content;
+              }
+              shot = { data: (await rasterizeSvg(svg, width ?? 1600)).toString('base64'), mimeType: 'image/png' };
+            }
+            if (typeof args.path === 'string') await writeFile(args.path, Buffer.from(shot.data, 'base64'));
             return { content: [{ type: 'image', data: shot.data, mimeType: shot.mimeType }] };
           }
           case 'bridge_status':
