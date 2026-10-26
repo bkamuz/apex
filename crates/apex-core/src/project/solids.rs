@@ -422,7 +422,9 @@ impl Project {
         if let Some(clipped) = self.roof_clipped(element, &piece) {
             return Some(clipped);
         }
-        Some(match whole {
+        // An attached wall never clusters (see `solid_piece`): when its
+        // roof clip yields nothing it still renders its whole closed piece.
+        Some(match whole.filter(|_| !self.wall_attaches_top(element)) {
             Some(whole) => piece.to_mesh_within(&whole),
             None => piece.to_mesh(),
         })
@@ -556,17 +558,31 @@ impl Project {
             if !regions_touch(&mine, &their_fp) {
                 continue;
             }
-            // Thicker walls own the overlap; ties go by id.
+            // Thicker walls own the overlap; ties go by content (stable across runs).
             let phw = profile_half_width(&self.registry, peer).unwrap_or(0.0);
-            let peer_wins = phw > hw + 1e-5 || ((phw - hw).abs() <= 1e-5 && peer.id < element.id);
+            // Equal widths: a wall running through the joint (tee stem's
+            // host, an L's own corner) beats one that ends against it, then
+            // content order decides. Never the random id, so the result is
+            // the same on every run.
+            let peer_wins = phw > hw + 1e-5
+                || ((phw - hw).abs() <= 1e-5
+                    && (self.ends_against(peer, &mine, phw), peer.order_key())
+                        < (
+                            self.ends_against(element, &their_fp, hw),
+                            element.order_key(),
+                        ));
             if peer_wins {
                 piece = piece.subtract(&theirs);
             }
             // A peer consumed by a boolean renders through the boolean's
             // own closed solid, not as a cluster piece: faces shared with
             // it must stay or the seam is left open.
-            let peer_in_boolean = !self.boolean_consumers(peer_id).is_empty();
-            let me_in_boolean = !self.boolean_consumers(element.id).is_empty();
+            // Likewise a wall attached to a roof renders its own closed,
+            // clipped piece.
+            let peer_in_boolean =
+                !self.boolean_consumers(peer_id).is_empty() || self.wall_attaches_top(peer);
+            let me_in_boolean =
+                !self.boolean_consumers(element.id).is_empty() || self.wall_attaches_top(element);
             if !peer_in_boolean
                 && !me_in_boolean
                 && self.ends_allow_cluster(element, &their_fp, hw)
@@ -585,6 +601,19 @@ impl Project {
             whole = whole.subtract(o);
         }
         Some((piece, clustered.then_some(whole)))
+    }
+
+    /// True when one of the element's path ends touches `other`.
+    fn ends_against(&self, element: &Element, other: &Region, hw: f32) -> bool {
+        let Some(curve) = element.placement.curve() else {
+            return false;
+        };
+        if curve.is_closed() {
+            return false;
+        }
+        [curve.start(), curve.end()]
+            .into_iter()
+            .any(|p| region_distance(other, xz(p)) <= hw as f64 + JOIN_SNAP as f64)
     }
 
     /// False when the contact with `other` sits at an end where joining is

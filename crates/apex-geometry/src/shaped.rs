@@ -372,7 +372,8 @@ impl SurfaceMesh {
             ]
         };
         type Key = ([i64; 3], [i64; 3]);
-        let mut by_edge: HashMap<Key, (usize, [[f64; 3]; 2])> = HashMap::new();
+        let mut by_edge: std::collections::BTreeMap<Key, (usize, [[f64; 3]; 2])> =
+            Default::default();
         let mut pairs: Vec<(usize, usize, [[f64; 3]; 2])> = Vec::new();
         for (fi, t) in faces.iter().enumerate() {
             for e in 0..3 {

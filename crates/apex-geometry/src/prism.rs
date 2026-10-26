@@ -459,6 +459,19 @@ impl LayeredSolid {
             level_points.push(pts);
         }
 
+        // Within a cluster, side strips split at breakpoints from either
+        // neighbouring level and those splits run on up through every band
+        // the edge spans. Give every level the same breakpoint set so caps
+        // and side strips share vertices (no T-junction left open).
+        if whole.is_some() {
+            let mut all: Vec<[f64; 2]> = level_points.iter().flatten().copied().collect();
+            all.sort_by(|a, b| a.partial_cmp(b).unwrap());
+            all.dedup();
+            for pts in &mut level_points {
+                pts.clone_from(&all);
+            }
+        }
+
         let keep = |centroid: [f64; 3], normal: [f64; 3]| -> bool {
             let Some(whole) = whole else {
                 return true;
