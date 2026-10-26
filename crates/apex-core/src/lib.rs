@@ -93,7 +93,7 @@ pub use space::{
 };
 pub use svg_export::drawing_to_svg;
 pub use vector_export::{
-    ExportUnits, VectorDimension2d, VectorDrawing2d, VectorLine2d, VectorText2d,
+    mesh_section_loops, ExportUnits, VectorDimension2d, VectorDrawing2d, VectorLine2d, VectorText2d,
 };
 pub use view::{
     DetailLevel, EdgeStyle, StoredCamera, StoredProjection, View, ViewError, ViewId, ViewKind,

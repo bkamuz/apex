@@ -598,7 +598,21 @@ impl Project {
         let mesh = self.build_element_mesh_with_cuts(&element)?;
         let new_dependents = self.solid_dependents(&element);
         self.document.update_element(element, mesh);
-        self.refresh_meshes(old_dependents.into_iter().chain(new_dependents));
+        // A wall in a roof-attached join cluster renders a share of the
+        // whole cluster, which only reads right once this edit is in the
+        // document: rebuild the cluster (itself included) now.
+        let cluster = self
+            .document
+            .get_element(id)
+            .filter(|e| self.in_attached_cluster(e))
+            .map(|e| self.join_cluster(e))
+            .unwrap_or_default();
+        self.refresh_meshes(
+            old_dependents
+                .into_iter()
+                .chain(new_dependents)
+                .chain(cluster),
+        );
         if is_opening {
             if let Some(parent_id) = parent_id {
                 let _ = self.rebuild_element(parent_id);
