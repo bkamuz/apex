@@ -383,6 +383,74 @@ impl Project {
         })
     }
 
+    /// This element's own closed solid (its join-cluster share with every
+    /// face, including the ones shared with peers). Boolean operands need it:
+    /// the render mesh drops faces inside the cluster and is open there.
+    pub(crate) fn closed_solid_mesh(&self, element: &Element) -> Option<TriangleMesh> {
+        let (piece, _) = self.solid_piece(element)?;
+        Some(piece.to_mesh())
+    }
+
+    /// Drops edge segments buried inside joinable solids (walls): a slab
+    /// edge running under a wall, or seam lines left at wall joins. A
+    /// segment is buried when its midpoint, nudged a little up and in every
+    /// plan direction, stays inside some solid; edges on a solid's own
+    /// boundary always have one nudge outside and survive.
+    pub fn hide_buried_edges(&self, edges: &[f32]) -> Vec<f32> {
+        let solids: Vec<(LayeredSolid, [f64; 4], (f64, f64))> = self
+            .document
+            .elements()
+            .filter(|e| self.joinable(e))
+            .filter_map(|e| {
+                let (piece, whole) = self.solid_piece(e)?;
+                let solid = whole.unwrap_or(piece);
+                let yr = solid.y_range()?;
+                let fp = solid.footprint();
+                let mut b = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
+                for p in fp.iter().flatten().flatten() {
+                    b = [
+                        b[0].min(p[0]),
+                        b[1].min(p[1]),
+                        b[2].max(p[0]),
+                        b[3].max(p[1]),
+                    ];
+                }
+                Some((solid, b, yr))
+            })
+            .collect();
+        if solids.is_empty() {
+            return edges.to_vec();
+        }
+        const D: f64 = 0.01;
+        let inside = |p: [f64; 3]| {
+            solids.iter().any(|(s, b, yr)| {
+                p[0] > b[0]
+                    && p[0] < b[2]
+                    && p[2] > b[1]
+                    && p[2] < b[3]
+                    && p[1] > yr.0
+                    && p[1] < yr.1
+                    && s.contains(p)
+            })
+        };
+        let mut out = Vec::with_capacity(edges.len());
+        for seg in edges.as_chunks::<6>().0 {
+            let m = [
+                (seg[0] as f64 + seg[3] as f64) * 0.5,
+                (seg[1] as f64 + seg[4] as f64) * 0.5 + 0.005,
+                (seg[2] as f64 + seg[5] as f64) * 0.5,
+            ];
+            let buried = (seg[1] - seg[4]).abs() < 1e-4
+                && [[D, 0.0], [-D, 0.0], [0.0, D], [0.0, -D]]
+                    .iter()
+                    .all(|o| inside([m[0] + o[0], m[1], m[2] + o[1]]));
+            if !buried {
+                out.extend_from_slice(seg);
+            }
+        }
+        out
+    }
+
     /// The plan region this element owns at height `y` (world), after joins
     /// and openings. Pieces of one cluster tile it without overlap, so their
     /// fills never double up or spill.

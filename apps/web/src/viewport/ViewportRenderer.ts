@@ -124,6 +124,8 @@ uniform float uSelectedPick; // unused when count>0; kept for layout stability
 uniform float uSelectedPicks[32];
 uniform int uSelectedCount;
 uniform bool uPickPass;
+uniform float uPickExclude[8];
+uniform int uPickExcludeCount;
 uniform float uOpacity;
 uniform int uSelectionMode; // 0=all, 1=opaque others, 2=selected only
 uniform int uPlanMode;
@@ -155,6 +157,10 @@ void main(){
   // either (a roof would otherwise swallow every click inside the plan).
   if (uPlanMode != 0 && vWorld.y - uCutY > uCutFade) discard;
   if (uPickPass) {
+    for (int i = 0; i < 8; i++) {
+      if (i >= uPickExcludeCount) break;
+      if (abs(vPick - uPickExclude[i]) < 0.5) discard;
+    }
     uint id = uint(vPick);
     float r = float((id >> 0u) & 255u) / 255.0;
     float g = float((id >> 8u) & 255u) / 255.0;
@@ -340,6 +346,8 @@ type MeshUniforms = {
   uSelectedPicks: WebGLUniformLocation | null;
   uSelectedCount: WebGLUniformLocation | null;
   uPickPass: WebGLUniformLocation | null;
+  uPickExclude: WebGLUniformLocation | null;
+  uPickExcludeCount: WebGLUniformLocation | null;
   uGlassPass: WebGLUniformLocation | null;
   uOpacity: WebGLUniformLocation | null;
   uSelectionMode: WebGLUniformLocation | null;
@@ -387,6 +395,8 @@ function meshUniforms(gl: WebGL2RenderingContext, prog: WebGLProgram): MeshUnifo
     uSelectedPicks: gl.getUniformLocation(prog, 'uSelectedPicks'),
     uSelectedCount: gl.getUniformLocation(prog, 'uSelectedCount'),
     uPickPass: gl.getUniformLocation(prog, 'uPickPass'),
+    uPickExclude: gl.getUniformLocation(prog, 'uPickExclude'),
+    uPickExcludeCount: gl.getUniformLocation(prog, 'uPickExcludeCount'),
     uGlassPass: gl.getUniformLocation(prog, 'uGlassPass'),
     uOpacity: gl.getUniformLocation(prog, 'uOpacity'),
     uSelectionMode: gl.getUniformLocation(prog, 'uSelectionMode'),
@@ -1779,6 +1789,30 @@ export class ViewportRenderer {
     return [nearPt[0] + dir[0] * t, elevation, nearPt[2] + dir[2] * t];
   }
 
+  private pickExclude = new Float32Array(8);
+  private pickExcludeCount = 0;
+
+  /**
+   * Every pick id under the cursor, nearest first (up to 8). Each pass hides
+   * the ids already found, so solids buried under a wall or slab still show.
+   */
+  pickAll(clientX: number, clientY: number): number[] {
+    const out: number[] = [];
+    try {
+      while (out.length < 8) {
+        this.pickExclude.fill(0);
+        out.forEach((id, i) => (this.pickExclude[i] = id));
+        this.pickExcludeCount = out.length;
+        const id = this.pick(clientX, clientY);
+        if (id == null || out.includes(id)) break;
+        out.push(id);
+      }
+    } finally {
+      this.pickExcludeCount = 0;
+    }
+    return out;
+  }
+
   pick(clientX: number, clientY: number): number | null {
     const gl = this.gl;
     if (this.indexCount === 0) return null;
@@ -2351,6 +2385,8 @@ export class ViewportRenderer {
     gl.uniform1i(u.uSelectedCount, this.selectedPickIds.length);
     gl.uniform1f(u.uSelectedPick, this.selectedPickIds[0] ?? 0);
     gl.uniform1i(u.uPickPass, pickPass ? 1 : 0);
+    gl.uniform1fv(u.uPickExclude, this.pickExclude);
+    gl.uniform1i(u.uPickExcludeCount, pickPass ? this.pickExcludeCount : 0);
     gl.uniform1i(u.uGlassPass, 0);
     gl.uniform1i(u.uPlanMode, this.viewNavigation === 'plan' ? 1 : 0);
     gl.uniform1f(u.uCutY, this.planCutY);

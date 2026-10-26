@@ -117,16 +117,22 @@ fn push(out: &mut Vec<Vec3>, a: Vec3, b: Vec3) {
     out.push(b);
 }
 
+/// Frame member width of hosted openings (matches `hosted_opening_assembly`).
+const DOOR_FRAME_WIDTH: f32 = 0.06;
+
 /// Leaf drawn open at 90° from the hinge jamb plus a quarter-circle swing.
 fn door_symbol(f: &OpeningFrame, out: &mut Vec<Vec3>) {
     let half_t = f.wall_thickness * 0.5;
-    let hinge = f.center - f.along * (f.width * 0.5) + f.across * half_t;
-    let leaf_end = hinge + f.across * f.width;
+    // Same hinge and leaf length as the 3D leaf (inside the frame jambs),
+    // so the overlay and the mesh edges coincide instead of doubling up.
+    let leaf = (f.width - 2.0 * DOOR_FRAME_WIDTH).max(f.width * 0.5);
+    let hinge = f.center - f.along * (leaf * 0.5) + f.across * half_t;
+    let leaf_end = hinge + f.across * leaf;
     push(out, hinge, leaf_end);
-    let mut prev = hinge + f.along * f.width;
+    let mut prev = hinge + f.along * leaf;
     for i in 1..=ARC_SEGMENTS {
         let t = (i as f32 / ARC_SEGMENTS as f32) * std::f32::consts::FRAC_PI_2;
-        let next = hinge + (f.along * t.cos() + f.across * t.sin()) * f.width;
+        let next = hinge + (f.along * t.cos() + f.across * t.sin()) * leaf;
         push(out, prev, next);
         prev = next;
     }

@@ -12,8 +12,29 @@ export const BOOLEAN_TOOL_ID = 'apex.booleanTool';
  * either operand recomputes it, and undo/redo work like any other edit.
  * Operands stop rendering while consumed; delete the boolean to get them back.
  */
+type Candidate = { id: string; name: string; category: string };
+
+/**
+ * Solids under the cursor in pick priority: nearest non-slab solids first,
+ * slabs last (they underlie everything in plan), and never `exclude`.
+ */
+export function rankCandidates(all: Candidate[], exclude: string | null): Candidate[] {
+  const usable = all.filter((c) => c.id !== exclude);
+  return [
+    ...usable.filter((c) => c.category !== 'slab'),
+    ...usable.filter((c) => c.category === 'slab'),
+  ];
+}
+
 export function createBooleanTool(): Tool {
   let first: string | null = null;
+  let candidates: Candidate[] = [];
+  let index = 0;
+  const current = () => candidates[index % Math.max(1, candidates.length)] ?? null;
+  const cycleHint = () =>
+    candidates.length > 1
+      ? ` — ${current()?.name ?? ''} (${(index % candidates.length) + 1}/${candidates.length}, Tab: next)`
+      : '';
   return {
     id: BOOLEAN_TOOL_ID,
     label: 'Boolean',
@@ -21,29 +42,59 @@ export function createBooleanTool(): Tool {
     icon: ApexIcons.boolean,
 
     hint() {
-      return first
-        ? 'Click solid B (result A − B; change Operation in Properties)'
-        : 'Click solid A';
+      return (
+        (first ? 'Click solid B (result A − B; change Operation in Properties)' : 'Click solid A') +
+        cycleHint()
+      );
+    },
+
+    onPointerMove(e, ctx) {
+      const next = rankCandidates(ctx.pickElementCandidates(e.clientX, e.clientY), first);
+      const same =
+        next.length === candidates.length && next.every((c, i) => c.id === candidates[i]?.id);
+      if (!same) {
+        candidates = next;
+        index = 0;
+      }
+    },
+
+    onKey(e, ctx) {
+      if (e.key !== 'Tab' || candidates.length < 2) return false;
+      index = (index + (e.shiftKey ? candidates.length - 1 : 1)) % candidates.length;
+      const c = current();
+      if (c) {
+        const pts = first ? [ctx.anchorOf(first), ctx.anchorOf(c.id)] : [ctx.anchorOf(c.id)];
+        ctx.setPending(pts);
+        ctx.setError(null);
+      }
+      return true;
     },
 
     onClick(e, ctx) {
-      const picked = ctx.pickElementId(e.clientX, e.clientY);
+      const fresh = rankCandidates(ctx.pickElementCandidates(e.clientX, e.clientY), first);
+      const keep =
+        fresh.length === candidates.length && fresh.every((c, i) => c.id === candidates[i]?.id);
+      if (!keep) {
+        candidates = fresh;
+        index = 0;
+      }
+      const picked = current()?.id ?? null;
       if (!picked) {
-        ctx.setError(first ? 'Click solid B' : 'Click solid A');
+        ctx.setError(first ? 'Pick a different solid for B' : 'Click solid A');
         return;
       }
       if (!first) {
         first = picked;
+        candidates = [];
+        index = 0;
         ctx.setError(null);
         ctx.setPending([ctx.anchorOf(picked)]);
         return;
       }
-      if (picked === first) {
-        ctx.setError('Pick a different solid for B');
-        return;
-      }
       const a = first;
       first = null;
+      candidates = [];
+      index = 0;
       ctx.setPending([]);
       try {
         ctx.applyScene(
@@ -61,6 +112,8 @@ export function createBooleanTool(): Tool {
 
     cancel(ctx) {
       first = null;
+      candidates = [];
+      index = 0;
       ctx.setPending([]);
       ctx.setError(null);
     },

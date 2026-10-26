@@ -97,6 +97,9 @@ impl Project {
         if el.component_id == BOOLEAN {
             return self.boolean_mesh_at(el, depth + 1);
         }
+        if let Some(closed) = self.closed_solid_mesh(el) {
+            return closed;
+        }
         self.build_uncombined_mesh(el).unwrap_or_default()
     }
 
@@ -138,6 +141,39 @@ mod tests {
 
     fn vol(p: &Project, id: ElementId) -> f64 {
         mesh_volume(p.document().get_mesh(id).expect("mesh"))
+    }
+
+    #[test]
+    fn joined_wall_with_door_minus_column_cuts() {
+        // Joined walls render open at the join (shared faces are dropped);
+        // the boolean must still see a closed operand and actually cut.
+        let mut p = Project::new();
+        let s = wall(&mut p, Vec3::ZERO, Vec3::new(6.0, 0.0, 0.0));
+        wall(&mut p, Vec3::new(6.0, 0.0, 0.0), Vec3::new(6.0, 0.0, 5.0));
+        wall(&mut p, Vec3::new(3.5, 0.0, 0.0), Vec3::new(3.5, 0.0, 5.0));
+        p.create_element_with_parent(
+            "apex.door",
+            Placement::point(Vec3::new(1.6, 0.0, 0.0)),
+            ParamMap::default(),
+            Some(s),
+        )
+        .expect("door");
+        let c = column(&mut p, Vec3::new(5.0, 0.0, 0.0));
+        let b = p
+            .create_element(
+                BOOLEAN,
+                Placement::point(Vec3::ZERO),
+                boolean_params(s, c, "subtract"),
+            )
+            .expect("boolean");
+        let m = p.document().get_mesh(b).unwrap();
+        assert!(is_watertight(m));
+        let before = mesh_volume(
+            &p.closed_solid_mesh(p.document().get_element(s).unwrap())
+                .unwrap(),
+        );
+        let after = mesh_volume(m);
+        assert!(after < before - 1e-3, "{after} vs {before}");
     }
 
     #[test]
