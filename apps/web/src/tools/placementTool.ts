@@ -1,3 +1,4 @@
+import { describeFromComponent } from '../descriptor';
 import type { ComponentDto, PlacementKind } from '../types';
 import type { Vec3 } from '../viewport/ViewportRenderer';
 import { COMPONENT_ICON_BY_ID, type ToolIcon } from './icons';
@@ -78,6 +79,7 @@ export function createPlacementTool(
   return {
     id: toolIdForComponent(component),
     label: component.display_name,
+    descriptor: describeFromComponent(component),
     group: 'create',
     tab: options.tab,
     icon: options.icon ?? COMPONENT_ICON_BY_ID[component.id],

@@ -5,6 +5,7 @@ import type { Plugin } from './types';
 export function hostedComponentPlugin(componentId: string): Plugin {
   return {
     id: componentId,
+    descriptor: { purpose: `Hosted placement tool for ${componentId} (cuts its host).` },
     install(host) {
       const definition = host.component(componentId);
       if (!definition) return;

@@ -4,6 +4,7 @@ import type { Plugin } from './types';
 
 export const annotatePlugin: Plugin = {
   id: 'apex.annotate',
+  descriptor: { purpose: 'View annotations: linear dimensions and text notes.' },
   install(host) {
     installBuiltinAnnotationKinds();
     for (const reg of annotationKinds.all()) {

@@ -10,6 +10,7 @@ export function createDetectRoomsTool(tab: ToolTab = ApexTabs.spaces): Tool {
   return {
     id: 'detect-rooms',
     label: 'Detect rooms',
+    descriptor: { purpose: 'Find closed wall loops on the active level and create a space for each one.' },
     group: 'create',
     tab,
     icon: ApexIcons.detectRooms,

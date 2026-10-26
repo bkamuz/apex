@@ -8,6 +8,7 @@ import { ApexTabs } from '../apps/web/src/tools/tabs';
 
 const stampTool: Tool = {
   id: 'acme.stamp',
+  descriptor: { purpose: 'Stamp APPROVED as a text note where you click on a plan view.' },
   label: 'Stamp',
   group: 'create',
   tab: ApexTabs.annotate,
@@ -33,6 +34,7 @@ const stampTool: Tool = {
 const stampKind: AnnotationKindRegistration = {
   kind: 'text_note',
   displayName: 'Approval stamp',
+  descriptor: { purpose: 'An APPROVED stamp drawn as a text note.' },
   tools: [stampTool],
   serialize: (kind) => kind,
   deserialize: (payload) => payload as AnnotationKindRegistration['kind'] extends never ? never : import('../apps/web/src/types').ViewAnnotationKindDto,

@@ -147,15 +147,20 @@ Do not add per-type branches in `App.tsx` / `apex-wasm` — extend a seam instea
 ```js
 window.apex.defineComponent({ /* … */ });
 window.apex.registerTool(tool);
-window.apex.registerExporter({ id, label, filename, export: () => '…' });
+window.apex.registerExporter({ id, label, filename, descriptor: { purpose: '…' }, export: () => '…' });
 window.apex.registerAnnotationKind({
   kind: 'text_note',
+  descriptor: { purpose: '…' },
   tools: [/* Tool that calls ctx.createViewAnnotation on a saved view */],
   hitTest(annotation, x, y, renderer) { /* optional */ return false; },
   serialize: (kind) => kind,
   deserialize: (payload) => payload,
 });
 ```
+
+Every component, tool, exporter, plugin and annotation kind **must** carry a
+`descriptor` (`purpose`, optional `examples`, `units`, `constraints`); registration
+fails without one. See [docs/descriptors.md](docs/descriptors.md).
 
 View-owned annotations (dimensions, notes) register through `registerAnnotationKind` with
 toolbar tools plus optional hit-test / serialize hooks; geometry lives in apex-core.

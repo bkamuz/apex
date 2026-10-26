@@ -1955,3 +1955,53 @@ input[type="radio"] {
     grid-template-columns: 1fr 1fr;
   }
 }
+
+/* Agent bridge (apex-mcp live mode) */
+.agent-bridge {
+  position: relative;
+  display: flex;
+}
+.agent-bridge > button.active {
+  color: var(--accent, #6cf);
+}
+.agent-bridge-panel {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 50;
+  width: 280px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #1f1f1f;
+  border: 1px solid var(--chrome-line);
+  border-radius: var(--chrome-radius);
+  font-size: 12px;
+  color: var(--text);
+}
+.agent-bridge-panel p {
+  margin: 0;
+  color: var(--chrome-muted);
+}
+.agent-bridge-panel label {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.agent-bridge-panel input {
+  font: inherit;
+  padding: 4px 6px;
+  background: #151515;
+  color: var(--text);
+  border: 1px solid var(--chrome-line);
+  border-radius: var(--chrome-radius);
+}
+.agent-bridge-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.agent-bridge-panel .agent-bridge-actions button {
+  border: 1px solid var(--chrome-line);
+}

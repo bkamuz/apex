@@ -30,6 +30,7 @@ function createLinearDimensionTool(): Tool {
   return {
     id: 'apex.dimension',
     label: 'Dimension',
+    descriptor: { purpose: 'Dimension the distance between two picks in a plan view.' },
     group: 'create',
     tab: ApexTabs.annotate,
     icon: ApexIcons.sectionCut,
@@ -108,6 +109,7 @@ export function builtinLinearDimensionKind(): AnnotationKindRegistration {
   return {
     kind: 'linear_dimension',
     displayName: 'Linear dimension',
+    descriptor: { purpose: 'Linear dimension: measured distance between two anchors on a saved view. Units: m.' },
     tools: [createLinearDimensionTool()],
     serialize: (kind) => kind,
     deserialize: (payload) => payload as import('../types').ViewAnnotationKindDto,

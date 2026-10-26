@@ -27,6 +27,7 @@ export function createSectionCutTool(tab: ToolTab = ApexTabs.basics): Tool {
   return {
     id: 'section-cut',
     label: 'Section cut',
+    descriptor: { purpose: 'Draw a section cut line; it defines a section view through the model.' },
     group: 'create',
     tab,
     icon: ApexIcons.sectionCut,

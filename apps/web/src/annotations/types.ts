@@ -1,3 +1,4 @@
+import type { Descriptor } from '../descriptor';
 import type { ViewAnnotationDto, ViewAnnotationKindDto } from '../types';
 import type { Tool } from '../tools/Tool';
 import type { ViewportRenderer } from '../viewport/ViewportRenderer';
@@ -12,6 +13,8 @@ export type AnnotationKindId = ViewAnnotationKindDto['kind'];
 export interface AnnotationKindRegistration {
   /** Matches the core `ViewAnnotationKind` tag (`linear_dimension`, `text_note`, …). */
   kind: AnnotationKindId;
+  /** Required. What the annotation shows and how it is anchored. */
+  descriptor: Descriptor;
   /** Toolbar tool(s) that create this annotation on a saved view. */
   tools: Tool[];
   /** Optional label in browser / inspector lists. */

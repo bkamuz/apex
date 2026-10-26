@@ -23,6 +23,7 @@ export function createSelectTool(): Tool {
   return {
     id: SELECT_TOOL_ID,
     label: 'Select',
+    descriptor: { purpose: 'Select elements by click or box; Shift/Ctrl adds to the selection.' },
     group: 'select',
     icon: ApexIcons.select,
 

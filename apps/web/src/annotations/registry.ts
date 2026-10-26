@@ -1,3 +1,4 @@
+import { assertDescribed } from '../descriptor';
 import type { Tool } from '../tools/Tool';
 import type { AnnotationKindRegistration, AnnotationKindId } from './types';
 
@@ -8,6 +9,8 @@ class AnnotationKindRegistry {
   private listeners = new Set<Listener>();
 
   register(registration: AnnotationKindRegistration): void {
+    assertDescribed('annotation kind', registration.kind, registration);
+    for (const tool of registration.tools) assertDescribed('tool', tool.id, tool);
     this.kinds.set(registration.kind, registration);
     this.emit();
   }

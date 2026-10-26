@@ -854,9 +854,123 @@ pub fn is_watertight(mesh: &TriangleMesh) -> bool {
             .all(|(&(a, b), &count)| count == 1 && directed.get(&(b, a)) == Some(&1))
 }
 
+/// True when the surface has no boundary: every edge is cancelled by an
+/// opposite edge once T-junctions are split (a vertex of one face lying on an
+/// edge of its neighbour). Unlike [`is_watertight`] this accepts conforming
+/// joins (wall T-junctions) and solids built from several closed shells that
+/// share faces (window frames, stair steps). The enclosed volume is well
+/// defined either way.
+pub fn is_closed(mesh: &TriangleMesh) -> bool {
+    use std::collections::HashMap;
+    const SCALE: f64 = 1e4;
+    let mut ids: HashMap<[i64; 3], usize> = HashMap::new();
+    let mut verts: Vec<[f64; 3]> = Vec::new();
+    let mut weld = |i: u32| {
+        let i = i as usize * 3;
+        let p = [
+            mesh.positions[i] as f64,
+            mesh.positions[i + 1] as f64,
+            mesh.positions[i + 2] as f64,
+        ];
+        let key = p.map(|c| (c * SCALE).round() as i64);
+        *ids.entry(key).or_insert_with(|| {
+            verts.push(p);
+            verts.len() - 1
+        })
+    };
+    let mut edges: Vec<(usize, usize)> = Vec::new();
+    for tri in mesh.indices.chunks(3) {
+        let v = [weld(tri[0]), weld(tri[1]), weld(tri[2])];
+        if v[0] == v[1] || v[1] == v[2] || v[0] == v[2] {
+            continue;
+        }
+        for e in 0..3 {
+            edges.push((v[e], v[(e + 1) % 3]));
+        }
+    }
+    if edges.is_empty() {
+        return false;
+    }
+    let tol = 1.5 / SCALE;
+    let mut balance: HashMap<(usize, usize), i32> = HashMap::new();
+    for &(a, b) in &edges {
+        let (pa, pb) = (verts[a], verts[b]);
+        let d = [pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]];
+        let len2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+        // Vertices strictly inside the segment, ordered along it.
+        let mut cuts: Vec<(f64, usize)> = vec![(0.0, a), (1.0, b)];
+        for (k, p) in verts.iter().enumerate() {
+            if k == a || k == b {
+                continue;
+            }
+            let w = [p[0] - pa[0], p[1] - pa[1], p[2] - pa[2]];
+            let t = (w[0] * d[0] + w[1] * d[1] + w[2] * d[2]) / len2;
+            if t <= 1e-9 || t >= 1.0 - 1e-9 {
+                continue;
+            }
+            let off = [w[0] - t * d[0], w[1] - t * d[1], w[2] - t * d[2]];
+            if off[0] * off[0] + off[1] * off[1] + off[2] * off[2] <= tol * tol {
+                cuts.push((t, k));
+            }
+        }
+        cuts.sort_by(|x, y| x.0.total_cmp(&y.0));
+        for pair in cuts.windows(2) {
+            let (u, v) = (pair[0].1, pair[1].1);
+            if u == v {
+                continue;
+            }
+            let (key, sign) = if u < v { ((u, v), 1) } else { ((v, u), -1) };
+            *balance.entry(key).or_insert(0) += sign;
+        }
+    }
+    balance.values().all(|&n| n == 0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn closed_accepts_t_junctions_and_rejects_holes() {
+        // Unit cube whose +Z face is split by a vertex on the bottom edge (T-junction).
+        let mut m = TriangleMesh::default();
+        let p: [[f32; 3]; 9] = [
+            [0., 0., 0.],
+            [1., 0., 0.],
+            [1., 1., 0.],
+            [0., 1., 0.],
+            [0., 0., 1.],
+            [1., 0., 1.],
+            [1., 1., 1.],
+            [0., 1., 1.],
+            [0.5, 0., 1.],
+        ];
+        for v in p {
+            m.positions.extend_from_slice(&v);
+        }
+        let faces: [[u32; 3]; 13] = [
+            [0, 2, 1],
+            [0, 3, 2], // -z
+            [4, 8, 6],
+            [8, 5, 6],
+            [4, 6, 7], // +z, split at 8 (T on edge 4-5)
+            [0, 1, 5],
+            [0, 5, 4], // -y: edge 4-5 is not split here
+            [3, 7, 6],
+            [3, 6, 2], // +y
+            [0, 4, 7],
+            [0, 7, 3], // -x
+            [1, 2, 6],
+            [1, 6, 5], // +x
+        ];
+        for f in faces {
+            m.indices.extend_from_slice(&f);
+        }
+        assert!(!is_watertight(&m), "strict check sees the T-junction");
+        assert!(is_closed(&m));
+        m.indices.truncate(m.indices.len() - 3);
+        assert!(!is_closed(&m), "a missing triangle is a hole");
+    }
 
     fn rect(x0: f64, z0: f64, x1: f64, z1: f64) -> Vec<[f64; 2]> {
         vec![[x0, z0], [x1, z0], [x1, z1], [x0, z1]]

@@ -8,6 +8,7 @@ function createTextNoteTool(): Tool {
   return {
     id: 'apex.text_note',
     label: 'Text',
+    descriptor: { purpose: 'Place a text note in a plan view.' },
     group: 'create',
     tab: ApexTabs.annotate,
     icon: ApexIcons.refPoint,
@@ -49,6 +50,7 @@ export function builtinTextNoteKind(): AnnotationKindRegistration {
   return {
     kind: 'text_note',
     displayName: 'Text note',
+    descriptor: { purpose: 'Text note: free text placed at a world point or element anchor on a saved view.' },
     tools: [createTextNoteTool()],
     serialize: (kind) => kind,
     deserialize: (payload) => payload as import('../types').ViewAnnotationKindDto,

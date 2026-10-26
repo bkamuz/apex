@@ -1,3 +1,4 @@
+import { assertDescribed } from '../descriptor';
 import type { Exporter } from './types';
 
 type Listener = () => void;
@@ -13,6 +14,7 @@ class ExporterRegistry {
   }
 
   register(exporter: Exporter): void {
+    assertDescribed('exporter', exporter.id, exporter);
     this.exporters = [
       ...this.exporters.filter((item) => item.id !== exporter.id),
       exporter,

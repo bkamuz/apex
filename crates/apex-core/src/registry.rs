@@ -15,8 +15,10 @@ use crate::component::{
     GeometryRecipe, HostCutSpec, MeshBuilder, PlacementOptions, ProfileLibrary, ProfileSpec,
     ProfileType, RecipeContext, RecipeError,
 };
+use crate::descriptor::Descriptor;
 use crate::element::{ComponentId, Element};
 use crate::expr::Expr;
+use serde_json::json;
 
 /// Param holding a slab's sub-element shape.
 pub(crate) const SLAB_SHAPE: &str = "shape";
@@ -566,6 +568,11 @@ fn wall() -> ComponentDefinition {
             start_offset: Expr::zero(),
             end_offset: Expr::zero(),
         },
+        descriptor: Descriptor::new("Vertical wall: a profile swept along a centreline on the level. Height follows the storey rise; corners and T-junctions with other walls on the level join automatically (thicker wall wins).")
+            .points("path: 2+ plan points [x, y, z] along the centreline (y = level elevation, may be 0). placement_kind 'polyline' for a chain, 'three_point_arc' for an arc (start, mid, end). Closing a loop: repeat the first point at the end.")
+            .constraint("points must not repeat consecutively; segments shorter than 1 mm are refused")
+            .constraint("attach_top=true raises the wall to the underside of a pitched roof above it")
+            .example("A 10 m straight wall", json!({"component": "apex.wall", "points": [[0, 0, 0], [10, 0, 0]], "placement_kind": "polyline"})),
         host_cut: None,
         level_height_params: vec!["height".into()],
         ifc_entity: Some("IfcWall".into()),
@@ -598,6 +605,9 @@ fn column() -> ComponentDefinition {
             },
             height: Expr::param("height"),
         },
+        descriptor: Descriptor::new("Vertical column: a profile (rectangular or round, chosen by the `profile` param) extruded upward from a point on the level.")
+            .points("point: one plan point [x, y, z] for the column axis")
+            .example("Round column", json!({"component": "apex.column", "points": [[2, 0, 2]], "params": {"profile": "apex.round"}})),
         host_cut: None,
         level_height_params: vec!["height".into()],
         ifc_entity: Some("IfcColumn".into()),
@@ -628,6 +638,9 @@ fn beam() -> ComponentDefinition {
             start_offset: Expr::zero(),
             end_offset: Expr::zero(),
         },
+        descriptor: Descriptor::new("Horizontal beam: a profile swept between two points, hung below the line (top-centre justified).")
+            .points("two_point: start and end [x, y, z]; y is the top of the beam")
+            .example("Beam at 3 m", json!({"component": "apex.beam", "points": [[0, 3, 0], [5, 3, 0]]})),
         host_cut: None,
         level_height_params: vec![],
         ifc_entity: Some("IfcBeam".into()),
@@ -654,6 +667,10 @@ fn slab() -> ComponentDefinition {
             frame: FrameSource::WorkPlane,
             height: Expr::param("thickness"),
         },
+        descriptor: Descriptor::new("Floor slab: a closed plan boundary extruded downward-or-up by `thickness` on the level. Supports a sub-element shape (per-vertex heights, extra points, crease lines) for slopes and ramps via the set_slab_shape command.")
+            .points("polyline: 3+ boundary points, closed automatically (do not repeat the first point)")
+            .constraint("boundary must be simple (non self-intersecting)")
+            .example("8 x 10 m floor", json!({"component": "apex.slab", "points": [[0, 0, 0], [10, 0, 0], [10, 0, 8], [0, 0, 8]]})),
         host_cut: None,
         level_height_params: vec![],
         ifc_entity: Some("IfcSlab".into()),
@@ -687,6 +704,10 @@ fn boolean() -> ComponentDefinition {
         recipe: GeometryRecipe::Custom {
             builder_id: "apex.boolean".into(),
         },
+        descriptor: Descriptor::new("Parametric boolean solid: combines two existing solid elements (operand_a, operand_b are element ids) with subtract (A - B), union or intersect. Operands are hidden unless show_operands is true; editing an operand updates the result.")
+            .points("point: one dummy point, e.g. [0, 0, 0]")
+            .constraint("operand_a and operand_b must be different, existing, watertight solid elements")
+            .example("Subtract a column from a wall", json!({"component": "apex.boolean", "points": [[0, 0, 0]], "params": {"operand_a": "<wall-id>", "operand_b": "<column-id>", "operation": "subtract"}})),
         host_cut: None,
         level_height_params: vec![],
         ifc_entity: Some("IfcBooleanResult".into()),
@@ -716,6 +737,10 @@ fn door() -> ComponentDefinition {
             frame: FrameSource::PlacementCurve { t: Expr::zero() },
             height: Expr::param("height"),
         },
+        descriptor: Descriptor::new("Door hosted in a wall: cuts a real opening (with reveals) through its parent wall and shows a leaf and plan swing symbol.")
+            .points("point: one point on the host wall's centreline; pass `parent` = the wall id")
+            .constraint("must have a parent whose category is 'wall'; the point is projected onto the wall")
+            .example("Door 2 m along a wall", json!({"component": "apex.door", "points": [[2, 0, 0]], "parent": "<wall-id>"})),
         host_cut: Some(HostCutSpec {
             host_categories: vec!["wall".into()],
         }),
@@ -747,6 +772,10 @@ fn window() -> ComponentDefinition {
             frame: FrameSource::PlacementCurve { t: Expr::zero() },
             height: Expr::param("height"),
         },
+        descriptor: Descriptor::new("Window hosted in a wall: cuts an opening at `sill` height with frame and glass.")
+            .points("point: one point on the host wall's centreline; pass `parent` = the wall id")
+            .constraint("must have a parent whose category is 'wall'")
+            .example("Window", json!({"component": "apex.window", "points": [[5, 0, 0]], "parent": "<wall-id>", "params": {"sill": 0.9}})),
         host_cut: Some(HostCutSpec {
             host_categories: vec!["wall".into()],
         }),
@@ -770,6 +799,11 @@ fn slab_opening() -> ComponentDefinition {
             frame: FrameSource::WorkPlane,
             height: Expr::param("depth"),
         },
+        descriptor: Descriptor::new(
+            "Opening in a slab (shaft, stair well): a closed boundary that cuts its parent slab.",
+        )
+        .points("polyline: 3+ boundary points; pass `parent` = the slab id")
+        .constraint("parent must be a slab"),
         host_cut: Some(HostCutSpec {
             host_categories: vec!["slab".into()],
         }),
@@ -798,6 +832,9 @@ fn stair() -> ComponentDefinition {
         recipe: GeometryRecipe::Custom {
             builder_id: "apex.stair.run".into(),
         },
+        descriptor: Descriptor::new("Straight stair run from the level up `height` (defaults to the storey rise). Automatically cuts a well in the slab above.")
+            .points("two_point: bottom-start and run-direction end [x, y, z]")
+            .example("Stair along z", json!({"component": "apex.stair", "points": [[1, 0, 1.5], [1, 0, 6]]})),
         host_cut: None,
         level_height_params: vec!["height".into()],
         ifc_entity: Some("IfcStair".into()),
@@ -823,6 +860,8 @@ fn roof_flat() -> ComponentDefinition {
             frame: FrameSource::WorkPlane,
             height: Expr::param("thickness"),
         },
+        descriptor: Descriptor::new("Flat roof: a closed boundary extruded by `thickness`; sloped via set_slab_shape like a slab.")
+            .points("polyline: 3+ boundary points"),
         host_cut: None,
         level_height_params: vec![],
         ifc_entity: Some("IfcRoof".into()),
@@ -859,6 +898,9 @@ fn roof_pitched() -> ComponentDefinition {
         recipe: GeometryRecipe::Custom {
             builder_id: "apex.roof.pitched".into(),
         },
+        descriptor: Descriptor::new("Pitched roof (gable or hip) as one watertight solid: ridge between two points, `width` across the ridge, slope by rise or angle, optional overhang and eave cut. Seated at the storey rise so it sits on the walls.")
+            .points("two_point: ridge start and end [x, y, z] (plan)")
+            .example("Gable along x", json!({"component": "apex.roof.pitched", "points": [[0, 0, 4], [10, 0, 4]], "params": {"width": 8, "overhang": 0.5}})),
         host_cut: None,
         level_height_params: vec!["base_offset".into()],
         ifc_entity: Some("IfcRoof".into()),
@@ -886,6 +928,10 @@ fn pipe() -> ComponentDefinition {
             start_offset: Expr::zero(),
             end_offset: Expr::zero(),
         },
+        descriptor: Descriptor::new(
+            "MEP pipe: round profile swept along a 3D path at a free elevation.",
+        )
+        .points("path: 2+ points [x, y, z]; y is the centreline elevation"),
         host_cut: None,
         level_height_params: vec![],
         ifc_entity: Some("IfcFlowSegment".into()),
@@ -913,6 +959,8 @@ fn duct() -> ComponentDefinition {
             start_offset: Expr::zero(),
             end_offset: Expr::zero(),
         },
+        descriptor: Descriptor::new("MEP duct: rectangular profile swept along a 3D path.")
+            .points("path: 2+ points [x, y, z]"),
         host_cut: None,
         level_height_params: vec![],
         ifc_entity: Some("IfcFlowSegment".into()),
@@ -940,6 +988,8 @@ fn cable_tray() -> ComponentDefinition {
             start_offset: Expr::zero(),
             end_offset: Expr::zero(),
         },
+        descriptor: Descriptor::new("Cable tray swept along a 3D path.")
+            .points("path: 2+ points [x, y, z]"),
         host_cut: None,
         level_height_params: vec![],
         ifc_entity: Some("IfcCableCarrierSegment".into()),
@@ -1329,9 +1379,57 @@ mod tests {
     }
 
     #[test]
+    fn registration_without_a_descriptor_fails() {
+        let base = builtin_components()
+            .into_iter()
+            .find(|d| d.id == "apex.column")
+            .unwrap();
+        let mut registry = ComponentRegistry::new();
+        let mut blank = base.clone();
+        blank.id = "acme.blank".into();
+        blank.descriptor = crate::Descriptor::default();
+        let err = registry.register(blank).unwrap_err();
+        assert!(err.to_string().contains("descriptor"), "{err}");
+        assert!(registry.get("acme.blank").is_none());
+
+        let mut whitespace = base.clone();
+        whitespace.id = "acme.ws".into();
+        whitespace.descriptor = crate::Descriptor::new("   ");
+        assert!(registry.register(whitespace).is_err());
+
+        // Authored JSON without a descriptor does not even parse.
+        let mut value = serde_json::to_value(&base).unwrap();
+        value.as_object_mut().unwrap().remove("descriptor");
+        value["id"] = json!("acme.nodesc");
+        let parsed: Result<ComponentDefinition, _> = serde_json::from_value(value);
+        assert!(parsed.unwrap_err().to_string().contains("descriptor"));
+
+        let mut ok = base;
+        ok.id = "acme.ok".into();
+        ok.descriptor = crate::Descriptor::new("A described post.");
+        registry.register(ok).unwrap();
+    }
+
+    #[test]
+    fn every_builtin_has_a_descriptor_with_a_valid_example() {
+        for def in builtin_components() {
+            assert!(!def.descriptor.is_missing(), "{}", def.id);
+            for ex in &def.descriptor.examples {
+                assert_eq!(
+                    ex.input["component"],
+                    def.id.as_str(),
+                    "{} example names its type",
+                    def.id
+                );
+            }
+        }
+    }
+
+    #[test]
     fn an_invalid_component_is_refused_at_registration() {
         let mut registry = ComponentRegistry::new();
         let def = ComponentDefinition {
+            descriptor: crate::Descriptor::new("test"),
             id: "acme.broken".into(),
             display_name: "Broken".into(),
             category: "generic".into(),
@@ -1366,6 +1464,7 @@ mod tests {
 
         // A table: round top on a single pick, exactly how a module would ship it.
         let table = ComponentDefinition {
+            descriptor: crate::Descriptor::new("test"),
             id: "acme.table".into(),
             display_name: "Table".into(),
             category: "furniture".into(),
@@ -1412,6 +1511,7 @@ mod tests {
     fn a_component_can_be_installed_from_authored_json() {
         let json = r#"{
             "id": "acme.plinth",
+            "descriptor": {"purpose": "Test component acme.plinth."},
             "display_name": "Plinth",
             "category": "furniture",
             "placement": "point",
@@ -1468,6 +1568,7 @@ mod tests {
         );
         registry
             .register(ComponentDefinition {
+                descriptor: crate::Descriptor::new("test"),
                 id: "acme.marker".into(),
                 display_name: "Marker".into(),
                 category: "annotation".into(),

@@ -1,3 +1,4 @@
+import type { Descriptor } from '../descriptor';
 import type { Vec3 } from '../viewport/ViewportRenderer';
 import type { AnnotationAnchorDto, ComponentDto, PlacementKind, ReferenceKind } from '../types';
 import type { ToolIcon } from './icons';
@@ -152,6 +153,8 @@ export interface PointerInfo {
 export interface Tool {
   readonly id: string;
   readonly label: string;
+  /** Required. What the tool does, for tooltips and agents. See docs/descriptors.md. */
+  readonly descriptor: Descriptor;
   /** Toolbar cluster. Select and transform sit before create tools. */
   readonly group?: ToolGroup;
   /**

@@ -4,6 +4,7 @@ mod annotation;
 mod builders;
 mod component;
 mod construction_line;
+mod descriptor;
 mod document;
 mod dxf_export;
 mod element;
@@ -26,6 +27,7 @@ mod sheet;
 mod sheet_scale;
 mod sketch;
 mod space;
+mod svg_export;
 mod vector_export;
 mod view;
 mod view_annotation;
@@ -40,6 +42,10 @@ pub use component::{
 pub use construction_line::{
     construction_line_param_specs, ConstructionLine, ConstructionLineError, ConstructionLineId,
     ConstructionLineLibrary, ConstructionLineOverlay,
+};
+pub use descriptor::{
+    param_json_schema, params_json_schema, Descriptor, DescriptorExample, PublishedDescriptor,
+    DEFAULT_UNITS,
 };
 pub use document::{Document, DocumentChange, DocumentChangeKind, ElementSceneEntry, SceneBuffers};
 pub use dxf_export::drawing_to_dxf;
@@ -57,6 +63,10 @@ pub use path_join::{
 };
 pub use placement::{Placement, PlacementError, PlacementKind};
 pub use plan_symbols::opening_plan_symbols;
+pub use project::commands::{
+    annotation_descriptors, api_catalog, command_descriptors, component_catalog, conventions,
+    query_descriptors, Command, CommandError, Query,
+};
 pub use project::ProjectSnapshot;
 pub use project::{boolean_params, Project, ShapeHandle, ShapeInfo, SlabShape};
 pub use reference::{
@@ -80,6 +90,7 @@ pub use sketch::{ProfileSketch, SketchConstraint, SketchDimension, SketchError};
 pub use space::{
     space_is_auto, space_param_specs, Space, SpaceError, SpaceId, SpaceLibrary, SpaceOverlay,
 };
+pub use svg_export::drawing_to_svg;
 pub use vector_export::{
     ExportUnits, VectorDimension2d, VectorDrawing2d, VectorLine2d, VectorText2d,
 };
