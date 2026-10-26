@@ -246,6 +246,66 @@ impl Project {
         (base, top)
     }
 
+    /// What clipping `element` removes, unbounded in plan: the exact prism
+    /// part (above its own top / below its own base outside every target
+    /// footprint) and the true-surface cutters (above each top target's
+    /// underside, below each base target's top). `None` when it attaches
+    /// to nothing.
+    pub(crate) fn attach_cuts(
+        &self,
+        element: &Element,
+        piece: &LayeredSolid,
+        own: (f64, f64),
+    ) -> Option<(LayeredSolid, Vec<TriangleMesh>)> {
+        let tops = self.attach_surfaces(element, piece, AttachEnd::Top);
+        let bases = self.attach_surfaces(element, piece, AttachEnd::Base);
+        if tops.is_empty() && bases.is_empty() {
+            return None;
+        }
+        let (y0, y1) = piece.y_range()?;
+        let (lo, hi) = (y0 - 2.0, y1 + 2.0);
+        let mut bb = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
+        for q in piece.footprint().iter().flatten().flatten() {
+            bb = [
+                bb[0].min(q[0]),
+                bb[1].min(q[1]),
+                bb[2].max(q[0]),
+                bb[3].max(q[1]),
+            ];
+        }
+        let big = [
+            [bb[0] - 5.0, bb[1] - 5.0],
+            [bb[2] + 5.0, bb[1] - 5.0],
+            [bb[2] + 5.0, bb[3] + 5.0],
+            [bb[0] - 5.0, bb[3] + 5.0],
+        ];
+        let mut exact = LayeredSolid::empty();
+        if !tops.is_empty() && y1 > own.1 + 1e-6 {
+            let mut covered = LayeredSolid::empty();
+            for s in &tops {
+                covered = covered.union(&LayeredSolid::polygon_prism(&s.footprint, lo, hi));
+            }
+            exact = exact.union(&LayeredSolid::polygon_prism(&big, own.1, hi).subtract(&covered));
+        }
+        if !bases.is_empty() && y0 < own.0 - 1e-6 {
+            let mut covered = LayeredSolid::empty();
+            for s in &bases {
+                covered = covered.union(&LayeredSolid::polygon_prism(&s.footprint, lo, hi));
+            }
+            exact = exact.union(&LayeredSolid::polygon_prism(&big, lo, own.0).subtract(&covered));
+        }
+        let mut cutters = Vec::new();
+        for s in &tops {
+            let below = s.surface.solid(Underside::Flat(lo - 1.0)).ok()?;
+            let column = LayeredSolid::polygon_prism(&s.footprint, lo, hi + 1.0).to_mesh();
+            cutters.push(mesh_boolean(&column, &below, BooleanOp::Subtract).ok()?);
+        }
+        for s in &bases {
+            cutters.push(s.surface.solid(Underside::Flat(lo)).ok()?);
+        }
+        Some((exact, cutters))
+    }
+
     /// Clip an attached element's (extended) closed solid to its targets.
     /// `own` is the unextended elevation range. Under several top targets
     /// the lowest underside wins; outside every footprint the element keeps
@@ -460,6 +520,13 @@ impl Project {
                 })
             })
             .map(|e| e.id)
+            .collect::<Vec<_>>()
+            .into_iter()
+            // Joined neighbours render a share of the clipped cluster.
+            .flat_map(|id| match self.document.get_element(id) {
+                Some(e) if self.in_attached_cluster(e) => self.join_cluster(e),
+                _ => vec![id],
+            })
             .collect()
     }
 }

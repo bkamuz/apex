@@ -244,3 +244,33 @@ fn e2e_house() -> Project {
 fn e2e_house_is_deterministic() {
     check(e2e_house, 20);
 }
+
+/// Roof-attached walls joined L/T/X with different thicknesses: the cluster
+/// share must be byte-identical on every run.
+fn attached_joins() -> Project {
+    let mut p = Project::new();
+    let t = ex(
+        &mut p,
+        json!({"op":"create_wall_type","name":"Thick 400","thickness":0.4}),
+    );
+    let prof = t["profile"].as_str().unwrap().to_string();
+    let a = id(&ex(
+        &mut p,
+        json!({"op":"create_element","component":"apex.wall","points":[[0,0,0],[8,0,0],[8,0,5]],"params":{"profile":prof}}),
+    ));
+    let b = wall(&mut p, json!([[8, 0, 5], [0, 0, 5], [0, 0, 0]]));
+    let tee = wall(&mut p, json!([[3, 0, 0], [3, 0, 5]]));
+    let x = wall(&mut p, json!([[-1, 0, 2.5], [9, 0, 2.5]]));
+    ex(
+        &mut p,
+        json!({"op":"create_element","component":"apex.roof.pitched","points":[[0,0,2.5],[8,0,2.5]],"params":{"roof_type":"hip","width":5,"overhang":0.5,"slope_by":"angle","pitch":0.5}}),
+    );
+    ex(&mut p, json!({"op":"attach_top","ids":[a,b,x]}));
+    let _ = tee;
+    p
+}
+
+#[test]
+fn attached_joins_are_deterministic() {
+    check(attached_joins, 20);
+}

@@ -418,16 +418,120 @@ impl Project {
     /// Final mesh for prism hosts and joinable elements, or `None` to fall
     /// back to the plain recipe mesh.
     pub(crate) fn solid_mesh(&self, element: &Element) -> Option<TriangleMesh> {
+        if let Some(mesh) = self.attached_cluster_share(element) {
+            return Some(mesh);
+        }
         let (piece, whole) = self.solid_piece(element)?;
         if let Some(clipped) = self.roof_clipped(element, &piece) {
             return Some(clipped);
         }
-        // An attached wall never clusters (see `solid_piece`): when its
-        // roof clip yields nothing it still renders its whole closed piece.
-        Some(match whole.filter(|_| !self.wall_attaches_top(element)) {
+        Some(match whole {
             Some(whole) => piece.to_mesh_within(&whole),
             None => piece.to_mesh(),
         })
+    }
+
+    /// The join cluster `element` belongs to (itself included), in stable
+    /// content order.
+    pub(crate) fn join_cluster(&self, element: &Element) -> Vec<ElementId> {
+        let mut seen = std::collections::BTreeSet::from([element.id]);
+        let mut stack = vec![element.id];
+        while let Some(id) = stack.pop() {
+            let Some(e) = self.document.get_element(id) else {
+                continue;
+            };
+            let Some((_, _, peers)) = self.solid_piece_full(e) else {
+                continue;
+            };
+            for p in peers {
+                if seen.insert(p) {
+                    stack.push(p);
+                }
+            }
+        }
+        let mut out: Vec<ElementId> = seen.into_iter().collect();
+        out.sort_by_cached_key(|id| {
+            self.document
+                .get_element(*id)
+                .map(|e| e.order_key())
+                .unwrap_or_default()
+        });
+        out
+    }
+
+    /// True when `element` is joined into a cluster with at least one wall
+    /// attached to a roof or slab.
+    pub(crate) fn in_attached_cluster(&self, element: &Element) -> bool {
+        if !self.joinable(element) {
+            return false;
+        }
+        let Some((_, _, peers)) = self.solid_piece_full(element) else {
+            return false;
+        };
+        if peers.is_empty() {
+            return false;
+        }
+        self.join_cluster(element).iter().any(|id| {
+            self.document
+                .get_element(*id)
+                .is_some_and(|e| self.wall_attaches_top(e))
+        })
+    }
+
+    /// A joined cluster with attached walls: every wall's closed piece is
+    /// clipped to its own attach targets (so tops differ across the
+    /// junction), the clipped pieces are unioned into one closed solid, and
+    /// each wall renders the faces of that union that bound its own piece.
+    /// The renders tile the union exactly: no internal faces, no
+    /// z-fighting, one closed surface. `None` when the element is not in
+    /// such a cluster or the kernel fails (then pieces render on their own).
+    fn attached_cluster_share(&self, element: &Element) -> Option<TriangleMesh> {
+        use apex_geometry::{mesh_boolean, BooleanOp};
+        if !self.in_attached_cluster(element) {
+            return None;
+        }
+        let members = self.join_cluster(element);
+        let mut pieces = Vec::with_capacity(members.len());
+        for id in &members {
+            let e = self.document.get_element(*id)?;
+            let (piece, _, _) = self.solid_piece_full(e)?;
+            pieces.push((*id, piece));
+        }
+        // The joined cluster, exact: pieces tile it.
+        let mut whole = LayeredSolid::union_all(pieces.iter().map(|(_, s)| s));
+        // Each attached wall's share of the cut: its own plan column, so a
+        // junction is capped exactly on the plane where the pieces meet and
+        // one wall's roof never trims its neighbour.
+        let mut cutter = TriangleMesh::empty();
+        for (id, piece) in &pieces {
+            let e = self.document.get_element(*id)?;
+            if !self.wall_attaches_top(e) {
+                continue;
+            }
+            let own = self.own_solid_at(e, false)?.y_range()?;
+            let Some((exact, cutters)) = self.attach_cuts(e, piece, own) else {
+                continue;
+            };
+            let (y0, y1) = piece.y_range()?;
+            let column = LayeredSolid::prism(piece.footprint(), y0 - 1.0, y1 + 1.0);
+            whole = whole.subtract(&column.intersect(&exact));
+            if cutters.is_empty() {
+                continue;
+            }
+            let mut cut = TriangleMesh::empty();
+            for c in &cutters {
+                cut = mesh_boolean(&cut, c, BooleanOp::Union).ok()?;
+            }
+            let column = super::roof_attach::unpinch(&column).to_mesh();
+            let mine = mesh_boolean(&column, &cut, BooleanOp::Intersect).ok()?;
+            cutter = mesh_boolean(&cutter, &mine, BooleanOp::Union).ok()?;
+        }
+        let base = super::roof_attach::unpinch(&LayeredSolid::empty().union(&whole)).to_mesh();
+        let union = mesh_boolean(&base, &cutter, BooleanOp::Subtract).ok()?;
+        if !apex_geometry::is_closed(&union) {
+            return None;
+        }
+        Some(share_of_union(&union, &pieces, element.id))
     }
 
     /// This element's own closed solid (its join-cluster share with every
@@ -442,6 +546,11 @@ impl Project {
             return Some(clipped);
         }
         Some(piece.to_mesh())
+    }
+
+    /// [`Self::closed_solid_mesh`] by id (tests, validation).
+    pub fn closed_wall_solid(&self, id: ElementId) -> Option<TriangleMesh> {
+        self.closed_solid_mesh(self.document.get_element(id)?)
     }
 
     /// [`Self::closed_solid_mesh`] as a boolean-kernel operand: a join can
@@ -478,7 +587,14 @@ impl Project {
             .filter(|e| self.joinable(e))
             .filter_map(|e| {
                 let (piece, whole) = self.solid_piece(e)?;
-                let solid = whole.unwrap_or(piece);
+                let solid = if self.in_attached_cluster(e) || self.wall_attaches_top(e) {
+                    // Built up to the ridge before clipping: only the part
+                    // below its own top surely buries anything.
+                    let own = self.own_solid_at(e, false)?.y_range()?;
+                    below_top(&piece, own.1)
+                } else {
+                    whole.unwrap_or(piece)
+                };
                 let yr = solid.y_range()?;
                 let fp = solid.footprint();
                 let mut b = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
@@ -537,10 +653,20 @@ impl Project {
     /// This element's share of its join cluster plus the cluster's whole
     /// solid (None when it joins nothing).
     fn solid_piece(&self, element: &Element) -> Option<(LayeredSolid, Option<LayeredSolid>)> {
+        self.solid_piece_full(element).map(|(p, w, _)| (p, w))
+    }
+
+    /// [`Self::solid_piece`] plus the peers it clusters with.
+    #[allow(clippy::type_complexity)]
+    fn solid_piece_full(
+        &self,
+        element: &Element,
+    ) -> Option<(LayeredSolid, Option<LayeredSolid>, Vec<ElementId>)> {
         let own = self.own_solid(element)?;
         if !self.joinable(element) {
-            return Some((own, None));
+            return Some((own, None, Vec::new()));
         }
+        let mut peers = Vec::new();
         let hw = profile_half_width(&self.registry, element).unwrap_or(0.0);
         let mine = own.footprint();
         let mut piece = own.clone();
@@ -577,12 +703,10 @@ impl Project {
             // A peer consumed by a boolean renders through the boolean's
             // own closed solid, not as a cluster piece: faces shared with
             // it must stay or the seam is left open.
-            // Likewise a wall attached to a roof renders its own closed,
-            // clipped piece.
-            let peer_in_boolean =
-                !self.boolean_consumers(peer_id).is_empty() || self.wall_attaches_top(peer);
-            let me_in_boolean =
-                !self.boolean_consumers(element.id).is_empty() || self.wall_attaches_top(element);
+            // Walls attached to a roof do cluster: see
+            // `attached_cluster_share`.
+            let peer_in_boolean = !self.boolean_consumers(peer_id).is_empty();
+            let me_in_boolean = !self.boolean_consumers(element.id).is_empty();
             if !peer_in_boolean
                 && !me_in_boolean
                 && self.ends_allow_cluster(element, &their_fp, hw)
@@ -590,6 +714,7 @@ impl Project {
             {
                 whole = whole.union(&theirs);
                 clustered = true;
+                peers.push(peer_id);
             } else if peer_wins {
                 // Not clustered but it still trims this piece: the trimmed
                 // end must stay a face of the cluster solid, or it is left
@@ -600,7 +725,7 @@ impl Project {
         for o in &outside {
             whole = whole.subtract(o);
         }
-        Some((piece, clustered.then_some(whole)))
+        Some((piece, clustered.then_some(whole), peers))
     }
 
     /// True when one of the element's path ends touches `other`.
@@ -654,6 +779,9 @@ impl Project {
     /// slab when it is a stair.
     pub(crate) fn solid_dependents(&self, element: &Element) -> Vec<ElementId> {
         let mut out = self.join_candidates(element);
+        if self.in_attached_cluster(element) {
+            out.extend(self.join_cluster(element));
+        }
         out.extend(self.boolean_dependents(element));
         out.extend(self.roof_dependents(element));
         if element.component_id == STAIR {
@@ -730,6 +858,110 @@ fn mitre(c: Vec3, out_a: Vec3, hwa: f32, out_b: Vec3, hwb: f32, at_start: bool) 
         extension: (reach + 0.05).min(20.0 * hwa.max(hwb)) as f32,
         keep,
     })
+}
+
+/// The triangles and feature edges of a cluster's closed `union` that bound
+/// `id`'s piece. Each triangle goes to the piece just behind it (pieces
+/// tile the cluster without overlap), so the shares add up to `union`.
+fn share_of_union(
+    union: &TriangleMesh,
+    pieces: &[(ElementId, LayeredSolid)],
+    id: ElementId,
+) -> TriangleMesh {
+    let owner_of = |p: [f64; 3]| -> Option<ElementId> {
+        pieces.iter().find(|(_, s)| s.contains(p)).map(|(i, _)| *i)
+    };
+    let pos = |i: u32| {
+        let k = i as usize * 3;
+        [
+            union.positions[k] as f64,
+            union.positions[k + 1] as f64,
+            union.positions[k + 2] as f64,
+        ]
+    };
+    let mut out = TriangleMesh::empty();
+    for tri in union.indices.chunks(3) {
+        let [a, b, c] = [pos(tri[0]), pos(tri[1]), pos(tri[2])];
+        let u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+        let v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]];
+        let n = [
+            u[1] * v[2] - u[2] * v[1],
+            u[2] * v[0] - u[0] * v[2],
+            u[0] * v[1] - u[1] * v[0],
+        ];
+        let l = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+        if l < 1e-14 {
+            continue;
+        }
+        let n = [n[0] / l, n[1] / l, n[2] / l];
+        let m = [
+            (a[0] + b[0] + c[0]) / 3.0,
+            (a[1] + b[1] + c[1]) / 3.0,
+            (a[2] + b[2] + c[2]) / 3.0,
+        ];
+        let owner = [1e-4, 1e-3, 1e-2]
+            .iter()
+            .find_map(|d| owner_of([m[0] - n[0] * d, m[1] - n[1] * d, m[2] - n[2] * d]))
+            .unwrap_or(pieces[0].0);
+        if owner == id {
+            let f = |p: [f64; 3]| [p[0] as f32, p[1] as f32, p[2] as f32];
+            out.push_triangle(f(a), f(b), f(c), f(n));
+        }
+    }
+    // Feature edges: drawn by every piece they touch.
+    let mine = &pieces.iter().find(|(i, _)| *i == id).expect("member").1;
+    const D: f64 = 0.01;
+    for seg in union.edges.as_chunks::<6>().0 {
+        let m = [
+            (seg[0] as f64 + seg[3] as f64) * 0.5,
+            (seg[1] as f64 + seg[4] as f64) * 0.5,
+            (seg[2] as f64 + seg[5] as f64) * 0.5,
+        ];
+        let touches = [-D, D].iter().any(|dy| {
+            [
+                [D, 0.0],
+                [-D, 0.0],
+                [0.0, D],
+                [0.0, -D],
+                [D, D],
+                [-D, -D],
+                [D, -D],
+                [-D, D],
+            ]
+            .iter()
+            .any(|o| mine.contains([m[0] + o[0], m[1] + dy, m[2] + o[1]]))
+        });
+        if touches {
+            out.push_edge([seg[0], seg[1], seg[2]], [seg[3], seg[4], seg[5]]);
+        }
+    }
+    out
+}
+
+/// `solid` cut off at elevation `top`.
+fn below_top(solid: &LayeredSolid, top: f64) -> LayeredSolid {
+    let Some((_, y1)) = solid.y_range() else {
+        return solid.clone();
+    };
+    if y1 <= top {
+        return solid.clone();
+    }
+    let mut b = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
+    for p in solid.footprint().iter().flatten().flatten() {
+        b = [
+            b[0].min(p[0]),
+            b[1].min(p[1]),
+            b[2].max(p[0]),
+            b[3].max(p[1]),
+        ];
+    }
+    let big = [
+        [b[0] - 1.0, b[1] - 1.0],
+        [b[2] + 1.0, b[1] - 1.0],
+        [b[2] + 1.0, b[3] + 1.0],
+        [b[0] - 1.0, b[3] + 1.0],
+    ];
+    solid.subtract(&LayeredSolid::polygon_prism(&big, top, y1 + 1.0))
 }
 
 #[cfg(test)]
