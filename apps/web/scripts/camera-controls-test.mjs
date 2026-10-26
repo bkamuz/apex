@@ -11,6 +11,9 @@ const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
 await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.waitForSelector('canvas');
 await page.waitForTimeout(1200);
+// The app opens in Plan; orbit checks need the 3D view.
+await page.getByTestId('view-3d').click();
+await page.waitForTimeout(300);
 
 const getCamera = () =>
   page.evaluate(() => {
