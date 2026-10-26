@@ -21,6 +21,7 @@ import initWasm, {
   previewComponentDefinition,
   previewProfile,
   registerComponent,
+  registerOpeningGenerator,
   registerProfile,
   selectElement,
   setActiveLevel,
@@ -150,6 +151,43 @@ export function apexListComponents(): ComponentDto[] {
 
 export function apexRegisterComponent(definition: unknown): SceneDto {
   return asScene(registerComponent(JSON.stringify(definition)));
+}
+
+/** One prism of a generated opening (see `OpeningPart` in apex-core). */
+export interface OpeningPartDto {
+  /** Outer loop first, then holes; `[s, y]` in the part plane, metres. */
+  loops: [number, number][][];
+  /** `[u, n]` offset of the part plane: along the wall / along its normal. */
+  origin?: [number, number];
+  /** Rotation about +Y in radians (0 = wall plane; doors swing with this). */
+  angle?: number;
+  /** Extrusion range along the part plane normal. */
+  d0: number;
+  d1: number;
+  glass?: boolean;
+}
+
+export interface OpeningGeometryDto {
+  parts: OpeningPartDto[];
+  /** Loose lines, `[u, y, n]` points (e.g. swing arcs in plan). */
+  lines?: [[number, number, number], [number, number, number]][];
+}
+
+export type OpeningGeneratorFn = (
+  params: Record<string, unknown>,
+  wallDepth: number,
+) => OpeningGeometryDto;
+
+export function apexRegisterOpeningGenerator(
+  id: string,
+  descriptor: unknown,
+  generate: OpeningGeneratorFn,
+): SceneDto {
+  return asScene(
+    registerOpeningGenerator(id, JSON.stringify(descriptor), (paramsJson: string, depth: number) =>
+      JSON.stringify(generate(JSON.parse(paramsJson) as Record<string, unknown>, depth)),
+    ),
+  );
 }
 
 export function apexListProfiles(category = ''): ProfileTypeDto[] {

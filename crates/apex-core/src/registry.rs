@@ -22,7 +22,11 @@ use serde_json::json;
 
 /// Param holding a slab's sub-element shape.
 pub(crate) const SLAB_SHAPE: &str = "shape";
-use crate::param::{ParamError, ParamKind, ParamMap, ParamSpec};
+use crate::family::{
+    build_opening, FamilyType, OpeningGenerator, OpeningGeometry, OpeningInfill, OpeningPlanSymbol,
+    OpeningRecipe, TYPE_PARAM,
+};
+use crate::param::{ParamError, ParamKind, ParamMap, ParamSpec, ParamValue};
 use crate::placement::{Placement, PlacementKind};
 use crate::reference::{Reference, ReferenceFilter};
 
@@ -57,6 +61,8 @@ pub struct ComponentRegistry {
     components: BTreeMap<ComponentId, ComponentDefinition>,
     profiles: ProfileLibrary,
     builders: BTreeMap<String, Box<dyn MeshBuilder>>,
+    family_types: BTreeMap<String, FamilyType>,
+    opening_generators: BTreeMap<String, (Descriptor, Box<dyn OpeningGenerator>)>,
 }
 
 impl ComponentRegistry {
@@ -81,7 +87,229 @@ impl ComponentRegistry {
                 .register(definition)
                 .expect("built-in components must be valid");
         }
+        for family_type in builtin_family_types() {
+            registry
+                .upsert_family_type(family_type)
+                .expect("built-in family types must be valid");
+        }
         registry
+    }
+
+    // ---- Family types -------------------------------------------------
+
+    /// Type-bound param ids of a family (what a [`FamilyType`] holds).
+    pub fn type_param_ids(&self, family: &str) -> Vec<String> {
+        self.get(family)
+            .map(|d| {
+                d.params
+                    .iter()
+                    .filter(|p| p.binding.is_type())
+                    .map(|p| p.id.clone())
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    /// Whether the component is a typed family (has a default type).
+    pub fn is_family(&self, component_id: &str) -> bool {
+        self.get(component_id)
+            .and_then(|d| d.default_type.as_deref())
+            .is_some_and(|t| self.family_types.contains_key(t))
+    }
+
+    pub fn family_type(&self, id: &str) -> Option<&FamilyType> {
+        self.family_types.get(id)
+    }
+
+    /// All types, or only those of `family`.
+    pub fn family_types(&self, family: Option<&str>) -> Vec<&FamilyType> {
+        self.family_types
+            .values()
+            .filter(|t| family.is_none_or(|f| t.family == f))
+            .collect()
+    }
+
+    /// Add or replace a type. Values are resolved against the family's
+    /// type-bound specs (missing keys take spec defaults, unknown keys fail).
+    pub fn upsert_family_type(&mut self, mut family_type: FamilyType) -> Result<(), RegistryError> {
+        if family_type.id.trim().is_empty() {
+            return Err(RegistryError::Unknown("family type id is empty".into()));
+        }
+        let def = self.require(&family_type.family)?;
+        let specs: Vec<ParamSpec> = def
+            .params
+            .iter()
+            .filter(|p| p.binding.is_type())
+            .cloned()
+            .collect();
+        if specs.is_empty() {
+            return Err(RegistryError::Unknown(format!(
+                "{} has no type parameters",
+                family_type.family
+            )));
+        }
+        family_type.values = family_type.values.resolve(&specs)?;
+        if family_type.name.trim().is_empty() {
+            family_type.name = family_type.id.clone();
+        }
+        self.family_types
+            .insert(family_type.id.clone(), family_type);
+        Ok(())
+    }
+
+    pub fn remove_family_type(&mut self, id: &str) -> Option<FamilyType> {
+        self.family_types.remove(id)
+    }
+
+    /// Pick the type an instance should use given raw input `patch` and its
+    /// `current` type. Type-bound keys in `patch` that differ from the
+    /// chosen type select an existing type with exactly those values, or
+    /// derive (and register) a new one, so `params: {width: 1.0}` keeps
+    /// working for agents and old projects.
+    pub fn resolve_instance_type(
+        &mut self,
+        component_id: &str,
+        current: Option<&str>,
+        patch: &ParamMap,
+    ) -> Option<String> {
+        if !self.is_family(component_id) {
+            return None;
+        }
+        let def = self.get(component_id)?;
+        let fallback = def.default_type.clone()?;
+        let display = def.display_name.clone();
+        let belongs = |id: &str| {
+            self.family_types
+                .get(id)
+                .is_some_and(|t| t.family == component_id)
+        };
+        let candidate = patch
+            .text(TYPE_PARAM)
+            .filter(|t| belongs(t))
+            .or(current.filter(|t| belongs(t)))
+            .map(str::to_string)
+            .unwrap_or(fallback);
+        let base = self.family_types.get(&candidate)?.clone();
+        let type_ids = self.type_param_ids(component_id);
+        let mut target = base.values.clone();
+        let mut changed = false;
+        for key in &type_ids {
+            if let Some(v) = patch.get(key) {
+                if !value_eq(base.values.get(key), Some(v)) {
+                    target.set(key.clone(), v.clone());
+                    changed = true;
+                }
+            }
+        }
+        if !changed {
+            return Some(candidate);
+        }
+        let specs: Vec<ParamSpec> = self
+            .get(component_id)?
+            .params
+            .iter()
+            .filter(|p| p.binding.is_type())
+            .cloned()
+            .collect();
+        let target = target.resolve(&specs).ok()?;
+        if let Some(t) = self.family_types.values().find(|t| {
+            t.family == component_id
+                && type_ids
+                    .iter()
+                    .all(|k| value_eq(t.values.get(k), target.get(k)))
+        }) {
+            return Some(t.id.clone());
+        }
+        let mm = |k: &str| (target.number(k).unwrap_or(0.0) * 1000.0).round() as i64;
+        let stem = format!("{component_id}.t-{}x{}", mm("width"), mm("height"));
+        let mut id = stem.clone();
+        let mut i = 2;
+        while self.family_types.contains_key(&id) {
+            id = format!("{stem}-{i}");
+            i += 1;
+        }
+        let name = format!("{display} {}×{} ({})", mm("width"), mm("height"), base.name);
+        self.upsert_family_type(FamilyType {
+            id: id.clone(),
+            family: component_id.to_string(),
+            name,
+            values: target,
+        })
+        .ok()?;
+        Some(id)
+    }
+
+    /// Raw params overlaid on their family type's values (read-only; no
+    /// type is derived). Non-families return `raw` unchanged.
+    pub fn typed_params(&self, component_id: &str, raw: &ParamMap) -> ParamMap {
+        let Some(def) = self.get(component_id) else {
+            return raw.clone();
+        };
+        let type_id = raw
+            .text(TYPE_PARAM)
+            .map(str::to_string)
+            .or_else(|| def.default_type.clone());
+        match type_id
+            .and_then(|t| self.family_types.get(&t))
+            .filter(|t| t.family == component_id)
+        {
+            Some(t) => t.values.merged(raw),
+            None => raw.clone(),
+        }
+    }
+
+    /// Write the type id and its values into instance params.
+    pub fn apply_type_values(&self, type_id: &str, params: &mut ParamMap) {
+        if let Some(t) = self.family_types.get(type_id) {
+            params.set(TYPE_PARAM, ParamValue::Text(type_id.to_string()));
+            for (k, v) in t.values.iter() {
+                params.set(k.clone(), v.clone());
+            }
+        }
+    }
+
+    // ---- Opening generators (plugin hook) -----------------------------
+
+    /// Register a plugin opening generator; recipes select it via `generator`.
+    pub fn register_opening_generator(
+        &mut self,
+        id: impl Into<String>,
+        descriptor: Descriptor,
+        generator: Box<dyn OpeningGenerator>,
+    ) -> Result<(), RegistryError> {
+        let id = id.into();
+        if descriptor.is_missing() {
+            return Err(RegistryError::Definition(
+                DefinitionError::MissingDescriptor { component: id },
+            ));
+        }
+        self.opening_generators.insert(id, (descriptor, generator));
+        Ok(())
+    }
+
+    pub fn opening_generator_descriptors(&self) -> Vec<(String, Descriptor)> {
+        self.opening_generators
+            .iter()
+            .map(|(k, (d, _))| (k.clone(), d.clone()))
+            .collect()
+    }
+
+    /// Geometry for an opening recipe: the plugin generator when named (and
+    /// registered), otherwise the built-in builder.
+    pub fn opening_geometry(
+        &self,
+        recipe: &OpeningRecipe,
+        params: &ParamMap,
+        wall_depth: f64,
+    ) -> Result<OpeningGeometry, String> {
+        if let Some(id) = &recipe.generator {
+            let (_, generator) = self
+                .opening_generators
+                .get(id)
+                .ok_or_else(|| format!("unknown opening generator '{id}'"))?;
+            return generator.generate(params, wall_depth);
+        }
+        Ok(build_opening(recipe, params, wall_depth))
     }
 
     /// Add a component. Validation happens here so an authoring mistake is
@@ -96,9 +324,34 @@ impl ComponentRegistry {
     }
 
     /// Add or replace a component, for reloading a module during development.
-    pub fn upsert(&mut self, definition: ComponentDefinition) -> Result<(), RegistryError> {
+    pub fn upsert(&mut self, mut definition: ComponentDefinition) -> Result<(), RegistryError> {
         definition.validate()?;
-        self.components.insert(definition.id.clone(), definition);
+        let id = definition.id.clone();
+        // An opening family needs at least one type: seed `<id>.default`
+        // from the type-bound param defaults when none exists yet.
+        let needs_type = definition.opening.is_some()
+            && definition
+                .default_type
+                .as_deref()
+                .is_none_or(|t| self.family_types.get(t).is_none_or(|ft| ft.family != id));
+        if needs_type {
+            let existing = self.family_types(Some(&id)).first().map(|t| t.id.clone());
+            definition.default_type = Some(existing.unwrap_or_else(|| format!("{id}.default")));
+        }
+        let seed = definition
+            .default_type
+            .clone()
+            .filter(|t| needs_type && !self.family_types.contains_key(t));
+        let name = definition.display_name.clone();
+        self.components.insert(id.clone(), definition);
+        if let Some(type_id) = seed {
+            self.upsert_family_type(FamilyType {
+                id: type_id,
+                family: id,
+                name,
+                values: ParamMap::new(),
+            })?;
+        }
         Ok(())
     }
 
@@ -548,6 +801,8 @@ pub fn builtin_components() -> Vec<ComponentDefinition> {
 /// the `profile` parameter, the same pattern as column.
 fn wall() -> ComponentDefinition {
     ComponentDefinition {
+        opening: None,
+        default_type: None,
         id: "apex.wall".to_string(),
         display_name: "Wall".to_string(),
         category: "wall".to_string(),
@@ -587,6 +842,8 @@ fn wall() -> ComponentDefinition {
 /// is what `ProfileSpec::FromParam` is for: one tool, swappable section.
 fn column() -> ComponentDefinition {
     ComponentDefinition {
+        opening: None,
+        default_type: None,
         id: "apex.column".to_string(),
         display_name: "Column".to_string(),
         category: "column".to_string(),
@@ -626,6 +883,8 @@ fn column() -> ComponentDefinition {
 /// A beam is the same sweep as a wall, hung below its line instead of sitting on it.
 fn beam() -> ComponentDefinition {
     ComponentDefinition {
+        opening: None,
+        default_type: None,
         id: "apex.beam".to_string(),
         display_name: "Beam".to_string(),
         category: "beam".to_string(),
@@ -659,6 +918,8 @@ fn beam() -> ComponentDefinition {
 /// A floor slab / перекрытие: a closed polyline on the level, extruded for thickness.
 fn slab() -> ComponentDefinition {
     ComponentDefinition {
+        opening: None,
+        default_type: None,
         id: "apex.slab".to_string(),
         display_name: "Slab".to_string(),
         category: "slab".to_string(),
@@ -692,6 +953,8 @@ fn empty_builder(_: &RecipeContext<'_>) -> Result<TriangleMesh, RecipeError> {
 
 fn boolean() -> ComponentDefinition {
     ComponentDefinition {
+        opening: None,
+        default_type: None,
         id: "apex.boolean".to_string(),
         display_name: "Boolean".to_string(),
         category: "modifier".to_string(),
@@ -723,8 +986,151 @@ fn boolean() -> ComponentDefinition {
     }
 }
 
+fn value_eq(a: Option<&ParamValue>, b: Option<&ParamValue>) -> bool {
+    match (a, b) {
+        (Some(a), Some(b)) => match (a.as_number(), b.as_number()) {
+            (Some(x), Some(y)) => (x - y).abs() < 1e-6,
+            _ => a == b,
+        },
+        (None, None) => true,
+        _ => false,
+    }
+}
+
+/// Shared type params of the built-in opening families.
+fn opening_type_specs(width: f64, height: f64, sash: f64) -> Vec<ParamSpec> {
+    vec![
+        ParamSpec::length("width", "Width", width).as_type(),
+        ParamSpec::length("height", "Height", height).as_type(),
+        ParamSpec::length("thickness", "Leaf thickness", 0.05).as_type(),
+        ParamSpec::length("frame_width", "Frame width", 0.06).as_type(),
+        ParamSpec::number("columns", "Columns (sashes / leaves)", 1.0)
+            .with_range(Some(1.0), Some(12.0))
+            .as_type(),
+        ParamSpec::number("rows", "Rows", 1.0)
+            .with_range(Some(1.0), Some(12.0))
+            .as_type(),
+        ParamSpec::length("mullion_width", "Mullion / transom width", 0.06).as_type(),
+        ParamSpec::length("transom_height", "Transom height (0 = even rows)", 0.0)
+            .with_range(Some(0.0), None)
+            .as_type(),
+        ParamSpec::length("sash_width", "Sash width (0 = fixed)", sash)
+            .with_range(Some(0.0), None)
+            .as_type(),
+        ParamSpec::number("bars_x", "Vertical glazing bars", 0.0)
+            .with_range(Some(0.0), Some(20.0))
+            .as_type(),
+        ParamSpec::number("bars_y", "Horizontal glazing bars", 0.0)
+            .with_range(Some(0.0), Some(20.0))
+            .as_type(),
+        ParamSpec::length("arch_rise", "Arch rise (0 = flat head)", 0.0)
+            .with_range(Some(0.0), None)
+            .as_type(),
+    ]
+}
+
+fn opening_recipe(door: bool) -> OpeningRecipe {
+    OpeningRecipe {
+        arch_rise: Expr::param("arch_rise"),
+        frame_width: Expr::param("frame_width"),
+        threshold: !door,
+        columns: Expr::param("columns"),
+        rows: Expr::param("rows"),
+        mullion_width: Expr::param("mullion_width"),
+        transom_height: Expr::param("transom_height"),
+        infill: if door {
+            OpeningInfill::Leaf
+        } else {
+            OpeningInfill::Glass
+        },
+        sash_width: Expr::param("sash_width"),
+        bars_x: Expr::param("bars_x"),
+        bars_y: Expr::param("bars_y"),
+        leaf_thickness: Expr::param("thickness"),
+        plan_symbol: if door {
+            OpeningPlanSymbol::Swing
+        } else {
+            OpeningPlanSymbol::Window
+        },
+        ..OpeningRecipe::default()
+    }
+}
+
+fn family_type(family: &str, id: &str, name: &str, values: &[(&str, f64)]) -> FamilyType {
+    let mut map = ParamMap::new();
+    for (k, v) in values {
+        let value = if matches!(*k, "columns" | "rows" | "bars_x" | "bars_y") {
+            ParamValue::Number(*v)
+        } else {
+            ParamValue::Length(*v)
+        };
+        map.set(*k, value);
+    }
+    FamilyType {
+        id: id.into(),
+        family: family.into(),
+        name: name.into(),
+        values: map,
+    }
+}
+
+/// Shipped window and door types.
+pub fn builtin_family_types() -> Vec<FamilyType> {
+    vec![
+        family_type(
+            "apex.window",
+            "apex.window.single-1200x1400",
+            "Window 1200×1400 single sash",
+            &[],
+        ),
+        family_type(
+            "apex.window",
+            "apex.window.double-1500x1400",
+            "Window 1500×1400 two sashes + mullion",
+            &[("width", 1.5), ("columns", 2.0), ("mullion_width", 0.08)],
+        ),
+        family_type(
+            "apex.window",
+            "apex.window.arched-900x1600",
+            "Window 900×1600 arched, glazing bars",
+            &[
+                ("width", 0.9),
+                ("height", 1.6),
+                ("arch_rise", 0.45),
+                ("bars_x", 1.0),
+                ("bars_y", 2.0),
+            ],
+        ),
+        family_type(
+            "apex.door",
+            "apex.door.single-900x2100",
+            "Door 900×2100 single leaf",
+            &[],
+        ),
+        family_type(
+            "apex.door",
+            "apex.door.double-1400x2100",
+            "Door 1400×2100 double leaf",
+            &[("width", 1.4), ("columns", 2.0), ("mullion_width", 0.01)],
+        ),
+        family_type(
+            "apex.door",
+            "apex.door.transom-1000x2500",
+            "Door 1000×2500 with glazed transom",
+            &[
+                ("width", 1.0),
+                ("height", 2.5),
+                ("rows", 2.0),
+                ("transom_height", 2.1),
+            ],
+        ),
+    ]
+}
+
 fn door() -> ComponentDefinition {
     ComponentDefinition {
+        opening: Some(opening_recipe(true)),
+        default_type: Some("apex.door.single-900x2100".into()),
         id: "apex.door".to_string(),
         display_name: "Door".to_string(),
         category: "opening".to_string(),
@@ -732,11 +1138,12 @@ fn door() -> ComponentDefinition {
         placement: PlacementKind::Point,
         placement_options: PlacementOptions::default(),
         params: vec![
-            ParamSpec::length("width", "Width", 0.9),
-            ParamSpec::length("height", "Height", 2.1),
+            ParamSpec::text(TYPE_PARAM, "Type", "apex.door.single-900x2100"),
             ParamSpec::length("sill", "Sill", 0.0).with_range(Some(0.0), None),
-            ParamSpec::length("thickness", "Thickness", 0.05),
-        ],
+        ]
+        .into_iter()
+        .chain(opening_type_specs(0.9, 2.1, 0.0))
+        .collect(),
         recipe: GeometryRecipe::Extrude {
             profile: ProfileSpec::Rectangle {
                 width: Expr::param("width"),
@@ -760,6 +1167,8 @@ fn door() -> ComponentDefinition {
 
 fn window() -> ComponentDefinition {
     ComponentDefinition {
+        opening: Some(opening_recipe(false)),
+        default_type: Some("apex.window.single-1200x1400".into()),
         id: "apex.window".to_string(),
         display_name: "Window".to_string(),
         category: "opening".to_string(),
@@ -767,11 +1176,12 @@ fn window() -> ComponentDefinition {
         placement: PlacementKind::Point,
         placement_options: PlacementOptions::default(),
         params: vec![
-            ParamSpec::length("width", "Width", 1.2),
-            ParamSpec::length("height", "Height", 1.4),
+            ParamSpec::text(TYPE_PARAM, "Type", "apex.window.single-1200x1400"),
             ParamSpec::length("sill", "Sill", 0.9).with_range(Some(0.0), None),
-            ParamSpec::length("thickness", "Thickness", 0.05),
-        ],
+        ]
+        .into_iter()
+        .chain(opening_type_specs(1.2, 1.4, 0.04))
+        .collect(),
         recipe: GeometryRecipe::Extrude {
             profile: ProfileSpec::Rectangle {
                 width: Expr::param("width"),
@@ -795,6 +1205,8 @@ fn window() -> ComponentDefinition {
 
 fn slab_opening() -> ComponentDefinition {
     ComponentDefinition {
+        opening: None,
+        default_type: None,
         id: "apex.slab_opening".to_string(),
         display_name: "Slab opening".to_string(),
         category: "opening".to_string(),
@@ -823,6 +1235,8 @@ fn slab_opening() -> ComponentDefinition {
 
 fn stair() -> ComponentDefinition {
     ComponentDefinition {
+        opening: None,
+        default_type: None,
         id: "apex.stair".to_string(),
         display_name: "Stair".to_string(),
         category: "stair".to_string(),
@@ -852,6 +1266,8 @@ fn stair() -> ComponentDefinition {
 
 fn roof_flat() -> ComponentDefinition {
     ComponentDefinition {
+        opening: None,
+        default_type: None,
         id: "apex.roof".to_string(),
         display_name: "Roof".to_string(),
         category: "roof".to_string(),
@@ -879,6 +1295,8 @@ fn roof_flat() -> ComponentDefinition {
 
 fn roof_pitched() -> ComponentDefinition {
     ComponentDefinition {
+        opening: None,
+        default_type: None,
         id: "apex.roof.pitched".to_string(),
         display_name: "Pitched roof".to_string(),
         category: "roof".to_string(),
@@ -920,6 +1338,8 @@ fn roof_pitched() -> ComponentDefinition {
 
 fn pipe() -> ComponentDefinition {
     ComponentDefinition {
+        opening: None,
+        default_type: None,
         id: "apex.pipe".to_string(),
         display_name: "Pipe".to_string(),
         category: "mep.pipe".to_string(),
@@ -951,6 +1371,8 @@ fn pipe() -> ComponentDefinition {
 
 fn duct() -> ComponentDefinition {
     ComponentDefinition {
+        opening: None,
+        default_type: None,
         id: "apex.duct".to_string(),
         display_name: "Duct".to_string(),
         category: "mep.duct".to_string(),
@@ -980,6 +1402,8 @@ fn duct() -> ComponentDefinition {
 
 fn cable_tray() -> ComponentDefinition {
     ComponentDefinition {
+        opening: None,
+        default_type: None,
         id: "apex.cable_tray".to_string(),
         display_name: "Cable tray".to_string(),
         category: "mep.tray".to_string(),
@@ -1439,6 +1863,8 @@ mod tests {
     fn an_invalid_component_is_refused_at_registration() {
         let mut registry = ComponentRegistry::new();
         let def = ComponentDefinition {
+            opening: None,
+            default_type: None,
             descriptor: crate::Descriptor::new("test"),
             id: "acme.broken".into(),
             display_name: "Broken".into(),
@@ -1474,6 +1900,8 @@ mod tests {
 
         // A table: round top on a single pick, exactly how a module would ship it.
         let table = ComponentDefinition {
+            opening: None,
+            default_type: None,
             descriptor: crate::Descriptor::new("test"),
             id: "acme.table".into(),
             display_name: "Table".into(),
@@ -1578,6 +2006,8 @@ mod tests {
         );
         registry
             .register(ComponentDefinition {
+                opening: None,
+                default_type: None,
                 descriptor: crate::Descriptor::new("test"),
                 id: "acme.marker".into(),
                 display_name: "Marker".into(),

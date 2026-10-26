@@ -225,6 +225,12 @@ export function redo(): any;
 export function registerComponent(definition_json: string): any;
 
 /**
+ * Register a plugin geometry generator for opening families
+ * (`opening.generator` in a component). A descriptor is mandatory.
+ */
+export function registerOpeningGenerator(id: string, descriptor_json: string, generate: Function): any;
+
+/**
  * Install or replace a profile type. Dependent elements are rebuilt.
  */
 export function registerProfile(definition_json: string): any;
@@ -412,6 +418,7 @@ export interface InitOutput {
     readonly previewProfile: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly redo: () => [number, number, number];
     readonly registerComponent: (a: number, b: number) => [number, number, number];
+    readonly registerOpeningGenerator: (a: number, b: number, c: number, d: number, e: any) => [number, number, number];
     readonly registerProfile: (a: number, b: number) => [number, number, number];
     readonly removeSheetViewport: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly renameSheet: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
@@ -455,10 +462,10 @@ export interface InitOutput {
     readonly updateViewSettings: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
     readonly __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
-    readonly __wbindgen_free: (a: number, b: number, c: number) => void;
     readonly __wbindgen_exn_store: (a: number) => void;
     readonly __externref_table_alloc: () => number;
     readonly __wbindgen_externrefs: WebAssembly.Table;
+    readonly __wbindgen_free: (a: number, b: number, c: number) => void;
     readonly __externref_table_dealloc: (a: number) => void;
     readonly __wbindgen_start: () => void;
 }

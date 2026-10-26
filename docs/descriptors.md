@@ -15,6 +15,7 @@ these descriptors at runtime. Register a new element type and it becomes a
 | Tool | `registerTool({ descriptor })` | `MissingDescriptorError` (`apps/web/src/descriptor.ts`) |
 | Exporter | `registerExporter({ descriptor })` | `MissingDescriptorError` |
 | Annotation kind | `registerAnnotationKind({ descriptor })` | `MissingDescriptorError` |
+| Opening generator | `registerOpeningGenerator({ id, descriptor, generate })` | `MissingDescriptorError`; Rust `RegistryError` |
 | Plugin / runtime module | module `descriptor` | `MissingDescriptorError` |
 
 Registration **fails** without a descriptor, or with an empty `purpose`. Tests:

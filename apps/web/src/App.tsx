@@ -136,6 +136,7 @@ import { downloadBlob, downloadTextFile, drawingToPdf, drawingToSvg } from './ui
 import type { VectorDrawing2d } from './types';
 import type { DocumentTab } from './ui/ViewTabBar';
 import { PropertiesPanel } from './ui/PropertiesPanel';
+import { FamilyTypeSection } from './ui/FamilyTypeSection';
 import { SHAPEABLE_COMPONENTS, SlabShapePanel } from './ui/SlabShapePanel';
 import { ToolsToolbar } from './ui/ToolsToolbar';
 import { GettingStartedPanel } from './ui/GettingStartedPanel';
@@ -2494,6 +2495,17 @@ export default function App() {
           : null
       }
       onUpdate={onUpdateParams}
+      familySection={
+        selected && selectedComponent?.default_type ? (
+          <FamilyTypeSection
+            element={selected}
+            component={selectedComponent}
+            components={components}
+            onScene={applyScene}
+            onError={setError}
+          />
+        ) : null
+      }
       shapeSection={
         shapeTarget && shapeInfo ? (
           <SlabShapePanel

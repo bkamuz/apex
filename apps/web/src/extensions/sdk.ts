@@ -1,6 +1,12 @@
 import { assertDescribed } from '../descriptor';
 export type { Descriptor, DescriptorExample } from '../descriptor';
-import { apexListComponents, apexRegisterComponent } from '../wasm/apex';
+import {
+  apexListComponents,
+  apexRegisterComponent,
+  apexRegisterOpeningGenerator,
+  type OpeningGeneratorFn,
+} from '../wasm/apex';
+import type { Descriptor } from '../descriptor';
 import { TOOL_ICONS } from '../tools/icons';
 import { createPlacementTool } from '../tools/placementTool';
 import { ApexTabs, TOOL_TABS } from '../tools/tabs';
@@ -14,6 +20,7 @@ export type { Tool, ToolContext, ToolGroup, ToolMode, ToolTab, ResolvedToolTab }
 export type { ToolIcon, ToolIconName } from '../tools/icons';
 export type { TransformOriginal, TransformMode } from '../tools/transformTypes';
 export type { Exporter } from '../plugins/types';
+export type { OpeningGeneratorFn, OpeningGeometryDto, OpeningPartDto } from '../wasm/apex';
 export type { AnnotationKindRegistration, AnnotationKindId } from '../annotations/types';
 export { ApexTabs, TOOL_TABS, catalogTabById, resolveToolTab } from '../tools/tabs';
 export { ApexIcons, TOOL_ICONS, catalogIconByName, resolveToolIconSvg } from '../tools/icons';
@@ -44,6 +51,17 @@ class ExtensionHost {
       this.registerTool(createPlacementTool(installed, { tab: ApexTabs.building }));
       return;
     }
+    this.emit();
+  }
+
+  /**
+   * Register a geometry generator for opening families (doors, windows,
+   * plugin openings). A family uses it via `opening.generator: id`; the core
+   * still owns types, hosting, the wall void and plan symbols.
+   */
+  registerOpeningGenerator(registration: OpeningGeneratorRegistration): void {
+    assertDescribed('opening generator', registration.id, registration);
+    apexRegisterOpeningGenerator(registration.id, registration.descriptor, registration.generate);
     this.emit();
   }
 
@@ -103,11 +121,21 @@ function componentIdOf(definition: unknown): string | null {
 
 export const extensions = new ExtensionHost();
 
+/** A plugin geometry generator for opening families. */
+export interface OpeningGeneratorRegistration {
+  readonly id: string;
+  /** Required. What the generator builds. See docs/descriptors.md. */
+  readonly descriptor: Descriptor;
+  /** Resolved family params (metres) + host wall depth → solids. Must be deterministic. */
+  readonly generate: OpeningGeneratorFn;
+}
+
 export interface ApexGlobal {
   defineComponent(definition: unknown): void;
   registerTool(tool: Tool): void;
   registerExporter(exporter: Exporter): void;
   registerAnnotationKind(registration: AnnotationKindRegistration): void;
+  registerOpeningGenerator(registration: OpeningGeneratorRegistration): void;
   /** Known toolbar tabs — prefer these; a custom `{ id, label }` still creates a new tab. */
   tabs: typeof TOOL_TABS;
   /** Known toolbar icon names — prefer these; omit icon or use `{ svg }` for custom. */
@@ -127,6 +155,7 @@ export function installGlobalSdk(): void {
     registerTool: (tool) => extensions.registerTool(tool),
     registerExporter: (exporter) => extensions.registerExporter(exporter),
     registerAnnotationKind: (registration) => extensions.registerAnnotationKind(registration),
+    registerOpeningGenerator: (registration) => extensions.registerOpeningGenerator(registration),
     tabs: TOOL_TABS,
     icons: TOOL_ICONS,
   };

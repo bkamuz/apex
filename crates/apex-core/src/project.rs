@@ -25,6 +25,7 @@ use crate::construction_line::{
 };
 use crate::document::Document;
 use crate::element::{Element, ElementId};
+use crate::family::TYPE_PARAM;
 use crate::grid_axis::{grid_axis_param_specs, GridAxis, GridAxisId};
 use crate::history::History;
 use crate::level::{Level, LevelId};
@@ -150,139 +151,6 @@ fn project_onto_curve_xz(curve: &apex_geometry::Curve, p: Vec3) -> Option<Vec3> 
         }
     }
     best.map(|(q, _)| q)
-}
-
-/// One closed solid for a door/window frame (or a window sash): the outer
-/// rectangle `[a0, a1] x [y0, y1]` (along the wall `u`, height `y`) minus the
-/// inner clear opening `[b0, b1] x [z0, z1]`, `hn` either side of the wall
-/// centre along `n`. When `z0 <= y0` the bottom member is omitted (a door):
-/// the section is a U. Cap faces are split into coplanar trapezoids that
-/// share only true corners, and edges are emitted only for real outline
-/// corners, so mitred member joints draw no seam line and nothing overlaps
-/// (no z-fighting).
-const SASH_GAP: f32 = 0.002;
-
-#[allow(clippy::too_many_arguments)]
-fn push_frame(
-    mesh: &mut TriangleMesh,
-    c: Vec3,
-    u: Vec3,
-    n: Vec3,
-    outer: [f32; 4],
-    inner: [f32; 4],
-    hn: f32,
-) {
-    let [a0, a1, y0, y1] = outer;
-    let [b0, b1, z0, z1] = inner;
-    let open_bottom = z0 <= y0 + 1e-6;
-    let (o0, o1, o2, o3) = ([a0, y0], [a1, y0], [a1, y1], [a0, y1]);
-    let (i0, i1, i2, i3) = ([b0, y0.max(z0)], [b1, y0.max(z0)], [b1, z1], [b0, z1]);
-    // Boundary loops, material on the left (outer CCW, hole CW).
-    let loops: Vec<Vec<[f32; 2]>> = if open_bottom {
-        vec![vec![o0, i0, i3, i2, i1, o1, o2, o3]]
-    } else {
-        vec![vec![o0, o1, o2, o3], vec![i0, i3, i2, i1]]
-    };
-    let caps: Vec<[[f32; 2]; 4]> = if open_bottom {
-        vec![[o0, i0, i3, o3], [o3, i3, i2, o2], [i1, o1, o2, i2]]
-    } else {
-        vec![
-            [o0, o1, i1, i0],
-            [o1, o2, i2, i1],
-            [o2, o3, i3, i2],
-            [o3, o0, i0, i3],
-        ]
-    };
-    let pt = |q: [f32; 2], s: f32| -> Vec3 {
-        let p = c + u * q[0] + n * (s * hn);
-        Vec3::new(p.x, q[1], p.z)
-    };
-    let mut tri = |a: Vec3, b: Vec3, d: Vec3, nn: Vec3| {
-        if (b - a).cross(d - a).dot(nn) >= 0.0 {
-            mesh.push_triangle(a.to_array(), b.to_array(), d.to_array(), nn.to_array());
-        } else {
-            mesh.push_triangle(a.to_array(), d.to_array(), b.to_array(), nn.to_array());
-        }
-    };
-    for s in [-1.0_f32, 1.0] {
-        for q in &caps {
-            let v = q.map(|p| pt(p, s));
-            tri(v[0], v[1], v[2], n * s);
-            tri(v[0], v[2], v[3], n * s);
-        }
-    }
-    let mut edges = Vec::new();
-    for lp in &loops {
-        for k in 0..lp.len() {
-            let (p, q) = (lp[k], lp[(k + 1) % lp.len()]);
-            let (da, dy) = (q[0] - p[0], q[1] - p[1]);
-            let nn = (u * dy + Vec3::Y * -da).normalize_or_zero();
-            let (pa, pb, qa, qb) = (pt(p, -1.0), pt(p, 1.0), pt(q, -1.0), pt(q, 1.0));
-            tri(pa, qa, qb, nn);
-            tri(pa, qb, pb, nn);
-            edges.push((pa, qa));
-            edges.push((pb, qb));
-            edges.push((pa, pb));
-        }
-    }
-    for (a, b) in edges {
-        mesh.push_edge(a.to_array(), b.to_array());
-    }
-}
-
-/// Box in a wall frame: `u` along the wall, `n` across, +Y up. `cu`/`hu` are
-/// centre and half length along `u`; `hn` is half depth along `n`.
-#[allow(clippy::too_many_arguments)]
-fn push_box(
-    mesh: &mut TriangleMesh,
-    c: Vec3,
-    u: Vec3,
-    n: Vec3,
-    cu: f32,
-    hu: f32,
-    y0: f32,
-    y1: f32,
-    hn: f32,
-) {
-    let corner = |su: f32, y: f32, sn: f32| -> [f32; 3] {
-        let p = c + u * (cu + su * hu) + n * (sn * hn);
-        [p.x, y, p.z]
-    };
-    let v = |i: usize| {
-        let su = if i & 1 == 0 { -1.0 } else { 1.0 };
-        let y = if i & 2 == 0 { y0 } else { y1 };
-        let sn = if i & 4 == 0 { -1.0 } else { 1.0 };
-        corner(su, y, sn)
-    };
-    let quads: [([usize; 4], Vec3); 6] = [
-        ([0, 4, 6, 2], -u),
-        ([1, 3, 7, 5], u),
-        ([0, 1, 5, 4], Vec3::new(0.0, -1.0, 0.0)),
-        ([2, 6, 7, 3], Vec3::Y),
-        ([0, 2, 3, 1], -n),
-        ([4, 5, 7, 6], n),
-    ];
-    for (q, nn) in quads {
-        let nn = nn.to_array();
-        mesh.push_triangle(v(q[0]), v(q[1]), v(q[2]), nn);
-        mesh.push_triangle(v(q[0]), v(q[2]), v(q[3]), nn);
-    }
-    for (a, b) in [
-        (0, 1),
-        (2, 3),
-        (4, 5),
-        (6, 7),
-        (0, 2),
-        (1, 3),
-        (4, 6),
-        (5, 7),
-        (0, 4),
-        (1, 5),
-        (2, 6),
-        (3, 7),
-    ] {
-        mesh.push_edge(v(a), v(b));
-    }
 }
 
 pub struct Project {
@@ -496,7 +364,13 @@ impl Project {
             placement
         };
 
-        let raw_params = params;
+        let mut raw_params = params;
+        if let Some(type_id) = self
+            .registry
+            .resolve_instance_type(component_id, None, &raw_params)
+        {
+            self.registry.apply_type_values(&type_id, &mut raw_params);
+        }
         let mut params = self
             .registry
             .persistable_params(component_id, &raw_params)?;
@@ -642,8 +516,16 @@ impl Project {
         // under a stair) must follow the edit too.
         let old_dependents = self.solid_dependents(&element);
 
-        if let Some(patch) = params {
-            element.params = element.params.merged(&patch);
+        let patch = params.unwrap_or_default();
+        let current_type = element.params.text(TYPE_PARAM).map(str::to_string);
+        element.params = element.params.merged(&patch);
+        if let Some(type_id) = self.registry.resolve_instance_type(
+            &element.component_id,
+            current_type.as_deref(),
+            &patch,
+        ) {
+            self.registry
+                .apply_type_values(&type_id, &mut element.params);
         }
         // A child is built against its parent's level, not its own.
         let level_id = self
@@ -1714,6 +1596,22 @@ impl Project {
         let placement = self.placement_from_definition(definition, kind, points, rotation)?;
         let elevation = self.active_work_plane().origin.y;
         let placement = placement.with_elevation(elevation);
+        if let Some(recipe) = &definition.opening {
+            // Opening families preview their assembly (frame, sashes, leaves)
+            // in a 0.2 m wall along +X, not the wall void.
+            definition.validate()?;
+            let params = self
+                .registry
+                .eval_params_for_definition(definition, raw_params)?;
+            let geo = self
+                .registry
+                .opening_geometry(recipe, &params, 0.2)
+                .map_err(RegistryError::Unknown)?;
+            let base = placement.anchors().first().copied().unwrap_or(Vec3::ZERO);
+            let mut mesh = TriangleMesh::empty();
+            crate::family::emit_opening(&mut mesh, &geo, base, Vec3::X, Vec3::Z);
+            return Ok(mesh);
+        }
         self.registry.preview_definition_mesh(
             definition,
             &placement,
@@ -1933,11 +1831,13 @@ impl Project {
         let n = Vec3::new(-u.z, 0.0, u.x);
         let center = project_onto_curve_xz(curve, origin).unwrap_or(origin);
         let center = Vec3::new(center.x, origin.y, center.z);
-        let params = def.resolve_params(&element.params).ok()?;
-        let width = params.number("width").unwrap_or(0.9) as f32;
-        let height = params.number("height").unwrap_or(2.1) as f32;
-        let sill = params.number("sill").unwrap_or(0.0) as f32;
-        let is_door = element.component_id == "apex.door";
+        let recipe = def.opening.as_ref()?;
+        let params = self
+            .registry
+            .eval_params(&element.component_id, &element.params)
+            .ok()?;
+        let (width, _, _) = recipe.extents(&params);
+        let width = width as f32;
         // Wall half thickness from the host mesh around the opening.
         let mut half_t = 0.0_f32;
         if let Some(hm) = self.document.get_mesh(host.id) {
@@ -1951,89 +1851,12 @@ impl Project {
         if !(0.02..=1.0).contains(&half_t) {
             half_t = 0.1;
         }
+        let geo = self
+            .registry
+            .opening_geometry(recipe, &params, 2.0 * half_t as f64)
+            .ok()?;
         let mut mesh = TriangleMesh::empty();
-        let fw = 0.06_f32; // frame member width
-        let y0 = center.y + sill;
-        let y1 = y0 + height;
-        let hw = width * 0.5;
-        let fd = half_t; // frame fills the wall depth
-                         // Doors get no threshold: the plan reads the opening as a clean
-                         // break in the wall with jamb lines only.
-        let sill_t = if is_door { 0.0 } else { fw };
-        // Jambs, head and sill as one mitred solid (no member seams).
-        push_frame(
-            &mut mesh,
-            center,
-            u,
-            n,
-            [-hw, hw, y0, y1],
-            [-(hw - fw), hw - fw, y0 + sill_t, y1 - fw],
-            fd,
-        );
-        // Leaf or glass, centred in the hole.
-        let inner = hw - fw;
-        let (py0, py1, pt) = (y0 + sill_t, y1 - fw, 0.025);
-        if inner > 0.0 && py1 > py0 {
-            // The renderer has one opaque material, so an opaque glass pane
-            // would read as a solid wall patch. Windows stay see-through:
-            // only the frame and sash are solid.
-            if is_door {
-                // Leaf open 90° about its hinge on the -u jamb at the +n
-                // wall face (matches the plan symbol): a hinge rotation, so
-                // it stands across the wall on purpose, with the floor arc.
-                let leaf = 2.0 * inner;
-                let hinge = center - u * inner + n * half_t;
-                let leaf_center = hinge + u * pt + n * inner;
-                push_box(&mut mesh, leaf_center, n, u, 0.0, inner, py0, py1, pt);
-                let y = py0 + 0.005;
-                let at = |t: f32| {
-                    let p = hinge + (u * t.cos() + n * t.sin()) * leaf;
-                    [p.x, y, p.z]
-                };
-                const SEGMENTS: usize = 16;
-                for i in 0..SEGMENTS {
-                    let t0 = i as f32 / SEGMENTS as f32 * std::f32::consts::FRAC_PI_2;
-                    let t1 = (i + 1) as f32 / SEGMENTS as f32 * std::f32::consts::FRAC_PI_2;
-                    mesh.push_edge(at(t0), at(t1));
-                }
-            } else {
-                // Mullion-free sash frame around the glass, one solid.
-                let sf = 0.03;
-                push_frame(
-                    &mut mesh,
-                    center,
-                    u,
-                    n,
-                    // 2 mm gap to the frame: a separate body, no coplanar
-                    // faces (the gap line is a real one).
-                    [
-                        -(inner - SASH_GAP),
-                        inner - SASH_GAP,
-                        py0 + SASH_GAP,
-                        py1 - SASH_GAP,
-                    ],
-                    [-(inner - sf), inner - sf, py0 + sf, py1 - sf],
-                    0.03,
-                );
-                // Glass pane: normals tagged (length 2) so the renderer draws
-                // it in its translucent glass pass instead of as a solid.
-                let first = mesh.normals.len();
-                push_box(
-                    &mut mesh,
-                    center,
-                    u,
-                    n,
-                    0.0,
-                    inner - sf,
-                    py0 + sf,
-                    py1 - sf,
-                    0.006,
-                );
-                for v in &mut mesh.normals[first..] {
-                    *v *= GLASS_NORMAL_TAG;
-                }
-            }
-        }
+        crate::family::emit_opening(&mut mesh, &geo, center, u, n);
         Some(mesh)
     }
 
@@ -2155,6 +1978,188 @@ impl Project {
         format!("Room {}", self.space_counter)
     }
 
+    // ---- Family types ---------------------------------------------------
+
+    /// Add a family type (or replace one with the same id) and rebuild any
+    /// instances already using it. One undo step.
+    pub fn upsert_family_type(
+        &mut self,
+        family_type: crate::family::FamilyType,
+    ) -> Result<Vec<ElementId>, RegistryError> {
+        let before = (!self.history.has_pending()).then(|| self.export_snapshot());
+        let id = family_type.id.clone();
+        if let Some(existing) = self.registry.family_type(&id) {
+            if existing.family != family_type.family {
+                return Err(RegistryError::Unknown(format!(
+                    "type '{id}' belongs to {}",
+                    existing.family
+                )));
+            }
+        }
+        self.registry.upsert_family_type(family_type)?;
+        let touched = self.refresh_type_instances(&id)?;
+        if let Some(before) = before {
+            self.history.record_before(before);
+        }
+        Ok(touched)
+    }
+
+    /// Patch a type's values (and optionally rename it); every instance of
+    /// the type updates. One undo step. Returns the touched element ids.
+    pub fn update_family_type(
+        &mut self,
+        id: &str,
+        name: Option<String>,
+        patch: &ParamMap,
+    ) -> Result<Vec<ElementId>, RegistryError> {
+        let mut family_type = self
+            .registry
+            .family_type(id)
+            .cloned()
+            .ok_or_else(|| RegistryError::Unknown(format!("unknown family type '{id}'")))?;
+        family_type.values = family_type.values.merged(patch);
+        if let Some(name) = name {
+            family_type.name = name;
+        }
+        self.upsert_family_type(family_type)
+    }
+
+    /// Rebuild every element whose family uses opening generator `id`
+    /// (after a plugin registers or replaces it).
+    pub fn rebuild_opening_generator_dependents(&mut self, id: &str) -> Result<(), RegistryError> {
+        let ids: Vec<ElementId> = self
+            .document
+            .elements()
+            .filter(|e| {
+                self.registry
+                    .get(&e.component_id)
+                    .and_then(|d| d.opening.as_ref())
+                    .and_then(|o| o.generator.as_deref())
+                    == Some(id)
+            })
+            .map(|e| e.id)
+            .collect();
+        for eid in ids {
+            self.update_element(eid, None, None, false)?;
+        }
+        Ok(())
+    }
+
+    /// Elements whose `type` param is `type_id`.
+    pub fn family_type_instances(&self, type_id: &str) -> Vec<ElementId> {
+        let Some(t) = self.registry.family_type(type_id) else {
+            return Vec::new();
+        };
+        self.document
+            .elements()
+            .filter(|e| e.component_id == t.family && e.params.text(TYPE_PARAM) == Some(type_id))
+            .map(|e| e.id)
+            .collect()
+    }
+
+    fn refresh_type_instances(&mut self, type_id: &str) -> Result<Vec<ElementId>, RegistryError> {
+        let ids = self.family_type_instances(type_id);
+        for id in &ids {
+            self.update_element(*id, None, None, false)?;
+        }
+        Ok(ids)
+    }
+
+    /// Swap an element to another type, possibly of another family (window
+    /// → door). Placement, host and shared instance params (sill) are kept.
+    /// One undo step.
+    pub fn set_element_type(&mut self, id: ElementId, type_id: &str) -> Result<(), RegistryError> {
+        let family_type =
+            self.registry.family_type(type_id).cloned().ok_or_else(|| {
+                RegistryError::Unknown(format!("unknown family type '{type_id}'"))
+            })?;
+        let element = self
+            .document
+            .get_element(id)
+            .cloned()
+            .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
+        if element.component_id == family_type.family {
+            let patch = ParamMap::new().with(TYPE_PARAM, ParamValue::Text(type_id.into()));
+            return self.update_element(id, Some(patch), None, true);
+        }
+        let old_def = self.registry.require(&element.component_id)?.clone();
+        let new_def = self.registry.require(&family_type.family)?.clone();
+        if old_def.placement != new_def.placement {
+            return Err(RegistryError::Unknown(format!(
+                "cannot swap {} to {}: different placement kinds",
+                old_def.id, new_def.id
+            )));
+        }
+        if let Some(parent) = element.parent_id.and_then(|p| self.document.get_element(p)) {
+            let host_cat = self
+                .registry
+                .get(&parent.component_id)
+                .map(|d| d.category.clone())
+                .unwrap_or_default();
+            let ok = new_def
+                .host_cut
+                .as_ref()
+                .is_some_and(|h| h.host_categories.contains(&host_cat));
+            if !ok {
+                return Err(RegistryError::Unknown(format!(
+                    "{} cannot be hosted by a {host_cat}",
+                    new_def.id
+                )));
+            }
+        }
+        let before = (!self.history.has_pending()).then(|| self.export_snapshot());
+        let mut params = ParamMap::new();
+        for spec in new_def.params.iter().filter(|p| p.binding.is_instance()) {
+            if spec.id == TYPE_PARAM {
+                continue;
+            }
+            if let Some(v) = element.params.get(&spec.id) {
+                params.set(spec.id.clone(), v.clone());
+            }
+        }
+        self.registry.apply_type_values(type_id, &mut params);
+        let mut swapped = element.clone();
+        swapped.component_id = new_def.id.clone();
+        swapped.params = self.registry.persistable_params(&new_def.id, &params)?;
+        let mesh = self.build_element_mesh_with_cuts(&swapped)?;
+        self.document.update_element(swapped, mesh);
+        if let Some(parent) = element.parent_id {
+            self.rebuild_element(parent)?;
+        }
+        if let Some(before) = before {
+            self.history.record_before(before);
+        }
+        Ok(())
+    }
+
+    /// Point a loaded element at a valid family type: its own when it
+    /// exists, else one matching its stored sizes (old projects), derived if
+    /// needed. Type values then overwrite the stored copies.
+    fn migrate_family_type(&mut self, element: &mut Element) {
+        let component = element.component_id.clone();
+        if !self.registry.is_family(&component) {
+            return;
+        }
+        let existing = element
+            .params
+            .text(TYPE_PARAM)
+            .filter(|t| {
+                self.registry
+                    .family_type(t)
+                    .is_some_and(|ft| ft.family == component)
+            })
+            .map(str::to_string);
+        let type_id = existing.or_else(|| {
+            let mut raw = element.params.clone();
+            raw.remove(TYPE_PARAM);
+            self.registry.resolve_instance_type(&component, None, &raw)
+        });
+        if let Some(type_id) = type_id {
+            self.registry
+                .apply_type_values(&type_id, &mut element.params);
+        }
+    }
+
     /// Serializable project: levels, elements, profiles, and extra components.
     /// Meshes are rebuilt on load.
     pub fn export_snapshot(&self) -> ProjectSnapshot {
@@ -2221,6 +2226,12 @@ impl Project {
             sheet_counter: self.sheet_counter,
             view_annotations: self.view_annotations.values().cloned().collect(),
             view_annotation_counter: self.view_annotation_counter,
+            family_types: self
+                .registry
+                .family_types(None)
+                .into_iter()
+                .cloned()
+                .collect(),
         }
     }
 
@@ -2238,6 +2249,8 @@ impl Project {
         // Format ≤6 predates saved views / sheets (empty via default + migration).
         // Format ≤7 predates view annotations (empty via default).
         // Format ≤8 predates viewport crop polygons (full-frame rect via default).
+        // Format ≤9 predates family types: windows/doors carry raw sizes and
+        // are mapped to a matching (or derived) type below.
         let known = snap.format == PROJECT_FORMAT
             || snap.format == 1
             || snap.format == 2
@@ -2246,7 +2259,8 @@ impl Project {
             || snap.format == 5
             || snap.format == 6
             || snap.format == 7
-            || snap.format == 8;
+            || snap.format == 8
+            || snap.format == 9;
         if !known {
             return Err(RegistryError::Unknown(format!(
                 "unsupported project format {}",
@@ -2294,11 +2308,19 @@ impl Project {
         for definition in snap.components {
             next.registry.upsert(definition)?;
         }
+        for family_type in snap.family_types {
+            // A type whose family is gone (plugin not loaded) is skipped.
+            let _ = next.registry.upsert_family_type(family_type);
+        }
+        let mut elements = snap.elements;
+        for element in &mut elements {
+            next.migrate_family_type(element);
+        }
 
         next.document.load_contents(
             snap.levels,
             snap.active_level,
-            snap.elements,
+            elements,
             snap.references,
             snap.grid_axes,
             snap.construction_lines,
@@ -2329,7 +2351,7 @@ impl Project {
 }
 
 /// On-disk / download format. Bump [`PROJECT_FORMAT`] when the shape changes.
-pub const PROJECT_FORMAT: u32 = 9;
+pub const PROJECT_FORMAT: u32 = 10;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectSnapshot {
@@ -2378,6 +2400,9 @@ pub struct ProjectSnapshot {
     pub view_annotations: Vec<crate::view_annotation::ViewAnnotation>,
     #[serde(default)]
     pub view_annotation_counter: u32,
+    /// Family types (windows, doors, …), built-in ones included so edits persist.
+    #[serde(default)]
+    pub family_types: Vec<crate::family::FamilyType>,
 }
 
 fn legacy_components<'de, D>(de: D) -> Result<Vec<ComponentDefinition>, D::Error>
@@ -3990,47 +4015,31 @@ mod plugin_first_tests {
         assert!((anchors[1].y - 1.5).abs() < 1e-4);
     }
 
-    /// Door/window leaf and its wall void must run along the wall axis for
-    /// walls in every plan direction, including the 2nd leg of a polyline.
-    fn frame_edges_local(mesh: &TriangleMesh) -> Vec<([f32; 3], [f32; 3])> {
-        mesh.edges
-            .chunks(6)
-            .map(|e| ([e[0], e[1], e[2]], [e[3], e[4], e[5]]))
-            .collect()
-    }
-
-    /// Frames are one mitred solid: watertight (so no internal or
-    /// overlapping faces), and no seam/mitre edge at member joints.
+    /// Every built-in type's parts are closed solids without seam edges
+    /// (edges only on outlines and at sharp corners).
     #[test]
     fn opening_frames_are_one_seamless_solid() {
-        for open_bottom in [false, true] {
-            let mut mesh = TriangleMesh::empty();
-            let z0 = if open_bottom { 0.0 } else { 0.06 };
-            push_frame(
-                &mut mesh,
-                Vec3::ZERO,
-                Vec3::X,
-                Vec3::Z,
-                [-0.5, 0.5, 0.0, 2.0],
-                [-0.44, 0.44, z0, 1.94],
-                0.1,
-            );
-            assert!(apex_geometry::is_watertight(&mesh), "frame watertight");
-            let edges = frame_edges_local(&mesh);
-            assert_eq!(edges.len(), 24);
-            for (a, b) in edges {
-                let axes = (0..3).filter(|&k| (a[k] - b[k]).abs() > 1e-6).count();
-                assert_eq!(axes, 1, "diagonal (mitre/seam) edge {a:?}-{b:?}");
-                // No edge across the cap at a member joint (inner corner
-                // to outer corner).
-                let on_cap = (a[2] - b[2]).abs() < 1e-6;
-                if on_cap {
-                    let ys = [a[1], b[1]];
-                    let xs = [a[0], b[0]];
-                    let inside_x = xs.iter().all(|x| x.abs() <= 0.44 + 1e-6)
-                        || xs.iter().all(|x| x.abs() >= 0.44 - 1e-6);
-                    assert!(inside_x || ys[0] == ys[1], "joint seam {a:?}-{b:?}");
-                }
+        let project = Project::new();
+        let reg = project.registry();
+        for t in reg.family_types(None) {
+            let def = reg.get(&t.family).unwrap();
+            let recipe = def.opening.as_ref().unwrap();
+            let mut params = t.values.clone();
+            reg.apply_type_values(&t.id, &mut params);
+            let params = reg.eval_params(&t.family, &params).unwrap();
+            let geo = reg.opening_geometry(recipe, &params, 0.3).unwrap();
+            for part in &geo.parts {
+                let one = crate::family::OpeningGeometry {
+                    parts: vec![part.clone()],
+                    lines: vec![],
+                };
+                let mut mesh = TriangleMesh::empty();
+                crate::family::emit_opening(&mut mesh, &one, Vec3::ZERO, Vec3::X, Vec3::Z);
+                assert!(
+                    apex_geometry::is_watertight(&mesh),
+                    "{} part watertight",
+                    t.id
+                );
             }
         }
     }
@@ -4065,6 +4074,263 @@ mod plugin_first_tests {
                 .unwrap();
             assert_eq!(again.positions, mesh.positions);
         }
+    }
+
+    fn wall_with(project: &mut Project, component: &str, type_id: &str) -> (ElementId, ElementId) {
+        let wall = project
+            .create_element(
+                "apex.wall",
+                Placement::line(Vec3::ZERO, Vec3::new(8.0, 0.0, 0.0)),
+                ParamMap::new(),
+            )
+            .expect("wall");
+        let opening = project
+            .create_element_with_parent(
+                component,
+                Placement::point(Vec3::new(3.0, 0.0, 0.0)),
+                ParamMap::new()
+                    .with(TYPE_PARAM, ParamValue::Text(type_id.into()))
+                    .with("sill", ParamValue::Length(0.7)),
+                Some(wall),
+            )
+            .expect("opening");
+        (wall, opening)
+    }
+
+    fn mesh_x_extent(project: &Project, id: ElementId) -> f32 {
+        let m = project.document().get_mesh(id).unwrap();
+        let xs = m.positions.chunks(3).map(|p| p[0]);
+        let (lo, hi) = xs.fold((f32::MAX, f32::MIN), |(a, b), x| (a.min(x), b.max(x)));
+        hi - lo
+    }
+
+    #[test]
+    fn editing_a_family_type_updates_every_instance_in_one_undo_step() {
+        let mut project = Project::new();
+        let t = "apex.window.double-1500x1400";
+        let (wall, a) = wall_with(&mut project, "apex.window", t);
+        let b = project
+            .create_element_with_parent(
+                "apex.window",
+                Placement::point(Vec3::new(6.0, 0.0, 0.0)),
+                ParamMap::new().with(TYPE_PARAM, ParamValue::Text(t.into())),
+                Some(wall),
+            )
+            .unwrap();
+        assert!((mesh_x_extent(&project, a) - 1.5).abs() < 1e-3);
+        let touched = project
+            .update_family_type(
+                t,
+                None,
+                &ParamMap::new().with("width", ParamValue::Length(1.8)),
+            )
+            .unwrap();
+        assert_eq!(touched.len(), 2);
+        for id in [a, b] {
+            assert!((mesh_x_extent(&project, id) - 1.8).abs() < 1e-3);
+            let el = project.document().get_element(id).unwrap();
+            assert_eq!(el.params.text(TYPE_PARAM), Some(t));
+        }
+        // Instance param survives.
+        let el = project.document().get_element(a).unwrap();
+        assert!(
+            matches!(el.params.get("sill"), Some(ParamValue::Length(v)) if (*v - 0.7).abs() < 1e-9)
+        );
+        assert!(project.undo().unwrap());
+        assert!((mesh_x_extent(&project, a) - 1.5).abs() < 1e-3);
+        assert!((mesh_x_extent(&project, b) - 1.5).abs() < 1e-3);
+        let width = project
+            .registry()
+            .family_type(t)
+            .unwrap()
+            .values
+            .get("width")
+            .cloned();
+        assert!(matches!(width, Some(ParamValue::Length(v)) if (v - 1.5).abs() < 1e-9));
+    }
+
+    #[test]
+    fn swapping_type_or_family_keeps_host_and_position_and_undoes() {
+        let mut project = Project::new();
+        let (wall, w) = wall_with(&mut project, "apex.window", "apex.window.single-1200x1400");
+        let before = project.document().get_element(w).unwrap().placement.clone();
+        project
+            .set_element_type(w, "apex.window.double-1500x1400")
+            .unwrap();
+        assert!((mesh_x_extent(&project, w) - 1.5).abs() < 1e-3);
+        project
+            .set_element_type(w, "apex.door.double-1400x2100")
+            .unwrap();
+        let el = project.document().get_element(w).unwrap().clone();
+        assert_eq!(el.component_id, "apex.door");
+        assert_eq!(el.parent_id, Some(wall));
+        assert_eq!(el.placement, before);
+        assert_eq!(
+            el.params.text(TYPE_PARAM),
+            Some("apex.door.double-1400x2100")
+        );
+        assert!((mesh_x_extent(&project, w) - 1.4).abs() < 1e-3);
+        // Not hostable on a wall-less family / bad type.
+        assert!(project.set_element_type(w, "nope").is_err());
+        assert!(project.undo().unwrap());
+        let el = project.document().get_element(w).unwrap();
+        assert_eq!(el.component_id, "apex.window");
+        assert_eq!(
+            el.params.text(TYPE_PARAM),
+            Some("apex.window.double-1500x1400")
+        );
+        assert!(project.undo().unwrap());
+        assert!((mesh_x_extent(&project, w) - 1.2).abs() < 1e-3);
+    }
+
+    #[test]
+    fn family_type_commands_and_query_round_trip() {
+        let mut project = Project::new();
+        let (_, w) = wall_with(&mut project, "apex.window", "apex.window.single-1200x1400");
+        let out = project
+            .execute_json(r#"{"op":"create_family_type","family":"apex.window","name":"Triple 2100","params":{"width":2.1,"columns":3}}"#)
+            .unwrap();
+        let tid = out["type"].as_str().unwrap().to_string();
+        assert_eq!(tid, "user.apex.window.triple-2100");
+        project
+            .execute_json(&format!(
+                r#"{{"op":"set_element_type","id":"{w}","type":"{tid}"}}"#
+            ))
+            .unwrap();
+        assert!((mesh_x_extent(&project, w) - 2.1).abs() < 1e-3);
+        let list = project
+            .query_json(r#"{"op":"list_family_types","family":"apex.window"}"#)
+            .unwrap();
+        let row = list
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["id"] == tid.as_str())
+            .unwrap();
+        assert_eq!(row["instances"], 1);
+        // Saved with the project and restored.
+        let snap = project.export_snapshot();
+        let json = serde_json::to_string(&snap).unwrap();
+        let mut fresh = Project::new();
+        fresh
+            .import_snapshot(serde_json::from_str(&json).unwrap())
+            .unwrap();
+        assert!(fresh.registry().family_type(&tid).is_some());
+        assert!((mesh_x_extent(&fresh, w) - 2.1).abs() < 1e-3);
+    }
+
+    #[test]
+    fn format_9_projects_without_types_load_and_get_a_type() {
+        let mut project = Project::new();
+        let (_, w) = wall_with(&mut project, "apex.window", "apex.window.single-1200x1400");
+        let mut snap = serde_json::to_value(project.export_snapshot()).unwrap();
+        snap["format"] = serde_json::json!(9);
+        snap.as_object_mut().unwrap().remove("family_types");
+        // Strip type info from elements, keep a custom width.
+        let text = serde_json::to_string(&snap)
+            .unwrap()
+            .replace("\"apex.window.single-1200x1400\"", "null");
+        let mut old: serde_json::Value = serde_json::from_str(&text).unwrap();
+        for el in old["elements"].as_array_mut().unwrap() {
+            if let Some(p) = el["params"].as_object_mut() {
+                p.remove("type");
+            }
+        }
+        let mut fresh = Project::new();
+        fresh
+            .import_snapshot(serde_json::from_value(old).unwrap())
+            .unwrap();
+        let el = fresh.document().get_element(w).unwrap();
+        let t = el
+            .params
+            .text(TYPE_PARAM)
+            .expect("migrated type")
+            .to_string();
+        assert_eq!(
+            fresh.registry().family_type(&t).unwrap().family,
+            "apex.window"
+        );
+        assert!((mesh_x_extent(&fresh, w) - 1.2).abs() < 1e-3);
+    }
+
+    struct SlabDoor;
+    impl crate::family::OpeningGenerator for SlabDoor {
+        fn generate(
+            &self,
+            params: &ParamMap,
+            _wall_depth: f64,
+        ) -> Result<crate::family::OpeningGeometry, String> {
+            let w = params.number("width").unwrap_or(1.0);
+            let h = params.number("height").unwrap_or(2.0);
+            Ok(crate::family::OpeningGeometry {
+                parts: vec![crate::family::OpeningPart {
+                    loops: vec![vec![
+                        [-w / 2.0, 0.0],
+                        [w / 2.0, 0.0],
+                        [w / 2.0, h],
+                        [-w / 2.0, h],
+                    ]],
+                    origin: [0.0, 0.0],
+                    angle: 0.0,
+                    d0: -0.02,
+                    d1: 0.02,
+                    glass: false,
+                }],
+                lines: vec![],
+            })
+        }
+    }
+
+    #[test]
+    fn user_opening_family_with_plugin_generator_gets_a_type_and_builds() {
+        let mut project = Project::new();
+        // Missing descriptor is rejected.
+        assert!(project
+            .registry_mut()
+            .register_opening_generator(
+                "test.slab",
+                crate::Descriptor::default(),
+                Box::new(SlabDoor)
+            )
+            .is_err());
+        project
+            .registry_mut()
+            .register_opening_generator(
+                "test.slab",
+                crate::Descriptor::new("A flat slab door leaf."),
+                Box::new(SlabDoor),
+            )
+            .unwrap();
+        let mut def = project.registry().get("apex.door").unwrap().clone();
+        def.id = "user.slab_door".into();
+        def.default_type = None;
+        def.opening.as_mut().unwrap().generator = Some("test.slab".into());
+        project.register_component(def).unwrap();
+        assert!(project.registry().is_family("user.slab_door"));
+        let wall = project
+            .create_element(
+                "apex.wall",
+                Placement::line(Vec3::ZERO, Vec3::new(6.0, 0.0, 0.0)),
+                ParamMap::new(),
+            )
+            .unwrap();
+        let door = project
+            .create_element_with_parent(
+                "user.slab_door",
+                Placement::point(Vec3::new(3.0, 0.0, 0.0)),
+                ParamMap::new(),
+                Some(wall),
+            )
+            .unwrap();
+        assert!((mesh_x_extent(&project, door) - 0.9).abs() < 1e-3);
+        // Swap between the user family and the built-in door.
+        project
+            .set_element_type(door, "apex.door.double-1400x2100")
+            .unwrap();
+        assert_eq!(
+            project.document().get_element(door).unwrap().component_id,
+            "apex.door"
+        );
     }
 
     #[test]
@@ -4483,9 +4749,6 @@ mod grid_label_tests {
     }
 }
 
-/// Glass triangles carry normals of this length; the web renderer draws
-/// them translucent. Everything else has unit normals.
-pub const GLASS_NORMAL_TAG: f32 = 2.0;
 /// Normal length tagging translucent ghosts (shown boolean operands, slab
 /// openings): drawn see-through in the glass pass, but pickable.
 pub const GHOST_NORMAL_TAG: f32 = 3.0;

@@ -28,7 +28,7 @@ pub use join::{
 pub use mesh::TriangleMesh;
 pub use prism::{
     is_closed, is_watertight, point_in_region, polygon_region, region_area, region_intersect,
-    region_subtract, region_union, BooleanOp, LayeredSolid, Region, Ring,
+    region_subtract, region_union, triangulate_shape, BooleanOp, LayeredSolid, Region, Ring,
 };
 pub use profile::{Justification, Point2, Profile};
 pub use shaped::{ShapedSurface, SurfaceMesh, Underside};

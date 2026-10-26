@@ -566,7 +566,23 @@ fn with_dynamic_options(
     mut definition: ComponentDefinition,
 ) -> ComponentDefinition {
     let category = definition.category.clone();
+    let family_types: Vec<String> = if project.registry().is_family(&definition.id) {
+        project
+            .registry()
+            .family_types(Some(&definition.id))
+            .into_iter()
+            .map(|t| t.id.clone())
+            .collect()
+    } else {
+        Vec::new()
+    };
     for spec in &mut definition.params {
+        if spec.id == apex_core::TYPE_PARAM && !family_types.is_empty() {
+            spec.kind = ParamKind::Choice {
+                options: family_types.clone(),
+            };
+            continue;
+        }
         match &mut spec.kind {
             ParamKind::Profile { options } if options.is_empty() => {
                 *options = project
@@ -2596,4 +2612,55 @@ pub fn run_query(query_json: &str) -> Result<String, JsValue> {
 #[wasm_bindgen(js_name = describeApi)]
 pub fn describe_api() -> Result<String, JsValue> {
     with_project(|project| Ok(apex_core::api_catalog(project).to_string()))
+}
+
+/// A plugin opening generator backed by a JS function
+/// `(paramsJson: string, wallDepth: number) => OpeningGeometry | string`.
+struct JsOpeningGenerator(js_sys::Function);
+
+impl apex_core::OpeningGenerator for JsOpeningGenerator {
+    fn generate(
+        &self,
+        params: &ParamMap,
+        wall_depth: f64,
+    ) -> Result<apex_core::OpeningGeometry, String> {
+        let params = serde_json::to_string(params).map_err(|e| e.to_string())?;
+        let out = self
+            .0
+            .call2(
+                &JsValue::NULL,
+                &JsValue::from_str(&params),
+                &JsValue::from_f64(wall_depth),
+            )
+            .map_err(|e| format!("opening generator threw: {e:?}"))?;
+        let text = match out.as_string() {
+            Some(text) => text,
+            None => js_sys::JSON::stringify(&out)
+                .map_err(|e| format!("opening generator result: {e:?}"))?
+                .as_string()
+                .unwrap_or_default(),
+        };
+        serde_json::from_str(&text).map_err(|e| format!("invalid opening geometry: {e}"))
+    }
+}
+
+/// Register a plugin geometry generator for opening families
+/// (`opening.generator` in a component). A descriptor is mandatory.
+#[wasm_bindgen(js_name = registerOpeningGenerator)]
+pub fn register_opening_generator(
+    id: &str,
+    descriptor_json: &str,
+    generate: js_sys::Function,
+) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let descriptor: apex_core::Descriptor = parse_json("descriptor", descriptor_json)?;
+        project
+            .registry_mut()
+            .register_opening_generator(id, descriptor, Box::new(JsOpeningGenerator(generate)))
+            .map_err(err)?;
+        project
+            .rebuild_opening_generator_dependents(id)
+            .map_err(err)?;
+        scene(project)
+    })
 }
