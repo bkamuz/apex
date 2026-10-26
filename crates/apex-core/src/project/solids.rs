@@ -202,6 +202,12 @@ impl Project {
     /// The element's own solid before cluster partitioning: its prism, mitred
     /// at corners, minus every hosted opening. `None` when not a prism.
     pub(crate) fn own_solid(&self, element: &Element) -> Option<LayeredSolid> {
+        self.own_solid_at(element, true)
+    }
+
+    /// `extend`: walls attached to a roof are built up to the roof ridge
+    /// (clipped later in [`Self::solid_mesh`]).
+    fn own_solid_at(&self, element: &Element, extend: bool) -> Option<LayeredSolid> {
         let def = self.registry.get(&element.component_id)?;
         if def.host_cut.is_some() {
             return None;
@@ -246,6 +252,32 @@ impl Project {
             .build_element_mesh(&base, self.work_plane(level_id), self.document.references())
             .ok()?;
         let mut solid = LayeredSolid::from_vertical_prism_mesh(&mesh)?;
+        if extend {
+            if let (Some(top), Some((_, y1))) =
+                (self.attached_top(element, &solid), solid.y_range())
+            {
+                if top > y1 + 1e-4 {
+                    let mut tall = base.clone();
+                    let h = self
+                        .registry
+                        .eval_params(&element.component_id, &element.params)
+                        .ok()
+                        .and_then(|p| p.number("height"))
+                        .unwrap_or(y1 - solid.y_range()?.0);
+                    tall.params
+                        .set("height", crate::param::ParamValue::Length(h + (top - y1)));
+                    if let Ok(m) = self.registry.build_element_mesh(
+                        &tall,
+                        self.work_plane(level_id),
+                        self.document.references(),
+                    ) {
+                        if let Some(s) = LayeredSolid::from_vertical_prism_mesh(&m) {
+                            solid = s;
+                        }
+                    }
+                }
+            }
+        }
         for c in &corners {
             let (y0, y1) = solid.y_range()?;
             solid = solid.intersect(&LayeredSolid::prism(c.keep.clone(), y0 - 1.0, y1 + 1.0));
@@ -377,6 +409,9 @@ impl Project {
     /// back to the plain recipe mesh.
     pub(crate) fn solid_mesh(&self, element: &Element) -> Option<TriangleMesh> {
         let (piece, whole) = self.solid_piece(element)?;
+        if let Some(clipped) = self.roof_clipped(element, &piece) {
+            return Some(clipped);
+        }
         Some(match whole {
             Some(whole) => piece.to_mesh_within(&whole),
             None => piece.to_mesh(),
@@ -388,7 +423,19 @@ impl Project {
     /// the render mesh drops faces inside the cluster and is open there.
     pub(crate) fn closed_solid_mesh(&self, element: &Element) -> Option<TriangleMesh> {
         let (piece, _) = self.solid_piece(element)?;
+        if let Some(clipped) = self.roof_clipped(element, &piece) {
+            return Some(clipped);
+        }
         Some(piece.to_mesh())
+    }
+
+    /// An attached wall's piece clipped to the roofs above it.
+    fn roof_clipped(&self, element: &Element, piece: &LayeredSolid) -> Option<TriangleMesh> {
+        if !self.wall_attaches_top(element) {
+            return None;
+        }
+        let (_, own_top) = self.own_solid_at(element, false)?.y_range()?;
+        self.clip_to_roofs(piece, own_top)
     }
 
     /// Drops edge segments buried inside joinable solids (walls): a slab
@@ -537,6 +584,7 @@ impl Project {
     pub(crate) fn solid_dependents(&self, element: &Element) -> Vec<ElementId> {
         let mut out = self.join_candidates(element);
         out.extend(self.boolean_dependents(element));
+        out.extend(self.roof_dependents(element));
         if element.component_id == STAIR {
             out.extend(
                 self.document
