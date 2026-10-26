@@ -727,6 +727,12 @@ export function apexExecuteCommand(command: Record<string, unknown>): unknown {
   return JSON.parse(executeCommand(JSON.stringify(command)));
 }
 
+/** Run one command and return the fresh scene (for UI mutations). */
+export function apexCommandScene(command: Record<string, unknown>): SceneDto {
+  executeCommand(JSON.stringify(command));
+  return asScene(getScene());
+}
+
 /** Run one read-only query or export (`{op, ...}`). */
 export function apexRunQuery(query: Record<string, unknown>): unknown {
   return JSON.parse(runQuery(JSON.stringify(query)));

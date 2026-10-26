@@ -96,7 +96,7 @@ impl Project {
     }
 
     /// The mesh an operand contributes (its own geometry, even while hidden).
-    fn operand_mesh(&self, id: ElementId, depth: usize) -> TriangleMesh {
+    fn operand_mesh(&self, id: ElementId, depth: usize, unpinch: bool) -> TriangleMesh {
         let Some(el) = self.document.get_element(id) else {
             return TriangleMesh::empty();
         };
@@ -106,7 +106,12 @@ impl Project {
         if el.component_id == BOOLEAN {
             return self.boolean_mesh_at(el, depth + 1);
         }
-        if let Some(closed) = self.closed_solid_mesh(el) {
+        let closed = if unpinch {
+            self.closed_operand_mesh(el)
+        } else {
+            self.closed_solid_mesh(el)
+        };
+        if let Some(closed) = closed {
             return closed;
         }
         self.build_uncombined_mesh(el).unwrap_or_default()
@@ -119,11 +124,22 @@ impl Project {
         if a == element.id || b == element.id {
             return TriangleMesh::empty();
         }
-        let ma = self.operand_mesh(a, depth);
-        let mb = self.operand_mesh(b, depth);
         // A failed kernel call (non-closed operand) degrades to A unchanged
-        // rather than losing geometry.
-        mesh_boolean(&ma, &mb, op).unwrap_or(ma)
+        // rather than losing geometry. A join can pinch an operand at one
+        // plan vertex, which the kernel rejects or mis-cuts: retry with the
+        // pinch opened.
+        let run = |unpinch: bool| {
+            let ma = self.operand_mesh(a, depth, unpinch);
+            let mb = self.operand_mesh(b, depth, unpinch);
+            let r = mesh_boolean(&ma, &mb, op)
+                .ok()
+                .filter(apex_geometry::is_closed);
+            (r, ma)
+        };
+        match run(false) {
+            (Some(r), _) => r,
+            (None, ma) => run(true).0.unwrap_or(ma),
+        }
     }
 
     pub(crate) fn boolean_mesh(&self, element: &Element) -> TriangleMesh {

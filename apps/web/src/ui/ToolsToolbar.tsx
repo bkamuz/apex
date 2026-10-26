@@ -20,6 +20,8 @@ export interface ToolsToolbarProps {
   onSetProjection: (mode: ProjectionMode) => void;
   onSetViewNavigation: (mode: ViewNavigationMode) => void;
   onFitView: () => void;
+  /** Extra command group (e.g. Attach Top/Base) shown after Transform. */
+  extra?: ReactNode;
 }
 
 function ToolButton({
@@ -80,6 +82,7 @@ export function ToolsToolbar({
   onSetProjection,
   onSetViewNavigation,
   onFitView,
+  extra,
 }: ToolsToolbarProps) {
   const activeTool = useMemo(
     () => tools.find((tool) => tool.id === activeToolId),
@@ -198,6 +201,8 @@ export function ToolsToolbar({
                 ))}
               </ToolGroup>
             ) : null}
+
+            {extra}
 
             {createTools.length > 0 ? (
               <ToolGroup label="Create">

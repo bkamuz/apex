@@ -453,11 +453,12 @@ impl Project {
             if let Ok(overlay) = axis.overlay_geometry(&work_plane) {
                 push_segment_lines(&mut out, "GRID", &overlay.line_segments);
                 push_segment_lines(&mut out, "GRID_BUBBLE", &overlay.bubble_segments);
+                let radius = axis.params.number("bubble_radius").unwrap_or(0.25);
                 for label in overlay.labels {
                     out.texts.push(VectorText2d {
                         layer: "GRID_BUBBLE".into(),
                         position: plan_point(label.position),
-                        height: 0.3,
+                        height: bubble_text_height(radius, &label.text),
                         text: label.text,
                         centered: true,
                     });
@@ -576,6 +577,14 @@ impl Project {
         let (min, max) = crate::dxf_export::bounds_2d(&drawing)?;
         Some(([min[0], -max[1]], [max[0], -min[1]]))
     }
+}
+
+/// Cap height that keeps a grid label inside its bubble: about 0.9 r for
+/// one character, shrinking so the (about 0.6 h per char) width stays
+/// within 1.3 r of the circle's 2 r diameter.
+pub(crate) fn bubble_text_height(radius: f64, text: &str) -> f64 {
+    let n = text.chars().count().max(1) as f64;
+    (0.9 * radius).min(1.3 * radius / (0.6 * n))
 }
 
 #[cfg(test)]

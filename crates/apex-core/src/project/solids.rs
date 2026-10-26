@@ -218,7 +218,7 @@ impl Project {
         }
         let joinable = def.joinable;
         let voids = self.void_solids(element);
-        if !joinable && voids.is_empty() {
+        if !joinable && voids.is_empty() && !self.wall_attaches_top(element) {
             return None;
         }
         if !matches!(
@@ -257,19 +257,25 @@ impl Project {
             .ok()?;
         let mut solid = LayeredSolid::from_vertical_prism_mesh(&mesh)?;
         if extend {
-            if let (Some(top), Some((_, y1))) =
-                (self.attached_top(element, &solid), solid.y_range())
-            {
-                if top > y1 + 1e-4 {
+            if let Some((y0, y1)) = solid.y_range() {
+                let (base_to, top_to) = self.attached_extent(element, &solid);
+                let down = base_to.map_or(0.0, |b| (y0 - b).max(0.0));
+                let up = top_to.map_or(0.0, |t| (t - y1).max(0.0));
+                if down > 1e-4 || up > 1e-4 {
                     let mut tall = base.clone();
                     let h = self
                         .registry
                         .eval_params(&element.component_id, &element.params)
                         .ok()
                         .and_then(|p| p.number("height"))
-                        .unwrap_or(y1 - solid.y_range()?.0);
+                        .unwrap_or(y1 - y0);
                     tall.params
-                        .set("height", crate::param::ParamValue::Length(h + (top - y1)));
+                        .set("height", crate::param::ParamValue::Length(h + up + down));
+                    if down > 1e-4 {
+                        tall.placement =
+                            tall.placement
+                                .translated(glam::Vec3::new(0.0, -(down as f32), 0.0));
+                    }
                     if let Ok(m) = self.registry.build_element_mesh(
                         &tall,
                         self.work_plane(level_id),
@@ -436,13 +442,26 @@ impl Project {
         Some(piece.to_mesh())
     }
 
+    /// [`Self::closed_solid_mesh`] as a boolean-kernel operand: a join can
+    /// pinch the piece at one plan vertex, which the kernel rejects.
+    pub(crate) fn closed_operand_mesh(&self, element: &Element) -> Option<TriangleMesh> {
+        if let Some(mesh) = self.shaped_slab_mesh(element) {
+            return Some(mesh);
+        }
+        let (piece, _) = self.solid_piece(element)?;
+        if let Some(clipped) = self.roof_clipped(element, &piece) {
+            return Some(clipped);
+        }
+        Some(super::roof_attach::unpinch(&piece).to_mesh())
+    }
+
     /// An attached wall's piece clipped to the roofs above it.
     fn roof_clipped(&self, element: &Element, piece: &LayeredSolid) -> Option<TriangleMesh> {
         if !self.wall_attaches_top(element) {
             return None;
         }
-        let (_, own_top) = self.own_solid_at(element, false)?.y_range()?;
-        self.clip_to_roofs(piece, own_top)
+        let own = self.own_solid_at(element, false)?.y_range()?;
+        self.clip_to_roofs(element, piece, own)
     }
 
     /// Drops edge segments buried inside joinable solids (walls): a slab

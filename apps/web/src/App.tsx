@@ -62,6 +62,7 @@ import {
   apexToggleSelectElement,
   apexTranslateSelection,
   apexUndo,
+  apexCommandScene,
   apexUpdateElement,
   apexCreatePlanView,
   apexCreateThreeDView,
@@ -81,7 +82,6 @@ import {
   apexSetSheetViewportCrop,
   apexResetSheetViewportCrop,
   apexSetSheetViewportScale,
-  apexUpdateProfileType,
   initApex,
   apexSetSlabShape,
   apexSlabShapeInfo,
@@ -219,6 +219,13 @@ export default function App() {
   const selectedSectionCutRef = useRef<SectionCutDto | null>(null);
   const selectedSpaceRef = useRef<SpaceDto | null>(null);
   const selectedCountRef = useRef(0);
+  /** Attach Top/Base pick mode: the next clicked roof/slab becomes the target. */
+  const attachPickRef = useRef<{ end: 'top' | 'base'; ids: string[] } | null>(null);
+  const [attachPick, setAttachPickState] = useState<{ end: 'top' | 'base'; ids: string[] } | null>(null);
+  const setAttachPick = (value: { end: 'top' | 'base'; ids: string[] } | null) => {
+    attachPickRef.current = value;
+    setAttachPickState(value);
+  };
   const activeElevationRef = useRef(0);
   const suppressClickRef = useRef(false);
   /** True only after App claims LMB capture for a tool gesture — not camera buttons. */
@@ -789,6 +796,29 @@ export default function App() {
 
       selectAt: (clientX, clientY, multi) => {
         const current = sceneRef.current;
+        const attaching = attachPickRef.current;
+        if (attaching) {
+          const hit = renderer.pick(clientX, clientY);
+          if (hit == null) return;
+          try {
+            const picked = apexPickById(hit).selected_ids?.[0];
+            const target = (current?.elements ?? []).find((el) => el.id === picked);
+            const ok = target && ['apex.roof', 'apex.roof.pitched', 'apex.slab'].includes(target.component_id);
+            if (!ok) {
+              setError('Pick a roof or slab to attach to (Esc cancels).');
+              return;
+            }
+            const op = attaching.end === 'top' ? 'attach_top' : 'attach_base';
+            apexCommandScene({ op, ids: attaching.ids, targets: [target.id] });
+            applyScene(apexSelectElement(attaching.ids[0]));
+            setInfo(`Attached ${attaching.ids.length} element(s) ${attaching.end} to ${target.name}.`);
+            setError(null);
+          } catch (err) {
+            setError(err instanceof Error ? err.message : String(err));
+          }
+          setAttachPick(null);
+          return;
+        }
         const candidates: { kind: string; id: string; distance: number }[] = [];
         const gridHit = renderer.hitGridAxis(clientX, clientY, current?.grid_axes ?? []);
         if (gridHit) candidates.push({ kind: 'grid_axis', id: gridHit.id, distance: gridHit.distance });
@@ -1357,6 +1387,10 @@ export default function App() {
 
   /** Escape: clear an in-progress create pick chain; otherwise fall back to Select. */
   const onEscape = useCallback(() => {
+    if (attachPickRef.current) {
+      setAttachPick(null);
+      return;
+    }
     if (toolRef.current.group === 'create' && pendingRef.current.length > 0) {
       cancelGesture();
       return;
@@ -2168,23 +2202,10 @@ export default function App() {
     if (!selected || selected.category !== 'wall' || !Number.isFinite(thickness) || thickness <= 0) {
       return;
     }
-    const profileId = selected.profile_id ?? String(selected.params.profile ?? 'apex.wall.rect');
-    const profile = profiles.find((item) => item.id === profileId);
-    if (!profile) return;
-    const dedicatedId = `user.wall.${selected.id.replace(/-/g, '').slice(0, 12)}`;
     try {
-      const existing = profiles.find((item) => item.id === dedicatedId);
-      if (!existing) {
-        apexRegisterProfile({
-          ...profile,
-          id: dedicatedId,
-          display_name: `${profile.display_name} · ${selected.name}`,
-          type_values: { ...profile.type_values, thickness },
-        });
-      } else {
-        apexUpdateProfileType(dedicatedId, { thickness });
-      }
-      applyScene(apexUpdateElement(selected.id, { profile: dedicatedId }));
+      // One core command: derives the per-wall profile and rebinds the wall
+      // inside a single undo step.
+      applyScene(apexCommandScene({ op: 'update_element', id: selected.id, params: { thickness } }));
       setProfiles(apexListProfiles());
       setError(null);
     } catch (err) {
@@ -2369,8 +2390,83 @@ export default function App() {
     ? (components.find((item) => item.id === tool.componentId) ?? null)
     : null;
 
+  const attachableIds = (scene?.elements ?? [])
+    .filter((el) => selectedIds.includes(el.id) && ['apex.wall', 'apex.column'].includes(el.component_id))
+    .map((el) => el.id);
+  const runAttach = (command: Record<string, unknown>, note: string) => {
+    try {
+      applyScene(apexCommandScene(command));
+      setInfo(note);
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+  const attachButtons = (compact: boolean) =>
+    attachableIds.length === 0 ? null : (
+      <>
+        <button
+          type="button"
+          data-testid="attach-top"
+          title="Attach top to the roofs above (auto)"
+          onClick={() => runAttach({ op: 'attach_top', ids: attachableIds }, 'Attached top to the roofs above.')}
+        >
+          {compact ? 'Attach Top' : 'Attach top (auto)'}
+        </button>
+        <button
+          type="button"
+          data-testid="attach-top-pick"
+          className={attachPick?.end === 'top' ? 'active' : undefined}
+          title="Attach top to a picked roof or slab"
+          onClick={() => setAttachPick({ end: 'top', ids: attachableIds })}
+        >
+          {compact ? 'Top to…' : 'Attach top to…'}
+        </button>
+        <button
+          type="button"
+          data-testid="attach-base-pick"
+          className={attachPick?.end === 'base' ? 'active' : undefined}
+          title="Attach base to a picked slab or roof"
+          onClick={() => setAttachPick({ end: 'base', ids: attachableIds })}
+        >
+          {compact ? 'Base to…' : 'Attach base to…'}
+        </button>
+        <button
+          type="button"
+          data-testid="attach-detach"
+          title="Detach top and base"
+          onClick={() => runAttach({ op: 'detach', ids: attachableIds }, 'Detached top and base.')}
+        >
+          {compact ? 'Detach' : 'Detach top/base'}
+        </button>
+      </>
+    );
+  const attachToolbar =
+    attachableIds.length > 0 ? (
+      <div className="tools-grp" role="group" aria-label="Attach">
+        {attachButtons(true)}
+      </div>
+    ) : null;
+  const attachSection =
+    attachableIds.length > 0 ? (
+      <div className="inspector-section" data-section="attach">
+        <div className="field">
+          <label>Attach top / base ({attachableIds.length})</label>
+          <div className="parent-row" style={{ flexWrap: 'wrap', gap: 4 }}>
+            {attachButtons(false)}
+          </div>
+          {attachPick ? (
+            <div className="empty" style={{ padding: 0, marginTop: 4 }} data-testid="attach-pick-hint">
+              Click a roof or slab for the {attachPick.end}… (Esc cancels)
+            </div>
+          ) : null}
+        </div>
+      </div>
+    ) : null;
+
   const inspector = (
     <PropertiesPanel
+      attachSection={attachSection}
       selected={selected}
       selectedCount={selectedIds.length}
       selectedReference={selectedReference}
@@ -2547,6 +2643,7 @@ export default function App() {
           onSetProjection={setProjectionMode}
           onSetViewNavigation={setViewNavigationMode}
           onFitView={fitView}
+          extra={attachToolbar}
         />
         <div className="topbar-hint" data-testid="topbar-hint">
           <b>INFO</b>

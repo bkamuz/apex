@@ -77,10 +77,14 @@ pub fn drawing_to_svg(drawing: &VectorDrawing2d) -> String {
     }
     for t in &drawing.texts {
         let size = if t.height > 0.0 { t.height } else { text_h };
-        let anchor = if t.centered { "middle" } else { "start" };
+        let anchor = if t.centered {
+            r#"text-anchor="middle" dominant-baseline="central""#
+        } else {
+            r#"text-anchor="start""#
+        };
         let _ = write!(
             out,
-            r#"<text x="{}" y="{}" font-size="{size}" text-anchor="{anchor}" font-family="sans-serif">{}</text>"#,
+            r#"<text x="{}" y="{}" font-size="{size}" {anchor} font-family="sans-serif">{}</text>"#,
             t.position[0],
             -t.position[1],
             esc(&t.text)

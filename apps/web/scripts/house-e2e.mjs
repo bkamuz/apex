@@ -311,18 +311,19 @@ await clickW(10, 4);
 await page.keyboard.press('Escape');
 await checkError('roof');
 
-// Close the gables the BIM way: attach the L1 end walls' tops to the roof.
-for (const [x, z] of [[0, 1], [10, 1]]) {
+// Revit-style Attach Top: every L1 exterior wall follows the roof underside
+// (gable ends rise to the ridge, eave walls stop under the slope).
+for (const [x, z] of [[0, 4], [10, 4], [5, 0], [5, 8]]) {
   await page.keyboard.press('Escape');
   // The roof now overhangs the walls, so a plan click lands on the roof; pick by geometry.
-  await page.evaluate(([x, z]) => window.__apexTest.selectNear('wall', [x, 3, z]), [x, 4]);
+  await page.evaluate(([x, z]) => window.__apexTest.selectNear('wall', [x, 3, z]), [x, z]);
   await page.waitForTimeout(200);
-  const box = page.locator('.field').filter({ hasText: 'Attach top to roof' }).locator('input[type=checkbox]');
-  if ((await box.count()) === 0) {
-    note(`gable wall at x=${x}: no "Attach top to roof" field (selection missed?)`);
+  const button = page.getByTestId('attach-top');
+  if ((await button.count()) === 0) {
+    note(`wall near (${x}, ${z}): no Attach Top button (selection missed?)`);
     continue;
   }
-  await box.first().check();
+  await button.first().click();
   await page.waitForTimeout(300);
 }
 await page.keyboard.press('Escape');

@@ -130,7 +130,11 @@ impl Project {
         self.surface_for(element, &shape)
     }
 
-    fn surface_for(&self, element: &Element, shape: &SlabShape) -> Option<(ShapedSurface, f64)> {
+    pub(crate) fn surface_for(
+        &self,
+        element: &Element,
+        shape: &SlabShape,
+    ) -> Option<(ShapedSurface, f64)> {
         let (top, thickness) = self.flat_top(element)?;
         let mut anchors = element.placement.anchors();
         if anchors.len() > 3 {
