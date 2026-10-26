@@ -19,6 +19,7 @@ export function createParentTool(): Tool {
   return {
     id: PARENT_TOOL_ID,
     label: 'Parent',
+    descriptor: { purpose: 'Attach an element to a parent: click the child, then the parent; children move with it.' },
     group: 'transform',
     icon: ApexIcons.parent,
     // No letter hotkey: P toggles the plan view.
@@ -83,6 +84,7 @@ export function createDetachTool(): Tool {
   return {
     id: DETACH_TOOL_ID,
     label: 'Detach',
+    descriptor: { purpose: 'Detach the selected elements from their parent.' },
     group: 'transform',
     icon: ApexIcons.detach,
 

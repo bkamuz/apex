@@ -35,6 +35,7 @@ export function createSpaceTool(tab: ToolTab = ApexTabs.spaces): Tool {
   return {
     id: 'space',
     label: 'Space',
+    descriptor: { purpose: 'Outline a room/space as a closed polygon on the active level.' },
     group: 'create',
     tab,
     icon: ApexIcons.space,

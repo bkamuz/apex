@@ -8,6 +8,7 @@ import type { Plugin } from './types';
  */
 export const wallPlugin: Plugin = {
   id: 'apex.wall',
+  descriptor: { purpose: 'One Wall tool with line, arc and polyline modes.' },
   install(host) {
     const definition = host.component('apex.wall');
     if (!definition) return;

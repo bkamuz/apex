@@ -1,3 +1,4 @@
+import type { Descriptor } from '../descriptor';
 import type { ComponentDto } from '../types';
 import type { Tool } from '../tools/Tool';
 
@@ -5,6 +6,8 @@ import type { Tool } from '../tools/Tool';
 export interface Exporter {
   readonly id: string;
   readonly label: string;
+  /** Required. What the export produces. */
+  readonly descriptor: Descriptor;
   /** Optional native tooltip on the export button in the doc bar. */
   readonly title?: string;
   /** File name suggestion, e.g. `project.ifc`. */
@@ -31,5 +34,7 @@ export interface PluginHost {
  */
 export interface Plugin {
   readonly id: string;
+  /** Required. What the plugin contributes. See docs/descriptors.md. */
+  readonly descriptor: Descriptor;
   install(host: PluginHost): void;
 }

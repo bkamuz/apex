@@ -24,6 +24,7 @@ export function createConstructionLineTool(tab: ToolTab = ApexTabs.basics): Tool
   return {
     id: 'construction-line',
     label: 'Construction line',
+    descriptor: { purpose: 'Draw an infinite construction line through two picks for alignment; it has no geometry in exports.' },
     group: 'create',
     tab,
     icon: ApexIcons.constructionLine,

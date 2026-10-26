@@ -11,6 +11,7 @@ export function componentPlugin(
   const tab = options.tab ?? ApexTabs.building;
   return {
     id: componentId,
+    descriptor: { purpose: `Placement tool for ${componentId}.` },
     install(host) {
       const definition = host.component(componentId);
       if (!definition) return;

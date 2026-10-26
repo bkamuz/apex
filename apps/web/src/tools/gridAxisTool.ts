@@ -24,6 +24,7 @@ export function createGridAxisTool(tab: ToolTab = ApexTabs.basics): Tool {
   return {
     id: 'grid-axis',
     label: 'Grid axis',
+    descriptor: { purpose: 'Draw a labelled structural grid axis between two picks.' },
     group: 'create',
     tab,
     icon: ApexIcons.grid,

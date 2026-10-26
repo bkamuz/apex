@@ -670,6 +670,7 @@ const sdkError = await page.evaluate(() => {
       category: 'furniture',
       source: 'visual',
       placement: 'point',
+      descriptor: { purpose: 'A round planter placed at one point.', units: 'metres' },
       params: [
         { id: 'radius', label: 'Radius', kind: 'length', default: 0.5 },
         { id: 'height', label: 'Height', kind: 'length', default: 0.9 },
@@ -733,6 +734,33 @@ check(
   'no tool was added for the rejected component',
   !(await toolbarNames()).includes('Broken'),
 );
+
+// Descriptors are mandatory for components and tools.
+const undescribed = await page.evaluate(() => {
+  const out = {};
+  try {
+    window.apex.defineComponent({
+      id: 'acme.nodesc',
+      display_name: 'No descriptor',
+      category: 'test',
+      placement: 'point',
+      params: [],
+      recipe: { op: 'extrude', profile: { shape: 'circle', radius: { op: 'const', value: 0.5 } }, height: { op: 'const', value: 1 } },
+    });
+    out.component = null;
+  } catch (e) {
+    out.component = String(e);
+  }
+  try {
+    window.apex.registerTool({ id: 'acme.nodesc-tool', label: 'NoDesc', hint: () => '' });
+    out.tool = null;
+  } catch (e) {
+    out.tool = String(e);
+  }
+  return out;
+});
+check('a component without a descriptor is refused', /descriptor/.test(undescribed.component ?? ''), String(undescribed.component));
+check('a tool without a descriptor is refused', /descriptor/.test(undescribed.tool ?? ''), String(undescribed.tool));
 
 await page.screenshot({ path: `${OUT}/apex-04-user-component.png`, fullPage: true });
 

@@ -4,6 +4,7 @@ import type { Plugin } from './types';
 
 export const spacePlugin: Plugin = {
   id: 'apex.space',
+  descriptor: { purpose: 'Space outline and room detection tools.' },
   install(host) {
     host.registerTool(createSpaceTool());
     host.registerTool(createDetectRoomsTool());

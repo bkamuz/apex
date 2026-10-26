@@ -1,3 +1,4 @@
+import { describeFromComponent } from '../descriptor';
 import type { ComponentDto } from '../types';
 import type { Vec3 } from '../viewport/ViewportRenderer';
 import { COMPONENT_ICON_BY_ID } from './icons';
@@ -98,6 +99,7 @@ export function createHostedPlacementTool(
   return {
     id: toolIdForComponent(component),
     label: component.display_name,
+    descriptor: { ...describeFromComponent(component), constraints: [...(component.descriptor?.constraints ?? []), 'click a host wall or slab; the opening cuts it'] },
     group: 'create',
     tab,
     icon: COMPONENT_ICON_BY_ID[component.id],

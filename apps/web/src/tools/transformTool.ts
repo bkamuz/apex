@@ -34,6 +34,7 @@ export function createTransformTool(mode: TransformMode): Tool {
   return {
     id,
     label,
+    descriptor: { purpose: mode === 'move' ? 'Move the selection by a base point and a target point.' : 'Copy the selection by a base point and a target point.' },
     group: 'transform',
     icon: mode === 'move' ? ApexIcons.move : ApexIcons.copy,
     shortcut: mode === 'move' ? 'M' : 'C',

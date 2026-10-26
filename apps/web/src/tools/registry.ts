@@ -1,3 +1,4 @@
+import { assertDescribed } from '../descriptor';
 import type { Tool } from './Tool';
 import { SELECT_TOOL_ID } from './selectTool';
 
@@ -12,6 +13,7 @@ export class ToolRegistry {
   private tools = new Map<string, Tool>();
 
   register(tool: Tool): void {
+    assertDescribed('tool', tool.id, tool);
     this.tools.set(tool.id, tool);
   }
 

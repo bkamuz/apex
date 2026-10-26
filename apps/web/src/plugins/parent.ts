@@ -12,6 +12,7 @@ import type { Plugin } from './types';
  */
 export const parentPlugin: Plugin = {
   id: 'apex.parent',
+  descriptor: { purpose: 'Parent / detach / boolean tools for element hierarchy.' },
   install(host) {
     host.registerTool(createParentTool());
     host.registerTool(createDetachTool());

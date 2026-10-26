@@ -1,3 +1,5 @@
+import { assertDescribed } from '../descriptor';
+export type { Descriptor, DescriptorExample } from '../descriptor';
 import { apexListComponents, apexRegisterComponent } from '../wasm/apex';
 import { TOOL_ICONS } from '../tools/icons';
 import { createPlacementTool } from '../tools/placementTool';
@@ -47,11 +49,13 @@ class ExtensionHost {
 
   /** Add a tool with a gesture the generated placement tools cannot express. */
   registerTool(tool: Tool): void {
+    assertDescribed('tool', tool.id, tool);
     this.tools = [...this.tools.filter((t) => t.id !== tool.id), tool];
     this.emit();
   }
 
   registerExporter(exporter: Exporter): void {
+    assertDescribed('exporter', exporter.id, exporter);
     this.exporters = [
       ...this.exporters.filter((item) => item.id !== exporter.id),
       exporter,

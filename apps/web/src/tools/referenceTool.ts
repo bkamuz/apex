@@ -30,6 +30,7 @@ export function createReferenceTool(
   return {
     id: kind === 'point' ? 'ref-point' : 'ref-plane',
     label,
+    descriptor: { purpose: kind === 'point' ? 'Place a reference point used as a snap and dimension anchor.' : 'Draw a vertical reference plane through two picks for alignment.' },
     group: 'create',
     tab,
     icon: kind === 'point' ? ApexIcons.refPoint : ApexIcons.refPlane,

@@ -11,6 +11,7 @@ export function createLevelTool(tab: ToolTab = ApexTabs.basics): Tool {
   return {
     id: 'level',
     label: 'Level',
+    descriptor: { purpose: 'Add a storey 3 m above the highest level and make it active.' },
     group: 'create',
     tab,
     icon: ApexIcons.level,

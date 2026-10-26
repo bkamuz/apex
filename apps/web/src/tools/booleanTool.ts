@@ -38,6 +38,7 @@ export function createBooleanTool(): Tool {
   return {
     id: BOOLEAN_TOOL_ID,
     label: 'Boolean',
+    descriptor: { purpose: 'Combine two solids: pick A then B; Tab cycles union / subtract / intersect.', constraints: ['both operands must be solid elements'] },
     group: 'transform',
     icon: ApexIcons.boolean,
 

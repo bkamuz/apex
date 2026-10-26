@@ -4,6 +4,9 @@
  * Load manually in dev (e.g. dynamic import from the console) or copy into
  * `apps/web/src/plugins/` and add the plugin to `firstPartyPlugins`.
  *
+ * Every tool and exporter must carry `descriptor: { purpose }` (docs/descriptors.md);
+ * registration throws without one.
+ *
  * Registers through the same surface runtime modules use:
  *   window.apex.registerTool(tool)
  *   window.apex.registerExporter(exporter)
@@ -27,6 +30,7 @@ import type { Exporter } from '../apps/web/src/plugins/types';
 /** Example: a no-op tool that only logs clicks (no icon → label only). */
 export const helloTool: Tool = {
   id: 'acme.hello',
+  descriptor: { purpose: 'Demo tool that only reports a click.' },
   label: 'Hello',
   group: 'transform',
   shortcut: 'H',
@@ -42,6 +46,7 @@ export const helloTool: Tool = {
  */
 export const planterTool: Tool = {
   id: 'acme.planter-place',
+  descriptor: { purpose: 'Demo tool on the Building constructions tab.' },
   label: 'Planter place',
   group: 'create',
   tab: ApexTabs.building,
@@ -55,6 +60,7 @@ export const planterTool: Tool = {
 /** Example: Basics tab + custom inline SVG icon. */
 export const stakeTool: Tool = {
   id: 'acme.stake',
+  descriptor: { purpose: 'Demo Basics-tab tool with a custom SVG icon.' },
   label: 'Stake',
   group: 'create',
   tab: ApexTabs.basics,
@@ -70,6 +76,7 @@ export const stakeTool: Tool = {
 /** Example: Engineering tab (MEP / services) via the catalog. */
 export const conduitTool: Tool = {
   id: 'acme.conduit',
+  descriptor: { purpose: 'Demo Engineering-tab tool.' },
   label: 'Conduit',
   group: 'create',
   tab: ApexTabs.engineering,
@@ -83,6 +90,7 @@ export const conduitTool: Tool = {
 /** Example: open-world tab — not in the catalog, so supply a label. */
 export const spacesTool: Tool = {
   id: 'acme.space',
+  descriptor: { purpose: 'Demo tool that creates a custom Spaces tab.' },
   label: 'Space',
   group: 'create',
   tab: { id: 'acme.spaces', label: 'Spaces' },
@@ -95,6 +103,7 @@ export const spacesTool: Tool = {
 /** Example: a tiny text exporter contributed like the first-party IFC plugin. */
 export const helloExporter: Exporter = {
   id: 'acme.hello-export',
+  descriptor: { purpose: 'Writes a one-line hello.txt.' },
   label: 'Hello.txt',
   filename: 'hello.txt',
   export: () => 'hello from a custom exporter\n',
