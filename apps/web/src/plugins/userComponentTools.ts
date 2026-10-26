@@ -1,5 +1,6 @@
 import type { ComponentDto } from '../types';
 import { createPlacementTool } from '../tools/placementTool';
+import { createHostedPlacementTool } from '../tools/hostedPlacementTool';
 import { ApexTabs } from '../tools/tabs';
 import type { ToolTab } from '../tools/Tool';
 import type { ToolRegistry } from '../tools/registry';
@@ -22,6 +23,11 @@ export function registerUserComponentTools(
     if (component.source === 'built_in') continue;
     const toolId = toolIdForComponent(component);
     if (registry.get(toolId)) continue;
-    registry.register(createPlacementTool(component, { tab: tabForUserComponent(component) }));
+    // Genera placed into a host (host placement → host_cut) pick a host like windows do.
+    registry.register(
+      component.host_cut
+        ? createHostedPlacementTool(component)
+        : createPlacementTool(component, { tab: tabForUserComponent(component) }),
+    );
   }
 }

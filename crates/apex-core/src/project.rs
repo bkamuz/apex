@@ -7,8 +7,10 @@ use std::collections::BTreeMap;
 
 mod booleans;
 pub mod commands;
+mod genus_build;
 mod roof_attach;
 mod slab_shape;
+pub use genus_build::GenusParamInput;
 pub use roof_attach::AttachEnd;
 pub use slab_shape::{ShapeHandle, ShapeInfo, SlabShape};
 mod solids;
@@ -1476,10 +1478,7 @@ impl Project {
         &mut self,
         definition: ComponentDefinition,
     ) -> Result<(), RegistryError> {
-        let before = self.export_snapshot();
-        self.registry.upsert(definition)?;
-        self.history.record_before(before);
-        Ok(())
+        self.upsert_genus(definition).map(|_| ())
     }
 
     /// Install or replace a profile type, then rebuild every element that uses it.
@@ -1759,12 +1758,18 @@ impl Project {
         &self,
         element: &Element,
     ) -> Result<TriangleMesh, RegistryError> {
+        let mesh = self.build_own_mesh(element)?;
+        Ok(self.apply_neighbour_cuts(element, mesh))
+    }
+
+    /// An element's own geometry with host cuts, before neighbour cuts.
+    fn build_own_mesh(&self, element: &Element) -> Result<TriangleMesh, RegistryError> {
         let level_id = self
             .document
             .effective_level_id(element.id)
             .unwrap_or(element.level_id);
-        if let Some(mesh) = self.hosted_opening_assembly(element) {
-            return Ok(mesh);
+        if let Some(build) = self.element_genus_build(element) {
+            return Ok(build.mesh());
         }
         let oriented = self.oriented_hosted_opening(element);
         let element = oriented.as_ref().unwrap_or(element);
@@ -1788,7 +1793,8 @@ impl Project {
         for (yaw, center, min, max) in voids {
             mesh = punch_rotated_box(&mesh, yaw, center, min, max);
         }
-        Ok(mesh)
+        let cuts = self.genus_host_cuts(element);
+        Ok(genus_build::subtract_all(mesh, &cuts))
     }
 
     /// A hosted polyline opening (slab opening): a void, never a body.
@@ -1815,53 +1821,6 @@ impl Project {
         let along = Vec3::new(dir.x, 0.0, dir.z).try_normalize()?;
         // Frame::horizontal has x = +X, y = -Z; rotated(θ).x = X cosθ - Z sinθ.
         Some((-along.z).atan2(along.x))
-    }
-
-    /// Door / window 3D assembly built in the host wall's frame: a full
-    /// rectangular frame as deep as the wall, and a leaf (door) or glass
-    /// (window) centred in the wall hole. `None` for anything that is not a
-    /// point opening hosted by a wall curve.
-    fn hosted_opening_assembly(&self, element: &Element) -> Option<TriangleMesh> {
-        let def = self.registry.get(&element.component_id)?;
-        def.host_cut.as_ref()?;
-        if def.placement != PlacementKind::Point {
-            return None;
-        }
-        let host = self.document.get_element(element.parent_id?)?;
-        let curve = host.placement.curve()?;
-        let origin = element.placement.origin();
-        let dir = crate::path_join::host_tangent_at(curve, origin)?;
-        let u = Vec3::new(dir.x, 0.0, dir.z).try_normalize()?;
-        let n = Vec3::new(-u.z, 0.0, u.x);
-        let center = project_onto_curve_xz(curve, origin).unwrap_or(origin);
-        let center = Vec3::new(center.x, origin.y, center.z);
-        let recipe = def.opening.as_ref()?;
-        let params = self
-            .registry
-            .eval_params(&element.component_id, &element.params)
-            .ok()?;
-        let (width, _, _) = recipe.extents(&params);
-        let width = width as f32;
-        // Wall half thickness from the host mesh around the opening.
-        let mut half_t = 0.0_f32;
-        if let Some(hm) = self.document.get_mesh(host.id) {
-            for p in hm.positions.chunks(3) {
-                let d = Vec3::new(p[0], p[1], p[2]) - center;
-                if d.dot(u).abs() <= width {
-                    half_t = half_t.max(d.dot(n).abs());
-                }
-            }
-        }
-        if !(0.02..=1.0).contains(&half_t) {
-            half_t = 0.1;
-        }
-        let geo = self
-            .registry
-            .opening_geometry(recipe, &params, 2.0 * half_t as f64)
-            .ok()?;
-        let mut mesh = TriangleMesh::empty();
-        crate::genus::emit_opening(&mut mesh, &geo, center, u, n);
-        Some(mesh)
     }
 
     fn oriented_hosted_opening(&self, element: &Element) -> Option<Element> {
@@ -1895,6 +1854,10 @@ impl Project {
             let Some(cut) = &child_def.host_cut else {
                 continue;
             };
+            if self.is_genus_child(child) {
+                // Exact cuts from the genus body instead.
+                continue;
+            }
             if !cut
                 .host_categories
                 .iter()
@@ -2227,7 +2190,7 @@ impl Project {
 
         let mut components: Vec<ComponentDefinition> = self
             .registry
-            .components()
+            .authored_components()
             .filter(|definition| !matches!(definition.source, ComponentSource::BuiltIn))
             .cloned()
             .collect();
@@ -2353,8 +2316,23 @@ impl Project {
         for profile in snap.profiles {
             next.registry.upsert_profile(profile)?;
         }
-        for definition in snap.components {
-            next.registry.upsert(definition)?;
+        // Genera may extend or nest each other: install in dependency order
+        // by retrying until no further definition goes in.
+        let mut pending = snap.components;
+        while !pending.is_empty() {
+            let mut failed = Vec::new();
+            let mut last_err = None;
+            let count = pending.len();
+            for definition in pending {
+                if let Err(err) = next.registry.upsert(definition.clone()) {
+                    failed.push(definition);
+                    last_err = Some(err);
+                }
+            }
+            if failed.len() == count {
+                return Err(last_err.expect("a failed install has an error"));
+            }
+            pending = failed;
         }
         for species in snap.species {
             // A species whose genus is gone (plugin not loaded) is skipped.
@@ -4397,6 +4375,7 @@ mod plugin_first_tests {
                     ]],
                     origin: [0.0, 0.0],
                     angle: 0.0,
+                    frame: false,
                     d0: -0.02,
                     d1: 0.02,
                     glass: false,
@@ -4638,13 +4617,15 @@ mod plugin_first_tests {
                 Some(wall),
             )
             .expect("door");
-        let voids = project.host_cut_voids(wall);
+        let wall_el = project.document().get_element(wall).unwrap().clone();
+        let cuts = project.genus_host_cuts(&wall_el);
+        assert_eq!(cuts.len(), 1, "the door genus cuts its host once");
         assert!(
-            !voids.is_empty(),
-            "expected at least one host-cut void, got {voids:?}"
+            project.host_cut_voids(wall).is_empty(),
+            "no AABB void for genus children"
         );
         let mesh = project.document().get_mesh(wall).expect("wall mesh");
-        let (_, _, min, max) = voids[0];
+        let (min, max) = cuts[0].mesh.aabb().expect("cut box");
         let inside = mesh.indices.chunks(3).any(|tri| {
             let c = tri.iter().fold([0.0f32; 3], |acc, &i| {
                 let p = &mesh.positions[i as usize * 3..i as usize * 3 + 3];
@@ -4658,7 +4639,7 @@ mod plugin_first_tests {
         });
         assert!(
             !inside && mesh.triangle_count() >= before,
-            "wall keeps its surround but nothing inside the opening void ({voids:?})"
+            "wall keeps its surround but nothing inside the opening void ({min:?}..{max:?})"
         );
         assert_eq!(
             project.document().get_element(_door).unwrap().parent_id,

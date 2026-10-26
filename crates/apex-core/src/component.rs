@@ -655,6 +655,10 @@ pub struct ComponentDefinition {
         skip_serializing_if = "Option::is_none"
     )]
     pub default_species: Option<String>,
+    /// Universal genus body (params-driven refs, solids, cuts with targets,
+    /// nested genera, inheritance). See [`crate::GenusDef`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub genus: Option<crate::genus_body::GenusDef>,
 }
 
 impl ComponentDefinition {
@@ -684,11 +688,17 @@ impl ComponentDefinition {
             .as_ref()
             .map(|o| o.referenced_params())
             .unwrap_or_default();
+        let genus_params = self
+            .genus
+            .as_ref()
+            .map(|g| g.referenced_params())
+            .unwrap_or_default();
         for param in self
             .recipe
             .referenced_params()
             .into_iter()
             .chain(opening_params)
+            .chain(genus_params)
         {
             if !seen.contains(param.as_str()) {
                 return Err(DefinitionError::UndeclaredParam {
@@ -1367,6 +1377,7 @@ mod tests {
         let def = ComponentDefinition {
             opening: None,
             default_species: None,
+            genus: None,
             descriptor: crate::Descriptor::new("test"),
             id: "acme.thing".into(),
             display_name: "Thing".into(),
@@ -1405,6 +1416,7 @@ mod tests {
         let mut def = ComponentDefinition {
             opening: None,
             default_species: None,
+            genus: None,
             descriptor: crate::Descriptor::new("test"),
             id: "acme.thing".into(),
             display_name: "Thing".into(),
@@ -1449,6 +1461,7 @@ mod tests {
         let def = ComponentDefinition {
             opening: None,
             default_species: None,
+            genus: None,
             descriptor: crate::Descriptor::new("test"),
             id: "acme.table".into(),
             display_name: "Table".into(),
@@ -1529,6 +1542,7 @@ mod tests {
         let def = ComponentDefinition {
             opening: None,
             default_species: None,
+            genus: None,
             descriptor: crate::Descriptor::new("test"),
             id: "acme.thing".into(),
             display_name: "Thing".into(),
