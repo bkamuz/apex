@@ -11,7 +11,7 @@ import {
   type CallToolResult,
 } from '@modelcontextprotocol/sdk/types.js';
 import type { ApiCatalog, Backend } from './backend.js';
-import { buildTools, conventionsMarkdown, type ToolSpec } from './tools.js';
+import { buildTools, conventionsMarkdown, FILE_EXPORTS, type ToolSpec } from './tools.js';
 
 export const SERVER_NAME = 'apex';
 export const SERVER_VERSION = '0.1.0';
@@ -95,7 +95,14 @@ export async function createApexServer(backend: Backend, catalog?: Backend): Pro
       case 'command':
         return text(await backend.execute({ ...args, op: route.op }));
       case 'query': {
-        const out = await backend.query({ ...args, op: route.op });
+        const { path, ...rest } = args as Record<string, unknown> & { path?: unknown };
+        const fileExport = FILE_EXPORTS.has(route.op) && typeof path === 'string';
+        const out = await backend.query({ ...(fileExport ? rest : args), op: route.op });
+        if (fileExport) {
+          const content = (out as { content: string }).content;
+          await writeFile(path, content);
+          return text({ path, bytes: Buffer.byteLength(content) });
+        }
         return text(out);
       }
       case 'place':

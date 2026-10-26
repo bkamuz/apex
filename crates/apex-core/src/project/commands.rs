@@ -204,7 +204,9 @@ pub enum Command {
     Undo,
     Redo,
     Batch {
-        commands: Vec<Command>,
+        /// Raw command objects. A string `"$N.field"` anywhere in a step is
+        /// replaced by `field` of step N's result (e.g. `"$0.id"`).
+        commands: Vec<Value>,
     },
 }
 
@@ -405,18 +407,86 @@ impl Project {
                 "unknown element type '{component}' (see list_components)"
             )));
         };
+        // A profile-driven type (walls) also takes the profile's instance
+        // params (e.g. wall `height`); its type params are fixed per profile.
+        let profile = def.profile_param_id().and_then(|pid| {
+            let chosen = params.text(pid).map(str::to_string).or_else(|| {
+                def.resolve_params(&ParamMap::new())
+                    .ok()?
+                    .text(pid)
+                    .map(str::to_string)
+            })?;
+            self.registry().profile(&chosen).cloned()
+        });
         for (key, _) in params.iter() {
-            if !def
+            if def
                 .params
                 .iter()
                 .any(|spec| spec.id.as_str() == key.as_str())
             {
-                let known: Vec<&str> = def.params.iter().map(|s| s.id.as_str()).collect();
-                return Err(msg(format!(
-                    "unknown param '{key}' for {component} (known: {})",
-                    known.join(", ")
-                )));
+                continue;
             }
+            if let Some(profile) = &profile {
+                if profile
+                    .instance_params()
+                    .any(|p| p.id.as_str() == key.as_str())
+                {
+                    continue;
+                }
+                if profile.params.iter().any(|p| p.id.as_str() == key.as_str()) {
+                    return Err(msg(format!(
+                        "'{key}' is a type value of profile '{}' and cannot be set per element; \
+                         choose another profile via the `profile` param (describe_api `profiles` lists them)",
+                        profile.id
+                    )));
+                }
+            }
+            let mut known: Vec<String> = def.params.iter().map(|s| s.id.to_string()).collect();
+            if let Some(profile) = &profile {
+                known.extend(profile.instance_params().map(|p| p.id.to_string()));
+            }
+            return Err(msg(format!(
+                "unknown param '{key}' for {component} (known: {})",
+                known.join(", ")
+            )));
+        }
+        Ok(())
+    }
+
+    /// Openings (doors, windows, slab openings) must be created in a host,
+    /// otherwise they float without cutting anything.
+    fn check_host(&self, component: &str, parent: Option<ElementId>) -> Result<(), CommandError> {
+        let Some(def) = self.registry().get(component) else {
+            return Ok(());
+        };
+        if def.category != "opening" {
+            return Ok(());
+        }
+        let want = if component == "apex.slab_opening" {
+            "slab"
+        } else {
+            "wall"
+        };
+        let Some(parent) = parent else {
+            return Err(msg(format!(
+                "{component} must be hosted: pass `parent` = the {want} id (in a batch, \"$N.id\" of the step that created it)"
+            )));
+        };
+        let host = self
+            .document()
+            .get_element(parent)
+            .map(|h| h.component_id.clone())
+            .unwrap_or_default();
+        let host_cat = self
+            .registry()
+            .get(&host)
+            .map(|d| d.category.clone())
+            .unwrap_or_default();
+        let ok = host_cat == want || (want == "slab" && host_cat == "roof");
+        if !host_cat.is_empty() && !ok {
+            return Err(msg(format!(
+                "{component} needs a {want} as parent, but {parent} is a {host}"
+            )));
         }
         Ok(())
     }
@@ -440,6 +510,34 @@ impl Project {
             let _ = self.set_active_level(prev);
         }
         out
+    }
+
+    /// Let batch steps use the MCP shortcut names: `{"op": "place_wall", ...}`
+    /// becomes `{"op": "create_element", "component": "apex.wall", ...}`.
+    fn expand_place_alias(&self, raw: &mut Value) {
+        let Some(op) = raw.get("op").and_then(Value::as_str) else {
+            return;
+        };
+        let Some(short) = op.strip_prefix("place_") else {
+            return;
+        };
+        let short = short.to_string();
+        let found = self
+            .registry()
+            .components()
+            .map(|d| d.id.clone())
+            .find(|id| {
+                let s = id.strip_prefix("apex.").unwrap_or(id);
+                let name: String = s
+                    .chars()
+                    .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+                    .collect();
+                name == short
+            });
+        if let (Some(component), Some(obj)) = (found, raw.as_object_mut()) {
+            obj.insert("op".into(), json!("create_element"));
+            obj.entry("component").or_insert(json!(component));
+        }
     }
 
     fn apply(&mut self, command: Command) -> CmdResult {
@@ -467,6 +565,7 @@ impl Project {
                     Some(p) if !p.trim().is_empty() => Some(self.resolve_element(&p)?),
                     _ => None,
                 };
+                self.check_host(&component, parent)?;
                 let id = self.on_level(level, |p| {
                     let placement = p
                         .placement_from_gesture(&component, kind, &pts(&points), rotation)
@@ -694,8 +793,13 @@ impl Project {
                 Ok(json!({ "id": id.to_string() }))
             }
             Command::Batch { commands } => {
-                let mut results = Vec::with_capacity(commands.len());
-                for (i, command) in commands.into_iter().enumerate() {
+                let mut results: Vec<Value> = Vec::with_capacity(commands.len());
+                for (i, mut raw) in commands.into_iter().enumerate() {
+                    resolve_batch_refs(&mut raw, &results)
+                        .map_err(|err| msg(format!("batch step {i}: {err}")))?;
+                    self.expand_place_alias(&mut raw);
+                    let command: Command = serde_json::from_value(raw)
+                        .map_err(|err| msg(format!("batch step {i}: invalid command: {err}")))?;
                     if matches!(command, Command::Undo | Command::Redo) {
                         return Err(msg(format!(
                             "batch step {i}: undo/redo are not allowed inside a batch"
@@ -711,6 +815,46 @@ impl Project {
             }
             Command::Undo | Command::Redo => Err(msg("undo/redo must be executed on their own")),
         }
+    }
+}
+
+/// Replace `"$N"` / `"$N.field"` strings in a batch step with values from
+/// earlier step results.
+fn resolve_batch_refs(v: &mut Value, results: &[Value]) -> Result<(), String> {
+    match v {
+        Value::String(s) if s.starts_with('$') => {
+            let body = &s[1..];
+            let (idx, field) = match body.split_once('.') {
+                Some((i, f)) => (i, Some(f)),
+                None => (body, None),
+            };
+            let Ok(n) = idx.parse::<usize>() else {
+                return Ok(());
+            };
+            let Some(res) = results.get(n) else {
+                return Err(format!(
+                    "'{s}' refers to step {n}, but only steps 0..{} ran before this one",
+                    results.len()
+                ));
+            };
+            let mut out = res;
+            if let Some(f) = field {
+                for part in f.split('.') {
+                    out = out.get(part).ok_or_else(|| {
+                        format!("'{s}': step {n} result has no '{part}' (result: {res})")
+                    })?;
+                }
+            }
+            *v = out.clone();
+            Ok(())
+        }
+        Value::Array(a) => a
+            .iter_mut()
+            .try_for_each(|x| resolve_batch_refs(x, results)),
+        Value::Object(o) => o
+            .values_mut()
+            .try_for_each(|x| resolve_batch_refs(x, results)),
+        _ => Ok(()),
     }
 }
 
@@ -863,7 +1007,22 @@ impl Project {
             return json!({ "id": id.to_string(), "has_mesh": false });
         };
         let Some(mesh) = doc.get_mesh(id).filter(|m| !m.indices.is_empty()) else {
-            return json!({ "id": id.to_string(), "has_mesh": false });
+            let key = id.to_string();
+            let consumer = doc.elements().find(|b| {
+                b.component_id == "apex.boolean"
+                    && ["operand_a", "operand_b"]
+                        .iter()
+                        .any(|k| b.params.text(k) == Some(key.as_str()))
+            });
+            if let Some(b) = consumer {
+                return json!({
+                    "id": key,
+                    "has_mesh": false,
+                    "consumed_by_boolean": b.id.to_string(),
+                    "note": "this element is an operand of a boolean; its solid is shown as part of that boolean (query the boolean id, or set show_operands)",
+                });
+            }
+            return json!({ "id": key, "has_mesh": false });
         };
         let mut min = [f32::MAX; 3];
         let mut max = [f32::MIN; 3];
@@ -966,12 +1125,28 @@ pub fn component_catalog(project: &Project) -> Vec<PublishedDescriptor> {
         .registry()
         .components()
         .map(|def| {
+            // Profile-driven types also accept the default profile's
+            // instance params (e.g. wall `height`).
+            let mut specs = def.params.clone();
+            let default_profile = def.profile_param_id().and_then(|pid| {
+                def.resolve_params(&ParamMap::new())
+                    .ok()?
+                    .text(pid)
+                    .map(str::to_string)
+            });
+            if let Some(profile) = default_profile.and_then(|id| project.registry().profile(&id)) {
+                for spec in profile.instance_params() {
+                    if !specs.iter().any(|s| s.id == spec.id) {
+                        specs.push(spec.clone());
+                    }
+                }
+            }
             let mut d = PublishedDescriptor::new(
                 "element_type",
                 def.id.clone(),
                 def.display_name.clone(),
                 &def.descriptor,
-                params_json_schema(&def.params),
+                params_json_schema(&specs),
             );
             if d.descriptor.points.is_none() {
                 d.descriptor.points = Some(format!("placement kind: {}", def.placement.as_str()));
@@ -1026,7 +1201,7 @@ pub fn command_descriptors() -> Vec<PublishedDescriptor> {
          obj("create_element", json!({"component": {"type": "string"}, "points": points_schema(), "rotation": {"type": "number", "description": "radians about +Y"}, "params": params(), "placement_kind": {"type": "string", "enum": ["point","two_point","three_point_arc","polyline","path","free"]}, "parent": id_schema(), "level": {"type": "string"}, "name": {"type": "string"}}), &["component", "points"])),
         ("update_element", "Update element",
          Descriptor::new("Change params and/or replace placement points of an element. Params not listed keep their value.")
-            .example("Thicker wall", json!({"op": "update_element", "id": "<id>", "params": {"thickness": 0.3}})),
+            .example("Taller wall", json!({"op": "update_element", "id": "<id>", "params": {"height": 3.5}})),
          obj("update_element", json!({"id": id_schema(), "params": params(), "points": points_schema(), "placement_kind": {"type": "string"}}), &["id"])),
         ("delete_element", "Delete element", Descriptor::new("Delete an element and its hosted children."), one("delete_element")),
         ("set_parent", "Set parent", Descriptor::new("Attach an element to a parent (it then follows the parent's level) or detach with null."),
@@ -1079,7 +1254,8 @@ pub fn command_descriptors() -> Vec<PublishedDescriptor> {
         ("undo", "Undo", Descriptor::new("Undo the last command; a batch counts as one."), none("undo")),
         ("redo", "Redo", Descriptor::new("Redo the last undone command."), none("redo")),
         ("batch", "Batch",
-         Descriptor::new("Run several commands as one undo step, all-or-nothing: if any step fails nothing is applied. Results come back in order. Ids are only known after the batch, so dependent steps (door into a new wall) need separate calls.")
+         Descriptor::new("Run several commands as one undo step, all-or-nothing: if any step fails nothing is applied. Results come back in order. A later step can use an earlier result: the string \"$N.id\" (or \"$N.<field>\") anywhere in a step is replaced by that field of step N's result (0-based). Steps may also use the place_<type> shortcut names as `op`.")
+            .example("Wall with a door", json!({"op": "batch", "commands": [{"op": "create_element", "component": "apex.wall", "points": [[0.0, 0.0, 0.0], [5.0, 0.0, 0.0]]}, {"op": "create_element", "component": "apex.door", "parent": "$0.id", "points": [[2.0, 0.0, 0.0]]}]}))
             .example("Two levels", json!({"op": "batch", "commands": [{"op": "create_level", "name": "L1", "elevation": 3.0}, {"op": "create_level", "name": "L2", "elevation": 6.0}]})),
          obj("batch", json!({"commands": {"type": "array", "items": {"type": "object", "description": "a command object with its own `op`"}}}), &["commands"])),
     ];
@@ -1174,7 +1350,31 @@ pub fn api_catalog(project: &Project) -> Value {
         "commands": command_descriptors(),
         "queries": query_descriptors(),
         "annotation_types": annotation_descriptors(),
+        "profiles": profile_catalog(project),
     })
+}
+
+/// Installed profiles (wall, column, beam sections) an element's `profile`
+/// param can name. `instance_params` can be set per element; `type_values`
+/// are shared by every element using the profile.
+fn profile_catalog(project: &Project) -> Value {
+    Value::Array(
+        project
+            .registry()
+            .profiles()
+            .values()
+            .map(|p| {
+                json!({
+                    "id": p.id.to_string(),
+                    "name": p.display_name,
+                    "category": p.category,
+                    "instance_params": p.instance_params().map(|s| s.id.to_string()).collect::<Vec<_>>(),
+                    "type_params": p.params.iter().filter(|s| !s.binding.is_instance()).map(|s| s.id.to_string()).collect::<Vec<_>>(),
+                    "type_values": p.type_values,
+                })
+            })
+            .collect(),
+    )
 }
 
 #[cfg(test)]
@@ -1311,7 +1511,7 @@ mod tests {
                     .to_string(),
             )
             .unwrap_err();
-        assert!(err.0.contains("unknown param 'thickness'"), "{err}");
+        assert!(err.0.contains("type value of profile"), "{err}");
         exec(&mut p, json!({"op": "delete_element", "id": id}));
         assert_eq!(p.document().elements().count(), 0);
         exec(&mut p, json!({"op": "undo"}));
@@ -1358,6 +1558,71 @@ mod tests {
         assert!(err.0.contains("batch step 1"), "{err}");
         assert_eq!(p.document().elements().count(), 0, "rolled back");
         assert!(!p.can_undo(), "failed batch records nothing");
+    }
+
+    #[test]
+    fn batch_steps_reference_earlier_results() {
+        let mut p = Project::new();
+        let out = exec(
+            &mut p,
+            json!({"op": "batch", "commands": [
+                {"op": "place_wall", "points": [[0, 0, 0], [6, 0, 0]], "params": {"height": 2.7}},
+                {"op": "create_element", "component": "apex.door", "parent": "$0.id", "points": [[2, 0, 0]]},
+                {"op": "place_window", "parent": "$0.id", "points": [[4.5, 0, 0]]},
+                {"op": "place_column", "points": [[3, 0, 3]]},
+                {"op": "boolean", "a": "$0.id", "b": "$3.id"}
+            ]}),
+        );
+        let wall = out["results"][0]["id"].as_str().unwrap().to_string();
+        let door = out["results"][1]["id"].as_str().unwrap();
+        let el = q(&p, json!({"op": "get_element", "id": door}));
+        assert_eq!(el["parent"], wall.as_str(), "{el}");
+        let g = q(&p, json!({"op": "element_geometry", "id": wall}));
+        assert_eq!(g["consumed_by_boolean"], out["results"][4]["id"], "{g}");
+        exec(&mut p, json!({"op": "undo"}));
+        assert_eq!(p.document().elements().count(), 0, "one undo step");
+
+        let err = p
+            .execute_json(
+                &json!({"op": "batch", "commands": [
+                    {"op": "create_element", "component": "apex.door", "parent": "$3.id", "points": [[0, 0, 0]]}
+                ]})
+                .to_string(),
+            )
+            .unwrap_err();
+        assert!(err.0.contains("refers to step 3"), "{err}");
+    }
+
+    #[test]
+    fn openings_need_a_host_and_walls_take_height() {
+        let mut p = Project::new();
+        let err = p
+            .execute_json(
+                r#"{"op": "create_element", "component": "apex.door", "points": [[1, 0, 0]]}"#,
+            )
+            .unwrap_err();
+        assert!(err.0.contains("must be hosted"), "{err}");
+        let col = new_id(
+            &mut p,
+            json!({"op": "create_element", "component": "apex.column", "points": [[1, 0, 1]]}),
+        );
+        let err = p
+            .execute_json(&json!({"op": "create_element", "component": "apex.window", "parent": col, "points": [[1, 0, 1]]}).to_string())
+            .unwrap_err();
+        assert!(err.0.contains("needs a wall"), "{err}");
+        let wall = new_id(
+            &mut p,
+            json!({"op": "create_element", "component": "apex.wall", "points": [[0, 0, 0], [4, 0, 0]], "params": {"height": 2.4}}),
+        );
+        let h = q(&p, json!({"op": "element_geometry", "id": wall}))["bbox"]["size"][1]
+            .as_f64()
+            .unwrap();
+        assert!((h - 2.4).abs() < 1e-3, "height {h}");
+        assert!(api_catalog(&p)["profiles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|x| x["id"] == "apex.wall.rect"));
     }
 
     #[test]

@@ -173,11 +173,12 @@ export function buildTools(api: ApiCatalog): ToolSpec[] {
     });
   }
   for (const d of api.queries) {
+    const fileExport = FILE_EXPORTS.has(d.id);
     tools.push({
       name: d.id,
       title: d.name,
-      description: describe(d, ['Read-only.']),
-      inputSchema: withoutOp(d.params_schema),
+      description: describe(d, fileExport ? ['Read-only.', 'With `path`, writes the file locally and returns only its size.'] : ['Read-only.']),
+      inputSchema: fileExport ? withPath(withoutOp(d.params_schema)) : withoutOp(d.params_schema),
       readOnly: true,
       route: { kind: 'query', op: d.id },
     });
@@ -203,4 +204,12 @@ export function conventionsMarkdown(api: ApiCatalog): string {
   lines.push('', '## Annotation types', '');
   for (const d of api.annotation_types) lines.push(`- **${d.id}**: ${d.purpose}`);
   return lines.join('\n');
+}
+
+/** Core queries that return `{ content }` file text; the MCP adds a local `path` option. */
+export const FILE_EXPORTS = new Set(['export_view', 'export_sheet']);
+
+function withPath(schema: Record<string, unknown>): Record<string, unknown> {
+  const props = (schema.properties as Record<string, unknown> | undefined) ?? {};
+  return { ...schema, properties: { ...props, path: { type: 'string', description: 'local file to write' } } };
 }

@@ -47,10 +47,21 @@ Session: `describe_api`, `new_project`, `load_project`, `save_project`, `screens
 
 Units are metres and radians, +Y is up, and plans lie in XZ.
 
+Tips:
+
+- `batch` runs many steps as one undo step. A later step can use an earlier result: `"$0.id"`
+  (or `"$0"` for the whole result), so you can place a wall and its doors in one call. Steps
+  may use `place_*` op names as well as core ops.
+- Doors and windows must have a `parent` wall; a `slab_opening` needs a slab or roof.
+- Walls take an instance `height`. Thickness belongs to the wall's profile type
+  (`describe_api` → `profiles`) and can't be changed per instance.
+- `export_view` and `export_sheet` take an optional `path` and then write the file locally.
+
 ## Build
 
 ```sh
-npm run wasm:build            # repo root, only if the Rust core changed
+npm install --prefix apps/web  # needed once for `npm run dev` (live bridge)
+npm run wasm:build            # repo root, only if the Rust core changed (needs wasm-pack)
 cd packages/apex-mcp && npm install && npm run build
 ```
 

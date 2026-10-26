@@ -898,8 +898,10 @@ fn roof_pitched() -> ComponentDefinition {
         recipe: GeometryRecipe::Custom {
             builder_id: "apex.roof.pitched".into(),
         },
-        descriptor: Descriptor::new("Pitched roof (gable or hip) as one watertight solid: ridge between two points, `width` across the ridge, slope by rise or angle, optional overhang and eave cut. Seated at the storey rise so it sits on the walls.")
-            .points("two_point: ridge start and end [x, y, z] (plan)")
+        descriptor: Descriptor::new("Pitched roof (gable or hip) as one watertight solid over a rectangle: the two points give the centre line from one end wall to the other, `width` is the size across it, slope by rise or angle, optional overhang on all sides and eave cut. Seated at the storey rise so it sits on the walls.")
+            .points("two_point: centre line [x, y, z] (plan) from end wall to end wall; the covered rectangle is |b - a| x width, plus overhang")
+            .constraint("for a hip roof the real ridge is shorter than the line by `width` (hips slope in from both ends); for a gable it is the full line")
+            .constraint("an L-shaped plan needs two roofs, one per rectangle, overlapping at the corner")
             .example("Gable along x", json!({"component": "apex.roof.pitched", "points": [[0, 0, 4], [10, 0, 4]], "params": {"width": 8, "overhang": 0.5}})),
         host_cut: None,
         level_height_params: vec!["base_offset".into()],

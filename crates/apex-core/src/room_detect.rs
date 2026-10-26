@@ -50,6 +50,8 @@ pub fn wall_centerline_segments(element: &Element) -> Vec<(Vec3, Vec3)> {
 /// Returns rings without a repeated closing vertex. The unbounded exterior face
 /// is discarded (largest |area|). Remaining faces with sufficient area are kept.
 pub fn detect_room_polygons(segments: &[(Vec3, Vec3)], snap: f32) -> Vec<Vec<Vec3>> {
+    let split = split_at_junctions(segments, snap);
+    let segments = split.as_slice();
     let elevation = segments.first().map(|(a, _)| a.y).unwrap_or(0.0);
 
     let mut nodes: Vec<[f32; 2]> = Vec::new();
@@ -214,6 +216,46 @@ pub fn detect_room_polygons(segments: &[(Vec3, Vec3)], snap: f32) -> Vec<Vec<Vec
         .collect()
 }
 
+/// Split every segment where another segment's end point lies on its interior
+/// (T-junctions, e.g. a partition ending mid-way along a polyline wall), so the
+/// planar graph has a node there.
+fn split_at_junctions(segments: &[(Vec3, Vec3)], snap: f32) -> Vec<(Vec3, Vec3)> {
+    let ends: Vec<Vec3> = segments.iter().flat_map(|&(a, b)| [a, b]).collect();
+    let mut out = Vec::with_capacity(segments.len());
+    for &(a, b) in segments {
+        let d = Vec3::new(b.x - a.x, 0.0, b.z - a.z);
+        let len2 = d.length_squared();
+        if len2 <= f32::EPSILON {
+            out.push((a, b));
+            continue;
+        }
+        let len = len2.sqrt();
+        let mut ts: Vec<f32> = ends
+            .iter()
+            .filter_map(|p| {
+                let v = Vec3::new(p.x - a.x, 0.0, p.z - a.z);
+                let t = v.dot(d) / len2;
+                let along = t * len;
+                if along <= snap || along >= len - snap {
+                    return None;
+                }
+                let off = (v - d * t).length();
+                (off <= snap).then_some(t)
+            })
+            .collect();
+        ts.sort_by(|x, y| x.partial_cmp(y).unwrap_or(std::cmp::Ordering::Equal));
+        ts.dedup_by(|x, y| (*x - *y).abs() * len <= snap);
+        let mut prev = a;
+        for t in ts {
+            let p = a + (b - a) * t;
+            out.push((prev, p));
+            prev = p;
+        }
+        out.push((prev, b));
+    }
+    out
+}
+
 fn signed_area_xz(nodes: &[[f32; 2]], ring: &[usize]) -> f32 {
     let n = ring.len();
     if n < 3 {
@@ -277,6 +319,41 @@ mod tests {
         ];
         let rooms = detect_room_polygons(&segs, ENDPOINT_SNAP);
         assert_eq!(rooms.len(), 2);
+    }
+
+    #[test]
+    fn partitions_ending_mid_span_split_rooms() {
+        // L-shaped polyline outline with partitions that T into its sides.
+        let pts = [
+            (0.0, 0.0),
+            (12.0, 0.0),
+            (12.0, 5.0),
+            (7.0, 5.0),
+            (7.0, 9.0),
+            (0.0, 9.0),
+            (0.0, 0.0),
+        ];
+        let mut segs: Vec<(Vec3, Vec3)> = pts
+            .windows(2)
+            .map(|w| {
+                (
+                    Vec3::new(w[0].0, 0.0, w[0].1),
+                    Vec3::new(w[1].0, 0.0, w[1].1),
+                )
+            })
+            .collect();
+        for (a, b) in [
+            ((0.0, 5.0), (7.0, 5.0)),
+            ((7.0, 0.0), (7.0, 5.0)),
+            ((3.5, 0.0), (3.5, 5.0)),
+            ((4.0, 5.0), (4.0, 9.0)),
+        ] {
+            segs.push((Vec3::new(a.0, 0.0, a.1), Vec3::new(b.0, 0.0, b.1)));
+        }
+        let rooms = detect_room_polygons(&segs, ENDPOINT_SNAP);
+        assert_eq!(rooms.len(), 5, "{rooms:?}");
+        let total: f32 = rooms.iter().map(|r| polygon_area(r)).sum();
+        assert!((total - 88.0).abs() < 0.01, "total {total}");
     }
 
     #[test]
