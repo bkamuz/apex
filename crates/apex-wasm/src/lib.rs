@@ -678,7 +678,7 @@ fn scene_dto(project: &Project) -> SceneDto {
         normals: buffers.normals,
         indices: buffers.indices,
         pick_ids: buffers.pick_ids.iter().map(|id| *id as f64).collect(),
-        edge_positions: buffers.edge_positions,
+        edge_positions: project.hide_buried_edges(&buffers.edge_positions),
         elements: buffers
             .elements
             .iter()

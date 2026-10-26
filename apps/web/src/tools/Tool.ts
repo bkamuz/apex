@@ -77,6 +77,11 @@ export interface ToolContext {
   restoreTransformOriginals(originals: TransformOriginal[]): void;
   /** Element id under the cursor, or null. Distinct from `pick`, which returns a GPU pick id. */
   pickElementId(clientX: number, clientY: number): string | null;
+  /** Every element under the cursor, nearest first, with its category. */
+  pickElementCandidates(
+    clientX: number,
+    clientY: number,
+  ): { id: string; name: string; category: string }[];
   /** Ids of the currently selected elements. */
   selectedElementIds(): string[];
   /** The parent of `id`, or null when it is a root. */
@@ -180,6 +185,8 @@ export interface Tool {
    * Return true when the finish was handled (even if rejected for too few picks).
    */
   finishGesture?(picks: Vec3[], ctx: ToolContext): boolean;
+  /** Keys while the tool is active (e.g. Tab cycling). Return true if handled. */
+  onKey?(e: KeyboardEvent, ctx: ToolContext): boolean;
   /** Adjust pick elevation for free-elevation path tools (MEP). */
   nudgeElevation?(delta: number): void;
 }

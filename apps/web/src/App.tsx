@@ -1080,6 +1080,16 @@ export default function App() {
         return entry?.id ?? null;
       },
 
+      pickElementCandidates: (clientX, clientY) => {
+        const current = sceneRef.current;
+        if (!current) return [];
+        return renderer
+          .pickAll(clientX, clientY)
+          .map((pickId) => current.elements.find((c) => c.pick_id === pickId))
+          .filter((c): c is NonNullable<typeof c> => !!c)
+          .map((c) => ({ id: c.id, name: c.name, category: c.category }));
+      },
+
       selectedElementIds: () => apexGetSelectedElements().map((element) => element.id),
 
       elementParentId: (id) =>
@@ -1631,6 +1641,10 @@ export default function App() {
       if (!typing && !mod && e.key.toLowerCase() === 'f') {
         e.preventDefault();
         fitView();
+        return;
+      }
+      if (!typing && toolRef.current.onKey?.(e, toolContext())) {
+        e.preventDefault();
         return;
       }
       if (!typing && !mod && (e.key === 'Enter' || e.code === 'Enter')) {

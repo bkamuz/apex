@@ -39,8 +39,119 @@ fn to_manifold(mesh: &TriangleMesh) -> Result<Manifold, CsgError> {
         });
         remap.push(i);
     }
-    let idx: Vec<usize> = mesh.indices.iter().map(|&i| remap[i as usize]).collect();
+    let mut idx: Vec<usize> = Vec::with_capacity(mesh.indices.len());
+    for t in mesh.indices.chunks(3) {
+        let (a, b, c) = (
+            remap[t[0] as usize],
+            remap[t[1] as usize],
+            remap[t[2] as usize],
+        );
+        // Welding can collapse slivers; drop them rather than feed the kernel
+        // degenerate faces.
+        if a != b && b != c && a != c {
+            idx.extend([a, b, c]);
+        }
+    }
+    let idx = split_t_junctions(&pos, idx);
+    check_closed(&idx)?;
     Manifold::new(&pos, &idx).map_err(CsgError::NotManifold)
+}
+
+/// Builders (wall joins, cut openings) can leave T-junctions: a vertex lying
+/// on another face's edge. Split such faces at the vertex so every edge is
+/// shared by exactly two faces.
+fn split_t_junctions(pos: &[f64], mut idx: Vec<usize>) -> Vec<usize> {
+    const TOL: f64 = 1e-5;
+    let p = |i: usize| [pos[3 * i], pos[3 * i + 1], pos[3 * i + 2]];
+    let nv = pos.len() / 3;
+    for _ in 0..64 {
+        let mut directed: std::collections::HashSet<(usize, usize)> =
+            std::collections::HashSet::with_capacity(idx.len());
+        for t in idx.chunks(3) {
+            for k in 0..3 {
+                directed.insert((t[k], t[(k + 1) % 3]));
+            }
+        }
+        let mut out = Vec::with_capacity(idx.len() + 16);
+        let mut changed = false;
+        for t in idx.chunks(3) {
+            let mut split = None;
+            for k in 0..3 {
+                let (a, b) = (t[k], t[(k + 1) % 3]);
+                if directed.contains(&(b, a)) {
+                    continue;
+                }
+                let (pa, pb) = (p(a), p(b));
+                let d = [pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]];
+                let len2 = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
+                if len2 < TOL * TOL {
+                    continue;
+                }
+                let mut best: Option<(f64, usize)> = None;
+                for v in 0..nv {
+                    if v == a || v == b {
+                        continue;
+                    }
+                    let pv = p(v);
+                    let w = [pv[0] - pa[0], pv[1] - pa[1], pv[2] - pa[2]];
+                    let s = (w[0] * d[0] + w[1] * d[1] + w[2] * d[2]) / len2;
+                    if s <= 1e-9 || s >= 1.0 - 1e-9 {
+                        continue;
+                    }
+                    let e = [w[0] - s * d[0], w[1] - s * d[1], w[2] - s * d[2]];
+                    if e[0] * e[0] + e[1] * e[1] + e[2] * e[2] > TOL * TOL {
+                        continue;
+                    }
+                    if best.is_none_or(|(bs, _)| s < bs) {
+                        best = Some((s, v));
+                    }
+                }
+                if let Some((_, v)) = best {
+                    split = Some((k, v));
+                    break;
+                }
+            }
+            match split {
+                Some((k, v)) => {
+                    let (a, b, c) = (t[k], t[(k + 1) % 3], t[(k + 2) % 3]);
+                    out.extend([a, v, c, v, b, c]);
+                    changed = true;
+                }
+                None => out.extend_from_slice(t),
+            }
+        }
+        idx = out;
+        if !changed {
+            break;
+        }
+    }
+    idx
+}
+
+/// Every directed edge must appear once and be matched by its reverse.
+/// `boolmesh` panics (index out of bounds) on open or non-manifold input
+/// instead of returning an error, so reject it here first.
+fn check_closed(idx: &[usize]) -> Result<(), CsgError> {
+    if idx.is_empty() {
+        return Err(CsgError::NotManifold("no faces".into()));
+    }
+    let mut directed: HashMap<(usize, usize), u32> = HashMap::with_capacity(idx.len());
+    for t in idx.chunks(3) {
+        for k in 0..3 {
+            *directed.entry((t[k], t[(k + 1) % 3])).or_default() += 1;
+        }
+    }
+    for (&(a, b), &n) in &directed {
+        if n != 1 {
+            return Err(CsgError::NotManifold(format!(
+                "edge {a}-{b} used {n} times"
+            )));
+        }
+        if !directed.contains_key(&(b, a)) {
+            return Err(CsgError::NotManifold(format!("open edge {a}-{b}")));
+        }
+    }
+    Ok(())
 }
 
 fn from_manifold(m: &Manifold) -> TriangleMesh {

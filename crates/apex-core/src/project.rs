@@ -1874,8 +1874,12 @@ impl Project {
         // Head.
         push_box(&mut mesh, center, u, n, 0.0, hw, y1 - fw, y1, fd);
         // Sill / threshold.
-        let sill_t = if is_door { 0.02 } else { fw };
-        push_box(&mut mesh, center, u, n, 0.0, hw, y0, y0 + sill_t, fd);
+        // Doors get no threshold: the plan reads the opening as a clean
+        // break in the wall with jamb lines only.
+        let sill_t = if is_door { 0.0 } else { fw };
+        if !is_door {
+            push_box(&mut mesh, center, u, n, 0.0, hw, y0, y0 + sill_t, fd);
+        }
         // Leaf or glass, centred in the hole.
         let inner = hw - fw;
         let (py0, py1, pt) = (y0 + sill_t, y1 - fw, 0.025);
