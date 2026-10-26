@@ -1,0 +1,318 @@
+{
+  "findings": [
+    {
+      "id": "F-001",
+      "feature": "App load",
+      "status": "works",
+      "severity": "polish",
+      "steps": "Open http://localhost:5173/",
+      "detail": "Canvas and chrome render; default document tab visible.",
+      "screenshot": "001-startup-default-view.png"
+    },
+    {
+      "id": "F-002",
+      "feature": "Level tool",
+      "status": "works",
+      "severity": "polish",
+      "steps": "Basics → Level → click plan",
+      "detail": "Storey count 2",
+      "screenshot": "002-basics-level-added.png"
+    },
+    {
+      "id": "F-003",
+      "feature": "Ref point / Ref plane",
+      "status": "works",
+      "severity": "polish",
+      "steps": "Place point then two-click plane",
+      "detail": "References appear in browser",
+      "screenshot": "003-basics-refs.png"
+    },
+    {
+      "id": "F-004",
+      "feature": "Wall / Line",
+      "status": "works",
+      "severity": "polish",
+      "steps": "Building → Wall → Line → rectangle",
+      "detail": "Instances: 4",
+      "screenshot": "005-building-walls-room.png"
+    },
+    {
+      "id": "F-005",
+      "feature": "Door (hosted)",
+      "status": "works",
+      "severity": "polish",
+      "steps": "Door tool → click wall segment",
+      "detail": "Door instance created",
+      "screenshot": "006-building-door-on-wall.png"
+    },
+    {
+      "id": "F-006",
+      "feature": "MEP routes",
+      "status": "works",
+      "severity": "polish",
+      "steps": "Engineering tab → Pipe/Duct/Cable tray polylines",
+      "detail": "Three route types placed",
+      "screenshot": "009-engineering-mep.png"
+    },
+    {
+      "id": "F-007",
+      "feature": "Detect rooms",
+      "status": "works",
+      "severity": "polish",
+      "steps": "Spaces → Detect rooms → click inside wall loop",
+      "detail": "Auto spaces from walls",
+      "screenshot": "010-spaces-detect-rooms.png"
+    },
+    {
+      "id": "F-008",
+      "feature": "Plan / 3D toggle",
+      "status": "works",
+      "severity": "polish",
+      "steps": "Toolbar view-plan / view-3d",
+      "detail": "Badge and projection update",
+      "screenshot": "012-viewport-3d-mode.png"
+    },
+    {
+      "id": "F-009",
+      "feature": "Hotkey M → Move",
+      "status": "works",
+      "severity": "polish",
+      "steps": "Select column → press M",
+      "detail": "Move tool activates"
+    },
+    {
+      "id": "F-010",
+      "feature": "Parent tool (UI picks)",
+      "status": "broken",
+      "severity": "major",
+      "steps": "Same",
+      "detail": "Column parent_id still null",
+      "screenshot": "016-parent-column-to-wall.png"
+    },
+    {
+      "id": "F-011",
+      "feature": "Annotate (saved plan view)",
+      "status": "works",
+      "severity": "polish",
+      "steps": "New plan view → Dimension + Text",
+      "detail": "Annotations on saved view",
+      "screenshot": "017-views-new-plan.png"
+    },
+    {
+      "id": "F-012",
+      "feature": "Export / Sheet SVG",
+      "status": "works",
+      "severity": "polish",
+      "steps": "Click export → save",
+      "detail": "688 bytes",
+      "screenshot": "021-exports-triggered.png"
+    },
+    {
+      "id": "F-013",
+      "feature": "Export / Sheet DXF",
+      "status": "works",
+      "severity": "polish",
+      "steps": "Click export → save",
+      "detail": "452 bytes",
+      "screenshot": "021-exports-triggered.png"
+    },
+    {
+      "id": "F-014",
+      "feature": "Export / Sheet PDF",
+      "status": "broken",
+      "severity": "minor",
+      "steps": "Top bar or sheet toolbar export",
+      "detail": "no download event",
+      "screenshot": "021-exports-triggered.png"
+    },
+    {
+      "id": "F-015",
+      "feature": "Export / View SVG",
+      "status": "broken",
+      "severity": "minor",
+      "steps": "Top bar or sheet toolbar export",
+      "detail": "control export-view-svg not visible",
+      "screenshot": "021-exports-triggered.png"
+    },
+    {
+      "id": "F-016",
+      "feature": "Export / View DXF",
+      "status": "broken",
+      "severity": "minor",
+      "steps": "Top bar or sheet toolbar export",
+      "detail": "control export-view-dxf not visible",
+      "screenshot": "021-exports-triggered.png"
+    },
+    {
+      "id": "F-017",
+      "feature": "Export / View PDF",
+      "status": "broken",
+      "severity": "minor",
+      "steps": "Top bar or sheet toolbar export",
+      "detail": "control export-view-pdf not visible",
+      "screenshot": "021-exports-triggered.png"
+    },
+    {
+      "id": "F-018",
+      "feature": "Export / IFC",
+      "status": "works",
+      "severity": "polish",
+      "steps": "Click export → save",
+      "detail": "50506 bytes",
+      "screenshot": "021-exports-triggered.png"
+    },
+    {
+      "id": "F-019",
+      "feature": "Profile holes in UI",
+      "status": "partly",
+      "severity": "major",
+      "steps": "Wall → Draw new profile",
+      "detail": "Core supports profile holes (geometry) but ProfileEditor has no hole-drawing workflow; only outer loop sketch."
+    },
+    {
+      "id": "F-020",
+      "feature": "Delete key",
+      "status": "partly",
+      "severity": "minor",
+      "steps": "Select custom component → Delete",
+      "detail": "Count unchanged (may need visible selection)"
+    },
+    {
+      "id": "F-021",
+      "feature": "Save + reload",
+      "status": "works",
+      "severity": "polish",
+      "steps": "Save project → reload tab",
+      "detail": "Instances 13",
+      "screenshot": "024-persistence-after-reload.png"
+    },
+    {
+      "id": "F-022",
+      "feature": "New project",
+      "status": "works",
+      "severity": "polish",
+      "steps": "Click New project",
+      "detail": "Document cleared",
+      "screenshot": "025-new-project-cleared.png"
+    },
+    {
+      "id": "F-023",
+      "feature": "Performance ~100 columns",
+      "status": "works",
+      "severity": "polish",
+      "steps": "WASM batch create 100 columns + reload",
+      "detail": "100 instances, 1740ms",
+      "screenshot": "027-perf-100-columns.png"
+    },
+    {
+      "id": "F-024",
+      "feature": "Browser console",
+      "status": "works",
+      "severity": "polish",
+      "steps": "Full audit session",
+      "detail": "No console.error or pageerror"
+    }
+  ],
+  "consoleErrors": [],
+  "tabInventory": {
+    "apex.basics": {
+      "label": "Basics",
+      "tools": [
+        "Select",
+        "Move",
+        "Copy",
+        "Parent",
+        "Detach",
+        "Level",
+        "Ref point",
+        "Ref plane",
+        "Construction line",
+        "Grid axis",
+        "Section cut",
+        "3D",
+        "Plan",
+        "Fit",
+        "Axon",
+        "Persp"
+      ]
+    },
+    "apex.building": {
+      "label": "Building constructions",
+      "tools": [
+        "Select",
+        "Move",
+        "Copy",
+        "Parent",
+        "Detach",
+        "Wall",
+        "Column",
+        "Beam",
+        "Slab",
+        "Door",
+        "Window",
+        "Slab opening",
+        "Stair",
+        "Roof",
+        "Pitched roof",
+        "3D",
+        "Plan",
+        "Fit",
+        "Axon",
+        "Persp"
+      ]
+    },
+    "apex.engineering": {
+      "label": "Engineering",
+      "tools": [
+        "Select",
+        "Move",
+        "Copy",
+        "Parent",
+        "Detach",
+        "Pipe",
+        "Duct",
+        "Cable tray",
+        "3D",
+        "Plan",
+        "Fit",
+        "Axon",
+        "Persp"
+      ]
+    },
+    "apex.spaces": {
+      "label": "Spaces",
+      "tools": [
+        "Select",
+        "Move",
+        "Copy",
+        "Parent",
+        "Detach",
+        "Space",
+        "Detect rooms",
+        "3D",
+        "Plan",
+        "Fit",
+        "Axon",
+        "Persp"
+      ]
+    },
+    "apex.annotate": {
+      "label": "Annotate",
+      "tools": [
+        "Select",
+        "Move",
+        "Copy",
+        "Parent",
+        "Detach",
+        "Dimension",
+        "Text",
+        "3D",
+        "Plan",
+        "Fit",
+        "Axon",
+        "Persp"
+      ]
+    }
+  },
+  "perfMs": 1740
+}

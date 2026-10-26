@@ -1,0 +1,100 @@
+{
+  "apex.basics": {
+    "label": "Basics",
+    "tools": [
+      "Select",
+      "Move",
+      "Copy",
+      "Parent",
+      "Detach",
+      "Level",
+      "Ref point",
+      "Ref plane",
+      "Construction line",
+      "Grid axis",
+      "Section cut",
+      "3D",
+      "Plan",
+      "Fit",
+      "Axon",
+      "Persp"
+    ]
+  },
+  "apex.building": {
+    "label": "Building constructions",
+    "tools": [
+      "Select",
+      "Move",
+      "Copy",
+      "Parent",
+      "Detach",
+      "Wall",
+      "Column",
+      "Beam",
+      "Slab",
+      "Door",
+      "Window",
+      "Slab opening",
+      "Stair",
+      "Roof",
+      "Pitched roof",
+      "3D",
+      "Plan",
+      "Fit",
+      "Axon",
+      "Persp"
+    ]
+  },
+  "apex.engineering": {
+    "label": "Engineering",
+    "tools": [
+      "Select",
+      "Move",
+      "Copy",
+      "Parent",
+      "Detach",
+      "Pipe",
+      "Duct",
+      "Cable tray",
+      "3D",
+      "Plan",
+      "Fit",
+      "Axon",
+      "Persp"
+    ]
+  },
+  "apex.spaces": {
+    "label": "Spaces",
+    "tools": [
+      "Select",
+      "Move",
+      "Copy",
+      "Parent",
+      "Detach",
+      "Space",
+      "Detect rooms",
+      "3D",
+      "Plan",
+      "Fit",
+      "Axon",
+      "Persp"
+    ]
+  },
+  "apex.annotate": {
+    "label": "Annotate",
+    "tools": [
+      "Select",
+      "Move",
+      "Copy",
+      "Parent",
+      "Detach",
+      "Dimension",
+      "Text",
+      "3D",
+      "Plan",
+      "Fit",
+      "Axon",
+      "Persp"
+    ]
+  }
+}
