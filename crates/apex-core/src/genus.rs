@@ -203,6 +203,9 @@ pub struct OpeningPart {
     pub d1: f64,
     #[serde(default)]
     pub glass: bool,
+    /// Part of the fixed frame (vs. sash / glass / leaf infill).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub frame: bool,
 }
 
 /// Generated opening: solids plus loose plan/3D lines (`[u, y, n]` points).
@@ -332,6 +335,16 @@ fn panes(region: &Region, bx: usize, by: usize, bw: f64) -> Region {
 }
 
 fn region_parts(region: &Region, d0: f64, d1: f64, glass: bool) -> Vec<OpeningPart> {
+    region_parts_of(region, d0, d1, glass, false)
+}
+
+fn region_parts_of(
+    region: &Region,
+    d0: f64,
+    d1: f64,
+    glass: bool,
+    frame: bool,
+) -> Vec<OpeningPart> {
     region
         .iter()
         .filter(|s| !s.is_empty())
@@ -342,6 +355,7 @@ fn region_parts(region: &Region, d0: f64, d1: f64, glass: bool) -> Vec<OpeningPa
             d0,
             d1,
             glass,
+            frame,
         })
         .collect()
 }
@@ -413,7 +427,8 @@ pub fn build_opening(
         holes = region_union(&holes, &lay.cell(*r, *rect, 0.0));
     }
     let frame = region_subtract(&lay.outline(0.0, 0.0), &holes);
-    geo.parts.extend(region_parts(&frame, -half, half, false));
+    geo.parts
+        .extend(region_parts_of(&frame, -half, half, false, true));
 
     let sw = ev(&recipe.sash_width, 0.0).max(0.0);
     let sd = (ev(&recipe.sash_depth, 0.06) * 0.5).clamp(0.005, half);
@@ -443,6 +458,7 @@ pub fn build_opening(
                     d0,
                     d1,
                     glass: false,
+                    frame: false,
                 });
             }
             let y = b[2] + 0.005;

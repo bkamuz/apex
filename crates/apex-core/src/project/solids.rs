@@ -337,6 +337,16 @@ impl Project {
                 ));
                 continue;
             }
+            if self.is_genus_child(child) {
+                if let Some(build) = self.element_genus_build(child) {
+                    for cut in build.cuts.iter().filter(|c| c.targets.host) {
+                        if let Some((poly, y0, y1)) = &cut.prism {
+                            out.push(LayeredSolid::polygon_prism(poly, *y0, *y1));
+                        }
+                    }
+                    continue;
+                }
+            }
             let origin = child.placement.origin();
             let width = params.number("width").unwrap_or(0.9);
             let height = params.number("height").unwrap_or(2.1);
@@ -784,6 +794,7 @@ impl Project {
         }
         out.extend(self.boolean_dependents(element));
         out.extend(self.roof_dependents(element));
+        out.extend(self.neighbour_cut_dependents(element));
         if element.component_id == STAIR {
             out.extend(
                 self.document

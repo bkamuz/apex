@@ -142,3 +142,32 @@ test('headless screenshots: 3d render, plan view and wall thickness', async () =
   assert.ok(!plan.isError, plan.content?.[0]?.text);
   assert.equal(Buffer.from(plan.content[0].data, 'base64').subarray(1, 4).toString(), 'PNG');
 });
+
+test('genus tools: define, place, edit, provenance', async () => {
+  await call('new_project');
+  const { tools } = await client.listTools();
+  const names = tools.map((t) => t.name);
+  for (const n of ['define_genus', 'set_genus_item', 'remove_genus_item', 'get_genus', 'param_provenance']) {
+    assert.ok(names.includes(n), `${n} tool exists`);
+  }
+  await call('define_genus', {
+    id: 'user.block',
+    name: 'Block',
+    params: [{ id: 'size', default: 1 }],
+    body: [
+      { id: 'b', item: 'solid', shape: 'box', min: [0, 0, 0], max: ['size', 'size', 'size'] },
+      { id: 'n', item: 'cut', shape: 'box', min: [0.5, 0.5, -1], max: [2, 2, 2], targets: { self: true } },
+    ],
+  });
+  await call('define_genus', { id: 'user.big', name: 'Big', extends: 'user.block', params: [{ id: 'size', default: 2 }] });
+  const el = await call('create_element', { component: 'user.big', points: [[0, 0, 0]] });
+  const g = await call('element_geometry', { id: el.id });
+  assert.ok(Math.abs(g.volume - (8 - 1.5 * 1.5 * 2)) < 1e-3, `self cut volume ${g.volume}`);
+  await call('remove_genus_item', { genus: 'user.big', id: 'n' });
+  const g2 = await call('element_geometry', { id: el.id });
+  assert.ok(Math.abs(g2.volume - 8) < 1e-3, `inherited cut removed ${g2.volume}`);
+  const prov = await call('param_provenance', { id: el.id });
+  assert.equal(prov.find((p) => p.id === 'size').source, 'genus');
+  const info = await call('get_genus', { id: 'user.big' });
+  assert.deepEqual(info.authored.remove, ['n']);
+});

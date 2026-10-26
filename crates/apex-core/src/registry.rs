@@ -26,6 +26,11 @@ use crate::genus::{
     build_opening, OpeningGenerator, OpeningGeometry, OpeningInfill, OpeningPlanSymbol,
     OpeningRecipe, Species, SPECIES_PARAM,
 };
+use crate::genus_body::{
+    build_genus, check_nesting, BuildInput, GenusBuild, GenusDef, GenusEntry, GenusError,
+    GenusFrame, GenusPlacement, GenusSource, OpeningPartKind, MAX_NESTING, OPENING_FRAME_GENUS,
+    OPENING_INFILL_GENUS,
+};
 use crate::param::{ParamError, ParamKind, ParamMap, ParamSpec, ParamValue};
 use crate::placement::{Placement, PlacementKind};
 use crate::reference::{Reference, ReferenceFilter};
@@ -53,6 +58,20 @@ pub enum RegistryError {
     Params(#[from] ParamError),
     #[error(transparent)]
     Recipe(#[from] RecipeError),
+    #[error(transparent)]
+    Genus(#[from] GenusError),
+}
+
+/// Where a param value of an element comes from (shown in the UI).
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct ParamProvenance {
+    pub id: String,
+    pub value: ParamValue,
+    /// `instance`, `species`, `genus` or `inherited`.
+    pub source: &'static str,
+    /// Species id, or the genus id that declared / last overrode the default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
 }
 
 /// Everything the document needs to turn elements into geometry.
@@ -63,6 +82,10 @@ pub struct ComponentRegistry {
     builders: BTreeMap<String, Box<dyn MeshBuilder>>,
     species: BTreeMap<String, Species>,
     opening_generators: BTreeMap<String, (Descriptor, Box<dyn OpeningGenerator>)>,
+    /// Genera as authored (before `extends` was flattened), by id.
+    authored: BTreeMap<ComponentId, ComponentDefinition>,
+    /// Genus id that declared / last overrode each param default.
+    param_origin: BTreeMap<ComponentId, BTreeMap<String, String>>,
 }
 
 impl ComponentRegistry {
@@ -325,18 +348,258 @@ impl ComponentRegistry {
     /// Add a component. Validation happens here so an authoring mistake is
     /// reported when the component is installed, not when someone places it.
     pub fn register(&mut self, definition: ComponentDefinition) -> Result<(), RegistryError> {
-        definition.validate()?;
         if self.components.contains_key(&definition.id) {
             return Err(RegistryError::Duplicate(definition.id));
         }
-        self.components.insert(definition.id.clone(), definition);
+        self.install(definition)
+    }
+
+    /// Flatten inheritance, adapt legacy opening-only genera, validate,
+    /// insert, and check nesting. Rolls back on failure.
+    fn install(&mut self, authored: ComponentDefinition) -> Result<(), RegistryError> {
+        let id = authored.id.clone();
+        let (flat, origins) = self.flatten(&authored)?;
+        flat.validate()?;
+        let prev = (
+            self.components.insert(id.clone(), flat),
+            self.authored.insert(id.clone(), authored),
+            self.param_origin.insert(id.clone(), origins),
+        );
+        let nesting = if self.components[&id].genus.is_some() {
+            check_nesting(self, &id)
+        } else {
+            Ok(())
+        };
+        if let Err(e) = nesting {
+            fn restore<V>(m: &mut BTreeMap<String, V>, id: &str, v: Option<V>) {
+                match v {
+                    Some(v) => {
+                        m.insert(id.to_string(), v);
+                    }
+                    None => {
+                        m.remove(id);
+                    }
+                }
+            }
+            restore(&mut self.components, &id, prev.0);
+            restore(&mut self.authored, &id, prev.1);
+            restore(&mut self.param_origin, &id, prev.2);
+            return Err(e.into());
+        }
+        // Re-flatten genera that extend this one (and theirs).
+        let children: Vec<ComponentDefinition> = self
+            .authored
+            .values()
+            .filter(|d| d.genus.as_ref().and_then(|g| g.extends.as_deref()) == Some(id.as_str()))
+            .cloned()
+            .collect();
+        for child in children {
+            self.install(child)?;
+        }
         Ok(())
+    }
+
+    /// Resolve `extends` (cycle-checked) into a self-contained definition
+    /// plus the provenance of each param default.
+    fn flatten(
+        &self,
+        authored: &ComponentDefinition,
+    ) -> Result<(ComponentDefinition, BTreeMap<String, String>), RegistryError> {
+        let mut def = authored.clone();
+        // Legacy: an opening recipe without a body gets the shared opening
+        // body (nested frame + infill, host cut).
+        if def.opening.is_some() && def.genus.is_none() {
+            let cats = def
+                .host_cut
+                .as_ref()
+                .map(|h| h.host_categories.clone())
+                .unwrap_or_else(|| vec!["wall".into()]);
+            def.genus = Some(GenusDef::opening_body(cats));
+        }
+        let mut origins: BTreeMap<String, String> = def
+            .params
+            .iter()
+            .map(|p| (p.id.clone(), def.id.clone()))
+            .collect();
+        if let Some(parent_id) = def.genus.as_ref().and_then(|g| g.extends.clone()) {
+            // Cycle check along the authored chain.
+            let mut chain = vec![def.id.clone()];
+            let mut cur = Some(parent_id.clone());
+            while let Some(c) = cur {
+                if chain.contains(&c) {
+                    chain.push(c);
+                    return Err(GenusError::Cycle(chain.join(" → ")).into());
+                }
+                chain.push(c.clone());
+                cur = self
+                    .authored
+                    .get(&c)
+                    .or_else(|| self.components.get(&c))
+                    .and_then(|d| d.genus.as_ref())
+                    .and_then(|g| g.extends.clone());
+            }
+            let parent = self
+                .components
+                .get(&parent_id)
+                .ok_or_else(|| GenusError::Unknown(parent_id.clone()))?;
+            let parent_genus = parent.genus.clone().unwrap_or_default();
+            let parent_origin = self.param_origin.get(&parent_id);
+            let mut params = parent.params.clone();
+            let mut merged_origin: BTreeMap<String, String> = params
+                .iter()
+                .map(|p| {
+                    let from = parent_origin
+                        .and_then(|o| o.get(&p.id))
+                        .cloned()
+                        .unwrap_or_else(|| parent_id.clone());
+                    (p.id.clone(), from)
+                })
+                .collect();
+            for spec in &def.params {
+                match params.iter_mut().find(|p| p.id == spec.id) {
+                    Some(slot) => *slot = spec.clone(),
+                    None => params.push(spec.clone()),
+                }
+                merged_origin.insert(spec.id.clone(), def.id.clone());
+            }
+            origins = merged_origin;
+            def.params = params;
+            def.genus = Some(def.genus.as_ref().unwrap().merged_over(&parent_genus));
+            if def.opening.is_none() {
+                def.opening = parent.opening.clone();
+            }
+            if def.host_cut.is_none() {
+                def.host_cut = parent.host_cut.clone();
+            }
+            if def.default_species.is_none() && def.opening.is_some() {
+                def.default_species = None;
+            }
+        }
+        // Placement kind: host placement implies a host_cut category filter.
+        if let Some(g) = def.genus.as_mut() {
+            match (&g.placement, &def.host_cut) {
+                (Some(GenusPlacement::Host { categories }), None) => {
+                    def.host_cut = Some(HostCutSpec {
+                        host_categories: categories.clone(),
+                    });
+                }
+                (None, Some(h)) => {
+                    g.placement = Some(GenusPlacement::Host {
+                        categories: h.host_categories.clone(),
+                    });
+                }
+                (Some(GenusPlacement::Line), _) if def.placement == PlacementKind::Point => {
+                    def.placement = PlacementKind::TwoPoint;
+                }
+                _ => {}
+            }
+        }
+        Ok((def, origins))
+    }
+
+    /// Definitions as authored (inheritance not flattened), for saving.
+    pub fn authored_components(&self) -> impl Iterator<Item = &ComponentDefinition> {
+        self.components
+            .values()
+            .map(|d| self.authored.get(&d.id).unwrap_or(d))
+    }
+
+    /// The genus definition as authored (before `extends` was flattened).
+    pub fn authored(&self, id: &str) -> Option<&ComponentDefinition> {
+        self.authored.get(id).or_else(|| self.components.get(id))
+    }
+
+    /// Where each param value of an instance of `component_id` comes from.
+    pub fn param_provenance(
+        &self,
+        component_id: &str,
+        raw: &ParamMap,
+    ) -> Result<Vec<ParamProvenance>, RegistryError> {
+        let def = self.require(component_id)?;
+        let resolved = def.resolve_params(raw)?;
+        let species = raw
+            .text(SPECIES_PARAM)
+            .map(str::to_string)
+            .or_else(|| def.default_species.clone())
+            .and_then(|t| self.species.get(&t))
+            .filter(|t| t.genus == component_id);
+        let origins = self.param_origin.get(component_id);
+        let mut out = Vec::new();
+        for spec in &def.params {
+            let Some(value) = resolved.get(&spec.id).cloned() else {
+                continue;
+            };
+            let declared = origins
+                .and_then(|o| o.get(&spec.id))
+                .cloned()
+                .unwrap_or_else(|| component_id.to_string());
+            let from_species = species.and_then(|t| t.values.get(&spec.id));
+            let (source, from) = if spec.id == SPECIES_PARAM {
+                ("instance", None)
+            } else if let Some(sv) = from_species.filter(|_| spec.binding.is_type()) {
+                if value_eq(Some(sv), Some(&value)) {
+                    ("species", species.map(|t| t.id.clone()))
+                } else {
+                    ("instance", None)
+                }
+            } else if raw.get(&spec.id).is_some() && !value_eq(Some(&spec.default), Some(&value)) {
+                ("instance", None)
+            } else if declared == component_id {
+                ("genus", Some(declared))
+            } else {
+                ("inherited", Some(declared))
+            };
+            out.push(ParamProvenance {
+                id: spec.id.clone(),
+                value,
+                source,
+                from,
+            });
+        }
+        Ok(out)
+    }
+
+    /// Build a genus's geometry in `frame` (no host / neighbour context).
+    pub fn build_genus(
+        &self,
+        component_id: &str,
+        raw: &ParamMap,
+        frame: GenusFrame,
+        host_depth: f64,
+        length: f64,
+    ) -> Result<GenusBuild, RegistryError> {
+        let params = self.eval_params(component_id, raw)?;
+        Ok(build_genus(
+            self,
+            &BuildInput {
+                genus_id: component_id,
+                params: &params,
+                frame,
+                host_depth,
+                length,
+            },
+        )?)
+    }
+
+    /// Whether any element of this genus can cut neighbours.
+    pub fn cuts_neighbours(&self, component_id: &str) -> bool {
+        fn walk(r: &ComponentRegistry, id: &str, depth: usize) -> bool {
+            let Some(g) = r.get(id).and_then(|d| d.genus.as_ref()) else {
+                return false;
+            };
+            depth < MAX_NESTING
+                && (g.has_cuts(|t| t.neighbours.is_some())
+                    || g.nested_ids().iter().any(|c| walk(r, c, depth + 1)))
+        }
+        walk(self, component_id, 0)
     }
 
     /// Add or replace a component, for reloading a module during development.
     pub fn upsert(&mut self, mut definition: ComponentDefinition) -> Result<(), RegistryError> {
-        definition.validate()?;
         let id = definition.id.clone();
+        // Validate the flattened form up front (the authored one may rely
+        // on inherited params).
+        self.flatten(&definition)?.0.validate()?;
         // An opening genus needs at least one type: seed `<id>.default`
         // from the type-bound param defaults when none exists yet.
         let needs_type = definition.opening.is_some()
@@ -353,7 +616,7 @@ impl ComponentRegistry {
             .clone()
             .filter(|t| needs_type && !self.species.contains_key(t));
         let name = definition.display_name.clone();
-        self.components.insert(id.clone(), definition);
+        self.install(definition)?;
         if let Some(type_id) = seed {
             self.upsert_species(Species {
                 id: type_id,
@@ -786,8 +1049,40 @@ fn builtin_profiles() -> Vec<ProfileType> {
 /// (rectangular vs round column, straight vs arc wall) are a parameter or a
 /// draw mode, not a second type. Stairs/roof use registered Custom builders
 /// the same way a module would.
+impl GenusSource for ComponentRegistry {
+    fn genus_entry(&self, id: &str) -> Option<GenusEntry<'_>> {
+        let def = self.components.get(id)?;
+        Some(GenusEntry {
+            def,
+            genus: def.genus.as_ref()?,
+        })
+    }
+
+    fn opening_parts(
+        &self,
+        recipe: &OpeningRecipe,
+        params: &ParamMap,
+        host_depth: f64,
+    ) -> Result<OpeningGeometry, String> {
+        self.opening_geometry(recipe, params, host_depth)
+    }
+
+    fn species_values(&self, genus: &str, species: &str) -> Option<ParamMap> {
+        self.species
+            .get(species)
+            .filter(|t| t.genus == genus)
+            .map(|t| t.values.clone())
+    }
+}
+
 pub fn builtin_components() -> Vec<ComponentDefinition> {
     vec![
+        opening_part_genus(OPENING_FRAME_GENUS, "Opening frame", OpeningPartKind::Frame),
+        opening_part_genus(
+            OPENING_INFILL_GENUS,
+            "Opening infill",
+            OpeningPartKind::Infill,
+        ),
         wall(),
         column(),
         beam(),
@@ -813,6 +1108,7 @@ fn wall() -> ComponentDefinition {
     ComponentDefinition {
         opening: None,
         default_species: None,
+        genus: None,
         id: "apex.wall".to_string(),
         display_name: "Wall".to_string(),
         category: "wall".to_string(),
@@ -854,6 +1150,7 @@ fn column() -> ComponentDefinition {
     ComponentDefinition {
         opening: None,
         default_species: None,
+        genus: None,
         id: "apex.column".to_string(),
         display_name: "Column".to_string(),
         category: "column".to_string(),
@@ -895,6 +1192,7 @@ fn beam() -> ComponentDefinition {
     ComponentDefinition {
         opening: None,
         default_species: None,
+        genus: None,
         id: "apex.beam".to_string(),
         display_name: "Beam".to_string(),
         category: "beam".to_string(),
@@ -930,6 +1228,7 @@ fn slab() -> ComponentDefinition {
     ComponentDefinition {
         opening: None,
         default_species: None,
+        genus: None,
         id: "apex.slab".to_string(),
         display_name: "Slab".to_string(),
         category: "slab".to_string(),
@@ -965,6 +1264,7 @@ fn boolean() -> ComponentDefinition {
     ComponentDefinition {
         opening: None,
         default_species: None,
+        genus: None,
         id: "apex.boolean".to_string(),
         display_name: "Boolean".to_string(),
         category: "modifier".to_string(),
@@ -1141,6 +1441,7 @@ fn door() -> ComponentDefinition {
     ComponentDefinition {
         opening: Some(opening_recipe(true)),
         default_species: Some("apex.door.single-900x2100".into()),
+        genus: Some(GenusDef::opening_body(vec!["wall".into()])),
         id: "apex.door".to_string(),
         display_name: "Door".to_string(),
         category: "opening".to_string(),
@@ -1179,6 +1480,7 @@ fn window() -> ComponentDefinition {
     ComponentDefinition {
         opening: Some(opening_recipe(false)),
         default_species: Some("apex.window.single-1200x1400".into()),
+        genus: Some(GenusDef::opening_body(vec!["wall".into()])),
         id: "apex.window".to_string(),
         display_name: "Window".to_string(),
         category: "opening".to_string(),
@@ -1213,10 +1515,45 @@ fn window() -> ComponentDefinition {
     }
 }
 
+/// Nested genus emitting one part of the opening recipe in scope (frame,
+/// or sash / glass / leaf). Windows and doors nest both.
+fn opening_part_genus(id: &str, name: &str, part: OpeningPartKind) -> ComponentDefinition {
+    ComponentDefinition {
+        opening: None,
+        default_species: None,
+        genus: Some(GenusDef::opening_part(part)),
+        id: id.to_string(),
+        display_name: name.to_string(),
+        category: "genus-part".to_string(),
+        source: ComponentSource::BuiltIn,
+        placement: PlacementKind::Point,
+        placement_options: PlacementOptions::default(),
+        params: vec![ParamSpec::length("sill", "Sill", 0.0).with_range(Some(0.0), None)]
+            .into_iter()
+            .chain(opening_type_specs(1.2, 1.4, 0.04))
+            .collect(),
+        recipe: GeometryRecipe::Extrude {
+            profile: ProfileSpec::Rectangle {
+                width: Expr::param("width"),
+                height: Expr::param("thickness"),
+            },
+            frame: FrameSource::PlacementCurve { t: Expr::zero() },
+            height: Expr::param("height"),
+        },
+        descriptor: Descriptor::new("Nested part genus used inside window/door genera: emits the frame or the infill (sash, glass, leaf) of the opening recipe in scope. Not placed on its own.")
+            .constraint("only meaningful nested in a genus that carries an `opening` recipe"),
+        host_cut: None,
+        level_height_params: vec![],
+        ifc_entity: None,
+        joinable: false,
+    }
+}
+
 fn slab_opening() -> ComponentDefinition {
     ComponentDefinition {
         opening: None,
         default_species: None,
+        genus: None,
         id: "apex.slab_opening".to_string(),
         display_name: "Slab opening".to_string(),
         category: "opening".to_string(),
@@ -1247,6 +1584,7 @@ fn stair() -> ComponentDefinition {
     ComponentDefinition {
         opening: None,
         default_species: None,
+        genus: None,
         id: "apex.stair".to_string(),
         display_name: "Stair".to_string(),
         category: "stair".to_string(),
@@ -1278,6 +1616,7 @@ fn roof_flat() -> ComponentDefinition {
     ComponentDefinition {
         opening: None,
         default_species: None,
+        genus: None,
         id: "apex.roof".to_string(),
         display_name: "Roof".to_string(),
         category: "roof".to_string(),
@@ -1307,6 +1646,7 @@ fn roof_pitched() -> ComponentDefinition {
     ComponentDefinition {
         opening: None,
         default_species: None,
+        genus: None,
         id: "apex.roof.pitched".to_string(),
         display_name: "Pitched roof".to_string(),
         category: "roof".to_string(),
@@ -1350,6 +1690,7 @@ fn pipe() -> ComponentDefinition {
     ComponentDefinition {
         opening: None,
         default_species: None,
+        genus: None,
         id: "apex.pipe".to_string(),
         display_name: "Pipe".to_string(),
         category: "mep.pipe".to_string(),
@@ -1383,6 +1724,7 @@ fn duct() -> ComponentDefinition {
     ComponentDefinition {
         opening: None,
         default_species: None,
+        genus: None,
         id: "apex.duct".to_string(),
         display_name: "Duct".to_string(),
         category: "mep.duct".to_string(),
@@ -1414,6 +1756,7 @@ fn cable_tray() -> ComponentDefinition {
     ComponentDefinition {
         opening: None,
         default_species: None,
+        genus: None,
         id: "apex.cable_tray".to_string(),
         display_name: "Cable tray".to_string(),
         category: "mep.tray".to_string(),
@@ -1875,6 +2218,7 @@ mod tests {
         let def = ComponentDefinition {
             opening: None,
             default_species: None,
+            genus: None,
             descriptor: crate::Descriptor::new("test"),
             id: "acme.broken".into(),
             display_name: "Broken".into(),
@@ -1912,6 +2256,7 @@ mod tests {
         let table = ComponentDefinition {
             opening: None,
             default_species: None,
+            genus: None,
             descriptor: crate::Descriptor::new("test"),
             id: "acme.table".into(),
             display_name: "Table".into(),
@@ -2018,6 +2363,7 @@ mod tests {
             .register(ComponentDefinition {
                 opening: None,
                 default_species: None,
+                genus: None,
                 descriptor: crate::Descriptor::new("test"),
                 id: "acme.marker".into(),
                 display_name: "Marker".into(),

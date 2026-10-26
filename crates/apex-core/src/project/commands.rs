@@ -78,6 +78,39 @@ fn ids_json(ids: &[ElementId]) -> Value {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Command {
+    /// Create or replace a user genus: params, reference geometry and a body
+    /// of solids, cuts and nested genera, optionally extending another genus.
+    DefineGenus {
+        id: String,
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        category: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        purpose: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        params: Vec<super::GenusParamInput>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        extends: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        placement: Option<crate::genus_body::GenusPlacement>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        refs: Vec<crate::genus_body::RefGeom>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        body: Vec<crate::genus_body::BodyItem>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        remove: Vec<String>,
+    },
+    /// Add a body item to a user genus, or replace the one with the same id
+    /// (an inherited id overrides the parent's item).
+    SetGenusItem {
+        genus: String,
+        item: crate::genus_body::BodyItem,
+    },
+    /// Remove a body item or ref by id; an inherited one is suppressed.
+    RemoveGenusItem {
+        genus: String,
+        id: String,
+    },
     /// A new species of a genus (window, door, plugin opening): a copy of
     /// `base` (default: the genus's default species) with `params` applied.
     #[serde(alias = "create_family_type")]
@@ -308,6 +341,15 @@ pub enum Query {
     },
     Validate,
     ListComponents,
+    /// One genus: authored and resolved definition, param origins, and a
+    /// trial build with default params.
+    GetGenus {
+        id: String,
+    },
+    /// Where each param of an element comes from.
+    ParamProvenance {
+        id: String,
+    },
     /// Species (window/door types …), optionally of one genus.
     #[serde(alias = "list_family_types")]
     ListGenusSpecies {
@@ -375,6 +417,9 @@ impl Command {
             Self::SetActiveLevel { .. } => "set_active_level",
             Self::SetLevelElevation { .. } => "set_level_elevation",
             Self::CreateWallType { .. } => "create_wall_type",
+            Self::DefineGenus { .. } => "define_genus",
+            Self::SetGenusItem { .. } => "set_genus_item",
+            Self::RemoveGenusItem { .. } => "remove_genus_item",
             Self::CreateSpecies { .. } => "create_species",
             Self::UpdateSpecies { .. } => "update_species",
             Self::SetElementSpecies { .. } => "set_element_species",
@@ -414,6 +459,8 @@ impl Query {
             Self::Validate => "validate",
             Self::ListComponents => "list_components",
             Self::ListGenusSpecies { .. } => "list_genus_species",
+            Self::GetGenus { .. } => "get_genus",
+            Self::ParamProvenance { .. } => "param_provenance",
             Self::ListGridAxes => "list_grid_axes",
             Self::ListSpaces => "list_spaces",
             Self::ListViews => "list_views",
@@ -926,6 +973,73 @@ impl Project {
                     "species": type_id,
                 }))
             }
+            Command::DefineGenus {
+                id,
+                name,
+                category,
+                purpose,
+                params,
+                extends,
+                placement,
+                refs,
+                body,
+                remove,
+            } => {
+                let genus = crate::genus_body::GenusDef {
+                    extends,
+                    placement,
+                    refs,
+                    body,
+                    remove,
+                };
+                let def = super::genus_build::genus_definition(
+                    self.registry(),
+                    id.clone(),
+                    name,
+                    category,
+                    purpose,
+                    &params,
+                    genus,
+                )
+                .map_err(msg)?;
+                let rebuilt = self.upsert_genus(def).map_err(e)?;
+                Ok(json!({ "genus": id, "rebuilt": rebuilt.len() }))
+            }
+            Command::SetGenusItem { genus, item } => {
+                let mut def = self.user_genus(&genus)?;
+                let g = def.genus.get_or_insert_with(Default::default);
+                g.remove.retain(|r| r != &item.id);
+                match g.body.iter_mut().find(|b| b.id == item.id) {
+                    Some(slot) => *slot = item.clone(),
+                    None => g.body.push(item.clone()),
+                }
+                let rebuilt = self.upsert_genus(def).map_err(e)?;
+                Ok(json!({ "genus": genus, "item": item.id, "rebuilt": rebuilt.len() }))
+            }
+            Command::RemoveGenusItem { genus, id } => {
+                let mut def = self.user_genus(&genus)?;
+                let g = def.genus.get_or_insert_with(Default::default);
+                let before = g.body.len() + g.refs.len();
+                g.body.retain(|b| b.id != id);
+                g.refs.retain(|r| r.id != id);
+                let removed_own = g.body.len() + g.refs.len() < before;
+                let inherited = self
+                    .registry()
+                    .get(&genus)
+                    .and_then(|d| d.genus.as_ref())
+                    .is_some_and(|f| {
+                        f.body.iter().any(|b| b.id == id) || f.refs.iter().any(|r| r.id == id)
+                    })
+                    && g.extends.is_some();
+                if inherited && !g.remove.contains(&id) {
+                    g.remove.push(id.clone());
+                }
+                if !removed_own && !inherited {
+                    return Err(msg(format!("genus '{genus}' has no item or ref '{id}'")));
+                }
+                let rebuilt = self.upsert_genus(def).map_err(e)?;
+                Ok(json!({ "genus": genus, "removed": id, "rebuilt": rebuilt.len() }))
+            }
             Command::CreateWallType {
                 name,
                 thickness,
@@ -1393,6 +1507,35 @@ impl Project {
             }
             Query::Validate => Ok(self.validate_json()),
             Query::ListComponents => serde_json::to_value(component_catalog(self)).map_err(e),
+            Query::GetGenus { id } => {
+                let reg = self.registry();
+                let resolved = reg.get(id).ok_or_else(|| msg(format!("unknown genus '{id}'")))?;
+                let authored = reg.authored(id).unwrap_or(resolved);
+                let params = reg.param_provenance(id, &ParamMap::new()).map_err(e)?;
+                let trial = match reg.build_genus(id, &ParamMap::new(), crate::genus_body::GenusFrame::from_yaw(Vec3::ZERO, 0.0), 0.2, 1.0) {
+                    Ok(b) => json!({
+                        "ok": true,
+                        "solids": b.solids.iter().map(|s| s.path.clone()).collect::<Vec<_>>(),
+                        "cuts": b.cuts.iter().map(|c| json!({"path": c.path, "targets": c.targets})).collect::<Vec<_>>(),
+                        "warnings": b.warnings,
+                    }),
+                    Err(err) => json!({"ok": false, "error": err.to_string()}),
+                };
+                Ok(json!({
+                    "id": id,
+                    "name": resolved.display_name,
+                    "category": resolved.category,
+                    "built_in": matches!(resolved.source, crate::component::ComponentSource::BuiltIn),
+                    "authored": authored.genus,
+                    "resolved": resolved.genus,
+                    "params": params,
+                    "trial_build": trial,
+                }))
+            }
+            Query::ParamProvenance { id } => {
+                let id = self.resolve_element(id)?;
+                serde_json::to_value(self.param_provenance(id).map_err(e)?).map_err(e)
+            }
             Query::ListGenusSpecies { genus } => Ok(Value::Array(
                 self.registry()
                     .species_list(genus.as_deref())
@@ -1827,6 +1970,39 @@ pub fn command_descriptors() -> Vec<PublishedDescriptor> {
             .example("Make a window two-sash", json!({"op": "set_element_species", "id": "<window id>", "species": "apex.window.double-1500x1400"}))
             .example("Turn a window into a door", json!({"op": "set_element_species", "id": "<window id>", "species": "apex.door.single-900x2100"})),
          obj("set_element_species", json!({"id": id_schema(), "species": {"type": "string", "description": "species id (list_genus_species)"}}), &["id", "species"])),
+        ("define_genus", "Define genus",
+         Descriptor::new("Create or replace a user genus (universal element format): params with formulas, reference geometry (points, lines, planes) and a body of solids, cuts and nested genera. Place it with create_element {component: id}. Re-defining rebuilds every instance. Undoable.")
+            .example("Shelf with a self-cut notch and a cut through neighbouring columns", json!({"op": "define_genus", "id": "user.shelf", "name": "Shelf", "placement": {"kind": "point"}, "params": [{"id": "width", "default": 1.2}, {"id": "depth", "default": 0.4}, {"id": "height", "default": 0.9}], "body": [{"id": "board", "item": "solid", "shape": "box", "min": [0, 0, 0], "max": ["width", "height", "depth"]}, {"id": "notch", "item": "cut", "shape": "box", "min": [0.2, 0.6, -0.1], "max": [0.5, 1.0, 0.5], "targets": {"self": true}}, {"id": "chase", "item": "cut", "shape": "box", "min": [0.8, 0, -0.2], "max": [1.0, "height", 0.6], "targets": {"neighbours": ["column"]}}]}))
+            .example("Wide window: extends the built-in window, overrides a default and adds a sill board", json!({"op": "define_genus", "id": "user.window.wide", "name": "Wide window", "extends": "apex.window", "params": [{"id": "width", "default": 2.4}], "body": [{"id": "sill_board", "item": "solid", "shape": "box", "min": [-0.05, "sill - 0.03", -0.15], "max": ["width + 0.05", "sill", 0.15]}]}))
+            .constraint("params: {id, label?, kind: length|number|text (default length), default, min?, max?, species?}; a child genus redeclaring a parent param overrides its default")
+            .constraint("formulas are numbers or strings over param ids (+ - * / parentheses, min, max…); `length` is injected for line placement, `host_depth` for host placement")
+            .constraint("body item: {id, item: solid|cut|nested, ...}; shapes: box {min,max}, prism {normal: x|y|z, on?, loops, depth:[a,b]}, revolve {profile, on?, segments?}, opening_part {part: frame|infill|all}")
+            .constraint("cut targets: {host: bool, neighbours: [categories] ([] = any), self: bool}; any combination; cuts are mesh booleans in a fixed order")
+            .constraint("nested: {genus, species?, at?: ref id, offset:[x,y,z], rotation (deg), params: {child_param: formula}}; nesting cycles and depth > 16 are refused")
+            .constraint("placement: {kind: point} | {kind: line} | {kind: host, categories: [\"wall\"]}; omitted = inherited from `extends` or point")
+            .constraint("built-in genera cannot be replaced; extend them instead")
+            .units("metres; local frame: x along the element, y up, z across (wall normal for hosted genera); rotation in degrees"),
+         obj("define_genus", json!({
+             "id": {"type": "string", "description": "new genus id, e.g. user.shelf"},
+             "name": {"type": "string"},
+             "category": {"type": "string", "description": "used by neighbour cut filters and host categories; inherited from extends"},
+             "purpose": {"type": "string", "description": "descriptor purpose shown to agents"},
+             "extends": {"type": "string", "description": "parent genus id; body items with the same id replace the parent's"},
+             "placement": {"type": "object", "description": "{kind: point|line|host, categories?}"},
+             "params": {"type": "array", "items": {"type": "object"}},
+             "refs": {"type": "array", "items": {"type": "object"}, "description": "{id, ref: point {at} | line {from,to} | plane {origin, normal}}"},
+             "body": {"type": "array", "items": {"type": "object"}},
+             "remove": {"type": "array", "items": {"type": "string"}, "description": "inherited item / ref ids to drop"}
+         }), &["id", "name"])),
+        ("set_genus_item", "Set genus body item",
+         Descriptor::new("Add a body item (solid, cut or nested genus) to a user genus, or replace the item with the same id. Using an inherited id overrides the parent's item. Rebuilds instances. Undoable.")
+            .example("Make the shelf's notch also cut its host", json!({"op": "set_genus_item", "genus": "user.shelf", "item": {"id": "notch", "item": "cut", "shape": "box", "min": [0.2, 0.6, -0.1], "max": [0.5, 1.0, 0.5], "targets": {"self": true, "host": true}}}))
+            .constraint("same item shape as define_genus body entries; built-in genera are read-only"),
+         obj("set_genus_item", json!({"genus": {"type": "string"}, "item": {"type": "object"}}), &["genus", "item"])),
+        ("remove_genus_item", "Remove genus body item",
+         Descriptor::new("Remove a body item or ref from a user genus by id. An item inherited through extends is suppressed (listed in `remove`). Undoable.")
+            .example("Drop the notch", json!({"op": "remove_genus_item", "genus": "user.shelf", "id": "notch"})),
+         obj("remove_genus_item", json!({"genus": {"type": "string"}, "id": {"type": "string"}}), &["genus", "id"])),
         ("delete_species", "Delete species",
          Descriptor::new("Delete a species that no instance uses and that is not its genus's default. Undoable.")
             .example("Remove an unused window species", json!({"op": "delete_species", "id": "user.apex.window.wide"})),
@@ -1915,6 +2091,8 @@ pub fn query_descriptors() -> Vec<PublishedDescriptor> {
         ("element_geometry", "Element geometry", "Geometry summary: bbox (m), volume (m3), triangle count, watertight flag (closed surface, T-junctions allowed), strict manifold flag and path join extensions.", simple("element_geometry", json!({"id": id_schema()}), &["id"])),
         ("validate", "Validate model", "Check every element: known type, geometry present, watertight, parent exists. `ok` is false on any error.", simple("validate", json!({}), &[])),
         ("list_components", "List element types", "Every installed element type (plugins included) with descriptor and params JSON Schema.", simple("list_components", json!({}), &[])),
+        ("get_genus", "Get genus", "One genus: authored and resolved (extends flattened) body, every param with its origin (genus or inherited from which ancestor), and a trial build with default params listing solids, cuts and warnings.", simple("get_genus", json!({"id": {"type": "string"}}), &["id"])),
+        ("param_provenance", "Param provenance", "For one element, where each param value comes from: instance, species, genus or inherited (with the ancestor genus id).", simple("param_provenance", json!({"id": id_schema()}), &["id"])),
         ("list_genus_species", "List species", "Species of window/door (and plugin opening) genera: id, genus, name, species values, whether it is the genus default and how many instances use it. Alias: list_family_types.", simple("list_genus_species", json!({"genus": {"type": "string", "description": "component id, e.g. apex.window"}}), &[])),
         ("list_grid_axes", "List grid axes", "Grid axes with labels and end points.", simple("list_grid_axes", json!({}), &[])),
         ("list_spaces", "List spaces", "Rooms/spaces with names, levels and outline (world points, m).", simple("list_spaces", json!({}), &[])),
@@ -2081,6 +2259,9 @@ mod tests {
             json!({"op": "update_species", "id": "x"}),
             json!({"op": "set_element_species", "id": "x", "species": "y"}),
             json!({"op": "delete_species", "id": "x"}),
+            json!({"op": "define_genus", "id": "x", "name": "y"}),
+            json!({"op": "set_genus_item", "genus": "x", "item": {"id": "a", "item": "solid", "shape": "box", "min": [0, 0, 0], "max": [1, 1, 1]}}),
+            json!({"op": "remove_genus_item", "genus": "x", "id": "a"}),
             json!({"op": "attach_top", "ids": ["x"]}),
             json!({"op": "attach_base", "ids": ["x"], "targets": ["y"]}),
             json!({"op": "detach", "ids": ["x"]}),

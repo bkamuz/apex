@@ -10,6 +10,7 @@ mod dxf_export;
 mod element;
 mod expr;
 mod genus;
+mod genus_body;
 mod grid_axis;
 mod history;
 mod level;
@@ -56,6 +57,12 @@ pub use expr::{Expr, ExprError};
 pub use genus::{
     build_opening, emit_opening, OpeningGenerator, OpeningGeometry, OpeningInfill, OpeningPart,
     OpeningPlanSymbol, OpeningRecipe, Species, SPECIES_PARAM,
+};
+pub use genus_body::{
+    build_genus, check_nesting, emit_prism, Axis, BodyItem, BodyKind, BuildInput, CutTargets,
+    GenusBuild, GenusCut, GenusDef, GenusError, GenusFrame, GenusPlacement, GenusSolid,
+    OpeningPartKind, RefGeom, RefKind, Shape, F as Formula, HOST_DEPTH_PARAM, LENGTH_PARAM,
+    MAX_NESTING, OPENING_FRAME_GENUS, OPENING_INFILL_GENUS,
 };
 pub use grid_axis::{
     grid_axis_param_specs, GridAxis, GridAxisError, GridAxisId, GridAxisLibrary, GridAxisOverlay,
