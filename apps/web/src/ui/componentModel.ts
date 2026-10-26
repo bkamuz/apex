@@ -276,10 +276,10 @@ export function parseExprText(text: string): ExprDto | undefined {
 }
 
 /**
- * A new opening family built from a built-in one (`apex.window` / `apex.door`):
+ * A new opening genus built from a built-in one (`apex.window` / `apex.door`):
  * same params, host cut and void, own id/name; types are seeded on save.
  */
-export function openingFamilyFrom(
+export function openingGenusFrom(
   base: ComponentDto,
   id: string,
   displayName: string,
@@ -288,9 +288,9 @@ export function openingFamilyFrom(
   return {
     ...base,
     id,
-    display_name: displayName || `${base.display_name} family`,
+    display_name: displayName || `${base.display_name} genus`,
     source: 'visual',
-    default_type: null,
+    default_species: null,
     params: base.params.map((spec) =>
       spec.id === 'type' ? { ...spec, kind: 'text', options: undefined, default: '' } : spec,
     ),

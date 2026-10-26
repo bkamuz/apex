@@ -154,10 +154,10 @@ export interface ComponentDto {
   joinable?: boolean;
   /** Mandatory in core; what the element type is for. */
   descriptor?: import('./descriptor').Descriptor;
-  /** Opening families (doors, windows): parametric frame/sash/leaf recipe. */
+  /** Opening genera (doors, windows): parametric frame/sash/leaf recipe. */
   opening?: OpeningRecipeDto | null;
-  /** Typed families: the type new instances get. */
-  default_type?: string | null;
+  /** Typed genera: the type new instances get. */
+  default_species?: string | null;
 }
 
 /** Mirrors `OpeningRecipe` in apex-core; every number is an `Expr`. */
@@ -184,10 +184,10 @@ export interface OpeningRecipeDto {
   generator?: string | null;
 }
 
-/** A named type of a family (`list_family_types`). */
-export interface FamilyTypeDto {
+/** A species of a genus (`list_genus_species`). */
+export interface SpeciesDto {
   id: string;
-  family: string;
+  genus: string;
   name: string;
   values: Record<string, ParamValue>;
   default: boolean;

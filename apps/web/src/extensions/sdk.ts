@@ -55,8 +55,8 @@ class ExtensionHost {
   }
 
   /**
-   * Register a geometry generator for opening families (doors, windows,
-   * plugin openings). A family uses it via `opening.generator: id`; the core
+   * Register a geometry generator for opening genera (doors, windows,
+   * plugin openings). A genus uses it via `opening.generator: id`; the core
    * still owns types, hosting, the wall void and plan symbols.
    */
   registerOpeningGenerator(registration: OpeningGeneratorRegistration): void {
@@ -121,12 +121,12 @@ function componentIdOf(definition: unknown): string | null {
 
 export const extensions = new ExtensionHost();
 
-/** A plugin geometry generator for opening families. */
+/** A plugin geometry generator for opening genera. */
 export interface OpeningGeneratorRegistration {
   readonly id: string;
   /** Required. What the generator builds. See docs/descriptors.md. */
   readonly descriptor: Descriptor;
-  /** Resolved family params (metres) + host wall depth → solids. Must be deterministic. */
+  /** Resolved genus params (metres) + host wall depth → solids. Must be deterministic. */
   readonly generate: OpeningGeneratorFn;
 }
 

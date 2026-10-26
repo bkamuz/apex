@@ -225,7 +225,7 @@ export function redo(): any;
 export function registerComponent(definition_json: string): any;
 
 /**
- * Register a plugin geometry generator for opening families
+ * Register a plugin geometry generator for opening genera
  * (`opening.generator` in a component). A descriptor is mandatory.
  */
 export function registerOpeningGenerator(id: string, descriptor_json: string, generate: Function): any;

@@ -1,11 +1,11 @@
-//! Opening families (windows, doors, any wall-hosted opening) as data.
+//! Opening genera (windows, doors, any wall-hosted opening) as data.
 //!
 //! An [`OpeningRecipe`] on a [`crate::ComponentDefinition`] describes the
 //! opening: outline (rectangle or arch), a frame profile run along the
 //! outline as one closed solid, a grid of cells split by mullions/transoms,
 //! each cell holding a sash with glass (and optional glazing bars) or a
 //! swinging leaf, plus the plan symbol. Every dimension is an [`Expr`] over
-//! the element's params, so the same recipe serves every type of a family.
+//! the element's params, so the same recipe serves every species of a genus.
 //!
 //! Geometry is produced as [`OpeningGeometry`] in a local frame (`s` along
 //! the wall, `y` up from the element origin, depth along the wall normal)
@@ -578,19 +578,23 @@ pub fn emit_opening(mesh: &mut TriangleMesh, geo: &OpeningGeometry, base: Vec3, 
     }
 }
 
-/// A named set of type-parameter values for one family (Revit "type").
+/// A species: a named set of species-bound values for one genus.
+/// Hierarchy: genus (component definition) -> species -> instance (element).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct FamilyType {
+pub struct Species {
     pub id: String,
-    /// Component id of the family this type belongs to.
-    pub family: String,
+    /// Component id of the genus this species belongs to.
+    #[serde(alias = "family")]
+    pub genus: String,
     pub name: String,
     #[serde(default)]
     pub values: ParamMap,
 }
 
-/// Instance param holding the element's family type id.
-pub const TYPE_PARAM: &str = "type";
+/// Instance param holding the element's species id (`type` in PR #114 files).
+pub const SPECIES_PARAM: &str = "species";
+/// Pre-rename key of [`SPECIES_PARAM`], migrated on load.
+pub const LEGACY_SPECIES_PARAM: &str = "type";
 
 #[cfg(test)]
 mod tests {

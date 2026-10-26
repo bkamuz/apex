@@ -25,7 +25,7 @@ use crate::construction_line::{
 };
 use crate::document::Document;
 use crate::element::{Element, ElementId};
-use crate::family::TYPE_PARAM;
+use crate::genus::SPECIES_PARAM;
 use crate::grid_axis::{grid_axis_param_specs, GridAxis, GridAxisId};
 use crate::history::History;
 use crate::level::{Level, LevelId};
@@ -365,6 +365,8 @@ impl Project {
         };
 
         let mut raw_params = params;
+        self.registry
+            .normalize_species_key(component_id, &mut raw_params);
         if let Some(type_id) = self
             .registry
             .resolve_instance_type(component_id, None, &raw_params)
@@ -516,8 +518,10 @@ impl Project {
         // under a stair) must follow the edit too.
         let old_dependents = self.solid_dependents(&element);
 
-        let patch = params.unwrap_or_default();
-        let current_type = element.params.text(TYPE_PARAM).map(str::to_string);
+        let mut patch = params.unwrap_or_default();
+        self.registry
+            .normalize_species_key(&element.component_id, &mut patch);
+        let current_type = element.params.text(SPECIES_PARAM).map(str::to_string);
         element.params = element.params.merged(&patch);
         if let Some(type_id) = self.registry.resolve_instance_type(
             &element.component_id,
@@ -1597,7 +1601,7 @@ impl Project {
         let elevation = self.active_work_plane().origin.y;
         let placement = placement.with_elevation(elevation);
         if let Some(recipe) = &definition.opening {
-            // Opening families preview their assembly (frame, sashes, leaves)
+            // Opening genera preview their assembly (frame, sashes, leaves)
             // in a 0.2 m wall along +X, not the wall void.
             definition.validate()?;
             let params = self
@@ -1609,7 +1613,7 @@ impl Project {
                 .map_err(RegistryError::Unknown)?;
             let base = placement.anchors().first().copied().unwrap_or(Vec3::ZERO);
             let mut mesh = TriangleMesh::empty();
-            crate::family::emit_opening(&mut mesh, &geo, base, Vec3::X, Vec3::Z);
+            crate::genus::emit_opening(&mut mesh, &geo, base, Vec3::X, Vec3::Z);
             return Ok(mesh);
         }
         self.registry.preview_definition_mesh(
@@ -1856,7 +1860,7 @@ impl Project {
             .opening_geometry(recipe, &params, 2.0 * half_t as f64)
             .ok()?;
         let mut mesh = TriangleMesh::empty();
-        crate::family::emit_opening(&mut mesh, &geo, center, u, n);
+        crate::genus::emit_opening(&mut mesh, &geo, center, u, n);
         Some(mesh)
     }
 
@@ -1919,7 +1923,7 @@ impl Project {
         format!("{} {counter}", kind.display_name())
     }
 
-    /// Next free label in the axis' family: axes running mostly along plan Z
+    /// Next free label in the axis' genus: axes running mostly along plan Z
     /// (vertical on screen) are numbered 1, 2, 3…; axes running along X are
     /// lettered A, B, C…
     fn next_grid_axis_label(&self, placement: &Placement) -> String {
@@ -1978,26 +1982,26 @@ impl Project {
         format!("Room {}", self.space_counter)
     }
 
-    // ---- Family types ---------------------------------------------------
+    // ---- Species ---------------------------------------------------
 
-    /// Add a family type (or replace one with the same id) and rebuild any
+    /// Add a species (or replace one with the same id) and rebuild any
     /// instances already using it. One undo step.
-    pub fn upsert_family_type(
+    pub fn upsert_species(
         &mut self,
-        family_type: crate::family::FamilyType,
+        species: crate::genus::Species,
     ) -> Result<Vec<ElementId>, RegistryError> {
         let before = (!self.history.has_pending()).then(|| self.export_snapshot());
-        let id = family_type.id.clone();
-        if let Some(existing) = self.registry.family_type(&id) {
-            if existing.family != family_type.family {
+        let id = species.id.clone();
+        if let Some(existing) = self.registry.species(&id) {
+            if existing.genus != species.genus {
                 return Err(RegistryError::Unknown(format!(
                     "type '{id}' belongs to {}",
-                    existing.family
+                    existing.genus
                 )));
             }
         }
-        self.registry.upsert_family_type(family_type)?;
-        let touched = self.refresh_type_instances(&id)?;
+        self.registry.upsert_species(species)?;
+        let touched = self.refresh_species_instances(&id)?;
         if let Some(before) = before {
             self.history.record_before(before);
         }
@@ -2006,25 +2010,59 @@ impl Project {
 
     /// Patch a type's values (and optionally rename it); every instance of
     /// the type updates. One undo step. Returns the touched element ids.
-    pub fn update_family_type(
+    pub fn update_species(
         &mut self,
         id: &str,
         name: Option<String>,
         patch: &ParamMap,
     ) -> Result<Vec<ElementId>, RegistryError> {
-        let mut family_type = self
+        let mut species = self
             .registry
-            .family_type(id)
+            .species(id)
             .cloned()
-            .ok_or_else(|| RegistryError::Unknown(format!("unknown family type '{id}'")))?;
-        family_type.values = family_type.values.merged(patch);
+            .ok_or_else(|| RegistryError::Unknown(format!("unknown species '{id}'")))?;
+        species.values = species.values.merged(patch);
         if let Some(name) = name {
-            family_type.name = name;
+            species.name = name;
         }
-        self.upsert_family_type(family_type)
+        self.upsert_species(species)
     }
 
-    /// Rebuild every element whose family uses opening generator `id`
+    /// Delete a species. Refused while instances use it or when it is its
+    /// genus's default. One undo step.
+    pub fn delete_species(&mut self, id: &str) -> Result<(), RegistryError> {
+        let species = self
+            .registry
+            .species(id)
+            .cloned()
+            .ok_or_else(|| RegistryError::Unknown(format!("unknown species '{id}'")))?;
+        let users = self.species_instances(id).len();
+        if users > 0 {
+            return Err(RegistryError::Unknown(format!(
+                "species '{}' is used by {users} instance(s); swap them first",
+                species.name
+            )));
+        }
+        if self
+            .registry
+            .get(&species.genus)
+            .and_then(|d| d.default_species.as_deref())
+            == Some(id)
+        {
+            return Err(RegistryError::Unknown(format!(
+                "species '{}' is the default of {}",
+                species.name, species.genus
+            )));
+        }
+        let before = (!self.history.has_pending()).then(|| self.export_snapshot());
+        self.registry.remove_species(id);
+        if let Some(before) = before {
+            self.history.record_before(before);
+        }
+        Ok(())
+    }
+
+    /// Rebuild every element whose genus uses opening generator `id`
     /// (after a plugin registers or replaces it).
     pub fn rebuild_opening_generator_dependents(&mut self, id: &str) -> Result<(), RegistryError> {
         let ids: Vec<ElementId> = self
@@ -2046,44 +2084,52 @@ impl Project {
     }
 
     /// Elements whose `type` param is `type_id`.
-    pub fn family_type_instances(&self, type_id: &str) -> Vec<ElementId> {
-        let Some(t) = self.registry.family_type(type_id) else {
+    pub fn species_instances(&self, type_id: &str) -> Vec<ElementId> {
+        let Some(t) = self.registry.species(type_id) else {
             return Vec::new();
         };
         self.document
             .elements()
-            .filter(|e| e.component_id == t.family && e.params.text(TYPE_PARAM) == Some(type_id))
+            .filter(|e| e.component_id == t.genus && e.params.text(SPECIES_PARAM) == Some(type_id))
             .map(|e| e.id)
             .collect()
     }
 
-    fn refresh_type_instances(&mut self, type_id: &str) -> Result<Vec<ElementId>, RegistryError> {
-        let ids = self.family_type_instances(type_id);
+    fn refresh_species_instances(
+        &mut self,
+        type_id: &str,
+    ) -> Result<Vec<ElementId>, RegistryError> {
+        let ids = self.species_instances(type_id);
         for id in &ids {
             self.update_element(*id, None, None, false)?;
         }
         Ok(ids)
     }
 
-    /// Swap an element to another type, possibly of another family (window
+    /// Swap an element to another type, possibly of another genus (window
     /// → door). Placement, host and shared instance params (sill) are kept.
     /// One undo step.
-    pub fn set_element_type(&mut self, id: ElementId, type_id: &str) -> Result<(), RegistryError> {
-        let family_type =
-            self.registry.family_type(type_id).cloned().ok_or_else(|| {
-                RegistryError::Unknown(format!("unknown family type '{type_id}'"))
-            })?;
+    pub fn set_element_species(
+        &mut self,
+        id: ElementId,
+        type_id: &str,
+    ) -> Result<(), RegistryError> {
+        let species = self
+            .registry
+            .species(type_id)
+            .cloned()
+            .ok_or_else(|| RegistryError::Unknown(format!("unknown species '{type_id}'")))?;
         let element = self
             .document
             .get_element(id)
             .cloned()
             .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
-        if element.component_id == family_type.family {
-            let patch = ParamMap::new().with(TYPE_PARAM, ParamValue::Text(type_id.into()));
+        if element.component_id == species.genus {
+            let patch = ParamMap::new().with(SPECIES_PARAM, ParamValue::Text(type_id.into()));
             return self.update_element(id, Some(patch), None, true);
         }
         let old_def = self.registry.require(&element.component_id)?.clone();
-        let new_def = self.registry.require(&family_type.family)?.clone();
+        let new_def = self.registry.require(&species.genus)?.clone();
         if old_def.placement != new_def.placement {
             return Err(RegistryError::Unknown(format!(
                 "cannot swap {} to {}: different placement kinds",
@@ -2110,7 +2156,7 @@ impl Project {
         let before = (!self.history.has_pending()).then(|| self.export_snapshot());
         let mut params = ParamMap::new();
         for spec in new_def.params.iter().filter(|p| p.binding.is_instance()) {
-            if spec.id == TYPE_PARAM {
+            if spec.id == SPECIES_PARAM {
                 continue;
             }
             if let Some(v) = element.params.get(&spec.id) {
@@ -2132,26 +2178,28 @@ impl Project {
         Ok(())
     }
 
-    /// Point a loaded element at a valid family type: its own when it
+    /// Point a loaded element at a valid species: its own when it
     /// exists, else one matching its stored sizes (old projects), derived if
     /// needed. Type values then overwrite the stored copies.
-    fn migrate_family_type(&mut self, element: &mut Element) {
+    fn migrate_species(&mut self, element: &mut Element) {
         let component = element.component_id.clone();
-        if !self.registry.is_family(&component) {
+        if !self.registry.is_genus(&component) {
             return;
         }
+        self.registry
+            .normalize_species_key(&component, &mut element.params);
         let existing = element
             .params
-            .text(TYPE_PARAM)
+            .text(SPECIES_PARAM)
             .filter(|t| {
                 self.registry
-                    .family_type(t)
-                    .is_some_and(|ft| ft.family == component)
+                    .species(t)
+                    .is_some_and(|ft| ft.genus == component)
             })
             .map(str::to_string);
         let type_id = existing.or_else(|| {
             let mut raw = element.params.clone();
-            raw.remove(TYPE_PARAM);
+            raw.remove(SPECIES_PARAM);
             self.registry.resolve_instance_type(&component, None, &raw)
         });
         if let Some(type_id) = type_id {
@@ -2226,9 +2274,9 @@ impl Project {
             sheet_counter: self.sheet_counter,
             view_annotations: self.view_annotations.values().cloned().collect(),
             view_annotation_counter: self.view_annotation_counter,
-            family_types: self
+            species: self
                 .registry
-                .family_types(None)
+                .species_list(None)
                 .into_iter()
                 .cloned()
                 .collect(),
@@ -2249,7 +2297,7 @@ impl Project {
         // Format ≤6 predates saved views / sheets (empty via default + migration).
         // Format ≤7 predates view annotations (empty via default).
         // Format ≤8 predates viewport crop polygons (full-frame rect via default).
-        // Format ≤9 predates family types: windows/doors carry raw sizes and
+        // Format ≤9 predates species: windows/doors carry raw sizes and
         // are mapped to a matching (or derived) type below.
         let known = snap.format == PROJECT_FORMAT
             || snap.format == 1
@@ -2308,13 +2356,13 @@ impl Project {
         for definition in snap.components {
             next.registry.upsert(definition)?;
         }
-        for family_type in snap.family_types {
-            // A type whose family is gone (plugin not loaded) is skipped.
-            let _ = next.registry.upsert_family_type(family_type);
+        for species in snap.species {
+            // A species whose genus is gone (plugin not loaded) is skipped.
+            let _ = next.registry.upsert_species(species);
         }
         let mut elements = snap.elements;
         for element in &mut elements {
-            next.migrate_family_type(element);
+            next.migrate_species(element);
         }
 
         next.document.load_contents(
@@ -2400,9 +2448,9 @@ pub struct ProjectSnapshot {
     pub view_annotations: Vec<crate::view_annotation::ViewAnnotation>,
     #[serde(default)]
     pub view_annotation_counter: u32,
-    /// Family types (windows, doors, …), built-in ones included so edits persist.
-    #[serde(default)]
-    pub family_types: Vec<crate::family::FamilyType>,
+    /// Species (windows, doors, …), built-in ones included so edits persist.
+    #[serde(default, alias = "family_types")]
+    pub species: Vec<crate::genus::Species>,
 }
 
 fn legacy_components<'de, D>(de: D) -> Result<Vec<ComponentDefinition>, D::Error>
@@ -4021,20 +4069,20 @@ mod plugin_first_tests {
     fn opening_frames_are_one_seamless_solid() {
         let project = Project::new();
         let reg = project.registry();
-        for t in reg.family_types(None) {
-            let def = reg.get(&t.family).unwrap();
+        for t in reg.species_list(None) {
+            let def = reg.get(&t.genus).unwrap();
             let recipe = def.opening.as_ref().unwrap();
             let mut params = t.values.clone();
             reg.apply_type_values(&t.id, &mut params);
-            let params = reg.eval_params(&t.family, &params).unwrap();
+            let params = reg.eval_params(&t.genus, &params).unwrap();
             let geo = reg.opening_geometry(recipe, &params, 0.3).unwrap();
             for part in &geo.parts {
-                let one = crate::family::OpeningGeometry {
+                let one = crate::genus::OpeningGeometry {
                     parts: vec![part.clone()],
                     lines: vec![],
                 };
                 let mut mesh = TriangleMesh::empty();
-                crate::family::emit_opening(&mut mesh, &one, Vec3::ZERO, Vec3::X, Vec3::Z);
+                crate::genus::emit_opening(&mut mesh, &one, Vec3::ZERO, Vec3::X, Vec3::Z);
                 assert!(
                     apex_geometry::is_watertight(&mesh),
                     "{} part watertight",
@@ -4089,7 +4137,7 @@ mod plugin_first_tests {
                 component,
                 Placement::point(Vec3::new(3.0, 0.0, 0.0)),
                 ParamMap::new()
-                    .with(TYPE_PARAM, ParamValue::Text(type_id.into()))
+                    .with(SPECIES_PARAM, ParamValue::Text(type_id.into()))
                     .with("sill", ParamValue::Length(0.7)),
                 Some(wall),
             )
@@ -4105,7 +4153,7 @@ mod plugin_first_tests {
     }
 
     #[test]
-    fn editing_a_family_type_updates_every_instance_in_one_undo_step() {
+    fn editing_a_species_updates_every_instance_in_one_undo_step() {
         let mut project = Project::new();
         let t = "apex.window.double-1500x1400";
         let (wall, a) = wall_with(&mut project, "apex.window", t);
@@ -4113,13 +4161,13 @@ mod plugin_first_tests {
             .create_element_with_parent(
                 "apex.window",
                 Placement::point(Vec3::new(6.0, 0.0, 0.0)),
-                ParamMap::new().with(TYPE_PARAM, ParamValue::Text(t.into())),
+                ParamMap::new().with(SPECIES_PARAM, ParamValue::Text(t.into())),
                 Some(wall),
             )
             .unwrap();
         assert!((mesh_x_extent(&project, a) - 1.5).abs() < 1e-3);
         let touched = project
-            .update_family_type(
+            .update_species(
                 t,
                 None,
                 &ParamMap::new().with("width", ParamValue::Length(1.8)),
@@ -4129,7 +4177,7 @@ mod plugin_first_tests {
         for id in [a, b] {
             assert!((mesh_x_extent(&project, id) - 1.8).abs() < 1e-3);
             let el = project.document().get_element(id).unwrap();
-            assert_eq!(el.params.text(TYPE_PARAM), Some(t));
+            assert_eq!(el.params.text(SPECIES_PARAM), Some(t));
         }
         // Instance param survives.
         let el = project.document().get_element(a).unwrap();
@@ -4141,7 +4189,7 @@ mod plugin_first_tests {
         assert!((mesh_x_extent(&project, b) - 1.5).abs() < 1e-3);
         let width = project
             .registry()
-            .family_type(t)
+            .species(t)
             .unwrap()
             .values
             .get("width")
@@ -4150,33 +4198,33 @@ mod plugin_first_tests {
     }
 
     #[test]
-    fn swapping_type_or_family_keeps_host_and_position_and_undoes() {
+    fn swapping_type_or_genus_keeps_host_and_position_and_undoes() {
         let mut project = Project::new();
         let (wall, w) = wall_with(&mut project, "apex.window", "apex.window.single-1200x1400");
         let before = project.document().get_element(w).unwrap().placement.clone();
         project
-            .set_element_type(w, "apex.window.double-1500x1400")
+            .set_element_species(w, "apex.window.double-1500x1400")
             .unwrap();
         assert!((mesh_x_extent(&project, w) - 1.5).abs() < 1e-3);
         project
-            .set_element_type(w, "apex.door.double-1400x2100")
+            .set_element_species(w, "apex.door.double-1400x2100")
             .unwrap();
         let el = project.document().get_element(w).unwrap().clone();
         assert_eq!(el.component_id, "apex.door");
         assert_eq!(el.parent_id, Some(wall));
         assert_eq!(el.placement, before);
         assert_eq!(
-            el.params.text(TYPE_PARAM),
+            el.params.text(SPECIES_PARAM),
             Some("apex.door.double-1400x2100")
         );
         assert!((mesh_x_extent(&project, w) - 1.4).abs() < 1e-3);
-        // Not hostable on a wall-less family / bad type.
-        assert!(project.set_element_type(w, "nope").is_err());
+        // Not hostable on a wall-less genus / bad type.
+        assert!(project.set_element_species(w, "nope").is_err());
         assert!(project.undo().unwrap());
         let el = project.document().get_element(w).unwrap();
         assert_eq!(el.component_id, "apex.window");
         assert_eq!(
-            el.params.text(TYPE_PARAM),
+            el.params.text(SPECIES_PARAM),
             Some("apex.window.double-1500x1400")
         );
         assert!(project.undo().unwrap());
@@ -4184,22 +4232,22 @@ mod plugin_first_tests {
     }
 
     #[test]
-    fn family_type_commands_and_query_round_trip() {
+    fn species_commands_and_query_round_trip() {
         let mut project = Project::new();
         let (_, w) = wall_with(&mut project, "apex.window", "apex.window.single-1200x1400");
         let out = project
-            .execute_json(r#"{"op":"create_family_type","family":"apex.window","name":"Triple 2100","params":{"width":2.1,"columns":3}}"#)
+            .execute_json(r#"{"op":"create_species","genus":"apex.window","name":"Triple 2100","params":{"width":2.1,"columns":3}}"#)
             .unwrap();
-        let tid = out["type"].as_str().unwrap().to_string();
+        let tid = out["species"].as_str().unwrap().to_string();
         assert_eq!(tid, "user.apex.window.triple-2100");
         project
             .execute_json(&format!(
-                r#"{{"op":"set_element_type","id":"{w}","type":"{tid}"}}"#
+                r#"{{"op":"set_element_species","id":"{w}","type":"{tid}"}}"#
             ))
             .unwrap();
         assert!((mesh_x_extent(&project, w) - 2.1).abs() < 1e-3);
         let list = project
-            .query_json(r#"{"op":"list_family_types","family":"apex.window"}"#)
+            .query_json(r#"{"op":"list_genus_species","genus":"apex.window"}"#)
             .unwrap();
         let row = list
             .as_array()
@@ -4215,17 +4263,17 @@ mod plugin_first_tests {
         fresh
             .import_snapshot(serde_json::from_str(&json).unwrap())
             .unwrap();
-        assert!(fresh.registry().family_type(&tid).is_some());
+        assert!(fresh.registry().species(&tid).is_some());
         assert!((mesh_x_extent(&fresh, w) - 2.1).abs() < 1e-3);
     }
 
     #[test]
-    fn format_9_projects_without_types_load_and_get_a_type() {
+    fn format_9_projects_without_species_load_and_get_one() {
         let mut project = Project::new();
         let (_, w) = wall_with(&mut project, "apex.window", "apex.window.single-1200x1400");
         let mut snap = serde_json::to_value(project.export_snapshot()).unwrap();
         snap["format"] = serde_json::json!(9);
-        snap.as_object_mut().unwrap().remove("family_types");
+        snap.as_object_mut().unwrap().remove("species");
         // Strip type info from elements, keep a custom width.
         let text = serde_json::to_string(&snap)
             .unwrap()
@@ -4233,7 +4281,7 @@ mod plugin_first_tests {
         let mut old: serde_json::Value = serde_json::from_str(&text).unwrap();
         for el in old["elements"].as_array_mut().unwrap() {
             if let Some(p) = el["params"].as_object_mut() {
-                p.remove("type");
+                p.remove("species");
             }
         }
         let mut fresh = Project::new();
@@ -4243,27 +4291,104 @@ mod plugin_first_tests {
         let el = fresh.document().get_element(w).unwrap();
         let t = el
             .params
-            .text(TYPE_PARAM)
+            .text(SPECIES_PARAM)
             .expect("migrated type")
             .to_string();
-        assert_eq!(
-            fresh.registry().family_type(&t).unwrap().family,
-            "apex.window"
-        );
+        assert_eq!(fresh.registry().species(&t).unwrap().genus, "apex.window");
         assert!((mesh_x_extent(&fresh, w) - 1.2).abs() < 1e-3);
     }
 
+    #[test]
+    fn pr114_family_type_keys_still_load_and_old_ops_still_work() {
+        let mut project = Project::new();
+        let (_, w) = wall_with(&mut project, "apex.window", "apex.window.single-1200x1400");
+        project
+            .execute_json(r#"{"op":"create_family_type","family":"apex.window","name":"Wide","params":{"width":2.4}}"#)
+            .unwrap();
+        project
+            .execute_json(&format!(
+                r#"{{"op":"set_element_type","id":"{w}","type":"user.apex.window.wide"}}"#
+            ))
+            .unwrap();
+        // Rewrite the save the way PR #114 wrote it: family_types / family / type.
+        let mut snap = serde_json::to_value(project.export_snapshot()).unwrap();
+        let obj = snap.as_object_mut().unwrap();
+        let mut species = obj.remove("species").unwrap();
+        for t in species.as_array_mut().unwrap() {
+            let t = t.as_object_mut().unwrap();
+            let g = t.remove("genus").unwrap();
+            t.insert("family".into(), g);
+        }
+        obj.insert("family_types".into(), species);
+        for el in obj["elements"].as_array_mut().unwrap() {
+            if let Some(p) = el["params"].as_object_mut() {
+                if let Some(v) = p.remove("species") {
+                    p.insert("type".into(), v);
+                }
+            }
+        }
+        let mut fresh = Project::new();
+        fresh
+            .import_snapshot(serde_json::from_value(snap).unwrap())
+            .unwrap();
+        let el = fresh.document().get_element(w).unwrap();
+        assert_eq!(el.params.text(SPECIES_PARAM), Some("user.apex.window.wide"));
+        assert!(el.params.get("type").is_none());
+        assert!((mesh_x_extent(&fresh, w) - 2.4).abs() < 1e-3);
+        let rows = fresh
+            .query_json(r#"{"op":"list_family_types","family":"apex.window"}"#)
+            .unwrap();
+        assert!(rows
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|r| r["id"] == "user.apex.window.wide"));
+    }
+
+    #[test]
+    fn delete_species_refuses_used_and_default_and_undoes() {
+        let mut project = Project::new();
+        let (_, w) = wall_with(&mut project, "apex.window", "apex.window.single-1200x1400");
+        project
+            .execute_json(r#"{"op":"create_species","genus":"apex.window","name":"Spare"}"#)
+            .unwrap();
+        assert!(project
+            .delete_species("apex.window.single-1200x1400")
+            .is_err());
+        project
+            .execute_json(&format!(
+                r#"{{"op":"set_element_species","id":"{w}","species":"user.apex.window.spare"}}"#
+            ))
+            .unwrap();
+        assert!(project.delete_species("user.apex.window.spare").is_err());
+        project
+            .set_element_species(w, "apex.window.double-1500x1400")
+            .unwrap();
+        project
+            .execute_json(r#"{"op":"delete_species","id":"user.apex.window.spare"}"#)
+            .unwrap();
+        assert!(project
+            .registry()
+            .species("user.apex.window.spare")
+            .is_none());
+        assert!(project.undo().unwrap());
+        assert!(project
+            .registry()
+            .species("user.apex.window.spare")
+            .is_some());
+    }
+
     struct SlabDoor;
-    impl crate::family::OpeningGenerator for SlabDoor {
+    impl crate::genus::OpeningGenerator for SlabDoor {
         fn generate(
             &self,
             params: &ParamMap,
             _wall_depth: f64,
-        ) -> Result<crate::family::OpeningGeometry, String> {
+        ) -> Result<crate::genus::OpeningGeometry, String> {
             let w = params.number("width").unwrap_or(1.0);
             let h = params.number("height").unwrap_or(2.0);
-            Ok(crate::family::OpeningGeometry {
-                parts: vec![crate::family::OpeningPart {
+            Ok(crate::genus::OpeningGeometry {
+                parts: vec![crate::genus::OpeningPart {
                     loops: vec![vec![
                         [-w / 2.0, 0.0],
                         [w / 2.0, 0.0],
@@ -4282,7 +4407,7 @@ mod plugin_first_tests {
     }
 
     #[test]
-    fn user_opening_family_with_plugin_generator_gets_a_type_and_builds() {
+    fn user_opening_genus_with_plugin_generator_gets_a_type_and_builds() {
         let mut project = Project::new();
         // Missing descriptor is rejected.
         assert!(project
@@ -4303,10 +4428,10 @@ mod plugin_first_tests {
             .unwrap();
         let mut def = project.registry().get("apex.door").unwrap().clone();
         def.id = "user.slab_door".into();
-        def.default_type = None;
+        def.default_species = None;
         def.opening.as_mut().unwrap().generator = Some("test.slab".into());
         project.register_component(def).unwrap();
-        assert!(project.registry().is_family("user.slab_door"));
+        assert!(project.registry().is_genus("user.slab_door"));
         let wall = project
             .create_element(
                 "apex.wall",
@@ -4323,9 +4448,9 @@ mod plugin_first_tests {
             )
             .unwrap();
         assert!((mesh_x_extent(&project, door) - 0.9).abs() < 1e-3);
-        // Swap between the user family and the built-in door.
+        // Swap between the user genus and the built-in door.
         project
-            .set_element_type(door, "apex.door.double-1400x2100")
+            .set_element_species(door, "apex.door.double-1400x2100")
             .unwrap();
         assert_eq!(
             project.document().get_element(door).unwrap().component_id,

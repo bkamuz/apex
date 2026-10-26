@@ -78,10 +78,12 @@ fn ids_json(ids: &[ElementId]) -> Value {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Command {
-    /// A new type of a family (window, door, plugin opening): a copy of
-    /// `base` (default: the family's default type) with `params` applied.
-    CreateFamilyType {
-        family: String,
+    /// A new species of a genus (window, door, plugin opening): a copy of
+    /// `base` (default: the genus's default species) with `params` applied.
+    #[serde(alias = "create_family_type")]
+    CreateSpecies {
+        #[serde(alias = "family")]
+        genus: String,
         name: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         id: Option<String>,
@@ -90,19 +92,25 @@ pub enum Command {
         #[serde(default)]
         params: ParamMap,
     },
-    /// Edit a type's values; every instance of the type follows.
-    UpdateFamilyType {
+    /// Edit a species' name or values; every instance of it follows.
+    #[serde(alias = "update_family_type")]
+    UpdateSpecies {
         id: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         name: Option<String>,
         #[serde(default)]
         params: ParamMap,
     },
-    /// Swap an element to another type (or another family's type), keeping
-    /// placement and host.
-    SetElementType {
+    /// Delete a species no instance uses (never a genus's default).
+    DeleteSpecies {
         id: String,
-        #[serde(rename = "type")]
+    },
+    /// Swap an element to another species (or another genus's species),
+    /// keeping placement and host.
+    #[serde(alias = "set_element_type")]
+    SetElementSpecies {
+        id: String,
+        #[serde(rename = "species", alias = "type")]
         type_id: String,
     },
     /// A named wall (or other path) type: a copy of `base` with its type
@@ -300,10 +308,11 @@ pub enum Query {
     },
     Validate,
     ListComponents,
-    /// Family types (window/door types …), optionally of one family.
-    ListFamilyTypes {
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        family: Option<String>,
+    /// Species (window/door types …), optionally of one genus.
+    #[serde(alias = "list_family_types")]
+    ListGenusSpecies {
+        #[serde(default, alias = "family", skip_serializing_if = "Option::is_none")]
+        genus: Option<String>,
     },
     ListGridAxes,
     ListSpaces,
@@ -366,9 +375,10 @@ impl Command {
             Self::SetActiveLevel { .. } => "set_active_level",
             Self::SetLevelElevation { .. } => "set_level_elevation",
             Self::CreateWallType { .. } => "create_wall_type",
-            Self::CreateFamilyType { .. } => "create_family_type",
-            Self::UpdateFamilyType { .. } => "update_family_type",
-            Self::SetElementType { .. } => "set_element_type",
+            Self::CreateSpecies { .. } => "create_species",
+            Self::UpdateSpecies { .. } => "update_species",
+            Self::SetElementSpecies { .. } => "set_element_species",
+            Self::DeleteSpecies { .. } => "delete_species",
             Self::CreateGridAxis { .. } => "create_grid_axis",
             Self::DeleteGridAxis { .. } => "delete_grid_axis",
             Self::CreateReference { .. } => "create_reference",
@@ -403,7 +413,7 @@ impl Query {
             Self::ElementGeometry { .. } => "element_geometry",
             Self::Validate => "validate",
             Self::ListComponents => "list_components",
-            Self::ListFamilyTypes { .. } => "list_family_types",
+            Self::ListGenusSpecies { .. } => "list_genus_species",
             Self::ListGridAxes => "list_grid_axes",
             Self::ListSpaces => "list_spaces",
             Self::ListViews => "list_views",
@@ -848,27 +858,28 @@ impl Project {
 
     fn apply(&mut self, command: Command) -> CmdResult {
         match command {
-            Command::CreateFamilyType {
-                family,
+            Command::CreateSpecies {
+                genus,
                 name,
                 id,
                 base,
                 params,
             } => {
-                let def = self.registry().get(&family).ok_or_else(|| {
-                    msg(format!("unknown family '{family}' (see list_components)"))
-                })?;
+                let def = self
+                    .registry()
+                    .get(&genus)
+                    .ok_or_else(|| msg(format!("unknown genus '{genus}' (see list_components)")))?;
                 let base = base
-                    .or_else(|| def.default_type.clone())
-                    .ok_or_else(|| msg(format!("{family} has no types")))?;
+                    .or_else(|| def.default_species.clone())
+                    .ok_or_else(|| msg(format!("{genus} has no types")))?;
                 let base_type = self
                     .registry()
-                    .family_type(&base)
-                    .filter(|t| t.family == family)
+                    .species(&base)
+                    .filter(|t| t.genus == genus)
                     .cloned()
                     .ok_or_else(|| {
                         msg(format!(
-                            "unknown base type '{base}' for {family} (see list_family_types)"
+                            "unknown base species '{base}' for {genus} (see list_genus_species)"
                         ))
                     })?;
                 let id = match id {
@@ -884,31 +895,35 @@ impl Project {
                         if slug.is_empty() {
                             return Err(msg("type name must contain letters or digits"));
                         }
-                        format!("user.{family}.{slug}")
+                        format!("user.{genus}.{slug}")
                     }
                 };
                 let values = base_type.values.merged(&params);
-                self.upsert_family_type(crate::family::FamilyType {
+                self.upsert_species(crate::genus::Species {
                     id: id.clone(),
-                    family,
+                    genus,
                     name,
                     values,
                 })
                 .map_err(e)?;
-                Ok(json!({ "type": id, "use": {"params": {"type": id}} }))
+                Ok(json!({ "species": id, "use": {"params": {"species": id}} }))
             }
-            Command::UpdateFamilyType { id, name, params } => {
-                let touched = self.update_family_type(&id, name, &params).map_err(e)?;
-                Ok(json!({ "type": id, "updated": ids_json(&touched) }))
+            Command::UpdateSpecies { id, name, params } => {
+                let touched = self.update_species(&id, name, &params).map_err(e)?;
+                Ok(json!({ "species": id, "updated": ids_json(&touched) }))
             }
-            Command::SetElementType { id, type_id } => {
+            Command::DeleteSpecies { id } => {
+                self.delete_species(&id).map_err(e)?;
+                Ok(json!({ "deleted": id }))
+            }
+            Command::SetElementSpecies { id, type_id } => {
                 let eid = self.resolve_element(&id)?;
-                self.set_element_type(eid, &type_id).map_err(e)?;
+                self.set_element_species(eid, &type_id).map_err(e)?;
                 let el = self.document().get_element(eid);
                 Ok(json!({
                     "id": eid.to_string(),
                     "component": el.map(|e| e.component_id.clone()),
-                    "type": type_id,
+                    "species": type_id,
                 }))
             }
             Command::CreateWallType {
@@ -1378,18 +1393,18 @@ impl Project {
             }
             Query::Validate => Ok(self.validate_json()),
             Query::ListComponents => serde_json::to_value(component_catalog(self)).map_err(e),
-            Query::ListFamilyTypes { family } => Ok(Value::Array(
+            Query::ListGenusSpecies { genus } => Ok(Value::Array(
                 self.registry()
-                    .family_types(family.as_deref())
+                    .species_list(genus.as_deref())
                     .into_iter()
                     .map(|t| {
                         json!({
                             "id": t.id,
-                            "family": t.family,
+                            "genus": t.genus,
                             "name": t.name,
                             "values": t.values,
-                            "default": self.registry().get(&t.family).and_then(|d| d.default_type.as_deref()) == Some(t.id.as_str()),
-                            "instances": self.family_type_instances(&t.id).len(),
+                            "default": self.registry().get(&t.genus).and_then(|d| d.default_species.as_deref()) == Some(t.id.as_str()),
+                            "instances": self.species_instances(&t.id).len(),
                         })
                     })
                     .collect(),
@@ -1795,23 +1810,27 @@ pub fn command_descriptors() -> Vec<PublishedDescriptor> {
             .units("metres")
             .example("300 mm exterior wall type", json!({"op": "create_wall_type", "name": "Exterior 300", "thickness": 0.3})),
          obj("create_wall_type", json!({"name": {"type": "string"}, "thickness": {"type": "number", "exclusiveMinimum": 0}, "base": {"type": "string", "description": "profile id to copy, default apex.wall.rect"}}), &["name", "thickness"])),
-        ("create_family_type", "Create family type",
-         Descriptor::new("Create (or replace) a named type of a family such as apex.window or apex.door: a copy of `base` (default: the family's default type) with `params` set. Type params are the family's type-bound params (width, height, columns, rows, mullion_width, sash_width, bars_x, bars_y, arch_rise, …; see list_components). Place instances with params {\"type\": <returned id>}.")
+        ("create_species", "Create species",
+         Descriptor::new("Create (or replace) a named species of a genus such as apex.window or apex.door: a copy of `base` (default: the genus's default species) with `params` set. Species params are the genus's species-bound params (width, height, columns, rows, mullion_width, sash_width, bars_x, bars_y, arch_rise, …; see list_components). Place instances with params {\"species\": <returned id>}. Hierarchy: genus -> species -> instance. Alias: create_family_type.")
             .units("metres")
-            .constraint("params must be type-bound params of the family; instance params such as sill stay on elements")
-            .example("Three-sash window", json!({"op": "create_family_type", "family": "apex.window", "name": "Window 2100x1500 triple", "params": {"width": 2.1, "height": 1.5, "columns": 3}})),
-         obj("create_family_type", json!({"family": {"type": "string"}, "name": {"type": "string"}, "id": {"type": "string", "description": "explicit id; default user.<family>.<slug of name>"}, "base": {"type": "string", "description": "type id to copy (list_family_types)"}, "params": params()}), &["family", "name"])),
-        ("update_family_type", "Update family type",
-         Descriptor::new("Edit a family type's values (and/or rename it). Every element of that type updates, like editing a Revit type. One undo step.")
+            .constraint("params must be type-bound params of the genus; instance params such as sill stay on elements")
+            .example("Three-sash window", json!({"op": "create_species", "genus": "apex.window", "name": "Window 2100x1500 triple", "params": {"width": 2.1, "height": 1.5, "columns": 3}})),
+         obj("create_species", json!({"genus": {"type": "string"}, "name": {"type": "string"}, "id": {"type": "string", "description": "explicit id; default user.<genus>.<slug of name>"}, "base": {"type": "string", "description": "species id to copy (list_genus_species)"}, "params": params()}), &["genus", "name"])),
+        ("update_species", "Update species",
+         Descriptor::new("Edit a species' values and/or rename it. Every instance of the species updates. One undo step. Alias: update_family_type.")
             .units("metres")
-            .example("Widen every double window", json!({"op": "update_family_type", "id": "apex.window.double-1500x1400", "params": {"width": 1.8}})),
-         obj("update_family_type", json!({"id": {"type": "string"}, "name": {"type": "string"}, "params": params()}), &["id"])),
-        ("set_element_type", "Swap element type",
-         Descriptor::new("Swap an element to another type, of the same family or another one (window → door). Position, host and shared instance params (e.g. sill) are kept; undoable.")
-            .constraint("the target family must accept the element's host (doors/windows: walls)")
-            .example("Make a window two-sash", json!({"op": "set_element_type", "id": "<window id>", "type": "apex.window.double-1500x1400"}))
-            .example("Turn a window into a door", json!({"op": "set_element_type", "id": "<window id>", "type": "apex.door.single-900x2100"})),
-         obj("set_element_type", json!({"id": id_schema(), "type": {"type": "string", "description": "family type id (list_family_types)"}}), &["id", "type"])),
+            .example("Widen every double window", json!({"op": "update_species", "id": "apex.window.double-1500x1400", "params": {"width": 1.8}})),
+         obj("update_species", json!({"id": {"type": "string"}, "name": {"type": "string"}, "params": params()}), &["id"])),
+        ("set_element_species", "Swap instance species",
+         Descriptor::new("Swap an instance to another species, of the same genus or another one (window → door). Position, host and shared instance params (e.g. sill) are kept; undoable. Alias: set_element_type (field `type`).")
+            .constraint("the target genus must accept the instance's host (doors/windows: walls)")
+            .example("Make a window two-sash", json!({"op": "set_element_species", "id": "<window id>", "species": "apex.window.double-1500x1400"}))
+            .example("Turn a window into a door", json!({"op": "set_element_species", "id": "<window id>", "species": "apex.door.single-900x2100"})),
+         obj("set_element_species", json!({"id": id_schema(), "species": {"type": "string", "description": "species id (list_genus_species)"}}), &["id", "species"])),
+        ("delete_species", "Delete species",
+         Descriptor::new("Delete a species that no instance uses and that is not its genus's default. Undoable.")
+            .example("Remove an unused window species", json!({"op": "delete_species", "id": "user.apex.window.wide"})),
+         obj("delete_species", json!({"id": {"type": "string"}}), &["id"])),
         ("delete_element", "Delete element", Descriptor::new("Delete an element and its hosted children."), one("delete_element")),
         ("set_parent", "Set parent", Descriptor::new("Attach an element to a parent (it then follows the parent's level) or detach with null."),
          obj("set_parent", json!({"id": id_schema(), "parent": {"type": ["string", "null"]}}), &["id", "parent"])),
@@ -1896,7 +1915,7 @@ pub fn query_descriptors() -> Vec<PublishedDescriptor> {
         ("element_geometry", "Element geometry", "Geometry summary: bbox (m), volume (m3), triangle count, watertight flag (closed surface, T-junctions allowed), strict manifold flag and path join extensions.", simple("element_geometry", json!({"id": id_schema()}), &["id"])),
         ("validate", "Validate model", "Check every element: known type, geometry present, watertight, parent exists. `ok` is false on any error.", simple("validate", json!({}), &[])),
         ("list_components", "List element types", "Every installed element type (plugins included) with descriptor and params JSON Schema.", simple("list_components", json!({}), &[])),
-        ("list_family_types", "List family types", "Types of window/door (and plugin opening) families: id, family, name, type values, whether it is the family default and how many elements use it.", simple("list_family_types", json!({"family": {"type": "string", "description": "component id, e.g. apex.window"}}), &[])),
+        ("list_genus_species", "List species", "Species of window/door (and plugin opening) genera: id, genus, name, species values, whether it is the genus default and how many instances use it. Alias: list_family_types.", simple("list_genus_species", json!({"genus": {"type": "string", "description": "component id, e.g. apex.window"}}), &[])),
         ("list_grid_axes", "List grid axes", "Grid axes with labels and end points.", simple("list_grid_axes", json!({}), &[])),
         ("list_spaces", "List spaces", "Rooms/spaces with names, levels and outline (world points, m).", simple("list_spaces", json!({}), &[])),
         ("list_views", "List views", "Saved views (plans and 3D).", simple("list_views", json!({}), &[])),
@@ -2058,9 +2077,10 @@ mod tests {
             json!({"op": "redo"}),
             json!({"op": "batch", "commands": []}),
             json!({"op": "create_wall_type", "name": "x", "thickness": 0.3}),
-            json!({"op": "create_family_type", "family": "x", "name": "y"}),
-            json!({"op": "update_family_type", "id": "x"}),
-            json!({"op": "set_element_type", "id": "x", "type": "y"}),
+            json!({"op": "create_species", "genus": "x", "name": "y"}),
+            json!({"op": "update_species", "id": "x"}),
+            json!({"op": "set_element_species", "id": "x", "species": "y"}),
+            json!({"op": "delete_species", "id": "x"}),
             json!({"op": "attach_top", "ids": ["x"]}),
             json!({"op": "attach_base", "ids": ["x"], "targets": ["y"]}),
             json!({"op": "detach", "ids": ["x"]}),
