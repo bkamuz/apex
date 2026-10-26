@@ -294,7 +294,7 @@ fn write_product(
     writeln!(out, "#{place}=IFCLOCALPLACEMENT($,#{axis});").ok();
 
     let mut points = String::new();
-    for chunk in mesh.positions.chunks_exact(3) {
+    for chunk in mesh.positions.as_chunks::<3>().0 {
         let x = chunk[0];
         let y = -chunk[2];
         let z = chunk[1];
@@ -306,7 +306,7 @@ fn write_product(
     writeln!(out, "#{coords}=IFCCARTESIANPOINTLIST3D(({points}));").ok();
 
     let mut faces = String::new();
-    for tri in mesh.indices.chunks_exact(3) {
+    for tri in mesh.indices.as_chunks::<3>().0 {
         if !faces.is_empty() {
             faces.push(',');
         }

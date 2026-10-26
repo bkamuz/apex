@@ -426,7 +426,7 @@ mod tests {
             allow_start: true,
             allow_end: true,
         };
-        let updates = plan_joins(&b, &[a.clone()]);
+        let updates = plan_joins(&b, std::slice::from_ref(&a));
         assert!(
             updates.len() >= 2,
             "expected updates for both walls, got {}",
@@ -469,7 +469,7 @@ mod tests {
             allow_start: true,
             allow_end: true,
         };
-        let updates = plan_joins(&stem, &[host.clone()]);
+        let updates = plan_joins(&stem, std::slice::from_ref(&host));
         let host_u = updates.iter().find(|u| u.id == host.id).expect("host");
         let stem_u = updates.iter().find(|u| u.id == stem.id).expect("stem");
 
