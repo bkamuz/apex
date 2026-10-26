@@ -2,8 +2,10 @@
 // small model with them, exactly as Cursor or Claude Desktop would.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { dirname, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
@@ -73,6 +75,28 @@ test('build, validate, undo and export a small model', async () => {
 
   const ifc = await call('export_ifc');
   assert.match(typeof ifc === 'string' ? ifc : ifc.content, /IFCWALL/);
+});
+
+test('batch refs, place_* aliases and export paths', async () => {
+  await call('new_project');
+  const P = (x, z) => [x, 0, z];
+  const out = await call('batch', {
+    commands: [
+      { op: 'place_wall', points: [P(0, 0), P(6, 0)] },
+      { op: 'place_door', parent: '$0.id', points: [P(3, 0)] },
+    ],
+  });
+  const door = await call('get_element', { id: out.results[1].id });
+  assert.equal(door.parent, out.results[0].id);
+  await assert.rejects(call('place_window', { points: [P(1, 0)] }), /hosted/);
+
+  const level = (await call('summary')).levels[0].id;
+  const view = await call('create_plan_view', { level });
+  const file = join(tmpdir(), `apex-mcp-${process.pid}.svg`);
+  const res = await call('export_view', { id: view.id, format: 'svg', path: file });
+  assert.equal(res.path, file);
+  assert.match(readFileSync(file, 'utf8'), /^<svg/);
+  rmSync(file);
 });
 
 test('a bad call is a tool error, not a crash', async () => {
