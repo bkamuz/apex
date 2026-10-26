@@ -1024,7 +1024,7 @@ export function registerComponent(definition_json) {
 }
 
 /**
- * Register a plugin geometry generator for opening families
+ * Register a plugin geometry generator for opening genera
  * (`opening.generator` in a component). A descriptor is mandatory.
  * @param {string} id
  * @param {string} descriptor_json

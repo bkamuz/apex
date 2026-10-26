@@ -126,7 +126,7 @@ mod tests {
             spaces: Vec::new(),
             profiles: Vec::new(),
             components: Vec::new(),
-            family_types: Vec::new(),
+            species: Vec::new(),
             counters: Default::default(),
             ref_counters: Default::default(),
             grid_axis_counter: 0,

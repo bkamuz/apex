@@ -16,7 +16,7 @@ import {
   OPENING_EXPR_FIELDS,
   defaultPreviewParams,
   exprText,
-  openingFamilyFrom,
+  openingGenusFrom,
   parseExprText,
   defaultPreviewPoints,
   inferTemplate,
@@ -200,7 +200,7 @@ export function ComponentEditor({ initial, originalId, profiles, onSave, onClose
     });
   };
 
-  /** Start an opening family from the built-in window or door. */
+  /** Start an opening genus from the built-in window or door. */
   const applyOpeningTemplate = (baseId: 'apex.window' | 'apex.door') => {
     const base = apexListComponents().find((c) => c.id === baseId);
     if (!base) return;
@@ -208,7 +208,7 @@ export function ComponentEditor({ initial, originalId, profiles, onSave, onClose
     setDraft((prev) => {
       const kind = baseId === 'apex.door' ? 'door' : 'window';
       const fresh = prev.opening || /^Custom /.test(prev.display_name);
-      return openingFamilyFrom(
+      return openingGenusFrom(
         base,
         fresh ? prev.id.replace(/\.custom(\d*)$/, `.${kind}$1`) : prev.id,
         fresh ? `Custom ${kind}` : prev.display_name,
@@ -369,17 +369,17 @@ export function ComponentEditor({ initial, originalId, profiles, onSave, onClose
                   type="button"
                   className={draft.opening?.infill !== 'leaf' && draft.opening ? 'active' : ''}
                   onClick={() => applyOpeningTemplate('apex.window')}
-                  data-testid="template-window-family"
+                  data-testid="template-window-genus"
                 >
-                  Window family
+                  Window genus
                 </button>
                 <button
                   type="button"
                   className={draft.opening?.infill === 'leaf' ? 'active' : ''}
                   onClick={() => applyOpeningTemplate('apex.door')}
-                  data-testid="template-door-family"
+                  data-testid="template-door-genus"
                 >
-                  Door family
+                  Door genus
                 </button>
                 <button
                   type="button"
@@ -558,11 +558,11 @@ export function ComponentEditor({ initial, originalId, profiles, onSave, onClose
               </button>
 
               {draft.opening ? (
-                <div data-section="opening-family" key={`${draft.id}-${draft.opening.infill ?? "glass"}`}>
-                  <div className="section-title">Opening family</div>
+                <div data-section="opening-genus" key={`${draft.id}-${draft.opening.infill ?? "glass"}`}>
+                  <div className="section-title">Opening genus</div>
                   <div className="empty" style={{ padding: 0, marginBottom: 4 }}>
                     Each field takes a parameter id (e.g. width) or a number. Parameters set to
-                    &quot;Shared type&quot; become type values; types are managed in the inspector.
+                    &quot;Shared type&quot; become species values (every instance of a species shares them); species are managed in the inspector.
                   </div>
                   <div className="field">
                     <label>Infill</label>

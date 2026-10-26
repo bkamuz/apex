@@ -1,3 +1,4 @@
+import { apexRunQuery } from '../wasm/apex';
 import { useEffect, useState, type ReactNode } from 'react';
 import type {
   ComponentDto,
@@ -40,8 +41,8 @@ interface Props {
   onUpdate: (params: Record<string, ParamValue>) => void;
   /** Sub-element shape editor for slabs / flat roofs. */
   shapeSection?: ReactNode;
-  /** Family/type block for typed families (doors, windows). */
-  familySection?: ReactNode;
+  /** Genus/type block for typed genera (doors, windows). */
+  genusSection?: ReactNode;
   /** Attach Top/Base controls for walls and columns. */
   attachSection?: ReactNode;
   onUpdateGridAxis: (params: Record<string, ParamValue>) => void;
@@ -73,6 +74,16 @@ function stepFor(spec: ParamSpecDto): number {
   return spec.kind === 'angle' ? 0.05 : 0.05;
 }
 
+/** Readable name for a species id (tool dropdowns list species by id). */
+function speciesName(id: string): string {
+  try {
+    const rows = apexRunQuery({ op: 'list_genus_species' }) as { id: string; name: string }[];
+    return rows.find((row) => row.id === id)?.name ?? id;
+  } catch {
+    return id;
+  }
+}
+
 function optionLabel(
   spec: ParamSpecDto,
   option: string,
@@ -83,6 +94,7 @@ function optionLabel(
   if (spec.kind === 'reference' && option) {
     return references.find((reference) => reference.id === option)?.name ?? option;
   }
+  if (spec.id === 'species' && option) return speciesName(option);
   return option;
 }
 
@@ -332,7 +344,7 @@ export function PropertiesPanel({
   placement,
   onUpdate,
   shapeSection,
-  familySection,
+  genusSection,
   attachSection,
   onUpdateGridAxis,
   onUpdateConstructionLine,
@@ -634,11 +646,11 @@ export function PropertiesPanel({
     const profileId = selected.profile_id ?? String(selected.params.profile ?? '');
     const host = component ?? emptyComponent();
     const profile = profiles.find((item) => item.id === profileId);
-    // Typed families: type-bound values live in the family/type section.
-    const typed = Boolean(component?.default_type);
+    // Genera: species-bound values live in the genus & species section.
+    const typed = Boolean(component?.default_species);
     const specs = instanceSpecs(host, profile)
       .filter((spec) => !(shapeSection && spec.id === 'shape'))
-      .filter((spec) => !typed || (spec.binding !== 'type' && spec.id !== 'type'))
+      .filter((spec) => !typed || (spec.binding !== 'type' && spec.id !== 'species'))
       .map((spec) =>
         component ? withProfileOptions(spec, component, profiles, profileId) : spec,
       );
@@ -733,7 +745,7 @@ export function PropertiesPanel({
           />
         </div>
 
-        {familySection}
+        {genusSection}
 
         {shapeSection}
 

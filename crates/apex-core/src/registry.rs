@@ -22,9 +22,9 @@ use serde_json::json;
 
 /// Param holding a slab's sub-element shape.
 pub(crate) const SLAB_SHAPE: &str = "shape";
-use crate::family::{
-    build_opening, FamilyType, OpeningGenerator, OpeningGeometry, OpeningInfill, OpeningPlanSymbol,
-    OpeningRecipe, TYPE_PARAM,
+use crate::genus::{
+    build_opening, OpeningGenerator, OpeningGeometry, OpeningInfill, OpeningPlanSymbol,
+    OpeningRecipe, Species, SPECIES_PARAM,
 };
 use crate::param::{ParamError, ParamKind, ParamMap, ParamSpec, ParamValue};
 use crate::placement::{Placement, PlacementKind};
@@ -61,7 +61,7 @@ pub struct ComponentRegistry {
     components: BTreeMap<ComponentId, ComponentDefinition>,
     profiles: ProfileLibrary,
     builders: BTreeMap<String, Box<dyn MeshBuilder>>,
-    family_types: BTreeMap<String, FamilyType>,
+    species: BTreeMap<String, Species>,
     opening_generators: BTreeMap<String, (Descriptor, Box<dyn OpeningGenerator>)>,
 }
 
@@ -87,19 +87,19 @@ impl ComponentRegistry {
                 .register(definition)
                 .expect("built-in components must be valid");
         }
-        for family_type in builtin_family_types() {
+        for species in builtin_species() {
             registry
-                .upsert_family_type(family_type)
-                .expect("built-in family types must be valid");
+                .upsert_species(species)
+                .expect("built-in species must be valid");
         }
         registry
     }
 
-    // ---- Family types -------------------------------------------------
+    // ---- Species -------------------------------------------------
 
-    /// Type-bound param ids of a family (what a [`FamilyType`] holds).
-    pub fn type_param_ids(&self, family: &str) -> Vec<String> {
-        self.get(family)
+    /// Type-bound param ids of a genus (what a [`Species`] holds).
+    pub fn type_param_ids(&self, genus: &str) -> Vec<String> {
+        self.get(genus)
             .map(|d| {
                 d.params
                     .iter()
@@ -110,32 +110,32 @@ impl ComponentRegistry {
             .unwrap_or_default()
     }
 
-    /// Whether the component is a typed family (has a default type).
-    pub fn is_family(&self, component_id: &str) -> bool {
+    /// Whether the component is a typed genus (has a default type).
+    pub fn is_genus(&self, component_id: &str) -> bool {
         self.get(component_id)
-            .and_then(|d| d.default_type.as_deref())
-            .is_some_and(|t| self.family_types.contains_key(t))
+            .and_then(|d| d.default_species.as_deref())
+            .is_some_and(|t| self.species.contains_key(t))
     }
 
-    pub fn family_type(&self, id: &str) -> Option<&FamilyType> {
-        self.family_types.get(id)
+    pub fn species(&self, id: &str) -> Option<&Species> {
+        self.species.get(id)
     }
 
-    /// All types, or only those of `family`.
-    pub fn family_types(&self, family: Option<&str>) -> Vec<&FamilyType> {
-        self.family_types
+    /// All types, or only those of `genus`.
+    pub fn species_list(&self, genus: Option<&str>) -> Vec<&Species> {
+        self.species
             .values()
-            .filter(|t| family.is_none_or(|f| t.family == f))
+            .filter(|t| genus.is_none_or(|f| t.genus == f))
             .collect()
     }
 
-    /// Add or replace a type. Values are resolved against the family's
+    /// Add or replace a type. Values are resolved against the genus's
     /// type-bound specs (missing keys take spec defaults, unknown keys fail).
-    pub fn upsert_family_type(&mut self, mut family_type: FamilyType) -> Result<(), RegistryError> {
-        if family_type.id.trim().is_empty() {
-            return Err(RegistryError::Unknown("family type id is empty".into()));
+    pub fn upsert_species(&mut self, mut species: Species) -> Result<(), RegistryError> {
+        if species.id.trim().is_empty() {
+            return Err(RegistryError::Unknown("species id is empty".into()));
         }
-        let def = self.require(&family_type.family)?;
+        let def = self.require(&species.genus)?;
         let specs: Vec<ParamSpec> = def
             .params
             .iter()
@@ -145,20 +145,30 @@ impl ComponentRegistry {
         if specs.is_empty() {
             return Err(RegistryError::Unknown(format!(
                 "{} has no type parameters",
-                family_type.family
+                species.genus
             )));
         }
-        family_type.values = family_type.values.resolve(&specs)?;
-        if family_type.name.trim().is_empty() {
-            family_type.name = family_type.id.clone();
+        species.values = species.values.resolve(&specs)?;
+        if species.name.trim().is_empty() {
+            species.name = species.id.clone();
         }
-        self.family_types
-            .insert(family_type.id.clone(), family_type);
+        self.species.insert(species.id.clone(), species);
         Ok(())
     }
 
-    pub fn remove_family_type(&mut self, id: &str) -> Option<FamilyType> {
-        self.family_types.remove(id)
+    /// Move a pre-rename `type` key (PR #114 files, old agent calls) to
+    /// `species` on params of a genus instance.
+    pub fn normalize_species_key(&self, component_id: &str, params: &mut ParamMap) {
+        if !self.is_genus(component_id) || params.get(SPECIES_PARAM).is_some() {
+            return;
+        }
+        if let Some(v) = params.remove(crate::genus::LEGACY_SPECIES_PARAM) {
+            params.set(SPECIES_PARAM, v);
+        }
+    }
+
+    pub fn remove_species(&mut self, id: &str) -> Option<Species> {
+        self.species.remove(id)
     }
 
     /// Pick the type an instance should use given raw input `patch` and its
@@ -172,24 +182,24 @@ impl ComponentRegistry {
         current: Option<&str>,
         patch: &ParamMap,
     ) -> Option<String> {
-        if !self.is_family(component_id) {
+        if !self.is_genus(component_id) {
             return None;
         }
         let def = self.get(component_id)?;
-        let fallback = def.default_type.clone()?;
+        let fallback = def.default_species.clone()?;
         let display = def.display_name.clone();
         let belongs = |id: &str| {
-            self.family_types
+            self.species
                 .get(id)
-                .is_some_and(|t| t.family == component_id)
+                .is_some_and(|t| t.genus == component_id)
         };
         let candidate = patch
-            .text(TYPE_PARAM)
+            .text(SPECIES_PARAM)
             .filter(|t| belongs(t))
             .or(current.filter(|t| belongs(t)))
             .map(str::to_string)
             .unwrap_or(fallback);
-        let base = self.family_types.get(&candidate)?.clone();
+        let base = self.species.get(&candidate)?.clone();
         let type_ids = self.type_param_ids(component_id);
         let mut target = base.values.clone();
         let mut changed = false;
@@ -212,8 +222,8 @@ impl ComponentRegistry {
             .cloned()
             .collect();
         let target = target.resolve(&specs).ok()?;
-        if let Some(t) = self.family_types.values().find(|t| {
-            t.family == component_id
+        if let Some(t) = self.species.values().find(|t| {
+            t.genus == component_id
                 && type_ids
                     .iter()
                     .all(|k| value_eq(t.values.get(k), target.get(k)))
@@ -224,14 +234,14 @@ impl ComponentRegistry {
         let stem = format!("{component_id}.t-{}x{}", mm("width"), mm("height"));
         let mut id = stem.clone();
         let mut i = 2;
-        while self.family_types.contains_key(&id) {
+        while self.species.contains_key(&id) {
             id = format!("{stem}-{i}");
             i += 1;
         }
         let name = format!("{display} {}×{} ({})", mm("width"), mm("height"), base.name);
-        self.upsert_family_type(FamilyType {
+        self.upsert_species(Species {
             id: id.clone(),
-            family: component_id.to_string(),
+            genus: component_id.to_string(),
             name,
             values: target,
         })
@@ -239,19 +249,19 @@ impl ComponentRegistry {
         Some(id)
     }
 
-    /// Raw params overlaid on their family type's values (read-only; no
-    /// type is derived). Non-families return `raw` unchanged.
+    /// Raw params overlaid on their species's values (read-only; no
+    /// type is derived). Non-genera return `raw` unchanged.
     pub fn typed_params(&self, component_id: &str, raw: &ParamMap) -> ParamMap {
         let Some(def) = self.get(component_id) else {
             return raw.clone();
         };
         let type_id = raw
-            .text(TYPE_PARAM)
+            .text(SPECIES_PARAM)
             .map(str::to_string)
-            .or_else(|| def.default_type.clone());
+            .or_else(|| def.default_species.clone());
         match type_id
-            .and_then(|t| self.family_types.get(&t))
-            .filter(|t| t.family == component_id)
+            .and_then(|t| self.species.get(&t))
+            .filter(|t| t.genus == component_id)
         {
             Some(t) => t.values.merged(raw),
             None => raw.clone(),
@@ -260,8 +270,8 @@ impl ComponentRegistry {
 
     /// Write the type id and its values into instance params.
     pub fn apply_type_values(&self, type_id: &str, params: &mut ParamMap) {
-        if let Some(t) = self.family_types.get(type_id) {
-            params.set(TYPE_PARAM, ParamValue::Text(type_id.to_string()));
+        if let Some(t) = self.species.get(type_id) {
+            params.set(SPECIES_PARAM, ParamValue::Text(type_id.to_string()));
             for (k, v) in t.values.iter() {
                 params.set(k.clone(), v.clone());
             }
@@ -327,27 +337,27 @@ impl ComponentRegistry {
     pub fn upsert(&mut self, mut definition: ComponentDefinition) -> Result<(), RegistryError> {
         definition.validate()?;
         let id = definition.id.clone();
-        // An opening family needs at least one type: seed `<id>.default`
+        // An opening genus needs at least one type: seed `<id>.default`
         // from the type-bound param defaults when none exists yet.
         let needs_type = definition.opening.is_some()
             && definition
-                .default_type
+                .default_species
                 .as_deref()
-                .is_none_or(|t| self.family_types.get(t).is_none_or(|ft| ft.family != id));
+                .is_none_or(|t| self.species.get(t).is_none_or(|ft| ft.genus != id));
         if needs_type {
-            let existing = self.family_types(Some(&id)).first().map(|t| t.id.clone());
-            definition.default_type = Some(existing.unwrap_or_else(|| format!("{id}.default")));
+            let existing = self.species_list(Some(&id)).first().map(|t| t.id.clone());
+            definition.default_species = Some(existing.unwrap_or_else(|| format!("{id}.default")));
         }
         let seed = definition
-            .default_type
+            .default_species
             .clone()
-            .filter(|t| needs_type && !self.family_types.contains_key(t));
+            .filter(|t| needs_type && !self.species.contains_key(t));
         let name = definition.display_name.clone();
         self.components.insert(id.clone(), definition);
         if let Some(type_id) = seed {
-            self.upsert_family_type(FamilyType {
+            self.upsert_species(Species {
                 id: type_id,
-                family: id,
+                genus: id,
                 name,
                 values: ParamMap::new(),
             })?;
@@ -802,7 +812,7 @@ pub fn builtin_components() -> Vec<ComponentDefinition> {
 fn wall() -> ComponentDefinition {
     ComponentDefinition {
         opening: None,
-        default_type: None,
+        default_species: None,
         id: "apex.wall".to_string(),
         display_name: "Wall".to_string(),
         category: "wall".to_string(),
@@ -843,7 +853,7 @@ fn wall() -> ComponentDefinition {
 fn column() -> ComponentDefinition {
     ComponentDefinition {
         opening: None,
-        default_type: None,
+        default_species: None,
         id: "apex.column".to_string(),
         display_name: "Column".to_string(),
         category: "column".to_string(),
@@ -884,7 +894,7 @@ fn column() -> ComponentDefinition {
 fn beam() -> ComponentDefinition {
     ComponentDefinition {
         opening: None,
-        default_type: None,
+        default_species: None,
         id: "apex.beam".to_string(),
         display_name: "Beam".to_string(),
         category: "beam".to_string(),
@@ -919,7 +929,7 @@ fn beam() -> ComponentDefinition {
 fn slab() -> ComponentDefinition {
     ComponentDefinition {
         opening: None,
-        default_type: None,
+        default_species: None,
         id: "apex.slab".to_string(),
         display_name: "Slab".to_string(),
         category: "slab".to_string(),
@@ -954,7 +964,7 @@ fn empty_builder(_: &RecipeContext<'_>) -> Result<TriangleMesh, RecipeError> {
 fn boolean() -> ComponentDefinition {
     ComponentDefinition {
         opening: None,
-        default_type: None,
+        default_species: None,
         id: "apex.boolean".to_string(),
         display_name: "Boolean".to_string(),
         category: "modifier".to_string(),
@@ -997,7 +1007,7 @@ fn value_eq(a: Option<&ParamValue>, b: Option<&ParamValue>) -> bool {
     }
 }
 
-/// Shared type params of the built-in opening families.
+/// Shared type params of the built-in opening genera.
 fn opening_type_specs(width: f64, height: f64, sash: f64) -> Vec<ParamSpec> {
     vec![
         ParamSpec::length("width", "Width", width).as_type(),
@@ -1056,7 +1066,7 @@ fn opening_recipe(door: bool) -> OpeningRecipe {
     }
 }
 
-fn family_type(family: &str, id: &str, name: &str, values: &[(&str, f64)]) -> FamilyType {
+fn species(genus: &str, id: &str, name: &str, values: &[(&str, f64)]) -> Species {
     let mut map = ParamMap::new();
     for (k, v) in values {
         let value = if matches!(*k, "columns" | "rows" | "bars_x" | "bars_y") {
@@ -1066,30 +1076,30 @@ fn family_type(family: &str, id: &str, name: &str, values: &[(&str, f64)]) -> Fa
         };
         map.set(*k, value);
     }
-    FamilyType {
+    Species {
         id: id.into(),
-        family: family.into(),
+        genus: genus.into(),
         name: name.into(),
         values: map,
     }
 }
 
 /// Shipped window and door types.
-pub fn builtin_family_types() -> Vec<FamilyType> {
+pub fn builtin_species() -> Vec<Species> {
     vec![
-        family_type(
+        species(
             "apex.window",
             "apex.window.single-1200x1400",
             "Window 1200×1400 single sash",
             &[],
         ),
-        family_type(
+        species(
             "apex.window",
             "apex.window.double-1500x1400",
             "Window 1500×1400 two sashes + mullion",
             &[("width", 1.5), ("columns", 2.0), ("mullion_width", 0.08)],
         ),
-        family_type(
+        species(
             "apex.window",
             "apex.window.arched-900x1600",
             "Window 900×1600 arched, glazing bars",
@@ -1101,19 +1111,19 @@ pub fn builtin_family_types() -> Vec<FamilyType> {
                 ("bars_y", 2.0),
             ],
         ),
-        family_type(
+        species(
             "apex.door",
             "apex.door.single-900x2100",
             "Door 900×2100 single leaf",
             &[],
         ),
-        family_type(
+        species(
             "apex.door",
             "apex.door.double-1400x2100",
             "Door 1400×2100 double leaf",
             &[("width", 1.4), ("columns", 2.0), ("mullion_width", 0.01)],
         ),
-        family_type(
+        species(
             "apex.door",
             "apex.door.transom-1000x2500",
             "Door 1000×2500 with glazed transom",
@@ -1130,7 +1140,7 @@ pub fn builtin_family_types() -> Vec<FamilyType> {
 fn door() -> ComponentDefinition {
     ComponentDefinition {
         opening: Some(opening_recipe(true)),
-        default_type: Some("apex.door.single-900x2100".into()),
+        default_species: Some("apex.door.single-900x2100".into()),
         id: "apex.door".to_string(),
         display_name: "Door".to_string(),
         category: "opening".to_string(),
@@ -1138,7 +1148,7 @@ fn door() -> ComponentDefinition {
         placement: PlacementKind::Point,
         placement_options: PlacementOptions::default(),
         params: vec![
-            ParamSpec::text(TYPE_PARAM, "Type", "apex.door.single-900x2100"),
+            ParamSpec::text(SPECIES_PARAM, "Species", "apex.door.single-900x2100"),
             ParamSpec::length("sill", "Sill", 0.0).with_range(Some(0.0), None),
         ]
         .into_iter()
@@ -1168,7 +1178,7 @@ fn door() -> ComponentDefinition {
 fn window() -> ComponentDefinition {
     ComponentDefinition {
         opening: Some(opening_recipe(false)),
-        default_type: Some("apex.window.single-1200x1400".into()),
+        default_species: Some("apex.window.single-1200x1400".into()),
         id: "apex.window".to_string(),
         display_name: "Window".to_string(),
         category: "opening".to_string(),
@@ -1176,7 +1186,7 @@ fn window() -> ComponentDefinition {
         placement: PlacementKind::Point,
         placement_options: PlacementOptions::default(),
         params: vec![
-            ParamSpec::text(TYPE_PARAM, "Type", "apex.window.single-1200x1400"),
+            ParamSpec::text(SPECIES_PARAM, "Species", "apex.window.single-1200x1400"),
             ParamSpec::length("sill", "Sill", 0.9).with_range(Some(0.0), None),
         ]
         .into_iter()
@@ -1206,7 +1216,7 @@ fn window() -> ComponentDefinition {
 fn slab_opening() -> ComponentDefinition {
     ComponentDefinition {
         opening: None,
-        default_type: None,
+        default_species: None,
         id: "apex.slab_opening".to_string(),
         display_name: "Slab opening".to_string(),
         category: "opening".to_string(),
@@ -1236,7 +1246,7 @@ fn slab_opening() -> ComponentDefinition {
 fn stair() -> ComponentDefinition {
     ComponentDefinition {
         opening: None,
-        default_type: None,
+        default_species: None,
         id: "apex.stair".to_string(),
         display_name: "Stair".to_string(),
         category: "stair".to_string(),
@@ -1267,7 +1277,7 @@ fn stair() -> ComponentDefinition {
 fn roof_flat() -> ComponentDefinition {
     ComponentDefinition {
         opening: None,
-        default_type: None,
+        default_species: None,
         id: "apex.roof".to_string(),
         display_name: "Roof".to_string(),
         category: "roof".to_string(),
@@ -1296,7 +1306,7 @@ fn roof_flat() -> ComponentDefinition {
 fn roof_pitched() -> ComponentDefinition {
     ComponentDefinition {
         opening: None,
-        default_type: None,
+        default_species: None,
         id: "apex.roof.pitched".to_string(),
         display_name: "Pitched roof".to_string(),
         category: "roof".to_string(),
@@ -1339,7 +1349,7 @@ fn roof_pitched() -> ComponentDefinition {
 fn pipe() -> ComponentDefinition {
     ComponentDefinition {
         opening: None,
-        default_type: None,
+        default_species: None,
         id: "apex.pipe".to_string(),
         display_name: "Pipe".to_string(),
         category: "mep.pipe".to_string(),
@@ -1372,7 +1382,7 @@ fn pipe() -> ComponentDefinition {
 fn duct() -> ComponentDefinition {
     ComponentDefinition {
         opening: None,
-        default_type: None,
+        default_species: None,
         id: "apex.duct".to_string(),
         display_name: "Duct".to_string(),
         category: "mep.duct".to_string(),
@@ -1403,7 +1413,7 @@ fn duct() -> ComponentDefinition {
 fn cable_tray() -> ComponentDefinition {
     ComponentDefinition {
         opening: None,
-        default_type: None,
+        default_species: None,
         id: "apex.cable_tray".to_string(),
         display_name: "Cable tray".to_string(),
         category: "mep.tray".to_string(),
@@ -1864,7 +1874,7 @@ mod tests {
         let mut registry = ComponentRegistry::new();
         let def = ComponentDefinition {
             opening: None,
-            default_type: None,
+            default_species: None,
             descriptor: crate::Descriptor::new("test"),
             id: "acme.broken".into(),
             display_name: "Broken".into(),
@@ -1901,7 +1911,7 @@ mod tests {
         // A table: round top on a single pick, exactly how a module would ship it.
         let table = ComponentDefinition {
             opening: None,
-            default_type: None,
+            default_species: None,
             descriptor: crate::Descriptor::new("test"),
             id: "acme.table".into(),
             display_name: "Table".into(),
@@ -2007,7 +2017,7 @@ mod tests {
         registry
             .register(ComponentDefinition {
                 opening: None,
-                default_type: None,
+                default_species: None,
                 descriptor: crate::Descriptor::new("test"),
                 id: "acme.marker".into(),
                 display_name: "Marker".into(),

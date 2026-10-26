@@ -5,7 +5,7 @@
 use glam::Vec3;
 
 use crate::element::Element;
-use crate::family::{OpeningPlanSymbol, OpeningRecipe};
+use crate::genus::{OpeningPlanSymbol, OpeningRecipe};
 use crate::project::Project;
 
 const ARC_SEGMENTS: usize = 12;
@@ -21,7 +21,7 @@ pub fn opening_plan_symbols(project: &Project, level: Option<crate::LevelId>) ->
             }
             continue;
         }
-        // Driven by the family's opening recipe, not by component id.
+        // Driven by the genus's opening recipe, not by component id.
         let Some(recipe) = project
             .registry()
             .get(&element.component_id)

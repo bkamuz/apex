@@ -566,10 +566,10 @@ fn with_dynamic_options(
     mut definition: ComponentDefinition,
 ) -> ComponentDefinition {
     let category = definition.category.clone();
-    let family_types: Vec<String> = if project.registry().is_family(&definition.id) {
+    let species: Vec<String> = if project.registry().is_genus(&definition.id) {
         project
             .registry()
-            .family_types(Some(&definition.id))
+            .species_list(Some(&definition.id))
             .into_iter()
             .map(|t| t.id.clone())
             .collect()
@@ -577,9 +577,9 @@ fn with_dynamic_options(
         Vec::new()
     };
     for spec in &mut definition.params {
-        if spec.id == apex_core::TYPE_PARAM && !family_types.is_empty() {
+        if spec.id == apex_core::SPECIES_PARAM && !species.is_empty() {
             spec.kind = ParamKind::Choice {
-                options: family_types.clone(),
+                options: species.clone(),
             };
             continue;
         }
@@ -2644,7 +2644,7 @@ impl apex_core::OpeningGenerator for JsOpeningGenerator {
     }
 }
 
-/// Register a plugin geometry generator for opening families
+/// Register a plugin geometry generator for opening genera
 /// (`opening.generator` in a component). A descriptor is mandatory.
 #[wasm_bindgen(js_name = registerOpeningGenerator)]
 pub fn register_opening_generator(
