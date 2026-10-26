@@ -60,8 +60,53 @@ pub fn sweep(
         .into_iter()
         .map(|t| path.frame_at(t, options.up))
         .collect::<Result<Vec<_>, _>>()?;
+    let frames = mitre_corners(frames, path.is_closed());
 
     build(&placed, &frames, path.is_closed())
+}
+
+/// At a polyline corner the station frame follows only one segment, which
+/// skews the neighbouring span. Turn it into a mitre frame instead: the
+/// lateral axis bisects both segments' and is stretched so the profile keeps
+/// its width on each side.
+fn mitre_corners(mut frames: Vec<Frame>, closed: bool) -> Vec<Frame> {
+    let n = frames.len();
+    if n < 3 {
+        return frames;
+    }
+    let origins: Vec<Vec3> = frames.iter().map(|f| f.origin).collect();
+    for i in 0..n {
+        let (prev, next) = match (i, closed) {
+            (0, false) => continue,
+            (i, false) if i == n - 1 => continue,
+            (0, true) => (n - 1, 1),
+            (i, true) if i == n - 1 => (n - 2, 0),
+            (i, _) => (i - 1, i + 1),
+        };
+        let d0 = (origins[i] - origins[prev]).normalize_or_zero();
+        let d1 = (origins[next] - origins[i]).normalize_or_zero();
+        if d0 == Vec3::ZERO || d1 == Vec3::ZERO || d0.dot(d1) > 0.999_99 || d0.dot(d1) < -0.9 {
+            continue;
+        }
+        let f = frames[i];
+        let lateral = |d: Vec3| {
+            let x = f.y.cross(d).normalize_or_zero();
+            if x.dot(f.x) < 0.0 {
+                -x
+            } else {
+                x
+            }
+        };
+        let (x0, x1) = (lateral(d0), lateral(d1));
+        let bis = (x0 + x1).normalize_or_zero();
+        let c = bis.dot(x0);
+        if bis == Vec3::ZERO || c < 0.2 {
+            continue;
+        }
+        frames[i].x = bis / c;
+        frames[i].z = (d0 + d1).normalize_or_zero();
+    }
+    frames
 }
 
 /// Extrude a profile off its own plane along the frame's local Z.
@@ -229,6 +274,33 @@ mod tests {
     use super::*;
 
     const EPS: f32 = 1e-4;
+
+    #[test]
+    fn polyline_corners_are_mitred() {
+        let path = Curve::Polyline {
+            points: vec![
+                Vec3::ZERO,
+                Vec3::new(6.0, 0.0, 0.0),
+                Vec3::new(6.0, 0.0, 5.0),
+            ],
+        };
+        let profile = Profile::rectangle(0.2, 1.0).unwrap();
+        let mesh = sweep(&profile, &path, &SweepOptions::default()).unwrap();
+        for p in mesh.positions.as_chunks::<3>().0 {
+            if p[0] > 5.5 {
+                assert!(
+                    (p[0] - 5.9).abs() < EPS || (p[0] - 6.1).abs() < EPS,
+                    "{p:?}"
+                );
+            }
+            if p[2] < 0.5 {
+                assert!(
+                    (p[2] - 0.1).abs() < EPS || (p[2] + 0.1).abs() < EPS,
+                    "{p:?}"
+                );
+            }
+        }
+    }
 
     fn size_of(mesh: &TriangleMesh) -> [f32; 3] {
         let (min, max) = mesh.aabb().expect("aabb");

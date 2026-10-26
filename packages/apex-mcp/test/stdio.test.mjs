@@ -120,3 +120,25 @@ test('resources and prompts', async () => {
   const p = await client.getPrompt({ name: 'build-model', arguments: { brief: 'a garden shed' } });
   assert.match(p.messages[0].content.text, /garden shed/);
 });
+
+test('headless screenshots: 3d render, plan view and wall thickness', async () => {
+  await call('new_project');
+  const P = (x, z) => [x, 0, z];
+  const w = await call('place_wall', { points: [P(0, 0), P(5, 0), P(5, 4)], params: { thickness: 0.3 } });
+  const g = await call('element_geometry', { id: w.id });
+  assert.ok(Math.abs(g.bbox.size[2] - 4.15) < 0.02, JSON.stringify(g.bbox));
+  const type = await call('create_wall_type', { name: 'Ext 400', thickness: 0.4 });
+  assert.match(type.profile, /^user\.wall\./);
+  const bad = await client.callTool({ name: 'delete_element', arguments: { id: 'w2' } });
+  assert.ok(bad.isError && /not found/.test(bad.content[0].text), bad.content[0].text);
+  const shot = await client.callTool({ name: 'screenshot', arguments: { mode: '3d', width: 320 } });
+  assert.ok(!shot.isError, shot.content?.[0]?.text);
+  assert.equal(shot.content[0].type, 'image');
+  const png = Buffer.from(shot.content[0].data, 'base64');
+  assert.equal(png.subarray(1, 4).toString(), 'PNG');
+  const lvl = (await call('list_levels'))[0];
+  const view = await call('create_plan_view', { level: lvl.id });
+  const plan = await client.callTool({ name: 'screenshot', arguments: { view: view.id, width: 320 } });
+  assert.ok(!plan.isError, plan.content?.[0]?.text);
+  assert.equal(Buffer.from(plan.content[0].data, 'base64').subarray(1, 4).toString(), 'PNG');
+});

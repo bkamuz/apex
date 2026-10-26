@@ -118,10 +118,20 @@ const SESSION: Omit<ToolSpec, 'route'>[] & { name: SessionTool }[] = [
   {
     name: 'screenshot',
     title: 'Screenshot',
-    description: 'PNG of the live Apex viewport (live bridge only). Use it to check what you built looks right.',
+    description:
+      'PNG of the model. With the live app connected and no target it grabs the live viewport. Otherwise (and always when `view`, `sheet` or `mode` is given) it renders headless: `view` = a plan view id, `sheet` = a sheet id (both rasterise the SVG export), or mode "3d" = a flat-shaded axonometric of the whole model (yaw/pitch radians). Pass `path` to also save the PNG to disk.',
     inputSchema: {
       type: 'object',
-      properties: { width: { type: 'integer', minimum: 64 }, height: { type: 'integer', minimum: 64 } },
+      properties: {
+        view: { type: 'string', description: 'plan view id (see list_views)' },
+        sheet: { type: 'string', description: 'sheet id (see list_sheets)' },
+        mode: { type: 'string', enum: ['live', '3d'], description: 'live viewport or headless 3D; default: live when connected, else 3d' },
+        yaw: { type: 'number' },
+        pitch: { type: 'number' },
+        width: { type: 'integer', minimum: 64 },
+        height: { type: 'integer', minimum: 64 },
+        path: { type: 'string', description: 'also write the PNG here' },
+      },
     },
     readOnly: true,
   },

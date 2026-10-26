@@ -103,6 +103,7 @@ pub fn map_view_drawing_to_sheet_mm(
             dim_b: map(dim.dim_b),
             text_position: map(dim.text_position),
             text: dim.text.clone(),
+            text_angle: dim.text_angle,
         });
     }
     out

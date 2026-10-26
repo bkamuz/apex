@@ -21,6 +21,7 @@ mod project_view_annotations;
 mod project_views;
 mod reference;
 mod registry;
+mod render3d;
 mod room_detect;
 mod section_cut;
 mod sheet;

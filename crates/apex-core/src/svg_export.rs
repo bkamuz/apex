@@ -68,10 +68,11 @@ pub fn drawing_to_svg(drawing: &VectorDrawing2d) -> String {
     for d in &drawing.dimensions {
         let _ = write!(
             out,
-            r#"<text x="{}" y="{}" font-size="{text_h}" text-anchor="middle" font-family="sans-serif">{}</text>"#,
-            d.text_position[0],
-            -d.text_position[1],
-            esc(&d.text)
+            r#"<text x="{x}" y="{y}" font-size="{text_h}" text-anchor="middle" font-family="sans-serif" transform="rotate({r} {x} {y})">{}</text>"#,
+            esc(&d.text),
+            x = d.text_position[0],
+            y = -d.text_position[1],
+            r = -d.text_angle.to_degrees()
         );
     }
     for t in &drawing.texts {

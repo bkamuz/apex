@@ -82,6 +82,15 @@ impl Project {
         }
         if let Some((a, b, _)) = boolean_operands(element) {
             out.extend([a, b]);
+            // Join neighbours of an operand re-render too: whether they
+            // keep the faces shared with it depends on it being consumed.
+            for op in [a, b] {
+                if let Some(el) = self.document().get_element(op) {
+                    if self.joinable(el) {
+                        out.extend(self.join_candidates(el));
+                    }
+                }
+            }
         }
         out
     }

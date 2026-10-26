@@ -52,7 +52,18 @@ fn parse_id<T: FromStr>(what: &str, raw: &str) -> Result<T, CommandError>
 where
     T::Err: std::fmt::Display,
 {
-    T::from_str(raw.trim()).map_err(|err| msg(format!("bad {what} id '{raw}': {err}")))
+    T::from_str(raw.trim()).map_err(|_| {
+        let hint = if what == "element" {
+            "list_elements"
+        } else if what == "view" || what == "sheet" {
+            "list_views / list_sheets"
+        } else {
+            "the matching list_* query"
+        };
+        msg(format!(
+            "invalid {what} id '{raw}': not found. Ids are UUIDs (e.g. '3f2c1a9e-8b7d-4c6e-9a1b-2d3e4f5a6b7c') returned by the call that created it; see {hint}"
+        ))
+    })
 }
 
 fn pts(points: &[[f32; 3]]) -> Vec<Vec3> {
@@ -67,6 +78,14 @@ fn ids_json(ids: &[ElementId]) -> Value {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Command {
+    /// A named wall (or other path) type: a copy of `base` with its type
+    /// values (e.g. thickness) set. Re-running with the same name updates it.
+    CreateWallType {
+        name: String,
+        thickness: f64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        base: Option<String>,
+    },
     CreateElement {
         component: String,
         points: Vec<[f32; 3]>,
@@ -253,6 +272,31 @@ pub enum Query {
         format: String,
     },
     ExportProject,
+    /// Flat-shaded axonometric SVG of the 3D model (headless screenshot).
+    #[serde(rename = "render_3d")]
+    Render3d {
+        #[serde(default = "default_yaw")]
+        yaw: f32,
+        #[serde(default = "default_pitch")]
+        pitch: f32,
+        #[serde(default = "default_px_w")]
+        width: u32,
+        #[serde(default = "default_px_h")]
+        height: u32,
+    },
+}
+
+fn default_yaw() -> f32 {
+    -0.7
+}
+fn default_pitch() -> f32 {
+    0.6
+}
+fn default_px_w() -> u32 {
+    1200
+}
+fn default_px_h() -> u32 {
+    900
 }
 
 impl Command {
@@ -272,6 +316,7 @@ impl Command {
             Self::CreateLevel { .. } => "create_level",
             Self::SetActiveLevel { .. } => "set_active_level",
             Self::SetLevelElevation { .. } => "set_level_elevation",
+            Self::CreateWallType { .. } => "create_wall_type",
             Self::CreateGridAxis { .. } => "create_grid_axis",
             Self::DeleteGridAxis { .. } => "delete_grid_axis",
             Self::CreateReference { .. } => "create_reference",
@@ -312,6 +357,7 @@ impl Query {
             Self::ListSheets => "list_sheets",
             Self::ExportView { .. } => "export_view",
             Self::ExportSheet { .. } => "export_sheet",
+            Self::Render3d { .. } => "render_3d",
             Self::ExportProject => "export_project",
         }
     }
@@ -382,7 +428,7 @@ impl Project {
     fn resolve_element(&self, raw: &str) -> Result<ElementId, CommandError> {
         let id: ElementId = parse_id("element", raw)?;
         if self.document().get_element(id).is_none() {
-            return Err(msg(format!("no element with id '{raw}'")));
+            return Err(msg(format!("element id '{raw}' not found (deleted, undone, or from another project); see list_elements")));
         }
         Ok(id)
     }
@@ -491,6 +537,212 @@ impl Project {
         Ok(())
     }
 
+    /// Register (or update) profile `id` as a copy of `base` with `patch`
+    /// applied to its type values. One undo step.
+    fn derive_profile(
+        &mut self,
+        base: &str,
+        id: &str,
+        display: &str,
+        patch: &ParamMap,
+    ) -> Result<(), CommandError> {
+        let Some(src) = self.registry().profile(base).cloned() else {
+            return Err(msg(format!(
+                "unknown profile '{base}' (describe_api lists `profiles`)"
+            )));
+        };
+        for (key, _) in patch.iter() {
+            if !src.type_params().any(|p| p.id.as_str() == key.as_str()) {
+                return Err(msg(format!(
+                    "profile '{base}' has no type value '{key}' (its type values: {})",
+                    src.type_params()
+                        .map(|p| p.id.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )));
+            }
+        }
+        let mut prof = src;
+        prof.id = id.into();
+        prof.display_name = display.to_string();
+        prof.type_values = prof.type_values.merged(patch);
+        self.register_profile(prof).map_err(e)
+    }
+
+    /// Per-element overrides of profile type values (e.g. a wall's
+    /// `thickness`): moved out of `params` into a derived profile
+    /// `<profile>.<key>-<mm>` that the element then uses.
+    fn apply_type_overrides(
+        &mut self,
+        component: &str,
+        element: Option<ElementId>,
+        params: &mut ParamMap,
+    ) -> Result<(), CommandError> {
+        let Some(def) = self.registry().get(component) else {
+            return Ok(());
+        };
+        let Some(pid) = def.profile_param_id().map(str::to_string) else {
+            return Ok(());
+        };
+        let current = params
+            .text(&pid)
+            .map(str::to_string)
+            .or_else(|| {
+                let el = self.document().get_element(element?)?;
+                el.params.text(&pid).map(str::to_string)
+            })
+            .or_else(|| {
+                def.resolve_params(&ParamMap::new())
+                    .ok()?
+                    .text(&pid)
+                    .map(str::to_string)
+            });
+        let Some(current) = current else {
+            return Ok(());
+        };
+        let Some(profile) = self.registry().profile(&current).cloned() else {
+            return Ok(());
+        };
+        let mut patch = ParamMap::new();
+        for spec in profile.type_params() {
+            if def.params.iter().any(|s| s.id == spec.id) {
+                continue;
+            }
+            if let Some(v) = params.remove(spec.id.as_str()) {
+                patch.set(spec.id.clone(), v);
+            }
+        }
+        if patch.is_empty() {
+            return Ok(());
+        }
+        // Derive from the root profile so overrides don't stack names.
+        let root = current.split(".t-").next().unwrap_or(&current).to_string();
+        let mut suffix = String::new();
+        for (k, v) in patch.iter() {
+            let n = v
+                .as_number()
+                .ok_or_else(|| msg(format!("'{k}' must be a number (metres)")))?;
+            if n <= 0.0 {
+                return Err(msg(format!("'{k}' must be positive")));
+            }
+            suffix.push_str(&format!(".t-{k}-{}mm", (n * 1000.0).round() as i64));
+        }
+        let id = format!("{root}{suffix}");
+        if self.registry().profile(&id).is_none() {
+            let display = format!(
+                "{} {}",
+                profile.display_name,
+                suffix.replace(".t-", " ").trim()
+            );
+            self.derive_profile(&root, &id, &display, &patch)?;
+        }
+        params.set(pid.as_str(), crate::param::ParamValue::Text(id));
+        Ok(())
+    }
+
+    /// Problems with a wall opening's fit: running past the end (or round a
+    /// corner) of its wall segment, or overlapping a sibling opening.
+    /// `own` is skipped among siblings. Empty for non-wall hosts and arcs.
+    pub(crate) fn opening_fit_issues(
+        &self,
+        host: &crate::element::Element,
+        own: Option<ElementId>,
+        component: &str,
+        origin: Vec3,
+        params: &ParamMap,
+    ) -> Vec<String> {
+        let mut out = Vec::new();
+        let Some(span) = self.opening_span(host, component, origin, params) else {
+            return out;
+        };
+        let (seg, s0, s1, len, y0, y1) = span;
+        let tol = 1e-3;
+        if s0 < -tol || s1 > len + tol {
+            out.push(format!(
+                "{component} (width {:.3} m) runs past the end of its wall segment: it spans {:.3}..{:.3} m along a {:.3} m segment; move its centre to between {:.3} and {:.3} m along the wall or make it narrower",
+                s1 - s0,
+                s0,
+                s1,
+                len,
+                (s1 - s0) / 2.0,
+                len - (s1 - s0) / 2.0
+            ));
+        }
+        let doc = self.document();
+        for sib in doc.children_of(host.id) {
+            if Some(sib) == own {
+                continue;
+            }
+            let Some(el) = doc.get_element(sib) else {
+                continue;
+            };
+            if self
+                .registry()
+                .get(&el.component_id)
+                .is_none_or(|d| d.category != "opening")
+            {
+                continue;
+            }
+            let Some((sseg, a0, a1, _, b0, b1)) =
+                self.opening_span(host, &el.component_id, el.placement.origin(), &el.params)
+            else {
+                continue;
+            };
+            if sseg == seg && a0 < s1 - tol && s0 < a1 - tol && b0 < y1 - tol && y0 < b1 - tol {
+                out.push(format!(
+                    "{component} overlaps {} '{}' ({}) in the same wall: {:.3}..{:.3} m vs {:.3}..{:.3} m along the wall",
+                    el.component_id, el.name, el.id, s0, s1, a0, a1
+                ));
+            }
+        }
+        out
+    }
+
+    /// (segment index, start, end along segment, segment length, bottom, top).
+    fn opening_span(
+        &self,
+        host: &crate::element::Element,
+        component: &str,
+        origin: Vec3,
+        params: &ParamMap,
+    ) -> Option<(usize, f64, f64, f64, f64, f64)> {
+        let def = self.registry().get(component)?;
+        def.host_cut.as_ref()?;
+        if component == "apex.slab_opening" {
+            return None;
+        }
+        let pts: Vec<Vec3> = match host.placement.curve()? {
+            apex_geometry::Curve::Line { a, b } => vec![*a, *b],
+            apex_geometry::Curve::Polyline { points } => points.clone(),
+            _ => return None,
+        };
+        let resolved = def.resolve_params(params).ok()?;
+        let width = resolved.number("width").unwrap_or(0.9);
+        let height = resolved.number("height").unwrap_or(2.1);
+        let sill = resolved.number("sill").unwrap_or(0.0);
+        let p = [origin.x as f64, origin.z as f64];
+        let mut best: Option<(f64, usize, f64, f64)> = None;
+        for (i, w) in pts.windows(2).enumerate() {
+            let a = [w[0].x as f64, w[0].z as f64];
+            let b = [w[1].x as f64, w[1].z as f64];
+            let d = [b[0] - a[0], b[1] - a[1]];
+            let len = (d[0] * d[0] + d[1] * d[1]).sqrt();
+            if len < 1e-9 {
+                continue;
+            }
+            let t = ((p[0] - a[0]) * d[0] + (p[1] - a[1]) * d[1]) / len;
+            let tc = t.clamp(0.0, len);
+            let q = [a[0] + d[0] / len * tc, a[1] + d[1] / len * tc];
+            let dist = ((p[0] - q[0]).powi(2) + (p[1] - q[1]).powi(2)).sqrt();
+            if best.is_none_or(|bst| dist < bst.0 - 1e-6) {
+                best = Some((dist, i, t, len));
+            }
+        }
+        let (_, seg, s, len) = best?;
+        let y = origin.y as f64 + sill;
+        Some((seg, s - width / 2.0, s + width / 2.0, len, y, y + height))
+    }
+
     fn resolve_elements(&self, raw: &[String]) -> Result<Vec<ElementId>, CommandError> {
         raw.iter().map(|i| self.resolve_element(i)).collect()
     }
@@ -542,17 +794,42 @@ impl Project {
 
     fn apply(&mut self, command: Command) -> CmdResult {
         match command {
+            Command::CreateWallType {
+                name,
+                thickness,
+                base,
+            } => {
+                if !(thickness > 0.0 && thickness < 10.0) {
+                    return Err(msg("thickness must be between 0 and 10 m"));
+                }
+                let base = base.unwrap_or_else(|| "apex.wall.rect".into());
+                let slug: String = name
+                    .trim()
+                    .to_lowercase()
+                    .chars()
+                    .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+                    .collect();
+                if slug.trim_matches('-').is_empty() {
+                    return Err(msg("wall type name must contain letters or digits"));
+                }
+                let id = format!("user.wall.{}", slug.trim_matches('-'));
+                let mut patch = ParamMap::new();
+                patch.set("thickness", crate::param::ParamValue::Length(thickness));
+                self.derive_profile(&base, &id, &name, &patch)?;
+                Ok(json!({ "profile": id, "use": {"params": {"profile": id}} }))
+            }
             Command::CreateElement {
                 component,
                 points,
                 rotation,
-                params,
+                mut params,
                 placement_kind,
                 parent,
                 level,
                 name,
             } => {
                 let level = level.map(|l| self.resolve_level(&l)).transpose()?;
+                self.apply_type_overrides(&component, None, &mut params)?;
                 self.check_params(&component, &params)?;
                 let kind = match placement_kind.as_deref().map(str::trim) {
                     None | Some("") => None,
@@ -566,6 +843,21 @@ impl Project {
                     _ => None,
                 };
                 self.check_host(&component, parent)?;
+                if let (Some(host), Some(first)) = (
+                    parent.and_then(|h| self.document().get_element(h)),
+                    points.first(),
+                ) {
+                    let issues = self.opening_fit_issues(
+                        host,
+                        None,
+                        &component,
+                        Vec3::from_array(*first),
+                        &params,
+                    );
+                    if !issues.is_empty() {
+                        return Err(msg(issues.join("; ")));
+                    }
+                }
                 let id = self.on_level(level, |p| {
                     let placement = p
                         .placement_from_gesture(&component, kind, &pts(&points), rotation)
@@ -580,11 +872,19 @@ impl Project {
             }
             Command::UpdateElement {
                 id,
-                params,
+                mut params,
                 points,
                 placement_kind,
             } => {
                 let id = self.resolve_element(&id)?;
+                {
+                    let component = self
+                        .document()
+                        .get_element(id)
+                        .map(|el| el.component_id.clone())
+                        .unwrap_or_default();
+                    self.apply_type_overrides(&component, Some(id), &mut params)?;
+                }
                 let placement = match points {
                     Some(points) => {
                         let component = self
@@ -979,6 +1279,10 @@ impl Project {
                 export_drawing(&drawing, format)
             }
             Query::ExportProject => serde_json::to_value(self.export_snapshot()).map_err(e),
+            Query::Render3d { yaw, pitch, width, height } => Ok(json!({
+                "format": "svg",
+                "content": self.render_3d_svg(*yaw, *pitch, (*width).clamp(64, 4096), (*height).clamp(64, 4096)),
+            })),
         }
     }
 
@@ -1033,15 +1337,18 @@ impl Project {
             }
         }
         let size = [max[0] - min[0], max[1] - min[1], max[2] - min[2]];
+        let seams_closed = !self.open_join_clusters().iter().any(|c| c.contains(&id));
         json!({
             "id": id.to_string(),
             "has_mesh": true,
             "bbox": { "min": min, "max": max, "size": size },
             "volume": mesh_volume(mesh),
             "triangles": mesh.indices.len() / 3,
-            "watertight": self.closed_solid_ids().contains(&id),
+            "watertight": self.closed_solid_ids().contains(&id) && seams_closed,
+            "join_seams_closed": seams_closed,
             "piece_closed": is_closed(mesh),
             "manifold": is_watertight(mesh),
+            "note": "watertight = this element's own solid is closed and its join cluster renders closed. piece_closed/manifold describe only the render piece, which omits faces shared with joined neighbours, so they are false for joined walls by design.",
             "joins": { "start": el.join_start, "end": el.join_end },
             "children": ids_json(&doc.children_of(id)),
         })
@@ -1065,8 +1372,71 @@ impl Project {
             .collect()
     }
 
+    /// Join clusters whose rendered pieces do not add up to a closed
+    /// surface: each wall renders without the faces it shares with its
+    /// neighbours, so a seam left open shows up only on the whole cluster.
+    pub(crate) fn open_join_clusters(&self) -> Vec<Vec<ElementId>> {
+        let doc = self.document();
+        let nodes: Vec<ElementId> = doc
+            .elements()
+            .filter(|el| self.joinable(el))
+            .map(|el| el.id)
+            .collect();
+        let index: std::collections::HashMap<ElementId, usize> =
+            nodes.iter().enumerate().map(|(i, id)| (*id, i)).collect();
+        let mut parent: Vec<usize> = (0..nodes.len()).collect();
+        fn find(p: &mut [usize], mut i: usize) -> usize {
+            while p[i] != i {
+                p[i] = p[p[i]];
+                i = p[i];
+            }
+            i
+        }
+        for (i, id) in nodes.iter().enumerate() {
+            let Some(el) = doc.get_element(*id) else {
+                continue;
+            };
+            for peer in self.join_candidates(el) {
+                if let Some(&j) = index.get(&peer) {
+                    let (a, b) = (find(&mut parent, i), find(&mut parent, j));
+                    parent[a] = b;
+                }
+            }
+        }
+        let mut groups: std::collections::BTreeMap<usize, Vec<ElementId>> = Default::default();
+        for (i, id) in nodes.iter().enumerate() {
+            let r = find(&mut parent, i);
+            groups.entry(r).or_default().push(*id);
+        }
+        let mut open = Vec::new();
+        for members in groups.into_values().filter(|g| g.len() > 1) {
+            // Elements consumed by a boolean render through the boolean.
+            let mut owners = std::collections::BTreeSet::new();
+            for id in &members {
+                let consumers = self.boolean_consumers(*id);
+                if consumers.is_empty() {
+                    owners.insert(*id);
+                } else {
+                    owners.extend(consumers);
+                }
+            }
+            let mut all = apex_geometry::TriangleMesh::default();
+            for id in owners {
+                let Some(m) = doc.get_mesh(id) else { continue };
+                let base = (all.positions.len() / 3) as u32;
+                all.positions.extend_from_slice(&m.positions);
+                all.indices.extend(m.indices.iter().map(|i| i + base));
+            }
+            if !all.indices.is_empty() && !is_closed(&all) {
+                open.push(members);
+            }
+        }
+        open
+    }
+
     fn validate_json(&self) -> Value {
         let closed = self.closed_solid_ids();
+        let open_clusters = self.open_join_clusters();
         let doc = self.document();
         let mut issues = Vec::new();
         let issue = |sev: &str, el: &crate::element::Element, text: &str| json!({"severity": sev, "element": el.id.to_string(), "name": el.name, "component": el.component_id, "message": text});
@@ -1080,6 +1450,19 @@ impl Project {
                     issues.push(issue("error", el, "parent element is missing"));
                 }
             }
+            if def.category == "opening" {
+                if let Some(host) = el.parent_id.and_then(|h| doc.get_element(h)) {
+                    for text in self.opening_fit_issues(
+                        host,
+                        Some(el.id),
+                        &el.component_id,
+                        el.placement.origin(),
+                        &el.params,
+                    ) {
+                        issues.push(issue("error", el, &text));
+                    }
+                }
+            }
             // Openings are voids that cut their host; they have no own solid.
             if def.category == "opening" || self.boolean_hides(el.id) {
                 continue;
@@ -1091,6 +1474,23 @@ impl Project {
                     }
                 }
                 _ => issues.push(issue("error", el, "element has no geometry")),
+            }
+        }
+        for members in &open_clusters {
+            if let Some(el) = members.first().and_then(|id| doc.get_element(*id)) {
+                let names: Vec<String> = members
+                    .iter()
+                    .filter_map(|id| doc.get_element(*id))
+                    .map(|e| format!("{} ({})", e.name, e.id))
+                    .collect();
+                issues.push(issue(
+                    "error",
+                    el,
+                    &format!(
+                        "joined solids do not form a closed surface (open seam at a wall join); cluster: {}",
+                        names.join(", ")
+                    ),
+                ));
             }
         }
         let errors = issues.iter().filter(|i| i["severity"] == "error").count();
@@ -1138,6 +1538,16 @@ pub fn component_catalog(project: &Project) -> Vec<PublishedDescriptor> {
                 for spec in profile.instance_params() {
                     if !specs.iter().any(|s| s.id == spec.id) {
                         specs.push(spec.clone());
+                    }
+                }
+                // Type values (wall `thickness`) may be overridden per
+                // element: the command derives a profile for it.
+                for spec in profile.type_params() {
+                    if !specs.iter().any(|s| s.id == spec.id) {
+                        let mut s = spec.clone();
+                        s.label =
+                            format!("{} (per-element override; derives a wall type)", s.label);
+                        specs.push(s);
                     }
                 }
             }
@@ -1203,6 +1613,11 @@ pub fn command_descriptors() -> Vec<PublishedDescriptor> {
          Descriptor::new("Change params and/or replace placement points of an element. Params not listed keep their value.")
             .example("Taller wall", json!({"op": "update_element", "id": "<id>", "params": {"height": 3.5}})),
          obj("update_element", json!({"id": id_schema(), "params": params(), "points": points_schema(), "placement_kind": {"type": "string"}}), &["id"])),
+        ("create_wall_type", "Create wall type",
+         Descriptor::new("Create or update a named wall type with its own thickness (a copy of `base`, default apex.wall.rect). Use it by passing params {\"profile\": <returned id>} to place_wall / update_element. Updating an existing type rebuilds every wall that uses it. For a one-off wall you can also pass `thickness` directly in place_wall params.")
+            .units("metres")
+            .example("300 mm exterior wall type", json!({"op": "create_wall_type", "name": "Exterior 300", "thickness": 0.3})),
+         obj("create_wall_type", json!({"name": {"type": "string"}, "thickness": {"type": "number", "exclusiveMinimum": 0}, "base": {"type": "string", "description": "profile id to copy, default apex.wall.rect"}}), &["name", "thickness"])),
         ("delete_element", "Delete element", Descriptor::new("Delete an element and its hosted children."), one("delete_element")),
         ("set_parent", "Set parent", Descriptor::new("Attach an element to a parent (it then follows the parent's level) or detach with null."),
          obj("set_parent", json!({"id": id_schema(), "parent": {"type": ["string", "null"]}}), &["id", "parent"])),
@@ -1281,6 +1696,7 @@ pub fn query_descriptors() -> Vec<PublishedDescriptor> {
         ("list_sheets", "List sheets", "Sheets with viewport counts.", simple("list_sheets", json!({}), &[])),
         ("export_view", "Export view", "Export a plan view drawing as svg, dxf or json.", simple("export_view", json!({"id": id_schema(), "format": fmt.clone()}), &["id", "format"])),
         ("export_sheet", "Export sheet", "Export a sheet as svg, dxf or json.", simple("export_sheet", json!({"id": id_schema(), "format": fmt}), &["id", "format"])),
+        ("render_3d", "Render 3D", "Flat-shaded axonometric SVG of the whole model (works headless; the MCP `screenshot` tool rasterises it to PNG). yaw/pitch in radians.", simple("render_3d", json!({"yaw": {"type": "number", "default": -0.7}, "pitch": {"type": "number", "default": 0.6}, "width": {"type": "integer", "default": 1200}, "height": {"type": "integer", "default": 900}}), &[])),
         ("export_project", "Export project", "The full project JSON (what Save writes).", simple("export_project", json!({}), &[])),
     ];
     rows.into_iter()
@@ -1434,6 +1850,7 @@ mod tests {
             json!({"op": "undo"}),
             json!({"op": "redo"}),
             json!({"op": "batch", "commands": []}),
+            json!({"op": "create_wall_type", "name": "x", "thickness": 0.3}),
         ];
         assert_eq!(samples.len(), described.len());
         for s in samples {
@@ -1505,13 +1922,6 @@ mod tests {
             .as_f64()
             .unwrap();
         assert!(t1 > t0 + 2.9, "{t0} -> {t1}");
-        let err = p
-            .execute_json(
-                &json!({"op": "update_element", "id": id, "params": {"thickness": 0.4}})
-                    .to_string(),
-            )
-            .unwrap_err();
-        assert!(err.0.contains("type value of profile"), "{err}");
         exec(&mut p, json!({"op": "delete_element", "id": id}));
         assert_eq!(p.document().elements().count(), 0);
         exec(&mut p, json!({"op": "undo"}));
@@ -1738,7 +2148,10 @@ mod tests {
         let err = p
             .execute_json(r#"{"op": "delete_element", "id": "zzz"}"#)
             .unwrap_err();
-        assert!(err.0.contains("bad element id"), "{err}");
+        assert!(
+            err.0.contains("invalid element id") && err.0.contains("not found"),
+            "{err}"
+        );
         let err = p.execute_json(r#"{"op": "teleport"}"#).unwrap_err();
         assert!(err.0.contains("invalid command"), "{err}");
         let err = p.execute_json(r#"{"op": "create_element", "component": "apex.wall", "points": [[0,0,0]], "bogus": 1}"#).unwrap_err();
@@ -1763,5 +2176,191 @@ mod tests {
         }
         let v = q(&p, json!({"op": "validate"}));
         assert_eq!(v["ok"], true, "{v}");
+    }
+
+    #[test]
+    fn t_junction_into_boolean_host_stays_closed() {
+        // Dogfood house: interior wall tees into an exterior wall that a
+        // boolean (niche) consumes. The stem used to drop its face against
+        // the host, leaving a hole under the boolean result.
+        let mut p = Project::new();
+        let ext = new_id(
+            &mut p,
+            json!({"op": "create_element", "component": "apex.wall", "points": [[0,0,0],[12,0,0],[12,0,5],[0,0,5],[0,0,0]]}),
+        );
+        let stem = new_id(
+            &mut p,
+            json!({"op": "create_element", "component": "apex.wall", "points": [[7,0,0],[7,0,5]]}),
+        );
+        let col = new_id(
+            &mut p,
+            json!({"op": "create_element", "component": "apex.column", "points": [[0,0,3]], "params": {"height": 1.5}}),
+        );
+        // A hosted opening anywhere in the host must not reopen the seam.
+        new_id(
+            &mut p,
+            json!({"op": "create_element", "component": "apex.window", "parent": ext, "points": [[2,0,0]]}),
+        );
+        new_id(
+            &mut p,
+            json!({"op": "boolean", "a": ext, "b": col, "operation": "subtract"}),
+        );
+        assert!(p.open_join_clusters().is_empty(), "open seam at the tee");
+        let v = q(&p, json!({"op": "validate"}));
+        assert_eq!(v["ok"], true, "{v}");
+        let g = q(&p, json!({"op": "element_geometry", "id": stem}));
+        assert_eq!(g["watertight"], true, "{g}");
+        assert_eq!(g["join_seams_closed"], true, "{g}");
+    }
+
+    #[test]
+    fn chained_tees_into_boolean_host_stay_closed() {
+        // Dogfood house: a partition spans the boolean host wall and a
+        // second partition tees into it. The second stem's trimmed end at
+        // the host used to drop out of the cluster solid, leaving a hole.
+        let mut p = Project::new();
+        let ext = new_id(
+            &mut p,
+            json!({"op": "create_element", "component": "apex.wall", "points": [[0,0,0],[12,0,0],[12,0,5],[7,0,5],[7,0,9],[0,0,9],[0,0,0]]}),
+        );
+        new_id(
+            &mut p,
+            json!({"op": "create_element", "component": "apex.wall", "points": [[0,0,5],[7,0,5]]}),
+        );
+        new_id(
+            &mut p,
+            json!({"op": "create_element", "component": "apex.wall", "points": [[3.5,0,0],[3.5,0,5]]}),
+        );
+        let col = new_id(
+            &mut p,
+            json!({"op": "create_element", "component": "apex.column", "points": [[0,0,3]], "params": {"height": 1.5}}),
+        );
+        new_id(
+            &mut p,
+            json!({"op": "boolean", "a": ext, "b": col, "operation": "subtract"}),
+        );
+        assert!(p.open_join_clusters().is_empty(), "open seam at the tee");
+        let v = q(&p, json!({"op": "validate"}));
+        assert_eq!(v["ok"], true, "{v}");
+    }
+
+    fn wall_thickness(p: &Project, id: &str) -> f64 {
+        let id = p.resolve_element(id).unwrap();
+        let prof = p
+            .document()
+            .get_element(id)
+            .unwrap()
+            .params
+            .text("profile")
+            .unwrap()
+            .to_string();
+        let prof = p.registry().profile(&prof).unwrap();
+        prof.type_values.number("thickness").unwrap_or_else(|| {
+            prof.type_params()
+                .find(|s| s.id.as_str() == "thickness")
+                .unwrap()
+                .default
+                .as_number()
+                .unwrap()
+        })
+    }
+
+    #[test]
+    fn wall_thickness_is_settable_per_wall_and_by_type() {
+        let mut p = Project::new();
+        let w = new_id(
+            &mut p,
+            json!({"op": "create_element", "component": "apex.wall", "points": [[0,0,0],[5,0,0]], "params": {"thickness": 0.3}}),
+        );
+        assert!((wall_thickness(&p, &w) - 0.3).abs() < 1e-9);
+        exec(
+            &mut p,
+            json!({"op": "update_element", "id": w, "params": {"thickness": 0.12}}),
+        );
+        assert!((wall_thickness(&p, &w) - 0.12).abs() < 1e-9);
+        let plain = new_id(
+            &mut p,
+            json!({"op": "create_element", "component": "apex.wall", "points": [[0,3,0],[5,3,0]]}),
+        );
+        assert!(
+            (wall_thickness(&p, &plain) - 0.2).abs() < 1e-9,
+            "default unchanged"
+        );
+        let ty = exec(
+            &mut p,
+            json!({"op": "create_wall_type", "name": "Exterior 400", "thickness": 0.4}),
+        );
+        let prof = ty["profile"].as_str().unwrap().to_string();
+        exec(
+            &mut p,
+            json!({"op": "update_element", "id": plain, "params": {"profile": prof}}),
+        );
+        assert!((wall_thickness(&p, &plain) - 0.4).abs() < 1e-9);
+        exec(
+            &mut p,
+            json!({"op": "create_wall_type", "name": "Exterior 400", "thickness": 0.45}),
+        );
+        assert!(
+            (wall_thickness(&p, &plain) - 0.45).abs() < 1e-9,
+            "type update applies"
+        );
+        assert!(p
+            .execute_json(
+                &json!({"op": "create_wall_type", "name": "x", "thickness": -1}).to_string()
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn bad_ids_give_a_clear_error() {
+        let mut p = Project::new();
+        let err = p
+            .execute_json(&json!({"op": "delete_element", "id": "w2"}).to_string())
+            .unwrap_err();
+        assert!(
+            err.0.contains("not found") && !err.0.contains("invalid character"),
+            "{err}"
+        );
+        let err = p
+            .execute_json(
+                &json!({"op": "delete_element", "id": "6f1c2d3e-0000-4000-8000-000000000000"})
+                    .to_string(),
+            )
+            .unwrap_err();
+        assert!(err.0.contains("not found"), "{err}");
+    }
+
+    #[test]
+    fn openings_must_fit_their_wall_and_not_overlap() {
+        let mut p = Project::new();
+        let wall = new_id(
+            &mut p,
+            json!({"op": "create_element", "component": "apex.wall", "points": [[0,0,0],[5,0,0]]}),
+        );
+        let err = p
+            .execute_json(&json!({"op": "create_element", "component": "apex.window", "parent": wall, "points": [[4.9,0,0]], "params": {"width": 1.2}}).to_string())
+            .unwrap_err();
+        assert!(err.0.contains("runs past the end"), "{err}");
+        new_id(
+            &mut p,
+            json!({"op": "create_element", "component": "apex.window", "parent": wall, "points": [[2,0,0]], "params": {"width": 1.2}}),
+        );
+        let err = p
+            .execute_json(&json!({"op": "create_element", "component": "apex.window", "parent": wall, "points": [[2.8,0,0]], "params": {"width": 1.2}}).to_string())
+            .unwrap_err();
+        assert!(err.0.contains("overlaps"), "{err}");
+        let ok = new_id(
+            &mut p,
+            json!({"op": "create_element", "component": "apex.door", "parent": wall, "points": [[4,0,0]]}),
+        );
+        assert_eq!(q(&p, json!({"op": "validate"}))["ok"], true);
+        // A later edit that pushes it off the end shows up in validate.
+        exec(
+            &mut p,
+            json!({"op": "move_elements", "ids": [ok], "delta": [0.8, 0, 0]}),
+        );
+        let v = q(&p, json!({"op": "validate"}));
+        assert_eq!(v["ok"], false, "{v}");
+        assert!(v.to_string().contains("runs past the end"), "{v}");
     }
 }
