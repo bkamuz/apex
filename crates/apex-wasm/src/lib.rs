@@ -1156,6 +1156,27 @@ pub fn update_element(id: &str, params_json: &str) -> Result<JsValue, JsValue> {
     })
 }
 
+/// A slab's editable shape (`{shape, handles, creases, thickness}`), or
+/// `null` when the element has none.
+#[wasm_bindgen(js_name = slabShapeInfo)]
+pub fn slab_shape_info(id: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let element = element_id(id)?;
+        to_js(&project.slab_shape_info(element))
+    })
+}
+
+/// Replace a slab's shape (`{z, points, creases}`); one undo step.
+#[wasm_bindgen(js_name = setSlabShape)]
+pub fn set_slab_shape(id: &str, shape_json: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let element = element_id(id)?;
+        let shape: apex_core::SlabShape = serde_json::from_str(shape_json).map_err(err)?;
+        project.set_slab_shape(element, &shape).map_err(err)?;
+        scene(project)
+    })
+}
+
 /// Attach an element to a parent, or detach it by passing `null`.
 ///
 /// The child takes the parent's level and follows it when moved. One undo step.

@@ -450,3 +450,27 @@ export interface SceneDto {
   fit_bounds_max?: Vec3 | null;
   room_detect_report?: RoomDetectReportDto | null;
 }
+
+/** A slab's sub-element shape: Z offsets per vertex, interior points, creases. */
+export interface SlabShapeDto {
+  z: number[];
+  /** Interior points: [x, z, dz]. */
+  points: [number, number, number][];
+  /** Crease index pairs: boundary vertices first, then points. */
+  creases: [number, number][];
+}
+
+export interface SlabShapeHandleDto {
+  kind: 'vertex' | 'point';
+  index: number;
+  crease_index: number;
+  position: Vec3;
+  offset: number;
+}
+
+export interface SlabShapeInfoDto {
+  shape: SlabShapeDto;
+  handles: SlabShapeHandleDto[];
+  creases: [Vec3, Vec3][];
+  thickness: number;
+}

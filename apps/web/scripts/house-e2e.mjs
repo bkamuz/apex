@@ -151,6 +151,19 @@ async function fit() {
   await page.waitForTimeout(400);
   await frameSite(elev);
 }
+/** Set an inspector field of the selected element by its label. */
+async function setField(label, value) {
+  const field = page.locator('.inspector-body .field').filter({ hasText: label }).first();
+  if ((await field.count()) === 0) return note(`no inspector field "${label}"`);
+  const select = field.locator('select');
+  if (await select.count()) await select.first().selectOption(String(value));
+  else {
+    const input = field.locator('input').first();
+    await input.fill(String(value));
+    await input.press('Enter');
+  }
+  await page.waitForTimeout(250);
+}
 async function sceneCounts() {
   return page.evaluate(() => {
     const raw = localStorage.getItem('apex.project');
@@ -234,6 +247,26 @@ await useTool('Slab');
 await polyline([[0, 0], [10, 0], [10, 8], [0, 8]]);
 await page.keyboard.press('Escape');
 await checkError('slab L0');
+// A ramp east of the house: a slab whose far edge is lifted 0.6 m through
+// the shape editor (Revit "Modify Sub Elements").
+await useTool('Slab');
+await polyline([[11, 4], [14, 4], [14, 7], [11, 7]]);
+await page.keyboard.press('Escape');
+await clickW(12.5, 5.5, { snap: false });
+await page.waitForTimeout(200);
+if (await page.getByTestId('slab-shape-edit').isVisible().catch(() => false)) {
+  await page.getByTestId('slab-shape-edit').click();
+  for (const i of [1, 2]) {
+    const input = page.getByTestId(`shape-handle-${i}`).locator('input');
+    await input.fill('0.6');
+    await input.press('Enter');
+    await page.waitForTimeout(250);
+  }
+  await shot('l0-ramp-shape-edit-plan');
+  await page.getByTestId('slab-shape-edit').click();
+} else note('ramp slab: no "Edit shape" button');
+await page.keyboard.press('Escape');
+await checkError('ramp slab');
 await shot('l0-walls-openings');
 
 // ---------------------------------------------------------------- Level 1
@@ -273,15 +306,16 @@ await page.locator('.level-list li').nth(1).click();
 await page.waitForTimeout(300);
 elev = 3;
 await useTool('Pitched roof');
-await clickW(-0.5, 4);
-await clickW(10.5, 4);
+await clickW(0, 4);
+await clickW(10, 4);
 await page.keyboard.press('Escape');
 await checkError('roof');
 
 // Close the gables the BIM way: attach the L1 end walls' tops to the roof.
 for (const [x, z] of [[0, 1], [10, 1]]) {
   await page.keyboard.press('Escape');
-  await clickW(x, z, { snap: false });
+  // The roof now overhangs the walls, so a plan click lands on the roof; pick by geometry.
+  await page.evaluate(([x, z]) => window.__apexTest.selectNear('wall', [x, 3, z]), [x, 4]);
   await page.waitForTimeout(200);
   const box = page.locator('.field').filter({ hasText: 'Attach top to roof' }).locator('input[type=checkbox]');
   if ((await box.count()) === 0) {
@@ -293,6 +327,14 @@ for (const [x, z] of [[0, 1], [10, 1]]) {
 }
 await page.keyboard.press('Escape');
 await checkError('attach gables');
+// One mitred solid: 0.5 m overhang all round, eaves cut square to the slope.
+const roofId = await page.evaluate(() => window.__apexTest.selectLast('apex.roof.pitched'));
+if (!roofId) note('no pitched roof to select');
+await page.waitForTimeout(300);
+await setField('Overhang', 0.5);
+await setField('Eave cut', 'perpendicular');
+await page.keyboard.press('Escape');
+await checkError('roof params');
 
 // Rooms on both levels.
 for (const [i, e] of [[0, 0], [1, 3]]) {
@@ -395,11 +437,42 @@ await shot('3d-view');
     ['gable-far-b', [5, 4, 4], 24, 0.9 + Math.PI, 0.25],
     ['gable-junction-a', [10, 6.8, 1.5], 7, 0.9, 0.15],
     ['gable-junction-b', [0, 6.8, 6.5], 7, 0.9 + Math.PI, 0.15],
+    ['ridge-closeup', [10.5, 7.6, 4], 4.5, 0.6, 0.3],
+    ['eave-closeup', [10.5, 6, 8.5], 3.5, 0.7, 0.15],
+    ['ramp', [12.5, 0.4, 5.5], 9, 2.2, 0.35],
   ]) {
     await page.evaluate(([t, d, yaw, pitch]) => window.__apexTest.setCamera({ target: t, distance: d, yaw, pitch }), [t, dist, yaw, pitch]);
     await page.waitForTimeout(300);
     await shot(`3d-${name}`);
   }
+  // Shape-edit handles in 3D, with one vertex dragged up by mouse.
+  await page.evaluate(() => window.__apexTest.setCamera({ target: [12.5, 0.4, 5.5], distance: 9, yaw: 2.2, pitch: 0.35 }));
+  await page.waitForTimeout(300);
+  const savedElev = elev;
+  elev = 0.2;
+  await page.getByRole('button', { name: 'Select', exact: true }).first().click().catch(() => {});
+  await clickW(12.5, 5.5, { snap: false });
+  elev = savedElev;
+  await page.waitForTimeout(200);
+  if (await page.getByTestId('slab-shape-edit').isVisible().catch(() => false)) {
+    await page.getByTestId('slab-shape-edit').click();
+    await page.waitForTimeout(300);
+    await page.getByTestId('slab-shape-add-point').click();
+    await page.waitForTimeout(300);
+    const [hx, hy] = await rawClient(11, 7, 0.2);
+    await page.mouse.move(hx, hy);
+    await page.mouse.down();
+    await page.mouse.move(hx, hy - 40, { steps: 6 });
+    await page.mouse.up();
+    await page.waitForTimeout(400);
+    await shot('3d-ramp-shape-edit');
+    await page.keyboard.press('Control+z');
+    await page.waitForTimeout(300);
+    await page.keyboard.press('Control+z');
+    await page.waitForTimeout(300);
+    await page.getByTestId('slab-shape-edit').click().catch(() => {});
+  } else note('3D: no "Edit shape" button on the ramp');
+  await page.keyboard.press('Escape');
   await fit();
 }
 

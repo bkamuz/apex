@@ -83,6 +83,8 @@ import {
   apexSetSheetViewportScale,
   apexUpdateProfileType,
   initApex,
+  apexSetSlabShape,
+  apexSlabShapeInfo,
 } from './wasm/apex';
 import {
   GRID_STEP,
@@ -108,6 +110,8 @@ import type {
   SceneDto,
   SectionCutDto,
   SpaceDto,
+  SlabShapeDto,
+  SlabShapeInfoDto,
 } from './types';
 import { GridAxisLabels } from './ui/GridAxisLabels';
 import { LevelList } from './ui/LevelList';
@@ -132,6 +136,7 @@ import { downloadBlob, downloadTextFile, drawingToPdf, drawingToSvg } from './ui
 import type { VectorDrawing2d } from './types';
 import type { DocumentTab } from './ui/ViewTabBar';
 import { PropertiesPanel } from './ui/PropertiesPanel';
+import { SHAPEABLE_COMPONENTS, SlabShapePanel } from './ui/SlabShapePanel';
 import { ToolsToolbar } from './ui/ToolsToolbar';
 import { GettingStartedPanel } from './ui/GettingStartedPanel';
 import { buildSampleProject } from './ui/sampleProject';
@@ -199,6 +204,14 @@ export default function App() {
   const registryRef = useRef<ToolRegistry>(makeToolRegistry());
   const shiftHeldRef = useRef(false);
   const selectedRef = useRef<ElementDto | null>(null);
+  /** Slab sub-element editing: active shape info and an in-flight drag. */
+  const shapeEditRef = useRef<SlabShapeInfoDto | null>(null);
+  const shapeDragRef = useRef<{
+    index: number;
+    startY: number;
+    pxPerM: number;
+    dz: number;
+  } | null>(null);
   const selectedReferenceRef = useRef<ReferenceDto | null>(null);
   const selectedGridAxisRef = useRef<GridAxisDto | null>(null);
   const selectedConstructionLineRef = useRef<ConstructionLineDto | null>(null);
@@ -290,6 +303,44 @@ export default function App() {
   selectedSpaceRef.current = selectedSpace;
   selectedCountRef.current = scene?.selected_ids?.length ?? 0;
   sceneRef.current = scene;
+
+  const [shapeEditing, setShapeEditing] = useState(false);
+  const [shapeHandle, setShapeHandle] = useState<number | null>(null);
+  const shapeTarget =
+    selected && (scene?.selected_ids?.length ?? 0) === 1 && SHAPEABLE_COMPONENTS.has(selected.component_id)
+      ? selected
+      : null;
+  const shapeInfo = useMemo(() => {
+    if (!shapeTarget) return null;
+    try {
+      return apexSlabShapeInfo(shapeTarget.id);
+    } catch {
+      return null;
+    }
+    // The scene changes whenever the slab (or its openings) is rebuilt.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shapeTarget, scene]);
+  const shapeEditForRef = useRef<{ id: string; info: SlabShapeInfoDto } | null>(null);
+  const editingInfo = shapeEditing && shapeTarget && shapeInfo ? shapeInfo : null;
+  shapeEditRef.current = editingInfo;
+  shapeEditForRef.current = editingInfo && shapeTarget ? { id: shapeTarget.id, info: editingInfo } : null;
+  useEffect(() => {
+    setShapeEditing(false);
+    setShapeHandle(null);
+  }, [shapeTarget?.id]);
+  useEffect(() => {
+    if (editingInfo) showShapeGizmo(editingInfo);
+    else if (toolRef.current?.id === ToolRegistry.selectId)
+      syncEditGizmo(
+        selectedRef.current,
+        selectedReferenceRef.current,
+        selectedGridAxisRef.current,
+        selectedConstructionLineRef.current,
+        selectedSectionCutRef.current,
+        selectedSpaceRef.current,
+      );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingInfo]);
   placementParamsRef.current = placementDraft;
 
   const tool = registryRef.current.get(toolId) ?? registryRef.current.get(ToolRegistry.selectId)!;
@@ -373,6 +424,21 @@ export default function App() {
     rendererRef.current?.setSpaceOverlays(lines.length >= 2 ? lines : null);
   }, []);
 
+  const showShapeGizmo = useCallback((info: SlabShapeInfoDto, drag?: { index: number; dz: number }) => {
+    const points = info.handles.map((h, i) => {
+      const p = [...h.position] as Vec3;
+      if (drag && drag.index === i) p[1] += drag.dz;
+      return p;
+    });
+    const vertices = points.filter((_, i) => info.handles[i].kind === 'vertex');
+    const segments: Vec3[] = [];
+    vertices.forEach((p, i) => segments.push(p, vertices[(i + 1) % vertices.length]));
+    for (const [a, b] of info.shape.creases) {
+      if (points[a] && points[b]) segments.push(points[a], points[b]);
+    }
+    rendererRef.current?.setEditGizmo(points, segments);
+  }, []);
+
   const syncEditGizmo = useCallback(
     (
       el: ElementDto | null,
@@ -382,6 +448,10 @@ export default function App() {
       cut: SectionCutDto | null = null,
       space: SpaceDto | null = null,
     ) => {
+      if (shapeEditRef.current && el && el.id === shapeEditForRef.current?.id) {
+        showShapeGizmo(shapeEditRef.current);
+        return;
+      }
       // A boolean has no geometry of its own to drag; its origin is noise.
       const anchors = el?.anchors?.length && el.component_id !== 'apex.boolean'
         ? el.anchors
@@ -812,7 +882,50 @@ export default function App() {
         }
       },
 
-      hitEditHandle: (x, y) => renderer.hitEditHandle(x, y),
+      hitEditHandle: (x, y) => (shapeEditRef.current ? null : renderer.hitEditHandle(x, y)),
+      hitShapeHandle: (x, y) => (shapeEditRef.current ? renderer.hitEditHandle(x, y) : null),
+      beginShapeDrag: (index, _x, y) => {
+        const info = shapeEditRef.current;
+        const handle = info?.handles[index];
+        if (!info || !handle) return;
+        setShapeHandle(index);
+        const p = handle.position;
+        const a = renderer.worldToClient(p);
+        const b = renderer.worldToClient([p[0], p[1] + 1, p[2]]);
+        const pxPerM = a && b ? a[1] - b[1] : 0;
+        // Looking straight down (plan): no vertical drag; type the offset instead.
+        shapeDragRef.current = Math.abs(pxPerM) < 4 ? null : { index, startY: y, pxPerM, dz: 0 };
+      },
+      moveShapeDrag: (_x, y) => {
+        const drag = shapeDragRef.current;
+        const info = shapeEditRef.current;
+        if (!drag || !info) return;
+        drag.dz = Math.round(((drag.startY - y) / drag.pxPerM) * 100) / 100;
+        showShapeGizmo(info, drag);
+      },
+      endShapeDrag: () => {
+        const drag = shapeDragRef.current;
+        shapeDragRef.current = null;
+        const info = shapeEditRef.current;
+        const target = shapeEditForRef.current?.id;
+        if (!drag || !info || !target || Math.abs(drag.dz) < 1e-6) return;
+        const handle = info.handles[drag.index];
+        const vertices = info.handles.filter((h) => h.kind === 'vertex').length;
+        const next: SlabShapeDto = {
+          z: Array.from({ length: vertices }, (_, i) => info.shape.z[i] ?? 0),
+          points: info.shape.points.map((p) => [...p] as [number, number, number]),
+          creases: info.shape.creases,
+        };
+        if (handle.kind === 'vertex') next.z[handle.index] = handle.offset + drag.dz;
+        else next.points[handle.index][2] = handle.offset + drag.dz;
+        try {
+          applyScene(apexSetSlabShape(target, next));
+          setError(null);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+          showShapeGizmo(info);
+        }
+      },
       selectedAnchors: () => {
         if (selectedGridAxisRef.current) return selectedGridAxisRef.current.anchors;
         if (selectedConstructionLineRef.current)
@@ -1712,6 +1825,26 @@ export default function App() {
           worldToClient: (p: Vec3) => rendererRef.current?.worldToClient(p) ?? null,
           getCamera: () => rendererRef.current?.getCamera() ?? null,
           setCamera: (c: Parameters<ViewportRenderer['setCamera']>[0]) => rendererRef.current?.setCamera(c),
+          /** Select the newest element of a component (e.g. 'apex.roof_pitched'). */
+          selectLast: (componentId: string) => {
+            const hit = apexListElements().filter((e) => e.component_id === componentId).pop();
+            if (hit) applyScene(apexSelectElement(hit.id));
+            return hit?.id ?? null;
+          },
+          /** Select the element of a category whose anchors' midpoint is nearest (x, y, z). */
+          selectNear: (category: string, p: Vec3) => {
+            let best: { id: string; d: number } | null = null;
+            for (const e of apexListElements().filter((el) => el.category === category)) {
+              apexSelectElement(e.id);
+              const a = apexGetSelected()?.anchors ?? [];
+              if (!a.length) continue;
+              const m = [0, 1, 2].map((k) => a.reduce((s, v) => s + v[k], 0) / a.length);
+              const d = Math.hypot(m[0] - p[0], m[1] - p[1], m[2] - p[2]);
+              if (!best || d <= best.d + 1e-6) best = { id: e.id, d }; // ties: newest wins
+            }
+            applyScene(apexSelectElement(best?.id ?? null));
+            return best?.id ?? null;
+          },
         };
 
         const stored = loadStoredProject();
@@ -2010,6 +2143,16 @@ export default function App() {
     }
   };
 
+  const onSetSlabShape = (shape: SlabShapeDto) => {
+    if (!selected) return;
+    try {
+      applyScene(apexSetSlabShape(selected.id, shape));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const onUpdateParams = (params: Record<string, ParamValue>) => {
     if (!selected) return;
     try {
@@ -2254,6 +2397,17 @@ export default function App() {
           : null
       }
       onUpdate={onUpdateParams}
+      shapeSection={
+        shapeTarget && shapeInfo ? (
+          <SlabShapePanel
+            info={shapeInfo}
+            editing={shapeEditing}
+            activeHandle={shapeHandle}
+            onToggleEditing={() => setShapeEditing((v) => !v)}
+            onChange={onSetSlabShape}
+          />
+        ) : null
+      }
       onUpdateGridAxis={onUpdateGridAxisParams}
       onUpdateConstructionLine={onUpdateConstructionLineParams}
       onUpdateSectionCut={onUpdateSectionCutParams}

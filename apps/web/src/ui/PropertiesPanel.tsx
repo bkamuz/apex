@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import type {
   ComponentDto,
   ConstructionLineDto,
@@ -38,6 +38,8 @@ interface Props {
   /** Create-tool draft: profile + instance fields used for preview and place. */
   placement: { component: ComponentDto; params: Record<string, ParamValue> } | null;
   onUpdate: (params: Record<string, ParamValue>) => void;
+  /** Sub-element shape editor for slabs / flat roofs. */
+  shapeSection?: ReactNode;
   onUpdateGridAxis: (params: Record<string, ParamValue>) => void;
   onUpdateConstructionLine: (params: Record<string, ParamValue>) => void;
   onUpdateSectionCut: (params: Record<string, ParamValue>) => void;
@@ -325,6 +327,7 @@ export function PropertiesPanel({
   selectedLevel,
   placement,
   onUpdate,
+  shapeSection,
   onUpdateGridAxis,
   onUpdateConstructionLine,
   onUpdateSectionCut,
@@ -625,9 +628,11 @@ export function PropertiesPanel({
     const profileId = selected.profile_id ?? String(selected.params.profile ?? '');
     const host = component ?? emptyComponent();
     const profile = profiles.find((item) => item.id === profileId);
-    const specs = instanceSpecs(host, profile).map((spec) =>
-      component ? withProfileOptions(spec, component, profiles, profileId) : spec,
-    );
+    const specs = instanceSpecs(host, profile)
+      .filter((spec) => !(shapeSection && spec.id === 'shape'))
+      .map((spec) =>
+        component ? withProfileOptions(spec, component, profiles, profileId) : spec,
+      );
     const apply = (patch: Record<string, ParamValue> = {}) => {
       let next = { ...draft, ...patch };
       if (typeof patch.profile === 'string' && component) {
@@ -718,6 +723,8 @@ export function PropertiesPanel({
             onCommit={(patch) => apply(patch)}
           />
         </div>
+
+        {shapeSection}
 
         <TypeBlock
           profile={profile}

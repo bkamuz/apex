@@ -17,6 +17,9 @@ use crate::component::{
 };
 use crate::element::{ComponentId, Element};
 use crate::expr::Expr;
+
+/// Param holding a slab's sub-element shape.
+pub(crate) const SLAB_SHAPE: &str = "shape";
 use crate::param::{ParamError, ParamKind, ParamMap, ParamSpec};
 use crate::placement::{Placement, PlacementKind};
 use crate::reference::{Reference, ReferenceFilter};
@@ -641,7 +644,11 @@ fn slab() -> ComponentDefinition {
         source: ComponentSource::BuiltIn,
         placement: PlacementKind::Polyline,
         placement_options: PlacementOptions::closed_boundary(),
-        params: vec![ParamSpec::length("thickness", "Thickness", 0.2)],
+        params: vec![
+            ParamSpec::length("thickness", "Thickness", 0.2),
+            // Sub-element shape (JSON, see `project::slab_shape`); empty = flat.
+            ParamSpec::text(SLAB_SHAPE, "Shape", ""),
+        ],
         recipe: GeometryRecipe::Extrude {
             profile: ProfileSpec::FromPlacement,
             frame: FrameSource::WorkPlane,
@@ -806,7 +813,11 @@ fn roof_flat() -> ComponentDefinition {
         source: ComponentSource::BuiltIn,
         placement: PlacementKind::Polyline,
         placement_options: PlacementOptions::closed_boundary(),
-        params: vec![ParamSpec::length("thickness", "Thickness", 0.2)],
+        params: vec![
+            ParamSpec::length("thickness", "Thickness", 0.2),
+            // Sub-element shape (JSON, see `project::slab_shape`); empty = flat.
+            ParamSpec::text(SLAB_SHAPE, "Shape", ""),
+        ],
         recipe: GeometryRecipe::Extrude {
             profile: ProfileSpec::FromPlacement,
             frame: FrameSource::WorkPlane,
@@ -828,9 +839,19 @@ fn roof_pitched() -> ComponentDefinition {
         placement: PlacementKind::TwoPoint,
         placement_options: PlacementOptions::default(),
         params: vec![
+            ParamSpec::choice("roof_type", "Roof type", &["gable", "hip"], "gable"),
             ParamSpec::length("width", "Width", 8.0),
+            ParamSpec::choice("slope_by", "Slope by", &["rise", "angle"], "rise"),
             ParamSpec::length("rise", "Rise", 1.8),
+            ParamSpec::angle("pitch", "Pitch", 30f64.to_radians()),
             ParamSpec::length("thickness", "Thickness", 0.15),
+            ParamSpec::length("overhang", "Overhang", 0.0).with_range(Some(0.0), None),
+            ParamSpec::choice(
+                "eave_cut",
+                "Eave cut",
+                &["vertical", "horizontal", "perpendicular"],
+                "vertical",
+            ),
             // Eave height above the level: new roofs are seeded from the storey rise so the
             // roof sits on top of the walls; 0 keeps older documents unchanged.
             ParamSpec::length("base_offset", "Eave elevation offset", 0.0).with_range(None, None),

@@ -22,4 +22,6 @@ pub enum GeometryError {
     Triangulation,
     #[error("a sweep needs at least two stations")]
     NotEnoughStations,
+    #[error("shaped surface: {0}")]
+    Surface(String),
 }

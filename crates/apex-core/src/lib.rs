@@ -58,7 +58,7 @@ pub use path_join::{
 pub use placement::{Placement, PlacementError, PlacementKind};
 pub use plan_symbols::opening_plan_symbols;
 pub use project::ProjectSnapshot;
-pub use project::{boolean_params, Project};
+pub use project::{boolean_params, Project, ShapeHandle, ShapeInfo, SlabShape};
 pub use reference::{
     RefId, Reference, ReferenceError, ReferenceFilter, ReferenceKind, ReferenceLibrary,
 };

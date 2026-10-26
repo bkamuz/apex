@@ -7,6 +7,8 @@ use std::collections::BTreeMap;
 
 mod booleans;
 mod roof_attach;
+mod slab_shape;
+pub use slab_shape::{ShapeHandle, ShapeInfo, SlabShape};
 mod solids;
 mod space_labels;
 pub use booleans::boolean_params;
@@ -1774,6 +1776,9 @@ impl Project {
             // A void: the host shows the hole; the opening itself is only a
             // translucent ghost so it can be seen and picked.
             return Ok(self.area_opening_ghost(element, level_id));
+        }
+        if let Some(mesh) = self.shaped_slab_mesh(element) {
+            return Ok(mesh);
         }
         if let Some(mesh) = self.solid_mesh(element) {
             return Ok(mesh);
