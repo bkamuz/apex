@@ -5,6 +5,7 @@
 use glam::Vec3;
 
 use crate::element::Element;
+use crate::family::{OpeningPlanSymbol, OpeningRecipe};
 use crate::project::Project;
 
 const ARC_SEGMENTS: usize = 12;
@@ -20,10 +21,18 @@ pub fn opening_plan_symbols(project: &Project, level: Option<crate::LevelId>) ->
             }
             continue;
         }
-        let kind = match element.component_id.as_str() {
-            "apex.door" => Kind::Door,
-            "apex.window" => Kind::Window,
-            _ => continue,
+        // Driven by the family's opening recipe, not by component id.
+        let Some(recipe) = project
+            .registry()
+            .get(&element.component_id)
+            .and_then(|d| d.opening.as_ref())
+        else {
+            continue;
+        };
+        let kind = match recipe.plan_symbol {
+            OpeningPlanSymbol::Swing => Kind::Door,
+            OpeningPlanSymbol::Window => Kind::Window,
+            OpeningPlanSymbol::None => continue,
         };
         if let Some(level) = level {
             if project.effective_level_id(element.id) != Some(level) {
@@ -32,7 +41,11 @@ pub fn opening_plan_symbols(project: &Project, level: Option<crate::LevelId>) ->
         }
         if let Some(frame) = opening_frame(project, element) {
             match kind {
-                Kind::Door => door_symbol(&frame, &mut out),
+                Kind::Door => {
+                    if !swing_from_geometry(project, element, recipe, &frame, &mut out) {
+                        door_symbol(&frame, &mut out)
+                    }
+                }
                 Kind::Window => window_symbol(&frame, &mut out),
             }
         }
@@ -62,6 +75,12 @@ fn opening_frame(project: &Project, element: &Element) -> Option<OpeningFrame> {
         .persistable_params(&element.component_id, &element.params)
         .unwrap_or_else(|_| element.params.clone());
     let width = params.number("width").unwrap_or(0.9) as f32;
+    let width = project
+        .registry()
+        .get(&element.component_id)
+        .and_then(|d| d.opening.as_ref())
+        .map(|r| r.extents(&params).0 as f32)
+        .unwrap_or(width);
 
     let host = element
         .parent_id
@@ -136,6 +155,43 @@ fn door_symbol(f: &OpeningFrame, out: &mut Vec<Vec3>) {
         push(out, prev, next);
         prev = next;
     }
+}
+
+/// Leaves and swing arcs taken from the generated opening geometry, so
+/// double doors and plugin generators draw what the 3D model shows.
+fn swing_from_geometry(
+    project: &Project,
+    element: &Element,
+    recipe: &OpeningRecipe,
+    f: &OpeningFrame,
+    out: &mut Vec<Vec3>,
+) -> bool {
+    let registry = project.registry();
+    let Ok(params) = registry.eval_params(&element.component_id, &element.params) else {
+        return false;
+    };
+    let Ok(geo) = registry.opening_geometry(recipe, &params, f.wall_thickness as f64) else {
+        return false;
+    };
+    let at = |u: f64, n: f64| f.center + f.along * u as f32 + f.across * n as f32;
+    let mut any = false;
+    for part in geo.parts.iter().filter(|p| p.angle.abs() > 1e-6) {
+        let len = part
+            .loops
+            .iter()
+            .flatten()
+            .map(|p| p[0].abs())
+            .fold(0.0_f64, f64::max);
+        let (sa, ca) = part.angle.sin_cos();
+        let o = part.origin;
+        push(out, at(o[0], o[1]), at(o[0] + ca * len, o[1] + sa * len));
+        any = true;
+    }
+    for [a, b] in &geo.lines {
+        push(out, at(a[0], a[2]), at(b[0], b[2]));
+        any = true;
+    }
+    any
 }
 
 /// Jambs across the wall plus two parallel glazing lines between them.

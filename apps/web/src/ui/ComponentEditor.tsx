@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type {
   ComponentDto,
+  ExprDto,
+  OpeningRecipeDto,
   GeometryRecipeDto,
   ParamKind,
   ParamSpecDto,
@@ -9,9 +11,13 @@ import type {
   ProfileSpecDto,
 } from '../types';
 import { ViewportRenderer } from '../viewport/ViewportRenderer';
-import { apexPreviewComponentDefinition } from '../wasm/apex';
+import { apexListComponents, apexPreviewComponentDefinition } from '../wasm/apex';
 import {
+  OPENING_EXPR_FIELDS,
   defaultPreviewParams,
+  exprText,
+  openingFamilyFrom,
+  parseExprText,
   defaultPreviewPoints,
   inferTemplate,
   syncTemplateRecipe,
@@ -194,6 +200,26 @@ export function ComponentEditor({ initial, originalId, profiles, onSave, onClose
     });
   };
 
+  /** Start an opening family from the built-in window or door. */
+  const applyOpeningTemplate = (baseId: 'apex.window' | 'apex.door') => {
+    const base = apexListComponents().find((c) => c.id === baseId);
+    if (!base) return;
+    setTemplate('custom');
+    setDraft((prev) => {
+      const kind = baseId === 'apex.door' ? 'door' : 'window';
+      const fresh = prev.opening || /^Custom /.test(prev.display_name);
+      return openingFamilyFrom(
+        base,
+        fresh ? prev.id.replace(/\.custom(\d*)$/, `.${kind}$1`) : prev.id,
+        fresh ? `Custom ${kind}` : prev.display_name,
+        prev.opening ? base.descriptor : prev.descriptor,
+      );
+    });
+  };
+
+  const updateOpening = (patch: Partial<OpeningRecipeDto>) =>
+    setDraft((prev) => (prev.opening ? { ...prev, opening: { ...prev.opening, ...patch } } : prev));
+
   const applyTemplate = (nextTemplate: ComponentTemplate) => {
     setTemplate(nextTemplate);
     setDraft((prev) => {
@@ -341,7 +367,23 @@ export function ComponentEditor({ initial, originalId, profiles, onSave, onClose
                 </button>
                 <button
                   type="button"
-                  className={template === 'custom' ? 'active' : ''}
+                  className={draft.opening?.infill !== 'leaf' && draft.opening ? 'active' : ''}
+                  onClick={() => applyOpeningTemplate('apex.window')}
+                  data-testid="template-window-family"
+                >
+                  Window family
+                </button>
+                <button
+                  type="button"
+                  className={draft.opening?.infill === 'leaf' ? 'active' : ''}
+                  onClick={() => applyOpeningTemplate('apex.door')}
+                  data-testid="template-door-family"
+                >
+                  Door family
+                </button>
+                <button
+                  type="button"
+                  className={template === 'custom' && !draft.opening ? 'active' : ''}
                   disabled={template === 'custom'}
                 >
                   Custom
@@ -514,6 +556,71 @@ export function ComponentEditor({ initial, originalId, profiles, onSave, onClose
               <button type="button" onClick={addParam} data-testid="add-component-param">
                 Add parameter
               </button>
+
+              {draft.opening ? (
+                <div data-section="opening-family" key={`${draft.id}-${draft.opening.infill ?? "glass"}`}>
+                  <div className="section-title">Opening family</div>
+                  <div className="empty" style={{ padding: 0, marginBottom: 4 }}>
+                    Each field takes a parameter id (e.g. width) or a number. Parameters set to
+                    &quot;Shared type&quot; become type values; types are managed in the inspector.
+                  </div>
+                  <div className="field">
+                    <label>Infill</label>
+                    <select
+                      data-testid="opening-infill"
+                      value={draft.opening.infill ?? 'glass'}
+                      onChange={(e) => updateOpening({ infill: e.target.value as 'glass' | 'leaf' })}
+                    >
+                      <option value="glass">Glazed sashes (window)</option>
+                      <option value="leaf">Swing leaves (door)</option>
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label>Plan symbol</label>
+                    <select
+                      value={draft.opening.plan_symbol ?? 'window'}
+                      onChange={(e) =>
+                        updateOpening({ plan_symbol: e.target.value as 'window' | 'swing' | 'none' })
+                      }
+                    >
+                      <option value="window">Glazing lines</option>
+                      <option value="swing">Door swing</option>
+                      <option value="none">None</option>
+                    </select>
+                  </div>
+                  <label className="component-flag">
+                    <input
+                      type="checkbox"
+                      checked={draft.opening.threshold !== false}
+                      onChange={(e) => updateOpening({ threshold: e.target.checked })}
+                    />
+                    Frame closed at the bottom (threshold / sill member)
+                  </label>
+                  {OPENING_EXPR_FIELDS.map(({ key, label }) => (
+                    <div className="field" key={key}>
+                      <label>{label}</label>
+                      <input
+                        type="text"
+                        data-testid={`opening-${key}`}
+                        defaultValue={exprText(draft.opening?.[key] as ExprDto | undefined)}
+                        onBlur={(e) => {
+                          const expr = parseExprText(e.target.value);
+                          if (expr) updateOpening({ [key]: expr } as Partial<OpeningRecipeDto>);
+                        }}
+                      />
+                    </div>
+                  ))}
+                  <div className="field">
+                    <label>Plugin generator</label>
+                    <input
+                      type="text"
+                      placeholder="(built-in)"
+                      defaultValue={draft.opening.generator ?? ''}
+                      onBlur={(e) => updateOpening({ generator: e.target.value.trim() || null })}
+                    />
+                  </div>
+                </div>
+              ) : null}
 
               <div className="section-title">Geometry</div>
               <div className="field">

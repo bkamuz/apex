@@ -1,4 +1,5 @@
 import type {
+  OpeningRecipeDto,
   ComponentDto,
   ExprDto,
   GeometryRecipeDto,
@@ -82,6 +83,7 @@ export function defaultNewComponent(id: string, template: ComponentTemplate): Co
 }
 
 export function inferTemplate(component: ComponentDto): ComponentTemplate | 'custom' {
+  if (component.opening) return 'custom';
   const recipe = component.recipe;
   if (recipe.op === 'extrude' && recipe.profile.shape === 'rectangle') {
     const w = recipe.profile.width;
@@ -228,4 +230,70 @@ export function validateComponentDraft(component: ComponentDto): string | null {
   if (!component.display_name.trim()) return 'Display name is required.';
   if (!component.recipe) return 'Geometry recipe is required.';
   return null;
+}
+
+/** Opening recipe fields editable as an expression (param id or number). */
+export const OPENING_EXPR_FIELDS: { key: keyof OpeningRecipeDto; label: string }[] = [
+  { key: 'width', label: 'Width' },
+  { key: 'height', label: 'Height' },
+  { key: 'sill', label: 'Sill' },
+  { key: 'arch_rise', label: 'Arch rise' },
+  { key: 'frame_width', label: 'Frame width' },
+  { key: 'columns', label: 'Columns' },
+  { key: 'rows', label: 'Rows' },
+  { key: 'mullion_width', label: 'Mullion width' },
+  { key: 'transom_height', label: 'Transom height' },
+  { key: 'sash_width', label: 'Sash width' },
+  { key: 'sash_depth', label: 'Sash depth' },
+  { key: 'bars_x', label: 'Vertical bars' },
+  { key: 'bars_y', label: 'Horizontal bars' },
+  { key: 'bar_width', label: 'Bar width' },
+  { key: 'leaf_thickness', label: 'Leaf thickness' },
+];
+
+/** Show an expression as a param id or a number (others as JSON). */
+export function exprText(expr: ExprDto | null | undefined): string {
+  if (!expr) return '';
+  if (expr.op === 'param') return expr.id;
+  if (expr.op === 'const') return String(expr.value);
+  return JSON.stringify(expr);
+}
+
+/** Parse a param id, a number, or an expression JSON. */
+export function parseExprText(text: string): ExprDto | undefined {
+  const t = text.trim();
+  if (!t) return undefined;
+  if (t.startsWith('{')) {
+    try {
+      return JSON.parse(t) as ExprDto;
+    } catch {
+      return undefined;
+    }
+  }
+  const n = Number(t);
+  if (Number.isFinite(n)) return constExpr(n);
+  return paramExpr(t);
+}
+
+/**
+ * A new opening family built from a built-in one (`apex.window` / `apex.door`):
+ * same params, host cut and void, own id/name; types are seeded on save.
+ */
+export function openingFamilyFrom(
+  base: ComponentDto,
+  id: string,
+  displayName: string,
+  descriptor: ComponentDto['descriptor'],
+): ComponentDto {
+  return {
+    ...base,
+    id,
+    display_name: displayName || `${base.display_name} family`,
+    source: 'visual',
+    default_type: null,
+    params: base.params.map((spec) =>
+      spec.id === 'type' ? { ...spec, kind: 'text', options: undefined, default: '' } : spec,
+    ),
+    descriptor: descriptor?.purpose ? descriptor : base.descriptor,
+  };
 }

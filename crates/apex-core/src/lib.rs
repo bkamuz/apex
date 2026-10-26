@@ -9,6 +9,7 @@ mod document;
 mod dxf_export;
 mod element;
 mod expr;
+mod family;
 mod grid_axis;
 mod history;
 mod level;
@@ -52,6 +53,10 @@ pub use document::{Document, DocumentChange, DocumentChangeKind, ElementSceneEnt
 pub use dxf_export::drawing_to_dxf;
 pub use element::{ComponentId, Element, ElementId};
 pub use expr::{Expr, ExprError};
+pub use family::{
+    build_opening, emit_opening, FamilyType, OpeningGenerator, OpeningGeometry, OpeningInfill,
+    OpeningPart, OpeningPlanSymbol, OpeningRecipe, TYPE_PARAM,
+};
 pub use grid_axis::{
     grid_axis_param_specs, GridAxis, GridAxisError, GridAxisId, GridAxisLibrary, GridAxisOverlay,
 };

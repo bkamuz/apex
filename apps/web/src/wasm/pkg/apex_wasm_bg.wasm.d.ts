@@ -64,6 +64,7 @@ export const previewElement: (a: number, b: number, c: number, d: number, e: num
 export const previewProfile: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const redo: () => [number, number, number];
 export const registerComponent: (a: number, b: number) => [number, number, number];
+export const registerOpeningGenerator: (a: number, b: number, c: number, d: number, e: any) => [number, number, number];
 export const registerProfile: (a: number, b: number) => [number, number, number];
 export const removeSheetViewport: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const renameSheet: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
@@ -107,9 +108,9 @@ export const updateViewAnnotation: (a: number, b: number, c: number, d: number) 
 export const updateViewSettings: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const __wbindgen_malloc: (a: number, b: number) => number;
 export const __wbindgen_realloc: (a: number, b: number, c: number, d: number) => number;
-export const __wbindgen_free: (a: number, b: number, c: number) => void;
 export const __wbindgen_exn_store: (a: number) => void;
 export const __externref_table_alloc: () => number;
 export const __wbindgen_externrefs: WebAssembly.Table;
+export const __wbindgen_free: (a: number, b: number, c: number) => void;
 export const __externref_table_dealloc: (a: number) => void;
 export const __wbindgen_start: () => void;

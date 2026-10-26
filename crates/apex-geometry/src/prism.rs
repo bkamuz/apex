@@ -786,7 +786,7 @@ fn zipper(
 }
 
 /// Constrained Delaunay triangulation of one shape (outer + holes).
-fn triangulate_shape(rings: &[Ring]) -> Vec<[[f64; 2]; 3]> {
+pub fn triangulate_shape(rings: &[Ring]) -> Vec<[[f64; 2]; 3]> {
     let mut points: Vec<[f64; 2]> = Vec::new();
     let mut index_of = std::collections::HashMap::<[i64; 2], usize>::new();
     let mut constraints = Vec::new();

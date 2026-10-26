@@ -643,6 +643,14 @@ pub struct ComponentDefinition {
     /// definition without it fails to parse, and an empty purpose fails
     /// [`ComponentDefinition::validate`].
     pub descriptor: crate::descriptor::Descriptor,
+    /// Data recipe for a wall-hosted opening family (window, door, …). When
+    /// set, hosted instances are built from it instead of `recipe` (which
+    /// still drives the host void and unhosted previews).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opening: Option<crate::family::OpeningRecipe>,
+    /// Family type new instances get when none is given.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_type: Option<String>,
 }
 
 impl ComponentDefinition {
@@ -667,7 +675,17 @@ impl ComponentDefinition {
             }
         }
 
-        for param in self.recipe.referenced_params() {
+        let opening_params = self
+            .opening
+            .as_ref()
+            .map(|o| o.referenced_params())
+            .unwrap_or_default();
+        for param in self
+            .recipe
+            .referenced_params()
+            .into_iter()
+            .chain(opening_params)
+        {
             if !seen.contains(param.as_str()) {
                 return Err(DefinitionError::UndeclaredParam {
                     component: self.id.clone(),
@@ -1343,6 +1361,8 @@ mod tests {
     #[test]
     fn validate_rejects_a_recipe_that_uses_an_undeclared_param() {
         let def = ComponentDefinition {
+            opening: None,
+            default_type: None,
             descriptor: crate::Descriptor::new("test"),
             id: "acme.thing".into(),
             display_name: "Thing".into(),
@@ -1379,6 +1399,8 @@ mod tests {
     #[test]
     fn validate_rejects_duplicate_and_empty_ids() {
         let mut def = ComponentDefinition {
+            opening: None,
+            default_type: None,
             descriptor: crate::Descriptor::new("test"),
             id: "acme.thing".into(),
             display_name: "Thing".into(),
@@ -1421,6 +1443,8 @@ mod tests {
     #[test]
     fn a_definition_round_trips_through_json() {
         let def = ComponentDefinition {
+            opening: None,
+            default_type: None,
             descriptor: crate::Descriptor::new("test"),
             id: "acme.table".into(),
             display_name: "Table".into(),
@@ -1499,6 +1523,8 @@ mod tests {
     #[test]
     fn resolve_params_applies_this_components_schema() {
         let def = ComponentDefinition {
+            opening: None,
+            default_type: None,
             descriptor: crate::Descriptor::new("test"),
             id: "acme.thing".into(),
             display_name: "Thing".into(),

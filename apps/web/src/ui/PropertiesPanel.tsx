@@ -40,6 +40,8 @@ interface Props {
   onUpdate: (params: Record<string, ParamValue>) => void;
   /** Sub-element shape editor for slabs / flat roofs. */
   shapeSection?: ReactNode;
+  /** Family/type block for typed families (doors, windows). */
+  familySection?: ReactNode;
   /** Attach Top/Base controls for walls and columns. */
   attachSection?: ReactNode;
   onUpdateGridAxis: (params: Record<string, ParamValue>) => void;
@@ -85,7 +87,7 @@ function optionLabel(
 }
 
 /** One control per parameter, chosen from the declared kind. */
-function ParamField({
+export function ParamField({
   spec,
   value,
   profiles,
@@ -330,6 +332,7 @@ export function PropertiesPanel({
   placement,
   onUpdate,
   shapeSection,
+  familySection,
   attachSection,
   onUpdateGridAxis,
   onUpdateConstructionLine,
@@ -631,8 +634,11 @@ export function PropertiesPanel({
     const profileId = selected.profile_id ?? String(selected.params.profile ?? '');
     const host = component ?? emptyComponent();
     const profile = profiles.find((item) => item.id === profileId);
+    // Typed families: type-bound values live in the family/type section.
+    const typed = Boolean(component?.default_type);
     const specs = instanceSpecs(host, profile)
       .filter((spec) => !(shapeSection && spec.id === 'shape'))
+      .filter((spec) => !typed || (spec.binding !== 'type' && spec.id !== 'type'))
       .map((spec) =>
         component ? withProfileOptions(spec, component, profiles, profileId) : spec,
       );
@@ -727,16 +733,20 @@ export function PropertiesPanel({
           />
         </div>
 
+        {familySection}
+
         {shapeSection}
 
         {attachSection}
 
-        <TypeBlock
-          profile={profile}
-          values={selected.type_values ?? typeValueMap(profile)}
-          profiles={profiles}
-          onEditType={onEditType}
-        />
+        {typed ? null : (
+          <TypeBlock
+            profile={profile}
+            values={selected.type_values ?? typeValueMap(profile)}
+            profiles={profiles}
+            onEditType={onEditType}
+          />
+        )}
 
         <button type="button" className="danger" onClick={onDelete}>
           Delete

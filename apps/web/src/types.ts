@@ -154,6 +154,44 @@ export interface ComponentDto {
   joinable?: boolean;
   /** Mandatory in core; what the element type is for. */
   descriptor?: import('./descriptor').Descriptor;
+  /** Opening families (doors, windows): parametric frame/sash/leaf recipe. */
+  opening?: OpeningRecipeDto | null;
+  /** Typed families: the type new instances get. */
+  default_type?: string | null;
+}
+
+/** Mirrors `OpeningRecipe` in apex-core; every number is an `Expr`. */
+export interface OpeningRecipeDto {
+  width?: ExprDto;
+  height?: ExprDto;
+  sill?: ExprDto;
+  arch_rise?: ExprDto;
+  frame_width?: ExprDto;
+  frame_depth?: ExprDto | null;
+  threshold?: boolean;
+  columns?: ExprDto;
+  rows?: ExprDto;
+  mullion_width?: ExprDto;
+  transom_height?: ExprDto;
+  infill?: 'glass' | 'leaf';
+  sash_width?: ExprDto;
+  sash_depth?: ExprDto;
+  bars_x?: ExprDto;
+  bars_y?: ExprDto;
+  bar_width?: ExprDto;
+  leaf_thickness?: ExprDto;
+  plan_symbol?: 'window' | 'swing' | 'none';
+  generator?: string | null;
+}
+
+/** A named type of a family (`list_family_types`). */
+export interface FamilyTypeDto {
+  id: string;
+  family: string;
+  name: string;
+  values: Record<string, ParamValue>;
+  default: boolean;
+  instances: number;
 }
 
 export interface ElementDto {
