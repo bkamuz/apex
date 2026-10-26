@@ -7,8 +7,8 @@ fn ex(p: &mut Project, v: serde_json::Value) -> serde_json::Value {
 }
 #[test]
 fn l_house_with_tee_walls_attaches_cleanly() {
-    // Join winners follow element ids, so repeat to cover both ways the
-    // tee walls can pinch the L's corner.
+    // Join winners are deterministic now; repeat anyway as a cheap guard
+    // against order leaks (see tests/determinism.rs).
     for _ in 0..12 {
         house();
     }

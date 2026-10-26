@@ -104,6 +104,22 @@ impl Element {
         }
     }
 
+    /// A key that orders elements the same way on every run.
+    ///
+    /// Ids are random UUIDs, so anything order-sensitive (join winners,
+    /// boolean operand order, iteration) keys on the element's content first
+    /// and only falls back to the id for exact duplicates.
+    pub fn order_key(&self) -> (String, String, ElementId) {
+        let content = format!(
+            "{}|{}|{}|{}",
+            serde_json::to_string(&self.placement).unwrap_or_default(),
+            serde_json::to_string(&self.params).unwrap_or_default(),
+            self.join_start.to_bits(),
+            self.join_end.to_bits()
+        );
+        (self.component_id.to_string(), content, self.id)
+    }
+
     /// Attach this element to a parent.
     pub fn with_parent(mut self, parent_id: Option<ElementId>) -> Self {
         self.parent_id = parent_id;

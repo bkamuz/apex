@@ -74,7 +74,14 @@ impl Document {
     }
 
     pub fn levels(&self) -> impl Iterator<Item = &Level> {
-        self.levels.values()
+        let mut all: Vec<&Level> = self.levels.values().collect();
+        all.sort_by(|a, b| {
+            a.elevation
+                .total_cmp(&b.elevation)
+                .then_with(|| a.name.cmp(&b.name))
+                .then_with(|| a.id.to_string().cmp(&b.id.to_string()))
+        });
+        all.into_iter()
     }
 
     pub fn get_level(&self, id: LevelId) -> Option<&Level> {
@@ -210,8 +217,11 @@ impl Document {
             .collect()
     }
 
+    /// Every element, in a deterministic order (see [`Element::order_key`]).
     pub fn elements(&self) -> impl Iterator<Item = &Element> {
-        self.elements.values()
+        let mut all: Vec<&Element> = self.elements.values().collect();
+        all.sort_by_cached_key(|e| e.order_key());
+        all.into_iter()
     }
 
     pub fn get_element(&self, id: ElementId) -> Option<&Element> {
@@ -226,7 +236,7 @@ impl Document {
             .filter(|element| element.parent_id == Some(id) && element.id != id)
             .map(|element| element.id)
             .collect();
-        children.sort_by_key(|child| child.to_string());
+        children.sort_by_cached_key(|child| self.elements[child].order_key());
         children
     }
 
@@ -284,7 +294,7 @@ impl Document {
             .filter(|element| self.effective_level_id(element.id) == Some(level))
             .map(|element| element.id)
             .collect();
-        ids.sort_by_key(|id| id.to_string());
+        ids.sort_by_cached_key(|id| self.elements[id].order_key());
         ids
     }
 
@@ -497,8 +507,7 @@ impl Document {
         let mut edge_positions = Vec::new();
         let mut element_index = Vec::new();
 
-        let mut elements: Vec<_> = self.elements.values().collect();
-        elements.sort_by_key(|e| e.id.to_string());
+        let elements: Vec<_> = self.elements().collect();
 
         for (ei, element) in elements.iter().enumerate() {
             let Some(mesh) = self.meshes.get(&element.id) else {

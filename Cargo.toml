@@ -38,3 +38,8 @@ spade = { version = "2.15", default-features = false, features = ["std"] }
 [profile.release]
 lto = true
 opt-level = "s"
+
+# Vendored boolmesh 0.2.1 (MPL-2.0) with BTreeMap instead of HashMap so the
+# boolean output is identical on every run (std HashMap seeds randomly).
+[patch.crates-io]
+boolmesh = { path = "third_party/boolmesh" }
