@@ -1,9 +1,12 @@
 //! IFC4 (and IFC2X3-ish) import into an Apex [`Project`].
 //!
-//! MVP scope: products that expose `IfcTriangulatedFaceSet`, faceted B-rep
-//! faces, or simple extruded area solids, plus `IfcBuildingStorey` levels.
-//! Placements follow `IfcLocalPlacement` chains. Geometry is converted from
-//! IFC Z-up into Apex Y-up and stored on `apex.ifc.mesh` instances.
+//! Scope: products that expose `IfcTriangulatedFaceSet`, faceted B-rep faces,
+//! extruded area solids (including `IfcCompositeCurve` profiles with line and
+//! circular arc segments), and `IfcMappedItem` instances, plus
+//! `IfcBuildingStorey` levels. Length units come from `IfcUnitAssignment`
+//! (not an arbitrary `IfcSIUnit` in the file). Placements follow
+//! `IfcLocalPlacement` chains. Geometry is converted from IFC Z-up into Apex
+//! Y-up and stored on `apex.ifc.mesh` instances.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -221,7 +224,31 @@ fn nearest_level(project: &Project, y: f32) -> Option<LevelId> {
 }
 
 fn length_scale_metres(file: &StepFile) -> f32 {
-    for unit in file.of_type("IFCSIUNIT") {
+    // Prefer units listed on IfcUnitAssignment. Scanning every IfcSIUnit is
+    // wrong when a file declares both MILLI.METRE and METRE (common in Revit):
+    // HashMap iteration order would flip the model by 1000×.
+    let assigned: Vec<u64> = file
+        .of_type("IFCUNITASSIGNMENT")
+        .flat_map(|e| e.args.iter())
+        .filter_map(Value::as_list)
+        .flatten()
+        .filter_map(Value::as_ref_id)
+        .collect();
+    if let Some(scale) = length_scale_from_units(file, &assigned) {
+        return scale;
+    }
+    let all: Vec<u64> = file.of_type("IFCSIUNIT").map(|e| e.id).collect();
+    length_scale_from_units(file, &all).unwrap_or(1.0)
+}
+
+fn length_scale_from_units(file: &StepFile, ids: &[u64]) -> Option<f32> {
+    for &id in ids {
+        let Some(unit) = file.get(id) else {
+            continue;
+        };
+        if unit.type_name != "IFCSIUNIT" {
+            continue;
+        }
         let kind = unit.args.get(1).and_then(|v| match v {
             Value::Enum(s) => Some(s.as_str()),
             _ => None,
@@ -241,15 +268,15 @@ fn length_scale_metres(file: &StepFile) -> f32 {
         if name != Some("METRE") {
             continue;
         }
-        return match prefix.unwrap_or("") {
+        return Some(match prefix.unwrap_or("") {
             "MILLI" => 0.001,
             "CENTI" => 0.01,
             "DECI" => 0.1,
             "KILO" => 1000.0,
             _ => 1.0,
-        };
+        });
     }
-    1.0
+    None
 }
 
 fn collect_storeys(file: &StepFile, scale: f32) -> Vec<Storey> {
@@ -367,16 +394,59 @@ fn assign_storeys(file: &StepFile, products: &mut [Product]) {
 fn product_mesh(file: &StepFile, product: &Product, scale: f32) -> Option<TriangleMesh> {
     let shape_id = product.representation?;
     let shape = file.get(shape_id)?;
-    let reps = shape
+    let reps: Vec<u64> = shape
         .args
         .iter()
         .find_map(Value::as_list)
         .into_iter()
         .flatten()
-        .filter_map(Value::as_ref_id);
+        .filter_map(Value::as_ref_id)
+        .collect();
+    // Prefer solid body / tessellation contexts; Axis/FootPrint are often 2D
+    // and would otherwise dilute or confuse import.
+    let mut body_first = reps.clone();
+    body_first.sort_by_key(|id| {
+        let id = *id;
+        let Some(entity) = file.get(id) else {
+            return 2u8;
+        };
+        let ident = entity
+            .args
+            .get(1)
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_ascii_lowercase();
+        match ident.as_str() {
+            "body" | "tessellation" | "facetation" | "solidmodel" | "brep" => 0,
+            "box" | "boundingbox" => 2,
+            _ => 1,
+        }
+    });
     let mut mesh = TriangleMesh::empty();
-    for rep_id in reps {
-        collect_representation_mesh(file, rep_id, scale, &mut mesh, &mut HashSet::new());
+    for rep_id in body_first {
+        let before = mesh.triangle_count();
+        collect_representation_mesh(
+            file,
+            rep_id,
+            scale,
+            Mat4::IDENTITY,
+            &mut mesh,
+            &mut HashSet::new(),
+        );
+        // Once we have body triangles, stop — skip Axis/FootPrint overlays.
+        if mesh.triangle_count() > before {
+            let ident = file
+                .get(rep_id)
+                .and_then(|e| e.args.get(1).and_then(Value::as_str))
+                .unwrap_or("")
+                .to_ascii_lowercase();
+            if matches!(
+                ident.as_str(),
+                "body" | "tessellation" | "facetation" | "solidmodel" | "brep"
+            ) {
+                break;
+            }
+        }
     }
     if mesh.is_empty() {
         None
@@ -389,6 +459,7 @@ fn collect_representation_mesh(
     file: &StepFile,
     id: u64,
     scale: f32,
+    local: Mat4,
     out: &mut TriangleMesh,
     visiting: &mut HashSet<u64>,
 ) {
@@ -401,23 +472,54 @@ fn collect_representation_mesh(
     match entity.type_name.as_str() {
         "IFCTRIANGULATEDFACESET" => {
             if let Some(m) = triangulated_face_set(file, entity, scale) {
-                out.append(&m);
+                out.append(&transform_mesh_local(&m, local));
             }
         }
         "IFCPOLYLOOP" => {
             if let Some(m) = poly_loop_mesh(file, entity, scale) {
-                out.append(&m);
+                out.append(&transform_mesh_local(&m, local));
             }
         }
         "IFCEXTRUDEDAREASOLID" => {
             if let Some(m) = extruded_area_solid(file, entity, scale) {
-                out.append(&m);
+                out.append(&transform_mesh_local(&m, local));
             }
         }
+        "IFCMAPPEDITEM" => {
+            // MappingSource = IfcRepresentationMap; MappingTarget = Cartesian op.
+            let Some(map_id) = entity.args.first().and_then(Value::as_ref_id) else {
+                return;
+            };
+            let op = entity
+                .args
+                .get(1)
+                .and_then(Value::as_ref_id)
+                .map(|oid| cartesian_operator_matrix(file, oid, scale))
+                .unwrap_or(Mat4::IDENTITY);
+            let Some(map) = file.get(map_id) else {
+                return;
+            };
+            if map.type_name != "IFCREPRESENTATIONMAP" {
+                return;
+            }
+            let origin = map
+                .args
+                .first()
+                .and_then(Value::as_ref_id)
+                .map(|oid| axis2placement_matrix(file, oid, scale))
+                .unwrap_or(Mat4::IDENTITY);
+            let Some(mapped_rep) = map.args.get(1).and_then(Value::as_ref_id) else {
+                return;
+            };
+            // Parent space ← MappingTarget ← MappingOrigin ← mapped geometry.
+            let child = local * op * origin;
+            collect_representation_mesh(file, mapped_rep, scale, child, out, visiting);
+        }
         "IFCBOOLEANRESULT" | "IFCBOOLEANCLIPPINGRESULT" => {
+            // MVP: keep the first operand that yields triangles (no CSG yet).
             for arg in &entity.args {
                 let before = out.triangle_count();
-                walk_value_for_geometry(file, arg, scale, out, visiting);
+                walk_value_for_geometry(file, arg, scale, local, out, visiting);
                 if out.triangle_count() > before {
                     break;
                 }
@@ -425,7 +527,7 @@ fn collect_representation_mesh(
         }
         _ => {
             for arg in &entity.args {
-                walk_value_for_geometry(file, arg, scale, out, visiting);
+                walk_value_for_geometry(file, arg, scale, local, out, visiting);
             }
         }
     }
@@ -435,19 +537,136 @@ fn walk_value_for_geometry(
     file: &StepFile,
     value: &Value,
     scale: f32,
+    local: Mat4,
     out: &mut TriangleMesh,
     visiting: &mut HashSet<u64>,
 ) {
     match value {
-        Value::Ref(id) => collect_representation_mesh(file, *id, scale, out, visiting),
+        Value::Ref(id) => collect_representation_mesh(file, *id, scale, local, out, visiting),
         Value::List(items) => {
             for item in items {
-                walk_value_for_geometry(file, item, scale, out, visiting);
+                walk_value_for_geometry(file, item, scale, local, out, visiting);
             }
         }
-        Value::Typed { inner, .. } => walk_value_for_geometry(file, inner, scale, out, visiting),
+        Value::Typed { inner, .. } => {
+            walk_value_for_geometry(file, inner, scale, local, out, visiting)
+        }
         _ => {}
     }
+}
+
+fn transform_mesh_local(mesh: &TriangleMesh, transform: Mat4) -> TriangleMesh {
+    if transform == Mat4::IDENTITY {
+        return mesh.clone();
+    }
+    let mut out = TriangleMesh::empty();
+    let n_verts = mesh.vertex_count();
+    let mut positions = Vec::with_capacity(mesh.positions.len());
+    let mut normals = Vec::with_capacity(mesh.normals.len());
+    for i in 0..n_verts {
+        let p = Vec3::new(
+            mesh.positions[i * 3],
+            mesh.positions[i * 3 + 1],
+            mesh.positions[i * 3 + 2],
+        );
+        let n = Vec3::new(
+            mesh.normals.get(i * 3).copied().unwrap_or(0.0),
+            mesh.normals.get(i * 3 + 1).copied().unwrap_or(0.0),
+            mesh.normals.get(i * 3 + 2).copied().unwrap_or(1.0),
+        );
+        let pw = (transform * Vec4::new(p.x, p.y, p.z, 1.0)).truncate();
+        let nw = (transform * Vec4::new(n.x, n.y, n.z, 0.0))
+            .truncate()
+            .normalize_or_zero();
+        positions.extend_from_slice(&pw.to_array());
+        normals.extend_from_slice(&nw.to_array());
+    }
+    out.positions = positions;
+    out.normals = normals;
+    out.indices = mesh.indices.clone();
+    // Keep authoring edges (profile / shell) — do not explode every triangle
+    // diagonal into the wireframe.
+    out.edges = transform_edge_list(&mesh.edges, transform);
+    out
+}
+
+fn transform_edge_list(edges: &[f32], transform: Mat4) -> Vec<f32> {
+    let mut out = Vec::with_capacity(edges.len());
+    for p in edges.chunks(3) {
+        if p.len() < 3 {
+            break;
+        }
+        let pw = (transform * Vec4::new(p[0], p[1], p[2], 1.0)).truncate();
+        out.extend_from_slice(&pw.to_array());
+    }
+    out
+}
+
+fn cartesian_operator_matrix(file: &StepFile, id: u64, scale: f32) -> Mat4 {
+    let Some(entity) = file.get(id) else {
+        return Mat4::IDENTITY;
+    };
+    if !entity
+        .type_name
+        .starts_with("IFCCARTESIANTRANSFORMATIONOPERATOR")
+    {
+        return Mat4::IDENTITY;
+    }
+    let axis1 = entity
+        .args
+        .first()
+        .and_then(Value::as_ref_id)
+        .and_then(|did| direction(file, did))
+        .unwrap_or(Vec3::X)
+        .normalize_or_zero();
+    let axis2 = entity
+        .args
+        .get(1)
+        .and_then(Value::as_ref_id)
+        .and_then(|did| direction(file, did));
+    let origin = entity
+        .args
+        .get(2)
+        .and_then(Value::as_ref_id)
+        .and_then(|pid| cartesian_point(file, pid, scale))
+        .unwrap_or(Vec3::ZERO);
+    let scale_u = entity.args.get(3).and_then(Value::as_f64).unwrap_or(1.0) as f32;
+    let axis3 = entity
+        .args
+        .get(4)
+        .and_then(Value::as_ref_id)
+        .and_then(|did| direction(file, did));
+
+    let x = if axis1.length_squared() < 1e-12 {
+        Vec3::X
+    } else {
+        axis1
+    };
+    let z = axis3
+        .map(|a| a.normalize_or_zero())
+        .filter(|a| a.length_squared() > 1e-12)
+        .unwrap_or_else(|| {
+            axis2
+                .map(|y| x.cross(y).normalize_or_zero())
+                .filter(|a| a.length_squared() > 1e-12)
+                .unwrap_or(Vec3::Z)
+        });
+    let y = axis2
+        .map(|a| a.normalize_or_zero())
+        .filter(|a| a.length_squared() > 1e-12)
+        .unwrap_or_else(|| z.cross(x).normalize_or_zero());
+    let y = if y.length_squared() < 1e-12 {
+        z.cross(x).normalize_or_zero()
+    } else {
+        y
+    };
+    let s = if scale_u.abs() < 1e-12 { 1.0 } else { scale_u };
+    Mat4::from_cols(
+        Vec4::new(x.x * s, x.y * s, x.z * s, 0.0),
+        Vec4::new(y.x * s, y.y * s, y.z * s, 0.0),
+        Vec4::new(z.x * s, z.y * s, z.z * s, 0.0),
+        Vec4::new(origin.x, origin.y, origin.z, 1.0),
+    )
 }
 
 fn triangulated_face_set(file: &StepFile, entity: &Entity, scale: f32) -> Option<TriangleMesh> {
@@ -488,7 +707,11 @@ fn triangulated_face_set(file: &StepFile, entity: &Entity, scale: f32) -> Option
         indices.push(b - 1);
         indices.push(c - 1);
     }
-    Some(mesh_from_indexed(&positions, &indices))
+    let mut mesh = mesh_from_indexed(&positions, &indices);
+    // Drop per-triangle edges so the IFC→Apex transform can emit a boundary
+    // wireframe instead of triangulation diagonals.
+    mesh.edges.clear();
+    Some(mesh)
 }
 
 fn poly_loop_mesh(file: &StepFile, entity: &Entity, scale: f32) -> Option<TriangleMesh> {
@@ -666,8 +889,175 @@ fn polyline_from_curve(file: &StepFile, id: u64, scale: f32) -> Option<Vec<Vec3>
             }
             Some(out)
         }
+        "IFCCOMPOSITECURVE" => composite_curve_xy(file, entity, scale),
+        "IFCTRIMMEDCURVE" => trimmed_curve_xy(file, entity, scale),
+        "IFCCIRCLE" => {
+            // Full circle fallback (closed profile).
+            let mut pts = circle_arc_xy(file, id, scale, 0.0, std::f32::consts::TAU, true)?;
+            if pts.len() > 1 {
+                pts.pop(); // drop duplicate close for profile rings
+            }
+            Some(pts)
+        }
         _ => None,
     }
+}
+
+fn composite_curve_xy(file: &StepFile, entity: &Entity, scale: f32) -> Option<Vec<Vec3>> {
+    let segments = entity.args.first()?.as_list()?;
+    let mut out = Vec::new();
+    for seg_ref in segments {
+        let seg_id = seg_ref.as_ref_id()?;
+        let seg = file.get(seg_id)?;
+        if seg.type_name != "IFCCOMPOSITECURVESEGMENT"
+            && seg.type_name != "IFCCOMPOSITECURVESEGMENTS"
+        {
+            // Some exporters nest the parent curve directly.
+            if let Some(pts) = polyline_from_curve(file, seg_id, scale) {
+                append_ring_points(&mut out, &pts);
+            }
+            continue;
+        }
+        let same_sense = seg
+            .args
+            .get(1)
+            .map(|v| match v {
+                Value::Enum(s) => s.eq_ignore_ascii_case("T") || s.eq_ignore_ascii_case("TRUE"),
+                _ => true,
+            })
+            .unwrap_or(true);
+        let parent_id = seg.args.get(2).and_then(Value::as_ref_id)?;
+        let mut pts = polyline_from_curve(file, parent_id, scale)?;
+        if !same_sense {
+            pts.reverse();
+        }
+        append_ring_points(&mut out, &pts);
+    }
+    if out.len() >= 2 && (out[0] - *out.last().unwrap()).length() < 1e-4 * scale.max(1.0) {
+        out.pop();
+    }
+    if out.len() < 3 {
+        None
+    } else {
+        Some(out)
+    }
+}
+
+fn append_ring_points(out: &mut Vec<Vec3>, pts: &[Vec3]) {
+    if pts.is_empty() {
+        return;
+    }
+    let start = if out.last().is_some_and(|p| (*p - pts[0]).length() < 1e-4) {
+        1
+    } else {
+        0
+    };
+    out.extend_from_slice(&pts[start..]);
+}
+
+fn trimmed_curve_xy(file: &StepFile, entity: &Entity, scale: f32) -> Option<Vec<Vec3>> {
+    let basis_id = entity.args.first().and_then(Value::as_ref_id)?;
+    let basis = file.get(basis_id)?;
+    let sense = entity
+        .args
+        .get(3)
+        .map(|v| match v {
+            Value::Enum(s) => s.eq_ignore_ascii_case("T") || s.eq_ignore_ascii_case("TRUE"),
+            _ => true,
+        })
+        .unwrap_or(true);
+    match basis.type_name.as_str() {
+        "IFCCIRCLE" => {
+            let t1 = trim_parameter(entity.args.get(1)?)?;
+            let t2 = trim_parameter(entity.args.get(2)?)?;
+            circle_arc_xy(file, basis_id, scale, t1, t2, sense)
+        }
+        "IFCPOLYLINE" => polyline_from_curve(file, basis_id, scale),
+        _ => None,
+    }
+}
+
+fn trim_parameter(value: &Value) -> Option<f32> {
+    match value {
+        Value::List(items) => items.iter().find_map(trim_parameter),
+        Value::Typed { type_name, inner } => {
+            if type_name.eq_ignore_ascii_case("IFCPARAMETERVALUE")
+                || type_name.eq_ignore_ascii_case("IFCPLANEANGLEMEASURE")
+            {
+                inner.as_f64().map(|v| v as f32)
+            } else {
+                trim_parameter(inner)
+            }
+        }
+        Value::Float(v) => Some(*v as f32),
+        Value::Int(v) => Some(*v as f32),
+        _ => None,
+    }
+}
+
+/// Tessellate a circular arc in the profile plane.
+///
+/// Trim parameters are plane angles. Revit IFC2x3 commonly writes degrees even
+/// when the unit assignment claims radians — values with |θ| > 2π+ε are treated
+/// as degrees.
+fn circle_arc_xy(
+    file: &StepFile,
+    circle_id: u64,
+    scale: f32,
+    trim1: f32,
+    trim2: f32,
+    sense: bool,
+) -> Option<Vec<Vec3>> {
+    let circle = file.get(circle_id)?;
+    if circle.type_name != "IFCCIRCLE" {
+        return None;
+    }
+    let pos_id = circle.args.first().and_then(Value::as_ref_id)?;
+    let radius = circle.args.get(1).and_then(Value::as_f64)? as f32 * scale;
+    if radius < 1e-9 {
+        return None;
+    }
+    let placement = axis2placement_matrix(file, pos_id, scale);
+    let to_rad = |v: f32| {
+        if v.abs() > std::f32::consts::TAU + 0.1 {
+            v.to_radians()
+        } else {
+            v
+        }
+    };
+    let mut a0 = to_rad(trim1);
+    let mut a1 = to_rad(trim2);
+    if !sense {
+        std::mem::swap(&mut a0, &mut a1);
+    }
+    // Sweep in the sense direction (increasing angle when sense is true).
+    let mut delta = a1 - a0;
+    if sense {
+        while delta <= 1e-6 {
+            delta += std::f32::consts::TAU;
+        }
+        while delta > std::f32::consts::TAU + 1e-4 {
+            delta -= std::f32::consts::TAU;
+        }
+    } else {
+        while delta >= -1e-6 {
+            delta -= std::f32::consts::TAU;
+        }
+        while delta < -std::f32::consts::TAU - 1e-4 {
+            delta += std::f32::consts::TAU;
+        }
+    }
+    let segs = ((delta.abs() / std::f32::consts::TAU) * 32.0)
+        .ceil()
+        .max(4.0) as usize;
+    let mut out = Vec::with_capacity(segs + 1);
+    for i in 0..=segs {
+        let t = i as f32 / segs as f32;
+        let a = a0 + delta * t;
+        let local = Vec3::new(radius * a.cos(), radius * a.sin(), 0.0);
+        out.push((placement * Vec4::new(local.x, local.y, local.z, 1.0)).truncate());
+    }
+    Some(out)
 }
 
 fn cartesian_point(file: &StepFile, id: u64, scale: f32) -> Option<Vec3> {
@@ -812,23 +1202,50 @@ fn transform_mesh_ifc_to_apex(mesh: &TriangleMesh, transform: Mat4) -> TriangleM
     out.positions = positions;
     out.normals = normals;
     out.indices = mesh.indices.clone();
-    let mut edges = BTreeMap::<(u32, u32), ()>::new();
-    for tri in out.indices.chunks(3) {
+    if mesh.edges.is_empty() {
+        // Tessellated face sets often carry no feature edges — keep a boundary
+        // wireframe (edges used by exactly one triangle) instead of every
+        // triangulation diagonal.
+        out.edges = boundary_edges_from_indices(&out.positions, &out.indices);
+    } else {
+        for p in mesh.edges.chunks(3) {
+            if p.len() < 3 {
+                break;
+            }
+            let pw = (transform * Vec4::new(p[0], p[1], p[2], 1.0)).truncate();
+            out.edges.push(pw.x);
+            out.edges.push(pw.z);
+            out.edges.push(-pw.y);
+        }
+    }
+    out
+}
+
+fn boundary_edges_from_indices(positions: &[f32], indices: &[u32]) -> Vec<f32> {
+    let mut counts: BTreeMap<(u32, u32), u32> = BTreeMap::new();
+    for tri in indices.chunks(3) {
         if tri.len() < 3 {
             continue;
         }
         for (a, b) in [(tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])] {
             let key = if a < b { (a, b) } else { (b, a) };
-            edges.insert(key, ());
+            *counts.entry(key).or_default() += 1;
         }
     }
-    for (a, b) in edges.keys() {
-        let ai = (*a as usize) * 3;
-        let bi = (*b as usize) * 3;
-        out.edges.extend_from_slice(&out.positions[ai..ai + 3]);
-        out.edges.extend_from_slice(&out.positions[bi..bi + 3]);
+    let mut edges = Vec::new();
+    for ((a, b), count) in counts {
+        if count != 1 {
+            continue;
+        }
+        let ai = (a as usize) * 3;
+        let bi = (b as usize) * 3;
+        if ai + 3 > positions.len() || bi + 3 > positions.len() {
+            continue;
+        }
+        edges.extend_from_slice(&positions[ai..ai + 3]);
+        edges.extend_from_slice(&positions[bi..bi + 3]);
     }
-    out
+    edges
 }
 
 fn localize_mesh(mesh: &TriangleMesh) -> (Vec3, TriangleMesh) {
@@ -941,5 +1358,96 @@ mod tests {
         assert_eq!(element.params.text("ifc_type"), Some("IfcWall"));
         let mesh = project.document().get_mesh(element.id).expect("mesh");
         assert!(mesh.triangle_count() >= 12);
+        let (mn, mx) = mesh.aabb().expect("aabb");
+        // 4 × 3 × 2.7 m box in IFC → Apex Y-up extents ~4 × 2.7 × 3.
+        assert!((mx[0] - mn[0] - 4.0).abs() < 1e-3, "dx {:?}", mx[0] - mn[0]);
+        assert!((mx[1] - mn[1] - 2.7).abs() < 1e-3, "dy {:?}", mx[1] - mn[1]);
+        assert!((mx[2] - mn[2] - 3.0).abs() < 1e-3, "dz {:?}", mx[2] - mn[2]);
+    }
+
+    #[test]
+    fn millimetre_unit_assignment_scales_to_metres() {
+        let text = include_str!("../tests/fixtures/demo-box-mm.ifc");
+        let mut project = Project::new();
+        let stats = import_ifc4_into(&mut project, text).expect("import mm fixture");
+        assert_eq!(stats.products, 1);
+        let mesh = project
+            .document()
+            .elements()
+            .find_map(|e| project.document().get_mesh(e.id))
+            .expect("mesh");
+        let (mn, mx) = mesh.aabb().expect("aabb");
+        // Same physical size as the metre fixture — not 1000× larger.
+        assert!((mx[0] - mn[0] - 4.0).abs() < 1e-2, "dx {:?}", mx[0] - mn[0]);
+        assert!((mx[1] - mn[1] - 2.7).abs() < 1e-2, "dy {:?}", mx[1] - mn[1]);
+        assert!((mx[2] - mn[2] - 3.0).abs() < 1e-2, "dz {:?}", mx[2] - mn[2]);
+    }
+
+    #[test]
+    fn prefers_assigned_milli_over_sibling_metre_si_unit() {
+        // Both MILLI.METRE and METRE appear as IfcSIUnit; only the assigned one
+        // must win (Revit-style files).
+        let text = r#"
+ISO-10303-21;
+HEADER;
+FILE_DESCRIPTION(('ViewDefinition [CoordinationView]'),'2;1');
+FILE_NAME('units.ifc','2026-10-30',('Apex'),('Apex'),'Apex','Apex','');
+FILE_SCHEMA(('IFC4'));
+ENDSEC;
+DATA;
+#1=IFCPERSON($,$,'ApexUser',$,$,$,$,$);
+#2=IFCORGANIZATION($,'Apex',$,$,$);
+#3=IFCPERSONANDORGANIZATION(#1,#2,$);
+#4=IFCAPPLICATION(#2,'0.1','Apex BIM','Apex');
+#5=IFCOWNERHISTORY(#3,#4,$,.ADDED.,$,$,$,0);
+#6=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);
+#7=IFCSIUNIT(*,.LENGTHUNIT.,$,.METRE.);
+#8=IFCUNITASSIGNMENT((#6));
+#9=IFCDIRECTION((1.,0.,0.));
+#10=IFCDIRECTION((0.,0.,1.));
+#11=IFCCARTESIANPOINT((0.,0.,0.));
+#12=IFCAXIS2PLACEMENT3D(#11,#10,#9);
+#13=IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.0E-05,#12,$);
+#14=IFCPROJECT('PROJ0001',#5,'Demo',$,$,$,$,(#13),#8);
+#15=IFCAXIS2PLACEMENT3D(#11,$,$);
+#16=IFCLOCALPLACEMENT($,#15);
+#17=IFCSITE('SITE0001',#5,'Site',$,$,#16,$,$,.ELEMENT.,$,$,$,$,$);
+#18=IFCAXIS2PLACEMENT3D(#11,$,$);
+#19=IFCLOCALPLACEMENT(#16,#18);
+#20=IFCBUILDING('BLDG0001',#5,'Building',$,$,#19,$,$,.ELEMENT.,$,$,$);
+#21=IFCAXIS2PLACEMENT3D(#11,$,$);
+#22=IFCLOCALPLACEMENT(#19,#21);
+#23=IFCBUILDINGSTOREY('STOR0001',#5,'Level 0',$,$,#22,$,$,.ELEMENT.,0.);
+#24=IFCRELAGGREGATES('REL0001',#5,$,$,#14,(#17));
+#25=IFCRELAGGREGATES('REL0002',#5,$,$,#17,(#20));
+#26=IFCRELAGGREGATES('REL0003',#5,$,$,#20,(#23));
+#27=IFCGEOMETRICREPRESENTATIONSUBCONTEXT('Body','Model',*,*,*,*,#13,$,.MODEL_VIEW.,$);
+#28=IFCCARTESIANPOINTLIST3D(((0.0,0.0,0.0),(1000.0,0.0,0.0),(1000.0,1000.0,0.0),(0.0,1000.0,0.0),(0.0,0.0,1000.0),(1000.0,0.0,1000.0),(1000.0,1000.0,1000.0),(0.0,1000.0,1000.0)));
+#29=IFCTRIANGULATEDFACESET(#28,$,.F.,((1,2,3),(1,3,4),(5,7,6),(5,8,7),(1,5,6),(1,6,2),(2,6,7),(2,7,3),(3,7,8),(3,8,4),(4,8,5),(4,5,1)),$);
+#30=IFCSHAPEREPRESENTATION(#27,'Body','Tessellation',(#29));
+#31=IFCPRODUCTDEFINITIONSHAPE($,$,(#30));
+#32=IFCAXIS2PLACEMENT3D(#11,$,$);
+#33=IFCLOCALPLACEMENT($,#32);
+#34=IFCWALL('WALL0001',#5,'Unit wall',$,$,#33,#31,$);
+#35=IFCRELCONTAINEDINSPATIALSTRUCTURE('REL0004',#5,$,$,(#34),#23);
+ENDSEC;
+END-ISO-10303-21;
+"#;
+        let mut project = Project::new();
+        let stats = import_ifc4_into(&mut project, text).expect("import");
+        assert_eq!(stats.products, 1);
+        let mesh = project
+            .document()
+            .elements()
+            .find_map(|e| project.document().get_mesh(e.id))
+            .expect("mesh");
+        let (mn, mx) = mesh.aabb().expect("aabb");
+        let dx = mx[0] - mn[0];
+        let dy = mx[1] - mn[1];
+        let dz = mx[2] - mn[2];
+        assert!(
+            (dx - 1.0).abs() < 1e-3 && (dy - 1.0).abs() < 1e-3 && (dz - 1.0).abs() < 1e-3,
+            "expected 1 m cube, got {dx}×{dy}×{dz}"
+        );
     }
 }

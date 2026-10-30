@@ -20,10 +20,10 @@ export const exportIfcPlugin: Plugin = {
       id: 'apex.ifc',
       descriptor: {
         purpose:
-          'Open an IFC STEP file into tessellated apex.ifc.mesh instances (storeys → levels).',
+          'Open an IFC STEP file into tessellated apex.ifc.mesh instances (storeys → levels). Honours unit assignment, mapped items, and composite-curve extrusions.',
       },
       label: 'IFC',
-      title: 'Open IFC4 / IFC2x3 (.ifc) — tessellated geometry MVP',
+      title: 'Open IFC4 / IFC2x3 (.ifc)',
       extensions: ['.ifc'],
       accept: '.ifc,application/x-step,model/step',
       import: (text) => apexImportIfc(text),

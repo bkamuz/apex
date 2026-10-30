@@ -5,9 +5,10 @@
 //! category / explicit [`IfcMapping`]), so plugins extend export without
 //! per-type branches in the shell.
 //!
-//! **Import** (MVP) parses STEP Physical Files, resolves storeys and products
-//! with triangulated / faceted / simple extruded geometry, and places
-//! `apex.ifc.mesh` instances into a fresh project.
+//! **Import** parses STEP Physical Files, resolves storeys and products with
+//! triangulated / faceted / extruded geometry (including composite-curve
+//! profiles and mapped items), applies `IfcUnitAssignment` length scale, and
+//! places `apex.ifc.mesh` instances into a fresh project.
 
 mod import;
 mod parse;

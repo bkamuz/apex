@@ -170,8 +170,10 @@ See `examples/custom-annotation.ts`.
 **IFC:** the first-party Export **IFC** button writes IFC4 with tessellated
 meshes; type → entity mapping comes from each definition's `ifc_entity`.
 **Open** also accepts `.ifc` (plugin importer): storeys become levels and
-products with triangulated / faceted / simple extruded geometry become
-`apex.ifc.mesh` instances (see PR / AGENTS for MVP limits).
+products with triangulated / faceted / extruded geometry (including composite
+profiles and mapped items) become `apex.ifc.mesh` instances. Length scale
+follows `IfcUnitAssignment` (Z-up → Y-up). Still mesh-only — no parametric
+round-trip, no full CSG boolean trees.
 
 ## Roadmap (not in this MVP)
 
@@ -179,7 +181,7 @@ products with triangulated / faceted / simple extruded geometry become
 - A visual component editor, so components can be built without JSON
 - A full CAD constraint solver (the sketch editor is polyline + labeled edge lengths)
 - csgrs / full CSG booleans (blocked on crates.io WASM packaging; openings use AABB punch)
-- Richer IFC import (parametric walls/spaces, mapped items, full CSG trees)
+- Richer IFC import (parametric walls/spaces, full CSG trees; optional IfcOpenShell sidecar)
 - Desktop via Tauri
 - Rotate / mirror / array transforms; richer MEP fittings (tees)
 
