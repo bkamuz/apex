@@ -7,13 +7,48 @@ export interface GhostSceneSource {
   normals: ArrayLike<number>;
   indices: ArrayLike<number>;
   pick_ids: ArrayLike<number>;
-  elements: { id: string; pick_id: number }[];
+  elements: { id: string; pick_id: number; parent_id?: string | null }[];
 }
 
 export interface GhostMesh {
   positions: Float32Array;
   normals: Float32Array;
   indices: Uint32Array;
+}
+
+/**
+ * Expand element originals with descendants (doors/windows on a moved wall)
+ * so the Move ghost keeps hosted children attached without remeshing.
+ */
+export function expandTransformOriginals(
+  originals: TransformOriginal[],
+  elements: { id: string; parent_id?: string | null }[],
+): TransformOriginal[] {
+  const selected = new Set<string>();
+  for (const original of originals) {
+    if (original.kind === 'element') selected.add(original.id);
+  }
+  if (selected.size === 0) return originals;
+
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const el of elements) {
+      if (!el.parent_id || selected.has(el.id) || !selected.has(el.parent_id)) continue;
+      selected.add(el.id);
+      grew = true;
+    }
+  }
+
+  const out: TransformOriginal[] = originals.filter(
+    (o) => o.kind !== 'element' || selected.has(o.id),
+  );
+  for (const el of elements) {
+    if (!selected.has(el.id)) continue;
+    if (out.some((o) => o.kind === 'element' && o.id === el.id)) continue;
+    out.push({ kind: 'element', id: el.id, anchors: [] });
+  }
+  return out;
 }
 
 /**
@@ -42,10 +77,18 @@ export function buildTranslatedGhostMesh(
   const srcPick = scene.pick_ids;
   const triCount = Math.floor(srcIdx.length / 3);
 
+  // First pass: count matching triangles so we can preallocate.
+  let matchTris = 0;
+  for (let t = 0; t < triCount; t++) {
+    if (pickIds.has(Number(srcPick[t] ?? 0))) matchTris += 1;
+  }
+  if (matchTris === 0) return null;
+
   const positions: number[] = [];
   const normals: number[] = [];
-  const indices: number[] = [];
+  const indices = new Uint32Array(matchTris * 3);
   const vertexMap = new Map<number, number>();
+  let indexWrite = 0;
 
   const mapVertex = (oldIndex: number): number => {
     const existing = vertexMap.get(oldIndex);
@@ -60,16 +103,33 @@ export function buildTranslatedGhostMesh(
 
   for (let t = 0; t < triCount; t++) {
     if (!pickIds.has(Number(srcPick[t] ?? 0))) continue;
-    const i0 = Number(srcIdx[t * 3]);
-    const i1 = Number(srcIdx[t * 3 + 1]);
-    const i2 = Number(srcIdx[t * 3 + 2]);
-    indices.push(mapVertex(i0), mapVertex(i1), mapVertex(i2));
+    indices[indexWrite++] = mapVertex(Number(srcIdx[t * 3]));
+    indices[indexWrite++] = mapVertex(Number(srcIdx[t * 3 + 1]));
+    indices[indexWrite++] = mapVertex(Number(srcIdx[t * 3 + 2]));
   }
 
-  if (indices.length === 0) return null;
   return {
     positions: new Float32Array(positions),
     normals: new Float32Array(normals),
-    indices: new Uint32Array(indices),
+    indices,
   };
+}
+
+/** Append two ghost meshes (mover translate + stretch-peer remesh). */
+export function mergeGhostMeshes(a: GhostMesh | null, b: GhostMesh | null): GhostMesh | null {
+  if (!a) return b;
+  if (!b) return a;
+  const base = a.positions.length / 3;
+  const positions = new Float32Array(a.positions.length + b.positions.length);
+  const normals = new Float32Array(a.normals.length + b.normals.length);
+  const indices = new Uint32Array(a.indices.length + b.indices.length);
+  positions.set(a.positions, 0);
+  positions.set(b.positions, a.positions.length);
+  normals.set(a.normals, 0);
+  normals.set(b.normals, a.normals.length);
+  indices.set(a.indices, 0);
+  for (let i = 0; i < b.indices.length; i++) {
+    indices[a.indices.length + i] = b.indices[i] + base;
+  }
+  return { positions, normals, indices };
 }

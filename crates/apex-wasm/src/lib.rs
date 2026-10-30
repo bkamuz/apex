@@ -2024,26 +2024,45 @@ pub fn joinable_snap_targets(component_id: &str) -> Result<JsValue, JsValue> {
     })
 }
 
-/// Ghost mesh for Move preview: selection translated + connected joinable peers
-/// stretched. Does not mutate the document.
+/// Ghost mesh of connected-stretch peers for Move preview (movers come from
+/// the live scene in JS). Does not mutate the document.
+///
+/// `dx/dy/dz` avoid a JSON round-trip on every pointer move. Mesh buffers are
+/// copied into typed arrays — serde number arrays were a major frame cost.
 #[wasm_bindgen(js_name = previewStretchTranslate)]
-pub fn preview_stretch_translate(delta_json: &str) -> Result<JsValue, JsValue> {
+pub fn preview_stretch_translate(dx: f32, dy: f32, dz: f32) -> Result<JsValue, JsValue> {
     with_project(|project| {
-        let delta = delta_from_json(delta_json)?;
         let ids = with_selection(|s| s.0.clone());
         if ids.is_empty() {
             return Err(err("Nothing selected to preview"));
         }
         let mesh = project
-            .preview_stretch_translate(&ids, delta)
+            .preview_stretch_translate(&ids, Vec3::new(dx, dy, dz))
             .map_err(err)?;
-        to_js(&MeshDto {
-            positions: mesh.positions,
-            normals: mesh.normals,
-            indices: mesh.indices,
-            edge_positions: mesh.edges,
-        })
+        if mesh.is_empty() {
+            return Ok(JsValue::NULL);
+        }
+        mesh_buffers_to_js(&mesh.positions, &mesh.normals, &mesh.indices)
     })
+}
+
+/// Copy mesh buffers into JS typed arrays (no per-element serde).
+fn mesh_buffers_to_js(
+    positions: &[f32],
+    normals: &[f32],
+    indices: &[u32],
+) -> Result<JsValue, JsValue> {
+    let obj = js_sys::Object::new();
+    let pos = js_sys::Float32Array::new_with_length(positions.len() as u32);
+    pos.copy_from(positions);
+    let nrm = js_sys::Float32Array::new_with_length(normals.len() as u32);
+    nrm.copy_from(normals);
+    let idx = js_sys::Uint32Array::new_with_length(indices.len() as u32);
+    idx.copy_from(indices);
+    let _ = js_sys::Reflect::set(&obj, &JsValue::from_str("positions"), &pos);
+    let _ = js_sys::Reflect::set(&obj, &JsValue::from_str("normals"), &nrm);
+    let _ = js_sys::Reflect::set(&obj, &JsValue::from_str("indices"), &idx);
+    Ok(obj.into())
 }
 
 /// Detect enclosed rooms from walls on the active level; refresh auto spaces.

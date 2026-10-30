@@ -1077,15 +1077,18 @@ export function previewProfile(profile_json, params_json) {
 }
 
 /**
- * Ghost mesh for Move preview: selection translated + connected joinable peers
- * stretched. Does not mutate the document.
- * @param {string} delta_json
+ * Ghost mesh of connected-stretch peers for Move preview (movers come from
+ * the live scene in JS). Does not mutate the document.
+ *
+ * `dx/dy/dz` avoid a JSON round-trip on every pointer move. Mesh buffers are
+ * copied into typed arrays — serde number arrays were a major frame cost.
+ * @param {number} dx
+ * @param {number} dy
+ * @param {number} dz
  * @returns {any}
  */
-export function previewStretchTranslate(delta_json) {
-    const ptr0 = passStringToWasm0(delta_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
-    const len0 = WASM_VECTOR_LEN;
-    const ret = wasm.previewStretchTranslate(ptr0, len0);
+export function previewStretchTranslate(dx, dy, dz) {
+    const ret = wasm.previewStretchTranslate(dx, dy, dz);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -2023,6 +2026,14 @@ function __wbg_get_imports() {
             const ret = arg0.length;
             return ret;
         },
+        __wbg_length_381d540857ec99e8: function(arg0) {
+            const ret = arg0.length;
+            return ret;
+        },
+        __wbg_length_98f10d1e2f4ea968: function(arg0) {
+            const ret = arg0.length;
+            return ret;
+        },
         __wbg_new_227d7c05414eb861: function() {
             const ret = new Error();
             return ret;
@@ -2043,6 +2054,14 @@ function __wbg_get_imports() {
             const ret = new Object();
             return ret;
         },
+        __wbg_new_with_length_e1d8c8061ed4e317: function(arg0) {
+            const ret = new Float32Array(arg0 >>> 0);
+            return ret;
+        },
+        __wbg_new_with_length_f048f86e32f1515e: function(arg0) {
+            const ret = new Uint32Array(arg0 >>> 0);
+            return ret;
+        },
         __wbg_next_6dbf2c0ac8cde20f: function(arg0) {
             const ret = arg0.next;
             return ret;
@@ -2053,6 +2072,9 @@ function __wbg_get_imports() {
         }, arguments); },
         __wbg_prototypesetcall_4770620bbe4688a0: function(arg0, arg1, arg2) {
             Uint8Array.prototype.set.call(getArrayU8FromWasm0(arg0, arg1), arg2);
+        },
+        __wbg_set_1e016b6a1b5f7cb3: function(arg0, arg1, arg2) {
+            arg0.set(getArrayF32FromWasm0(arg1, arg2));
         },
         __wbg_set_575dd786d51585f8: function(arg0, arg1, arg2) {
             const ret = arg0.set(arg1, arg2);
@@ -2067,6 +2089,9 @@ function __wbg_get_imports() {
         }, arguments); },
         __wbg_set_8a16b38e4805b298: function(arg0, arg1, arg2) {
             arg0[arg1 >>> 0] = arg2;
+        },
+        __wbg_set_b5e6b338281ca6ff: function(arg0, arg1, arg2) {
+            arg0.set(getArrayU32FromWasm0(arg1, arg2));
         },
         __wbg_stack_3b0d974bbf31e44f: function(arg0, arg1) {
             const ret = arg1.stack;
@@ -2190,6 +2215,16 @@ function debugString(val) {
     return className;
 }
 
+function getArrayF32FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getFloat32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
+}
+
+function getArrayU32FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getUint32ArrayMemory0().subarray(ptr / 4, ptr / 4 + len);
+}
+
 function getArrayU8FromWasm0(ptr, len) {
     ptr = ptr >>> 0;
     return getUint8ArrayMemory0().subarray(ptr / 1, ptr / 1 + len);
@@ -2203,8 +2238,24 @@ function getDataViewMemory0() {
     return cachedDataViewMemory0;
 }
 
+let cachedFloat32ArrayMemory0 = null;
+function getFloat32ArrayMemory0() {
+    if (cachedFloat32ArrayMemory0 === null || cachedFloat32ArrayMemory0.byteLength === 0) {
+        cachedFloat32ArrayMemory0 = new Float32Array(wasm.memory.buffer);
+    }
+    return cachedFloat32ArrayMemory0;
+}
+
 function getStringFromWasm0(ptr, len) {
     return decodeText(ptr >>> 0, len);
+}
+
+let cachedUint32ArrayMemory0 = null;
+function getUint32ArrayMemory0() {
+    if (cachedUint32ArrayMemory0 === null || cachedUint32ArrayMemory0.byteLength === 0) {
+        cachedUint32ArrayMemory0 = new Uint32Array(wasm.memory.buffer);
+    }
+    return cachedUint32ArrayMemory0;
 }
 
 let cachedUint8ArrayMemory0 = null;
@@ -2306,6 +2357,8 @@ function __wbg_finalize_init(instance, module) {
     wasm = instance.exports;
     wasmModule = module;
     cachedDataViewMemory0 = null;
+    cachedFloat32ArrayMemory0 = null;
+    cachedUint32ArrayMemory0 = null;
     cachedUint8ArrayMemory0 = null;
     wasm.__wbindgen_start();
     return wasm;
