@@ -520,12 +520,47 @@ fn house_edits(p: &Project) -> Vec<serde_json::Value> {
 #[ignore]
 fn bench_house_edits() {
     use apex_core::{element_build_ms, element_builds};
-    for kernel in ["mesh", "smlib"] {
+    // "ext" runs the browser path: command, then worker rounds (SMLib run
+    // here, timed separately) applied back. Reports command/kernel/apply ms.
+    fn pump(p: &mut Project) -> String {
+        let (mut rounds, mut jobs_n, mut kms, mut ams) = (0, 0, 0.0, 0.0);
+        loop {
+            let jobs = p.take_kernel_jobs();
+            if jobs.is_empty() {
+                break;
+            }
+            rounds += 1;
+            jobs_n += jobs.len();
+            let t = Instant::now();
+            let results = jobs
+                .iter()
+                .map(|j| {
+                    let r = apex_smlib::run(&j.solids, 1e-3).ok();
+                    (j.key, r.map(|r| (r.points, r.tris)))
+                })
+                .collect();
+            kms += t.elapsed().as_secs_f64() * 1e3;
+            let t = Instant::now();
+            p.apply_kernel_results(results);
+            ams += t.elapsed().as_secs_f64() * 1e3;
+        }
+        format!(" [{rounds} rounds, {jobs_n} jobs, kernel {kms:.0} ms, apply {ams:.0} ms]")
+    }
+    let only = std::env::var("BENCH_KERNELS").unwrap_or_default();
+    for kernel in ["mesh", "smlib", "ext"] {
+        if !only.is_empty() && !only.split(',').any(|k| k == kernel) {
+            continue;
+        }
         let mut p = scenes::e2e_house();
         let t = Instant::now();
         let b0 = element_builds();
+        let mut extra = String::new();
         if kernel == "smlib" {
             p.set_kernel(Arc::new(SmlibKernel::default()));
+        } else if kernel == "ext" {
+            p.set_external_kernel();
+            extra = format!(" (cmd {:.0} ms)", t.elapsed().as_secs_f64() * 1e3);
+            extra += &pump(&mut p);
         } else {
             p.reset_kernel();
         }
@@ -558,15 +593,21 @@ fn bench_house_edits() {
                 json!({"op":"update_element","id":roof,"params":{"overhang":0.7}}),
             ),
         ];
-        let mut out = vec![format!("full {:.0} ms / {} builds", full.0, full.1)];
+        let mut out = vec![format!("full {:.0} ms / {} builds{extra}", full.0, full.1)];
         for (name, e) in edits {
             eprintln!("EDIT {kernel} {name}");
             let b0 = element_builds();
             let m0 = element_build_ms();
             let t = Instant::now();
             ex(&mut p, e);
+            let cmd = t.elapsed().as_secs_f64() * 1e3;
+            let extra = if kernel == "ext" {
+                format!(" (cmd {cmd:.0} ms){}", pump(&mut p))
+            } else {
+                String::new()
+            };
             out.push(format!(
-                "{name} {:.1} ms ({:.1} ms building) / {} builds",
+                "{name} {:.1} ms{extra} ({:.1} ms building) / {} builds",
                 t.elapsed().as_secs_f64() * 1e3,
                 element_build_ms() - m0,
                 element_builds() - b0

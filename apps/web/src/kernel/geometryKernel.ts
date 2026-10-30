@@ -36,8 +36,14 @@ export interface KernelStats {
   /** Worker round trips and main-thread time applying their results. */
   rounds: number;
   applyMs: number;
+  /** Breakdown: taking jobs, slowest worker per round, scene sink. */
+  takeMs: number;
+  workerMs: number;
+  sinkMs: number;
 }
-export const kernelStats: KernelStats = { kernel: 'mesh', jobs: 0, failed: 0, lastMs: 0, rounds: 0, applyMs: 0 };
+export const kernelStats: KernelStats = {
+  kernel: 'mesh', jobs: 0, failed: 0, lastMs: 0, rounds: 0, applyMs: 0, takeMs: 0, workerMs: 0, sinkMs: 0,
+};
 
 export function currentKernel(): GeometryKernelName {
   return current;
@@ -89,7 +95,9 @@ function runOn(w: Worker, jobs: KernelJobDto[]): Promise<{ results: KernelResult
 /** Send queued jobs to the workers. Call after every scene update. */
 export function pumpKernelJobs() {
   if (current !== 'smlib' || inFlight) return;
+  const tt = performance.now();
   const jobs = apexTakeKernelJobs();
+  kernelStats.takeMs += performance.now() - tt;
   if (jobs.length === 0) return;
   inFlight = true;
   // Deal jobs out largest first so the workers finish together.
@@ -109,11 +117,14 @@ export function pumpKernelJobs() {
     kernelStats.failed += results.filter((r) => !r.points).length;
     kernelStats.lastMs = performance.now() - t0;
     kernelStats.rounds += 1;
+    kernelStats.workerMs += Math.max(...parts.map((p) => p.ms));
     if (current !== 'smlib') return;
     const t1 = performance.now();
     const scene = apexApplyKernelResults(results);
     kernelStats.applyMs += performance.now() - t1;
+    const t2 = performance.now();
     onScene?.(scene);
+    kernelStats.sinkMs += performance.now() - t2;
     pumpKernelJobs();
   });
 }
