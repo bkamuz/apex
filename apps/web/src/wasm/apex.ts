@@ -39,6 +39,7 @@ import initWasm, {
   updateProfileType,
   exportProject,
   exportIfc,
+  importIfc,
   importProject,
   newProject,
   undo,
@@ -271,6 +272,18 @@ export function apexCreateElementWithParent(
 
 export function apexExportIfc(mapping?: Record<string, string>): string {
   return exportIfc(mapping ? JSON.stringify(mapping) : '');
+}
+
+export type IfcImportSummary = {
+  levels: number;
+  products: number;
+  skipped_no_mesh: number;
+  warnings: string[];
+};
+
+/** Replace the live project from an IFC STEP string (tessellated MVP). */
+export function apexImportIfc(text: string): SceneDto & { ifc_import?: IfcImportSummary } {
+  return asScene(importIfc(text)) as SceneDto & { ifc_import?: IfcImportSummary };
 }
 
 export function apexUpdateElement(

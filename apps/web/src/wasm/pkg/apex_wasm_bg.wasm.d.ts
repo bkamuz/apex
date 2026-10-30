@@ -50,6 +50,7 @@ export const getSelectedGridAxis: () => [number, number, number];
 export const getSelectedReference: () => [number, number, number];
 export const getSelectedSectionCut: () => [number, number, number];
 export const getSelectedSpace: () => [number, number, number];
+export const importIfc: (a: number, b: number) => [number, number, number];
 export const importProject: (a: number, b: number) => [number, number, number];
 export const initApp: () => [number, number];
 export const joinPaths: (a: number, b: number) => [number, number, number];

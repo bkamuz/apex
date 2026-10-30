@@ -160,7 +160,7 @@ import { requiredPoints, type PointerInfo, type ToolContext } from './tools/Tool
 import { buildTranslatedGhostMesh } from './tools/transformGhost';
 import { type TransformMode } from './tools/transformTypes';
 import { extensions, installGlobalSdk } from './extensions/sdk';
-import { exporterRegistry, installPlugins } from './plugins';
+import { exporterRegistry, importerRegistry, installPlugins } from './plugins';
 
 const DEFAULT_LEVEL_RISE = 3;
 
@@ -256,6 +256,7 @@ export default function App() {
   });
   const [components, setComponents] = useState<ComponentDto[]>([]);
   const [exporters, setExporters] = useState(() => exporterRegistry.list());
+  const [importers, setImporters] = useState(() => importerRegistry.list());
   const [profiles, setProfiles] = useState<ProfileTypeDto[]>([]);
   const [placementDraft, setPlacementDraft] = useState<Record<string, ParamValue>>({});
   const [profileEditor, setProfileEditor] = useState<{
@@ -502,6 +503,7 @@ export default function App() {
     setComponents(installed);
     setProfiles(apexListProfiles());
     setExporters(exporterRegistry.list());
+    setImporters(importerRegistry.list());
   }, []);
 
   const sceneFitBounds = useCallback((next: SceneDto) => {
@@ -2397,10 +2399,39 @@ export default function App() {
     reader.onload = () => {
       try {
         const text = String(reader.result ?? '');
+        const importer = importerRegistry.findForFile(file.name);
+        if (importer) {
+          const next = importer.import(text) as SceneDto & {
+            ifc_import?: {
+              levels: number;
+              products: number;
+              skipped_no_mesh: number;
+              warnings: string[];
+            };
+          };
+          clearStoredProject();
+          applyScene(next, true);
+          syncCatalog();
+          const summary = next.ifc_import;
+          if (summary) {
+            const skipped =
+              summary.skipped_no_mesh > 0
+                ? ` (${summary.skipped_no_mesh} without mesh skipped)`
+                : '';
+            setInfo(
+              `Opened IFC: ${summary.products} product${summary.products === 1 ? '' : 's'}, ${summary.levels} level${summary.levels === 1 ? '' : 's'}${skipped}`,
+            );
+          } else {
+            setInfo(`Opened ${importer.label}: ${file.name}`);
+          }
+          setError(null);
+          return;
+        }
         const next = apexImportProject(text);
         storeProject(text);
         applyScene(next, true);
         syncCatalog();
+        setInfo(`Opened project: ${file.name}`);
         setError(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
@@ -2685,9 +2716,10 @@ export default function App() {
             <input
               ref={fileRef}
               type="file"
-              accept="application/json,.json"
+              accept={['application/json', '.json', ...importers.map((i) => i.accept)].join(',')}
               hidden
-              aria-label="Open project file"
+              aria-label="Open project or IFC file"
+              title="Open Apex project (.json) or IFC (.ifc)"
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 e.target.value = '';

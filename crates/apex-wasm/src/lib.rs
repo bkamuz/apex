@@ -2154,6 +2154,28 @@ pub fn export_ifc(mapping_json: &str) -> Result<String, JsValue> {
     })
 }
 
+/// Replace the current project by importing an IFC STEP file (tessellated MVP).
+///
+/// Returns the usual scene object plus an `ifc_import` summary
+/// `{ levels, products, skipped_no_mesh, warnings }` for the status line.
+#[wasm_bindgen(js_name = importIfc)]
+pub fn import_ifc(text: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let stats = apex_ifc::import_ifc4_into(project, text).map_err(|e| err(e.to_string()))?;
+        with_selection(|s| s.set(None));
+        clear_datum_selections();
+        let scene_val = scene(project)?;
+        let summary = to_js(&serde_json::json!({
+            "levels": stats.levels,
+            "products": stats.products,
+            "skipped_no_mesh": stats.skipped_no_mesh,
+            "warnings": stats.warnings,
+        }))?;
+        let _ = js_sys::Reflect::set(&scene_val, &JsValue::from_str("ifc_import"), &summary);
+        Ok(scene_val)
+    })
+}
+
 /// Replace the current project from a JSON snapshot.
 #[wasm_bindgen(js_name = importProject)]
 pub fn import_project(json: &str) -> Result<JsValue, JsValue> {

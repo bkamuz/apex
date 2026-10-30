@@ -11,7 +11,7 @@ import { TOOL_ICONS } from '../tools/icons';
 import { createPlacementTool } from '../tools/placementTool';
 import { ApexTabs, TOOL_TABS } from '../tools/tabs';
 import type { Tool } from '../tools/Tool';
-import type { Exporter } from '../plugins/types';
+import type { Exporter, Importer } from '../plugins/types';
 import { annotationKinds } from '../annotations/registry';
 import type { AnnotationKindRegistration } from '../annotations/types';
 
@@ -19,7 +19,7 @@ import type { AnnotationKindRegistration } from '../annotations/types';
 export type { Tool, ToolContext, ToolGroup, ToolMode, ToolTab, ResolvedToolTab } from '../tools/Tool';
 export type { ToolIcon, ToolIconName } from '../tools/icons';
 export type { TransformOriginal, TransformMode } from '../tools/transformTypes';
-export type { Exporter } from '../plugins/types';
+export type { Exporter, Importer } from '../plugins/types';
 export type { OpeningGeneratorFn, OpeningGeometryDto, OpeningPartDto } from '../wasm/apex';
 export type { AnnotationKindRegistration, AnnotationKindId } from '../annotations/types';
 export { ApexTabs, TOOL_TABS, catalogTabById, resolveToolTab } from '../tools/tabs';
@@ -31,13 +31,14 @@ type Listener = () => void;
  * Runtime extension surface for modules.
  *
  * A module is a plugin: it installs a component (data the core validates) and
- * a default placement tool. `registerTool` / `registerExporter` are for
- * gestures and formats the generated helpers cannot express.
+ * a default placement tool. `registerTool` / `registerExporter` / `registerImporter`
+ * are for gestures and formats the generated helpers cannot express.
  */
 class ExtensionHost {
   private listeners = new Set<Listener>();
   private tools: Tool[] = [];
   private exporters: Exporter[] = [];
+  private importers: Importer[] = [];
 
   /** Install a component and give it a placement tool, like a first-party plugin. */
   defineComponent(definition: unknown): void {
@@ -81,6 +82,15 @@ class ExtensionHost {
     this.emit();
   }
 
+  registerImporter(importer: Importer): void {
+    assertDescribed('importer', importer.id, importer);
+    this.importers = [
+      ...this.importers.filter((item) => item.id !== importer.id),
+      importer,
+    ];
+    this.emit();
+  }
+
   /** Register a view-annotation kind (tools + optional hit-test / serialize hooks). */
   registerAnnotationKind(registration: AnnotationKindRegistration): void {
     annotationKinds.register(registration);
@@ -96,6 +106,10 @@ class ExtensionHost {
 
   customExporters(): Exporter[] {
     return this.exporters;
+  }
+
+  customImporters(): Importer[] {
+    return this.importers;
   }
 
   /** Tell the app to re-sync the component catalog after a host.registerComponent. */
@@ -134,6 +148,7 @@ export interface ApexGlobal {
   defineComponent(definition: unknown): void;
   registerTool(tool: Tool): void;
   registerExporter(exporter: Exporter): void;
+  registerImporter(importer: Importer): void;
   registerAnnotationKind(registration: AnnotationKindRegistration): void;
   registerOpeningGenerator(registration: OpeningGeneratorRegistration): void;
   /** Known toolbar tabs — prefer these; a custom `{ id, label }` still creates a new tab. */
@@ -154,6 +169,7 @@ export function installGlobalSdk(): void {
     defineComponent: (definition) => extensions.defineComponent(definition),
     registerTool: (tool) => extensions.registerTool(tool),
     registerExporter: (exporter) => extensions.registerExporter(exporter),
+    registerImporter: (importer) => extensions.registerImporter(importer),
     registerAnnotationKind: (registration) => extensions.registerAnnotationKind(registration),
     registerOpeningGenerator: (registration) => extensions.registerOpeningGenerator(registration),
     tabs: TOOL_TABS,
