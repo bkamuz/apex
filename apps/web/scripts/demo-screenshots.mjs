@@ -61,17 +61,18 @@ await page.locator('.level-list li').nth(1).click();
 await page.waitForTimeout(400);
 await page.screenshot({ path: `${OUT}/demo-06-level-active.png`, fullPage: true });
 
-await page.locator('[data-kind="reference"]').filter({ hasText: 'Ref plane' }).first().click();
-await page.waitForTimeout(400);
-await page.screenshot({ path: `${OUT}/demo-07-ref-plane.png`, fullPage: true });
-
-for (const tab of await page.locator('.tools-tab').all()) {
-  await tab.click();
-  if ((await page.getByRole('button', { name: 'Detect rooms', exact: true }).count()) > 0) break;
+const spaceItem = page.locator('[data-kind="space"]').first();
+if ((await spaceItem.count()) > 0) {
+  await spaceItem.click();
+  await page.waitForTimeout(400);
 }
-await page.getByRole('button', { name: 'Detect rooms', exact: true }).click();
-await page.waitForTimeout(600);
-await page.screenshot({ path: `${OUT}/demo-08-detect-rooms.png`, fullPage: true });
+await page.screenshot({ path: `${OUT}/demo-07-space-selected.png`, fullPage: true });
+
+await page.getByRole('button', { name: 'Plan', exact: true }).click();
+await page.waitForTimeout(250);
+await page.getByTestId('fit-view').click();
+await page.waitForTimeout(500);
+await page.screenshot({ path: `${OUT}/demo-08-house-spaces-plan.png`, fullPage: true });
 
 await browser.close();
 console.log('demo screenshots saved to', OUT);

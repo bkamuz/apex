@@ -34,9 +34,11 @@ page.on('pageerror', (err) => console.log('PAGEERROR', err.message));
 
 await page.addInitScript(() => {
   // Clear leftover documents once per tab; keep them across reload so save/load can be checked.
+  // Dismiss getting-started so the house sample does not auto-load (smoke builds from empty).
   if (!sessionStorage.getItem('apex.smoke')) {
     localStorage.removeItem('apex.project');
     localStorage.removeItem('apex.browser');
+    localStorage.setItem('apex.gettingStarted.dismissed', '1');
     sessionStorage.setItem('apex.smoke', '1');
   }
 });
@@ -985,6 +987,37 @@ check(
 
 const badge = await page.locator('.viewport-badge').textContent();
 console.log('\nbadge:', badge);
+
+// --- Sample house load (replaces the in-progress smoke document) ------------
+console.log('\n[sample] Load two-storey house sample');
+const houseOk = await page.evaluate(() => window.__apexTest?.loadSampleProject?.() === true);
+check('sample house loaded via __apexTest', houseOk);
+await page.waitForTimeout(1500);
+const houseCounts = await page.evaluate(() => {
+  const raw = localStorage.getItem('apex.project');
+  if (!raw) return null;
+  const j = JSON.parse(raw);
+  const els = Object.values(j.document?.elements ?? j.elements ?? {});
+  const by = {};
+  for (const e of els) by[e.component_id] = (by[e.component_id] ?? 0) + 1;
+  const spaces = Object.values(j.document?.spaces ?? j.spaces ?? {});
+  const levels = j.document?.levels ?? j.levels ?? [];
+  return {
+    walls: by['apex.wall'] ?? 0,
+    roofs: by['apex.roof.pitched'] ?? 0,
+    stairs: by['apex.stair'] ?? 0,
+    slabs: by['apex.slab'] ?? 0,
+    spaces: spaces.length,
+    levels: Array.isArray(levels) ? levels.length : Object.keys(levels).length,
+  };
+});
+console.log('  house:', JSON.stringify(houseCounts));
+check('sample has pitched roof', (houseCounts?.roofs ?? 0) >= 1);
+check('sample has stair', (houseCounts?.stairs ?? 0) >= 1);
+check('sample has ≥2 levels', (houseCounts?.levels ?? 0) >= 2);
+check('sample has ≥4 spaces', (houseCounts?.spaces ?? 0) >= 4);
+check('sample has many walls', (houseCounts?.walls ?? 0) >= 10);
+await page.screenshot({ path: `${OUT}/apex-sample-house.png`, fullPage: true });
 
 await browser.close();
 

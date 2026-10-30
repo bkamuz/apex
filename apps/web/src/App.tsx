@@ -1882,6 +1882,12 @@ export default function App() {
           worldToClient: (p: Vec3) => rendererRef.current?.worldToClient(p) ?? null,
           getCamera: () => rendererRef.current?.getCamera() ?? null,
           setCamera: (c: Parameters<ViewportRenderer['setCamera']>[0]) => rendererRef.current?.setCamera(c),
+          /** Replace the document with the built-in sample house (tests / demos). */
+          loadSampleProject: () => {
+            applyScene(buildSampleProject(), true);
+            setShowGettingStarted(false);
+            return true;
+          },
           /** Select the newest element of a component (e.g. 'apex.roof_pitched'). */
           selectLast: (componentId: string) => {
             const hit = apexListElements().filter((e) => e.component_id === componentId).pop();
@@ -1905,11 +1911,29 @@ export default function App() {
         };
 
         const stored = loadStoredProject();
+        let autoLoadedSample = false;
         if (stored) {
           try {
             apexImportProject(stored);
           } catch (restoreError) {
             console.warn('could not restore saved project', restoreError);
+          }
+        } else {
+          // First visit with no autosave: load the house sample. Never overwrite
+          // a stored project. Smoke/tests set gettingStarted.dismissed to skip.
+          let dismissed = false;
+          try {
+            dismissed = localStorage.getItem('apex.gettingStarted.dismissed') === '1';
+          } catch {
+            dismissed = false;
+          }
+          if (!dismissed) {
+            try {
+              buildSampleProject();
+              autoLoadedSample = true;
+            } catch (sampleError) {
+              console.warn('could not auto-load sample project', sampleError);
+            }
           }
         }
 
@@ -1937,6 +1961,10 @@ export default function App() {
         if (!cancelled) {
           applyScene(initial, false);
           setSelectedLevelId(initial.active_level_id);
+          if (autoLoadedSample) {
+            setShowGettingStarted(false);
+            setInfo('Sample house project loaded');
+          }
           projectRestoreDoneRef.current = true;
           setReady(true);
         }
@@ -2757,7 +2785,8 @@ export default function App() {
             onLoadSample={() => {
               try {
                 applyScene(buildSampleProject(), true);
-                setInfo('Sample project loaded');
+                setShowGettingStarted(false);
+                setInfo('Sample house project loaded');
                 setError(null);
               } catch (err) {
                 setError(err instanceof Error ? err.message : String(err));
