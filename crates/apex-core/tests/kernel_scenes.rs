@@ -360,22 +360,16 @@ fn every_element_type_matches_the_mesh_kernel() {
     assert!(bad.is_empty(), "{bad:#?}");
 }
 
-/// Geometric fingerprint: component, volume and bounds rounded to 1e-4.
-/// SMLib's tessellation of a planar face may differ between runs (other
-/// diagonals, occasionally other splits), so the exact path is held to
-/// geometric, not bitwise, determinism.
-fn fingerprint(p: &Project) -> Vec<(String, i64, Vec<i64>)> {
-    let r = |x: f64| (x * 1e4).round() as i64;
+/// Bitwise fingerprint: component, positions, normals and indices. The
+/// encoded kernel input is canonical (face grouping never depends on hash
+/// order), so the exact path is held to bit-identical output.
+type Print = (String, Vec<u32>, Vec<u32>, Vec<u32>);
+fn fingerprint(p: &Project) -> Vec<Print> {
+    let bits = |v: &[f32]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
     meshes(p)
         .into_values()
-        .map(|(c, m)| {
-            let bb = m
-                .aabb()
-                .map(|(a, b)| a.iter().chain(&b).map(|x| r(*x as f64)).collect())
-                .unwrap_or_default();
-            (c, r(mesh_volume(&m) as f64), bb)
-        })
-        .collect::<Vec<_>>()
+        .map(|(c, m)| (c, bits(&m.positions), bits(&m.normals), m.indices.clone()))
+        .collect()
 }
 
 #[test]
