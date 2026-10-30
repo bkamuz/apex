@@ -4196,6 +4196,55 @@ mod plugin_first_tests {
     }
 
     #[test]
+    fn door_frame_does_not_double_wall_face_jamb_edges() {
+        // Frame outer caps used to sit on the host wall faces at the same
+        // place as the wall's opening creases → thick black stripe on the wall.
+        let mut project = Project::new();
+        let wall = project
+            .create_element(
+                "apex.wall",
+                Placement::line(Vec3::ZERO, Vec3::new(6.0, 0.0, 0.0)),
+                ParamMap::new(),
+            )
+            .expect("wall");
+        let _door = project
+            .create_element_with_parent(
+                "apex.door",
+                Placement::point(Vec3::new(3.0, 0.0, 0.0)),
+                ParamMap::new(),
+                Some(wall),
+            )
+            .expect("door");
+        let wall_mesh = project.document().get_mesh(wall).expect("wall mesh");
+        let half = wall_mesh
+            .positions
+            .chunks(3)
+            .map(|p| p[2])
+            .fold(f32::MIN, f32::max);
+        let buffers = project.document().build_scene_buffers();
+        let edges = project.hide_buried_edges(&buffers.edge_positions);
+        // Jamb x of a 0.9 m door centred at 3.0.
+        let jambs = [2.55_f32, 3.45_f32];
+        for &jx in &jambs {
+            let mut n = 0;
+            for seg in edges.chunks(6) {
+                let (a, b) = ([seg[0], seg[1], seg[2]], [seg[3], seg[4], seg[5]]);
+                let on_front = (a[2] - half).abs() < 0.02 && (b[2] - half).abs() < 0.02;
+                let vertical = (a[0] - b[0]).abs() < 0.02 && (a[2] - b[2]).abs() < 0.02;
+                let at_jamb = (a[0] - jx).abs() < 0.01 && (b[0] - jx).abs() < 0.01;
+                let tall = (a[1] - b[1]).abs() > 1.5;
+                if on_front && vertical && at_jamb && tall {
+                    n += 1;
+                }
+            }
+            assert_eq!(
+                n, 1,
+                "jamb x={jx}: expected one wall-face crease, got {n} (doubled = black stripe)"
+            );
+        }
+    }
+
+    #[test]
     fn hosted_window_and_door_frames_have_no_member_seams() {
         for component in ["apex.window", "apex.door"] {
             let mut project = Project::new();
@@ -4215,9 +4264,9 @@ mod plugin_first_tests {
                 )
                 .expect("opening");
             let mesh = project.document().get_mesh(opening).expect("mesh");
-            // Before: 4 boxes x 12 edges for the frame alone, plus seams.
-            // Now frame 24 + (window: sash 24 + glass 12 | door: leaf 12 + arc 16).
-            let expected = if component == "apex.window" { 60 } else { 52 };
+            // Frame perimeter caps omitted (host wall draws those creases).
+            // Window: 52; door U-frame + leaf + swing arc: 42.
+            let expected = if component == "apex.window" { 52 } else { 42 };
             assert_eq!(mesh.edges.len() / 6, expected, "{component}");
             // Deterministic.
             let again = project
