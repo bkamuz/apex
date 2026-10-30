@@ -76,6 +76,13 @@ const MAX_THICK_SEGMENT_LEN = 48;
  * gimbal-flips; turntable can still go nearly top-down / under the model.
  */
 const PITCH_LIMIT = Math.PI / 2 - 0.01;
+/**
+ * Locked Plan navigation looks straight down −Y (true orthographic top-down).
+ * Must be exactly π/2 — the orbit clamp leaves a visible ~0.57° axon tilt.
+ */
+const PLAN_PITCH = Math.PI / 2;
+/** View-up for Plan lookAt (world −Z). World Y is parallel to the view axis. */
+const PLAN_UP: Vec3 = [0, 0, -1];
 /** Closest wheel-zoom distance (metres). Independent of scene size so huge walls still allow mm inspection. */
 const MIN_CAMERA_DISTANCE = 0.001;
 /** Soft zoom-out ceiling — generous vs scene size so large models are not hard-stopped early. */
@@ -1093,9 +1100,15 @@ export class ViewportRenderer {
       this.camera.target = [state.target[0], state.target[1], state.target[2]];
     }
     if (state.distance != null) this.camera.distance = state.distance;
-    if (state.yaw != null) this.camera.yaw = state.yaw;
-    if (state.pitch != null) {
-      this.camera.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, state.pitch));
+    if (this.viewNavigation === 'plan') {
+      // Plan pose is axis-locked; callers may still pass distance/target.
+      this.camera.yaw = 0;
+      this.camera.pitch = PLAN_PITCH;
+    } else {
+      if (state.yaw != null) this.camera.yaw = state.yaw;
+      if (state.pitch != null) {
+        this.camera.pitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, state.pitch));
+      }
     }
     this.frameMats = null;
   }
@@ -1155,7 +1168,7 @@ export class ViewportRenderer {
       this.projection = 'orthographic';
       this.viewNavigation = 'plan';
       this.camera.yaw = 0;
-      this.camera.pitch = PITCH_LIMIT;
+      this.camera.pitch = PLAN_PITCH;
       this.camera.target[1] = this.planCutY;
       this.touchOrbitEnabled = false;
       this.refreshPlanBubbleGeometry(true);
@@ -1197,7 +1210,7 @@ export class ViewportRenderer {
       const cz = (aabb.min[2] + aabb.max[2]) * 0.5;
       this.camera.target = [cx, this.planCutY, cz];
       this.camera.yaw = 0;
-      this.camera.pitch = PITCH_LIMIT;
+      this.camera.pitch = PLAN_PITCH;
       const aspect = this.canvas.clientWidth / Math.max(1, this.canvas.clientHeight);
       this.camera.distance = planFitDistance(aabb, aspect, CAMERA_FOVY);
       this.frameMats = null;
@@ -1211,7 +1224,7 @@ export class ViewportRenderer {
   resetCamera(): void {
     if (this.viewNavigation === 'plan') {
       this.camera.yaw = 0;
-      this.camera.pitch = PITCH_LIMIT;
+      this.camera.pitch = PLAN_PITCH;
       this.camera.target[1] = this.planCutY;
       this.fitViewExtents();
       this.frameMats = null;
@@ -1894,7 +1907,7 @@ export class ViewportRenderer {
     this.camera.distance = Math.max(halfHNeeded / tanHalfFov, 0.01);
     this.camera.target = [anchorXM, cutY, anchorZM];
     this.camera.yaw = 0;
-    this.camera.pitch = PITCH_LIMIT;
+    this.camera.pitch = PLAN_PITCH;
     this.planCutY = cutY;
     this.frameMats = null;
   }
@@ -2257,6 +2270,10 @@ export class ViewportRenderer {
 
   private eyePosition(): [number, number, number] {
     const { target, distance, yaw, pitch } = this.camera;
+    // Exact above-target eye — avoid cos(π/2) float noise leaving a Z offset.
+    if (this.viewNavigation === 'plan') {
+      return [target[0], target[1] + distance, target[2]];
+    }
     const cp = Math.cos(pitch);
     return [
       target[0] + distance * Math.sin(yaw) * cp,
@@ -2272,9 +2289,10 @@ export class ViewportRenderer {
 
   private buildCameraMatrices(): CameraMatrices {
     this.resize();
-    if (this.viewNavigation === 'plan') {
+    const plan = this.viewNavigation === 'plan';
+    if (plan) {
       this.camera.yaw = 0;
-      this.camera.pitch = PITCH_LIMIT;
+      this.camera.pitch = PLAN_PITCH;
       this.refreshPlanBubbleGeometry();
     }
     const aspect = this.canvas.clientWidth / Math.max(1, this.canvas.clientHeight);
@@ -2317,8 +2335,10 @@ export class ViewportRenderer {
       this.projection === 'orthographic'
         ? mat4Ortho(-halfW, halfW, -halfH, halfH, near, far)
         : mat4Perspective(CAMERA_FOVY, aspect, near, far);
+    // Plan: eye is directly above the target; world-Y up is parallel to the view
+    // axis, so use −Z as view-up (matches yaw=0: +X right, −Z screen-up).
     const eye = this.eyePosition();
-    const view = mat4LookAt(eye, this.camera.target, [0, 1, 0]);
+    const view = mat4LookAt(eye, this.camera.target, plan ? PLAN_UP : [0, 1, 0]);
     const viewProj = mat4Multiply(proj, view);
     const viewProjInv = invertMat4(viewProj) ?? mat4Identity();
     return { eye, view, proj, viewProj, viewProjInv };
