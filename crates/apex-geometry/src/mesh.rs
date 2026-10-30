@@ -145,6 +145,104 @@ impl TriangleMesh {
         }
         Some((min, max))
     }
+
+    /// Replace [`Self::edges`] with CAD feature edges.
+    ///
+    /// Welds coincident vertices (flat-shaded meshes split verts per face), then
+    /// keeps an edge when it is on the mesh boundary or the dihedral angle
+    /// between the two incident faces exceeds `sharp_radians`. Coplanar
+    /// triangulation diagonals are dropped — that is what makes IFC Open
+    /// readable instead of a black spaghetti wireframe.
+    pub fn rebuild_feature_edges(&mut self, sharp_radians: f32) {
+        self.edges.clear();
+        if self.indices.len() < 3 || self.positions.len() < 9 {
+            return;
+        }
+        const WELD: f32 = 1e-5;
+        let mut map: std::collections::HashMap<(i64, i64, i64), u32> =
+            std::collections::HashMap::new();
+        let mut welded: Vec<[f32; 3]> = Vec::new();
+        let mut remap = Vec::with_capacity(self.vertex_count());
+        for p in self.positions.chunks(3) {
+            let key = (
+                (p[0] / WELD).round() as i64,
+                (p[1] / WELD).round() as i64,
+                (p[2] / WELD).round() as i64,
+            );
+            let id = *map.entry(key).or_insert_with(|| {
+                let i = welded.len() as u32;
+                welded.push([
+                    key.0 as f32 * WELD,
+                    key.1 as f32 * WELD,
+                    key.2 as f32 * WELD,
+                ]);
+                i
+            });
+            remap.push(id);
+        }
+
+        let mut face_normals: Vec<[f32; 3]> = Vec::with_capacity(self.triangle_count());
+        let mut faces: Vec<[u32; 3]> = Vec::with_capacity(self.triangle_count());
+        for tri in self.indices.chunks(3) {
+            if tri.len() < 3 {
+                continue;
+            }
+            let a = remap[tri[0] as usize];
+            let b = remap[tri[1] as usize];
+            let c = remap[tri[2] as usize];
+            if a == b || b == c || a == c {
+                continue;
+            }
+            let pa = welded[a as usize];
+            let pb = welded[b as usize];
+            let pc = welded[c as usize];
+            let u = [pb[0] - pa[0], pb[1] - pa[1], pb[2] - pa[2]];
+            let v = [pc[0] - pa[0], pc[1] - pa[1], pc[2] - pa[2]];
+            let n = [
+                u[1] * v[2] - u[2] * v[1],
+                u[2] * v[0] - u[0] * v[2],
+                u[0] * v[1] - u[1] * v[0],
+            ];
+            let len = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+            if len < 1e-12 {
+                continue;
+            }
+            face_normals.push([n[0] / len, n[1] / len, n[2] / len]);
+            faces.push([a, b, c]);
+        }
+
+        let cos_lim = sharp_radians.cos();
+        // undirected edge → up to two incident face normals
+        let mut edge_faces: std::collections::BTreeMap<(u32, u32), Vec<usize>> =
+            std::collections::BTreeMap::new();
+        for (fi, face) in faces.iter().enumerate() {
+            for (i, j) in [(0, 1), (1, 2), (2, 0)] {
+                let (a, b) = (face[i], face[j]);
+                let key = if a < b { (a, b) } else { (b, a) };
+                edge_faces.entry(key).or_default().push(fi);
+            }
+        }
+
+        for ((a, b), faces_here) in edge_faces {
+            let keep = match faces_here.as_slice() {
+                [] => false,
+                [_] => true, // boundary
+                [i, j, ..] => {
+                    let na = face_normals[*i];
+                    let nb = face_normals[*j];
+                    let d = na[0] * nb[0] + na[1] * nb[1] + na[2] * nb[2];
+                    // Also drop near-coplanar pairs where float noise keeps
+                    // |n| slightly off 1 (IFC face fans).
+                    d < cos_lim
+                        && (na[0] - nb[0]).abs() + (na[1] - nb[1]).abs() + (na[2] - nb[2]).abs()
+                            > 1e-3
+                }
+            };
+            if keep {
+                self.push_edge(welded[a as usize], welded[b as usize]);
+            }
+        }
+    }
 }
 
 fn polygon_hits_aabb(poly: &[[f32; 3]], min: [f32; 3], max: [f32; 3]) -> bool {
@@ -232,6 +330,53 @@ fn point_in_aabb(p: [f32; 3], min: [f32; 3], max: [f32; 3]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn feature_edges_keep_box_silhouette_not_face_diagonals() {
+        // Unit cube as 12 triangles with split (flat-shaded) vertices — the
+        // IFC import shape. Diagonals must disappear; 12 box edges remain.
+        let mut m = TriangleMesh::empty();
+        let faces = [
+            (
+                [[0., 0., 0.], [1., 0., 0.], [1., 1., 0.], [0., 1., 0.]],
+                [0., 0., -1.],
+            ),
+            (
+                [[0., 0., 1.], [0., 1., 1.], [1., 1., 1.], [1., 0., 1.]],
+                [0., 0., 1.],
+            ),
+            (
+                [[0., 0., 0.], [0., 0., 1.], [1., 0., 1.], [1., 0., 0.]],
+                [0., -1., 0.],
+            ),
+            (
+                [[0., 1., 0.], [1., 1., 0.], [1., 1., 1.], [0., 1., 1.]],
+                [0., 1., 0.],
+            ),
+            (
+                [[0., 0., 0.], [0., 1., 0.], [0., 1., 1.], [0., 0., 1.]],
+                [-1., 0., 0.],
+            ),
+            (
+                [[1., 0., 0.], [1., 0., 1.], [1., 1., 1.], [1., 1., 0.]],
+                [1., 0., 0.],
+            ),
+        ];
+        for (ring, n) in faces {
+            m.push_triangle(ring[0], ring[1], ring[2], n);
+            m.push_triangle(ring[0], ring[2], ring[3], n);
+            // Pretend we wrongly stored every triangle edge (IFC decode bug).
+            m.push_edge(ring[0], ring[1]);
+            m.push_edge(ring[1], ring[2]);
+            m.push_edge(ring[2], ring[0]);
+            m.push_edge(ring[0], ring[2]);
+            m.push_edge(ring[2], ring[3]);
+            m.push_edge(ring[3], ring[0]);
+        }
+        assert!(m.edge_count() > 12);
+        m.rebuild_feature_edges(0.70);
+        assert_eq!(m.edge_count(), 12, "cube silhouette has 12 edges");
+    }
 
     #[test]
     fn appending_rebases_indices_and_keeps_edges() {
