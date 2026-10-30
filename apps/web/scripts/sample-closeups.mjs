@@ -1,5 +1,5 @@
 /**
- * Close-up screenshots of the sample project's plan symbols and 3D openings.
+ * Close-up screenshots of the sample house plan symbols and 3D openings.
  *   APEX_SMOKE_URL=http://localhost:5173/ APEX_SAMPLE_OUT=/tmp/x node scripts/sample-closeups.mjs
  */
 import { chromium } from 'playwright';
@@ -13,11 +13,16 @@ await page.addInitScript(() => {
   if (sessionStorage.getItem('apex.closeups')) return;
   sessionStorage.setItem('apex.closeups', '1');
   localStorage.clear();
+  // Auto-load house on first visit (no dismissed flag).
 });
 await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.waitForSelector('canvas');
-await page.getByTestId('load-sample-project').click();
-await page.waitForTimeout(800);
+await page.waitForTimeout(1500);
+// If auto-load did not run, click the button.
+if ((await page.getByTestId('load-sample-project').count()) > 0) {
+  await page.getByTestId('load-sample-project').click();
+  await page.waitForTimeout(1200);
+}
 const nav = async (label) => {
   await page.locator('button', { hasText: new RegExp(`^${label}$`) }).first().click();
   await page.waitForTimeout(400);
@@ -29,29 +34,27 @@ const clip = async (name, center, half = 160) => {
 };
 await nav('Plan');
 await nav('Fit');
-// Zoom in at the plan centre.
-const [cx, cy] = await w2c([3, 0, 2.5]);
+const [cx, cy] = await w2c([5, 0, 4]);
 await page.mouse.move(cx, cy);
 for (let i = 0; i < 3; i += 1) { await page.mouse.wheel(0, -240); await page.waitForTimeout(60); }
 await page.waitForTimeout(400);
 await page.keyboard.press('Escape');
 await page.mouse.move(5, 5);
 await page.screenshot({ path: `${OUT}/plan-zoomed.png` });
-await clip('plan-south-door', [1.6, 0, 0.3]);
-await clip('plan-interior-door', [3.5, 0, 3.8]);
-await clip('plan-t-join-south', [3.5, 0, 0]);
-await clip('plan-corner-se', [6, 0, 0]);
-await clip('plan-stair', [5.2, 0, 2.4], 220);
+await clip('plan-entrance-door', [2, 0, 0.3]);
+await clip('plan-interior-door', [5, 0, 2]);
+await clip('plan-partition', [5, 0, 4]);
+await clip('plan-stair', [1, 0, 3.5], 220);
+await clip('plan-kitchen-space', [7.5, 0, 6]);
 await nav('3D');
 await nav('Persp');
 const views = [
-  ['3d-door-south-out', [1.6, 1.0, 0], -Math.PI / 2 + 0.3, 0.15, 4],
-  ['3d-door-south-in', [1.6, 1.0, 0], Math.PI / 2 + 0.3, 0.25, 4],
-  ['3d-door-interior', [3.5, 1.0, 3.8], 0.3, 0.25, 4],
-  ['3d-window-east-out', [6, 1.4, 2.5], 0.3, 0.15, 3.5],
-  ['3d-window-east-in', [6, 1.4, 2.5], Math.PI + 0.3, 0.2, 3.5],
-  ['3d-window-north-out', [1.75, 1.4, 5], Math.PI / 2 + 0.3, 0.15, 3.5],
-  ['3d-overview', [3, 1.5, 2.5], 0.7, 0.6, 13],
+  ['3d-door-entrance-out', [2, 1.05, 0], -Math.PI / 2 + 0.3, 0.15, 4],
+  ['3d-door-entrance-in', [2, 1.05, 0], Math.PI / 2 + 0.3, 0.25, 4],
+  ['3d-door-interior', [5, 1.05, 2], 0.3, 0.25, 4],
+  ['3d-window-west-out', [0, 1.6, 4], Math.PI + 0.3, 0.15, 3.5],
+  ['3d-window-west-in', [0, 1.6, 4], 0.3, 0.2, 3.5],
+  ['3d-overview', [5, 4, 4], 0.9, 0.35, 28],
 ];
 for (const [name, target, yaw, pitch, distance] of views) {
   await page.evaluate((c) => window.__apexTest.setCamera(c), { target, yaw, pitch, distance });
