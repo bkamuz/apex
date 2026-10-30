@@ -15,6 +15,8 @@ export default defineConfig({
   },
   optimizeDeps: {
     exclude: ['./src/wasm/pkg/apex_wasm.js'],
+    // jsZip is CJS; IFC-Lite parser imports default — prebundle so Vite interops.
+    include: ['jszip', '@ifc-lite/parser', '@ifc-lite/geometry'],
   },
   assetsInclude: ['**/*.wasm'],
 });

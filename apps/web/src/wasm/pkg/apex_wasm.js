@@ -811,6 +811,25 @@ export function importIfc(text) {
 }
 
 /**
+ * Replace the current project from pre-tessellated IFC meshes (Apex Y-up metres).
+ *
+ * `payload_json` matches [`apex_ifc::MeshImportPayload`]:
+ * `{ levels: [{name, elevation}], products: [{name, ifc_type, origin, positions, indices, level_index?}] }`.
+ * Used by the IFC-Lite / web-ifc PluginHost Open path.
+ * @param {string} payload_json
+ * @returns {any}
+ */
+export function importIfcMeshes(payload_json) {
+    const ptr0 = passStringToWasm0(payload_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.importIfcMeshes(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * Replace the current project from a JSON snapshot.
  * @param {string} json
  * @returns {any}

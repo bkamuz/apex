@@ -2443,45 +2443,48 @@ export default function App() {
   const onOpenProjectFile = (file: File) => {
     const reader = new FileReader();
     reader.onload = () => {
-      try {
-        const text = String(reader.result ?? '');
-        const importer = importerRegistry.findForFile(file.name);
-        if (importer) {
-          const next = importer.import(text) as SceneDto & {
-            ifc_import?: {
-              levels: number;
-              products: number;
-              skipped_no_mesh: number;
-              warnings: string[];
+      void (async () => {
+        try {
+          const text = String(reader.result ?? '');
+          const importer = importerRegistry.findForFile(file.name);
+          if (importer) {
+            setInfo(`Opening ${importer.label}…`);
+            const next = (await Promise.resolve(importer.import(text))) as SceneDto & {
+              ifc_import?: {
+                levels: number;
+                products: number;
+                skipped_no_mesh: number;
+                warnings: string[];
+              };
             };
-          };
-          clearStoredProject();
+            clearStoredProject();
+            applyScene(next, true);
+            syncCatalog();
+            const summary = next.ifc_import;
+            if (summary) {
+              const skipped =
+                summary.skipped_no_mesh > 0
+                  ? ` (${summary.skipped_no_mesh} without mesh skipped)`
+                  : '';
+              setInfo(
+                `Opened IFC: ${summary.products} product${summary.products === 1 ? '' : 's'}, ${summary.levels} level${summary.levels === 1 ? '' : 's'}${skipped}`,
+              );
+            } else {
+              setInfo(`Opened ${importer.label}: ${file.name}`);
+            }
+            setError(null);
+            return;
+          }
+          const next = apexImportProject(text);
+          storeProject(text);
           applyScene(next, true);
           syncCatalog();
-          const summary = next.ifc_import;
-          if (summary) {
-            const skipped =
-              summary.skipped_no_mesh > 0
-                ? ` (${summary.skipped_no_mesh} without mesh skipped)`
-                : '';
-            setInfo(
-              `Opened IFC: ${summary.products} product${summary.products === 1 ? '' : 's'}, ${summary.levels} level${summary.levels === 1 ? '' : 's'}${skipped}`,
-            );
-          } else {
-            setInfo(`Opened ${importer.label}: ${file.name}`);
-          }
+          setInfo(`Opened project: ${file.name}`);
           setError(null);
-          return;
+        } catch (err) {
+          setError(err instanceof Error ? err.message : String(err));
         }
-        const next = apexImportProject(text);
-        storeProject(text);
-        applyScene(next, true);
-        syncCatalog();
-        setInfo(`Opened project: ${file.name}`);
-        setError(null);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : String(err));
-      }
+      })();
     };
     reader.readAsText(file);
   };

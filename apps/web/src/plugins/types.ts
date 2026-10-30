@@ -31,8 +31,9 @@ export interface Importer {
   /**
    * Replace the live project from file text. Returns the new scene
    * (may carry format-specific summary fields the shell can surface).
+   * May be async (e.g. IFC-Lite WASM tessellation).
    */
-  import(text: string): SceneDto;
+  import(text: string): SceneDto | Promise<SceneDto>;
 }
 
 /** Services a plugin uses to install itself. */

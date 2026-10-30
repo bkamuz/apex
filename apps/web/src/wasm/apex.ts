@@ -40,6 +40,7 @@ import initWasm, {
   exportProject,
   exportIfc,
   importIfc,
+  importIfcMeshes,
   importProject,
   newProject,
   undo,
@@ -286,6 +287,15 @@ export type IfcImportSummary = {
 /** Replace the live project from an IFC STEP string (tessellated MVP). */
 export function apexImportIfc(text: string): SceneDto & { ifc_import?: IfcImportSummary } {
   return asScene(importIfc(text)) as SceneDto & { ifc_import?: IfcImportSummary };
+}
+
+/** Replace the live project from pre-tessellated IFC meshes (IFC-Lite / web-ifc). */
+export function apexImportIfcMeshes(
+  payloadJson: string,
+): SceneDto & { ifc_import?: IfcImportSummary } {
+  return asScene(importIfcMeshes(payloadJson)) as SceneDto & {
+    ifc_import?: IfcImportSummary;
+  };
 }
 
 export function apexUpdateElement(

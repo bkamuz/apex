@@ -1313,6 +1313,173 @@ fn polygon_normal(ring: &[Vec3]) -> Vec3 {
     n.normalize_or_zero()
 }
 
+/// One storey contributed by an external tessellator (IFC-Lite, web-ifc, …).
+///
+/// Elevations and mesh coordinates must already be in **Apex Y-up metres**.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct MeshImportLevel {
+    pub name: String,
+    pub elevation: f32,
+}
+
+/// One triangle mesh product from an external tessellator.
+///
+/// `positions` are local to `origin` (world = local + origin). Indices are
+/// triangle lists. Optional `level_index` indexes into [`MeshImportPayload::levels`].
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct MeshImportProduct {
+    pub name: String,
+    pub ifc_type: String,
+    pub origin: [f32; 3],
+    pub positions: Vec<f32>,
+    pub indices: Vec<u32>,
+    #[serde(default)]
+    pub level_index: Option<usize>,
+}
+
+/// Payload for [`import_meshes_into`] — pre-tessellated IFC products.
+#[derive(Debug, Clone, serde::Deserialize)]
+pub struct MeshImportPayload {
+    #[serde(default)]
+    pub levels: Vec<MeshImportLevel>,
+    pub products: Vec<MeshImportProduct>,
+}
+
+/// Replace `project` with externally tessellated IFC meshes (already Y-up metres).
+pub fn import_meshes_into(
+    project: &mut Project,
+    payload: MeshImportPayload,
+) -> Result<ImportStats, ImportError> {
+    if payload.products.is_empty() {
+        return Err(ImportError(
+            "IFC mesh import contained no products".into(),
+        ));
+    }
+
+    let mut warnings = Vec::new();
+    if payload.levels.is_empty() {
+        warnings.push("no storeys provided; using a single Level 0".into());
+    }
+
+    *project = Project::new();
+    project.clear_history();
+
+    let default_level = project
+        .document()
+        .active_level_id()
+        .ok_or_else(|| ImportError("fresh project has no level".into()))?;
+
+    let mut level_ids: Vec<LevelId> = Vec::new();
+    let level_count;
+    if payload.levels.is_empty() {
+        level_ids.push(default_level);
+        level_count = 1;
+    } else {
+        let mut sorted: Vec<(usize, &MeshImportLevel)> =
+            payload.levels.iter().enumerate().collect();
+        sorted.sort_by(|(_, a), (_, b)| {
+            a.elevation
+                .partial_cmp(&b.elevation)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.name.cmp(&b.name))
+        });
+        // Map original index → LevelId after sort-stable creation order by elevation.
+        let mut by_orig: Vec<Option<LevelId>> = vec![None; payload.levels.len()];
+        for (created, (orig_i, storey)) in sorted.iter().enumerate() {
+            let level_id = if created == 0 {
+                if let Some(level) = project.document_mut().get_level_mut(default_level) {
+                    level.name = storey.name.clone();
+                    level.elevation = storey.elevation;
+                }
+                default_level
+            } else {
+                project.add_level(&storey.name, storey.elevation)
+            };
+            by_orig[*orig_i] = Some(level_id);
+        }
+        level_ids = by_orig.into_iter().map(|id| id.expect("level")).collect();
+        let _ = project.set_active_level(default_level);
+        level_count = payload.levels.len();
+    }
+
+    let mut imported = 0usize;
+    let mut skipped = 0usize;
+
+    for product in &payload.products {
+        if product.positions.len() < 9 || product.indices.len() < 3 {
+            skipped += 1;
+            continue;
+        }
+        let origin = Vec3::from_array(product.origin);
+        let mut params = ParamMap::new();
+        // Encode via decode path so feature edges are regenerated consistently.
+        let mesh_json = serde_json::json!({
+            "p": product.positions,
+            "i": product.indices,
+        })
+        .to_string();
+        let local_mesh = apex_core::decode_ifc_mesh_json(&mesh_json).unwrap_or_else(|| {
+            let mut empty = TriangleMesh::empty();
+            empty.positions = product.positions.clone();
+            empty.indices = product.indices.clone();
+            empty
+        });
+        if local_mesh.is_empty() {
+            skipped += 1;
+            continue;
+        }
+        params.set("_mesh", encode_ifc_mesh_param(&local_mesh));
+        params.set(
+            "ifc_type",
+            ParamValue::Text(pretty_ifc_type(&product.ifc_type)),
+        );
+        if !product.name.is_empty() {
+            params.set("source_name", ParamValue::Text(product.name.clone()));
+        }
+
+        let level_id = product
+            .level_index
+            .and_then(|i| level_ids.get(i).copied())
+            .or_else(|| nearest_level(project, origin.y))
+            .unwrap_or(default_level);
+
+        let name = if product.name.is_empty() {
+            format!(
+                "{} {}",
+                pretty_ifc_type(&product.ifc_type),
+                imported + 1
+            )
+        } else {
+            product.name.clone()
+        };
+        let element = Element::new(
+            name,
+            IFC_MESH_COMPONENT,
+            level_id,
+            Placement::point(origin),
+            params,
+        );
+        let mesh = ifc_mesh_from_params(&element.params)
+            .map(|m| offset_mesh(&m, origin))
+            .unwrap_or_else(|| offset_mesh(&local_mesh, origin));
+        project.document_mut().upsert_element(element, mesh);
+        imported += 1;
+    }
+
+    if imported == 0 {
+        return Err(ImportError(
+            "IFC mesh import produced no elements (all products empty or invalid)".into(),
+        ));
+    }
+
+    Ok(ImportStats {
+        levels: level_count,
+        products: imported,
+        skipped_no_mesh: skipped,
+        warnings,
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1449,5 +1616,45 @@ END-ISO-10303-21;
             (dx - 1.0).abs() < 1e-3 && (dy - 1.0).abs() < 1e-3 && (dz - 1.0).abs() < 1e-3,
             "expected 1 m cube, got {dx}×{dy}×{dz}"
         );
+    }
+
+    #[test]
+    fn import_meshes_places_y_up_products_on_storeys() {
+        // Unit square in XZ at local y=0, placed at world y=3.1 (level 2).
+        let payload = MeshImportPayload {
+            levels: vec![
+                MeshImportLevel {
+                    name: "Level 1".into(),
+                    elevation: 0.0,
+                },
+                MeshImportLevel {
+                    name: "Level 2".into(),
+                    elevation: 3.1,
+                },
+            ],
+            products: vec![MeshImportProduct {
+                name: "Wall A".into(),
+                ifc_type: "IfcWall".into(),
+                origin: [1.0, 3.1, 2.0],
+                positions: vec![
+                    -0.5, 0.0, -0.1, 0.5, 0.0, -0.1, 0.5, 0.0, 0.1, -0.5, 0.0, 0.1, -0.5, 2.0,
+                    -0.1, 0.5, 2.0, -0.1, 0.5, 2.0, 0.1, -0.5, 2.0, 0.1,
+                ],
+                indices: vec![0, 1, 2, 0, 2, 3, 4, 6, 5, 4, 7, 6],
+                level_index: Some(1),
+            }],
+        };
+        let mut project = Project::new();
+        let stats = import_meshes_into(&mut project, payload).expect("import");
+        assert_eq!(stats.levels, 2);
+        assert_eq!(stats.products, 1);
+        let element = project.document().elements().next().expect("element");
+        assert_eq!(element.name, "Wall A");
+        let level = project
+            .document()
+            .get_level(element.level_id)
+            .expect("level");
+        assert_eq!(level.name, "Level 2");
+        assert!((level.elevation - 3.1).abs() < 1e-4);
     }
 }

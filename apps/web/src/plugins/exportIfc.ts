@@ -1,11 +1,13 @@
-import { apexExportIfc, apexImportIfc } from '../wasm/apex';
+import { apexExportIfc } from '../wasm/apex';
+import { importIfcWithIfcLite } from './ifcLiteImport';
 import type { Plugin } from './types';
 
 /** First-party IFC4 export + import — registered through PluginHost, not App branches. */
 export const exportIfcPlugin: Plugin = {
   id: 'apex.export.ifc',
   descriptor: {
-    purpose: 'IFC4 export and import of the whole project (tessellated MVP).',
+    purpose:
+      'IFC4 export and IFC-Lite–backed Open (Rust+WASM tessellation with CSG openings).',
   },
   install(host) {
     host.registerExporter({
@@ -20,13 +22,13 @@ export const exportIfcPlugin: Plugin = {
       id: 'apex.ifc',
       descriptor: {
         purpose:
-          'Open an IFC STEP file into tessellated apex.ifc.mesh instances (storeys → levels). Honours unit assignment, mapped items, and composite-curve extrusions.',
+          'Open an IFC STEP file via IFC-Lite (CSG openings, IfcOpenShell-verified meshes) into apex.ifc.mesh instances; storeys become levels.',
       },
       label: 'IFC',
       title: 'Open IFC4 / IFC2x3 (.ifc)',
       extensions: ['.ifc'],
       accept: '.ifc,application/x-step,model/step',
-      import: (text) => apexImportIfc(text),
+      import: (text) => importIfcWithIfcLite(text),
     });
   },
 };
