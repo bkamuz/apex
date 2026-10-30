@@ -61,6 +61,8 @@ import {
   apexTogglePickById,
   apexToggleSelectElement,
   apexTranslateSelection,
+  apexJoinableSnapTargets,
+  apexPreviewStretchTranslate,
   apexUndo,
   apexCommandScene,
   apexUpdateElement,
@@ -667,6 +669,18 @@ export default function App() {
     return {
       resolvePoint: (x, y, shift, anchor) => resolvePoint(x, y, shift, anchor),
 
+      joinableSnapTargets: (componentId) => {
+        try {
+          return apexJoinableSnapTargets(componentId).map((t) => ({
+            point: [...t.point] as Vec3,
+            kind: t.kind,
+            element_id: t.element_id,
+          }));
+        } catch {
+          return [];
+        }
+      },
+
       createElement: (componentId, points, placementKind) => {
         try {
           applyScene(
@@ -1220,6 +1234,23 @@ export default function App() {
 
       previewTransform: (originals, delta) => {
         // Ghost-only: never mutate placements while the pointer moves.
+        // Joinable selections use core stretch preview so connected peers stay attached.
+        const hasElements = originals.some((o) => o.kind === 'element');
+        if (hasElements) {
+          try {
+            const mesh = apexPreviewStretchTranslate(delta);
+            if (mesh && mesh.indices.length > 0) {
+              renderer.setGhostMesh({
+                positions: toFloatArray(mesh.positions),
+                normals: toFloatArray(mesh.normals),
+                indices: toUint32Array(mesh.indices),
+              });
+              return;
+            }
+          } catch {
+            /* fall through to translate-only ghost */
+          }
+        }
         const current = sceneRef.current;
         if (!current) {
           renderer.setGhostMesh(null);
@@ -1266,6 +1297,13 @@ export default function App() {
       },
 
       selectedElementIds: () => apexGetSelectedElements().map((element) => element.id),
+
+      selectedJoinableComponentId: () => {
+        const sel = selectedRef.current;
+        if (!sel || selectedCountRef.current !== 1) return null;
+        const def = apexListComponents().find((c) => c.id === sel.component_id);
+        return def?.joinable ? sel.component_id : null;
+      },
 
       elementParentId: (id) =>
         apexListElements().find((element) => element.id === id)?.parent_id ?? null,

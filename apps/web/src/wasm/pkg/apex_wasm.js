@@ -854,6 +854,22 @@ export function joinPaths(id) {
 }
 
 /**
+ * Placement snap targets (ends / mids / T-vertices) for joinable peers of
+ * `component_id` on the active level. Universal — no wall/beam branches.
+ * @param {string} component_id
+ * @returns {any}
+ */
+export function joinableSnapTargets(component_id) {
+    const ptr0 = passStringToWasm0(component_id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.joinableSnapTargets(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * `{ kernel, pending }` for the status line.
  * @returns {any}
  */
@@ -1035,6 +1051,22 @@ export function previewProfile(profile_json, params_json) {
     const ptr1 = passStringToWasm0(params_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len1 = WASM_VECTOR_LEN;
     const ret = wasm.previewProfile(ptr0, len0, ptr1, len1);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Ghost mesh for Move preview: selection translated + connected joinable peers
+ * stretched. Does not mutate the document.
+ * @param {string} delta_json
+ * @returns {any}
+ */
+export function previewStretchTranslate(delta_json) {
+    const ptr0 = passStringToWasm0(delta_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.previewStretchTranslate(ptr0, len0);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }

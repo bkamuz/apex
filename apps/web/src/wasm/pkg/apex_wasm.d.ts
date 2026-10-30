@@ -184,6 +184,12 @@ export function initApp(): void;
 export function joinPaths(id: string): any;
 
 /**
+ * Placement snap targets (ends / mids / T-vertices) for joinable peers of
+ * `component_id` on the active level. Universal — no wall/beam branches.
+ */
+export function joinableSnapTargets(component_id: string): any;
+
+/**
  * `{ kernel, pending }` for the status line.
  */
 export function kernelStatus(): any;
@@ -235,6 +241,12 @@ export function previewElement(component_id: string, points_json: string, rotati
  * Evaluate a profile spec (or a full `ProfileType`) to a 2D outline for the editor.
  */
 export function previewProfile(profile_json: string, params_json: string): any;
+
+/**
+ * Ghost mesh for Move preview: selection translated + connected joinable peers
+ * stretched. Does not mutate the document.
+ */
+export function previewStretchTranslate(delta_json: string): any;
 
 export function redo(): any;
 
@@ -439,6 +451,7 @@ export interface InitOutput {
     readonly importProject: (a: number, b: number) => [number, number, number];
     readonly initApp: () => [number, number];
     readonly joinPaths: (a: number, b: number) => [number, number, number];
+    readonly joinableSnapTargets: (a: number, b: number) => [number, number, number];
     readonly kernelStatus: () => [number, number, number];
     readonly listComponents: () => [number, number, number];
     readonly listElements: () => [number, number, number];
@@ -450,6 +463,7 @@ export interface InitOutput {
     readonly previewComponentDefinition: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
     readonly previewElement: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
     readonly previewProfile: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly previewStretchTranslate: (a: number, b: number) => [number, number, number];
     readonly redo: () => [number, number, number];
     readonly registerComponent: (a: number, b: number) => [number, number, number];
     readonly registerOpeningGenerator: (a: number, b: number, c: number, d: number, e: any) => [number, number, number];

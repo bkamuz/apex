@@ -3,6 +3,7 @@ import { componentDisplayName, modeDisplayLabel, pluralS, t } from '../i18n';
 import type { ComponentDto, PlacementKind } from '../types';
 import type { Vec3 } from '../viewport/ViewportRenderer';
 import { COMPONENT_ICON_BY_ID, type ToolIcon } from './icons';
+import { resolveJoinablePoint } from './joinableSnap';
 import {
   requiredPoints,
   toolIdForComponent,
@@ -129,7 +130,9 @@ export function createPlacementTool(
     onClick(e, ctx) {
       const needed = requiredPoints(activeKind());
       const anchor = picks.length > 0 ? picks[picks.length - 1] : null;
-      const resolved = ctx.resolvePoint(e.clientX, e.clientY, e.shift, anchor);
+      const resolved = component.joinable
+        ? resolveJoinablePoint(ctx, e.clientX, e.clientY, e.shift, anchor, component.id)?.point
+        : ctx.resolvePoint(e.clientX, e.clientY, e.shift, anchor);
       if (!resolved) return;
       const point = applyElevation(resolved);
 
@@ -180,13 +183,22 @@ export function createPlacementTool(
     onPointerMove(e, ctx) {
       const needed = requiredPoints(activeKind());
       const anchor = picks.length > 0 ? picks[picks.length - 1] : null;
-      const resolved = ctx.resolvePoint(e.clientX, e.clientY, e.shift, anchor);
+      let resolved: Vec3 | null = null;
+      let joinSnapped = false;
+      if (component.joinable) {
+        const hit = resolveJoinablePoint(ctx, e.clientX, e.clientY, e.shift, anchor, component.id);
+        resolved = hit?.point ?? null;
+        joinSnapped = !!hit?.snapped;
+      } else {
+        resolved = ctx.resolvePoint(e.clientX, e.clientY, e.shift, anchor);
+      }
       if (!resolved) {
         ctx.showSnapMarker(null, e.shift);
         return;
       }
       const point = applyElevation(resolved);
-      ctx.showSnapMarker(point, e.shift);
+      // Join snaps show the marker without requiring Shift (grid snap still does).
+      ctx.showSnapMarker(point, e.shift || joinSnapped);
       if (picks.length === 0) return;
 
       const provisional = [...picks, point];

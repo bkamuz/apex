@@ -54,6 +54,7 @@ export const importIfc: (a: number, b: number) => [number, number, number];
 export const importProject: (a: number, b: number) => [number, number, number];
 export const initApp: () => [number, number];
 export const joinPaths: (a: number, b: number) => [number, number, number];
+export const joinableSnapTargets: (a: number, b: number) => [number, number, number];
 export const kernelStatus: () => [number, number, number];
 export const listComponents: () => [number, number, number];
 export const listElements: () => [number, number, number];
@@ -65,6 +66,7 @@ export const placeViewOnSheet: (a: number, b: number, c: number, d: number, e: n
 export const previewComponentDefinition: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
 export const previewElement: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
 export const previewProfile: (a: number, b: number, c: number, d: number) => [number, number, number];
+export const previewStretchTranslate: (a: number, b: number) => [number, number, number];
 export const redo: () => [number, number, number];
 export const registerComponent: (a: number, b: number) => [number, number, number];
 export const registerOpeningGenerator: (a: number, b: number, c: number, d: number, e: any) => [number, number, number];
