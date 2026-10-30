@@ -33,7 +33,7 @@ async function useTool(name) {
 await useTool('Wall');
 await page.waitForTimeout(120);
 
-const canvas = page.locator('canvas');
+const canvas = page.getByTestId('viewport-canvas');
 const box = await canvas.boundingBox();
 if (!box) throw new Error('no canvas');
 

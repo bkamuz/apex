@@ -17,11 +17,11 @@ await page.waitForTimeout(300);
 
 const getCamera = () =>
   page.evaluate(() => {
-    const r = document.querySelector('canvas')?.__apexRenderer;
-    return r?.getCamera?.() ?? null;
+    const el = document.querySelector('[data-testid="viewport-canvas"]');
+    return el?.__apexRenderer?.getCamera?.() ?? null;
   });
 
-const canvas = page.locator('canvas');
+const canvas = page.getByTestId('viewport-canvas');
 const box = await canvas.boundingBox();
 if (!box) throw new Error('no canvas');
 
@@ -71,7 +71,7 @@ await page.mouse.down({ button: 'right' });
 await page.mouse.move(cx + 40, cy + 20, { steps: 3 });
 const yawOrbitStart = (await getCamera()).yaw;
 await page.evaluate(() => {
-  const canvas = document.querySelector('canvas');
+  const canvas = document.querySelector('[data-testid="viewport-canvas"]');
   canvas.dispatchEvent(
     new PointerEvent('pointerup', {
       bubbles: true,

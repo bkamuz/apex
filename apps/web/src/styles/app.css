@@ -1377,6 +1377,32 @@ input[type="radio"] {
   pointer-events: none;
 }
 
+/* CAD view cube — WebGL textured faces; chrome plate behind the canvas. */
+.view-cube {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 6;
+  width: 112px;
+  height: 112px;
+  border-radius: var(--chrome-radius);
+  box-shadow: none;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: pointer;
+  background: rgba(28, 28, 28, 0.92);
+  border: 1px solid var(--chrome-border);
+}
+
+.view-cube canvas {
+  display: block;
+  width: 112px;
+  height: 112px;
+  touch-action: none;
+}
+
 .inspector-body {
   padding: 10px;
   display: flex;
@@ -1574,6 +1600,18 @@ input[type="radio"] {
     left: 8px;
     bottom: 8px;
     max-width: calc(100% - 88px);
+  }
+
+  .view-cube {
+    top: 8px;
+    right: 8px;
+    width: 84px;
+    height: 84px;
+  }
+
+  .view-cube canvas {
+    width: 84px;
+    height: 84px;
   }
 
   .mobile-menu-fab {
