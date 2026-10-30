@@ -507,10 +507,37 @@ fn signed_area(ring: &[[f64; 2]]) -> f64 {
     a * 0.5
 }
 
+/// Axis-aligned bbox of a ring: `[xmin, xmax, ymin, ymax]`.
+fn ring_bbox(ring: &[[f64; 2]]) -> [f64; 4] {
+    let mut b = [f64::MAX, f64::MIN, f64::MAX, f64::MIN];
+    for p in ring {
+        b[0] = b[0].min(p[0]);
+        b[1] = b[1].max(p[0]);
+        b[2] = b[2].min(p[1]);
+        b[3] = b[3].max(p[1]);
+    }
+    b
+}
+
+/// True when segment `p→q` lies on the outer rectangle of `bbox` (the host
+/// opening perimeter). Door frames are a single U-loop, so "outer loop" alone
+/// is not enough — inner jambs share that loop and must keep their caps.
+fn on_opening_perimeter(p: [f64; 2], q: [f64; 2], bbox: [f64; 4]) -> bool {
+    const E: f64 = 1e-4;
+    let on = |v: f64, edge: f64| (v - edge).abs() < E;
+    let both_x = |edge: f64| on(p[0], edge) && on(q[0], edge);
+    let both_y = |edge: f64| on(p[1], edge) && on(q[1], edge);
+    both_x(bbox[0]) || both_x(bbox[1]) || both_y(bbox[2]) || both_y(bbox[3])
+}
+
 /// Place generated opening geometry in a wall frame (`u` along, `n` across,
 /// `base` = element origin on the wall centreline). Each part becomes one
 /// closed prism; edges are drawn on cap outlines and at real corners only,
 /// so frames and sashes show no member seams.
+///
+/// Frame cap edges on the opening's outer perimeter are omitted: they sit on
+/// the host wall faces and would double the wall's own reveal creases,
+/// reading as a thick black stripe on the wall beside the door/window.
 pub fn emit_opening(mesh: &mut TriangleMesh, geo: &OpeningGeometry, base: Vec3, u: Vec3, n: Vec3) {
     let tri = |mesh: &mut TriangleMesh, a: Vec3, b: Vec3, d: Vec3, nn: Vec3| {
         if (b - a).cross(d - a).dot(nn) >= 0.0 {
@@ -548,6 +575,12 @@ pub fn emit_opening(mesh: &mut TriangleMesh, geo: &OpeningGeometry, base: Vec3, 
         if loops.is_empty() {
             continue;
         }
+        // Outer extents of the frame (opening size); used to drop perimeter caps.
+        let perimeter = if part.frame {
+            Some(ring_bbox(&loops[0]))
+        } else {
+            None
+        };
         let first = mesh.normals.len();
         let cap_n = a_dir.cross(Vec3::Y);
         for t in triangulate_shape(&loops) {
@@ -567,8 +600,11 @@ pub fn emit_opening(mesh: &mut TriangleMesh, geo: &OpeningGeometry, base: Vec3, 
                 let (pa, pb, qa, qb) = (pt(p, d0), pt(p, d1), pt(q, d0), pt(q, d1));
                 tri(mesh, pa, qa, qb, nn);
                 tri(mesh, pa, qb, pb, nn);
-                mesh.push_edge(pa.to_array(), qa.to_array());
-                mesh.push_edge(pb.to_array(), qb.to_array());
+                let skip_caps = perimeter.is_some_and(|b| on_opening_perimeter(p, q, b));
+                if !skip_caps {
+                    mesh.push_edge(pa.to_array(), qa.to_array());
+                    mesh.push_edge(pb.to_array(), qb.to_array());
+                }
                 // Depth edge only where the outline really turns.
                 let o = lp[(k + m - 1) % m];
                 let (v0, v1) = ([p[0] - o[0], p[1] - o[1]], [q[0] - p[0], q[1] - p[1]]);
