@@ -117,7 +117,10 @@ fn mesh_from_indexed(positions: &[f32], indices: &[u32]) -> TriangleMesh {
     // keep silhouette / crease edges instead of every triangle diagonal.
     let mut weld: std::collections::HashMap<[i64; 3], u32> = std::collections::HashMap::new();
     let mut welded_pos: Vec<[f32; 3]> = Vec::new();
-    let remap = |i: u32, weld: &mut std::collections::HashMap<[i64; 3], u32>, welded_pos: &mut Vec<[f32; 3]>| -> Option<u32> {
+    let remap = |i: u32,
+                 weld: &mut std::collections::HashMap<[i64; 3], u32>,
+                 welded_pos: &mut Vec<[f32; 3]>|
+     -> Option<u32> {
         let i = i as usize;
         let p = [
             *positions.get(i * 3)?,

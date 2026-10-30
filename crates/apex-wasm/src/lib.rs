@@ -2216,8 +2216,7 @@ pub fn import_ifc(text: &str) -> Result<JsValue, JsValue> {
 #[wasm_bindgen(js_name = importIfcMeshes)]
 pub fn import_ifc_meshes(payload_json: &str) -> Result<JsValue, JsValue> {
     with_project(|project| {
-        let payload: apex_ifc::MeshImportPayload =
-            parse_json("ifc mesh payload", payload_json)?;
+        let payload: apex_ifc::MeshImportPayload = parse_json("ifc mesh payload", payload_json)?;
         let stats =
             apex_ifc::import_meshes_into(project, payload).map_err(|e| err(e.to_string()))?;
         with_selection(|s| s.set(None));

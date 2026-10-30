@@ -1351,9 +1351,7 @@ pub fn import_meshes_into(
     payload: MeshImportPayload,
 ) -> Result<ImportStats, ImportError> {
     if payload.products.is_empty() {
-        return Err(ImportError(
-            "IFC mesh import contained no products".into(),
-        ));
+        return Err(ImportError("IFC mesh import contained no products".into()));
     }
 
     let mut warnings = Vec::new();
@@ -1444,11 +1442,7 @@ pub fn import_meshes_into(
             .unwrap_or(default_level);
 
         let name = if product.name.is_empty() {
-            format!(
-                "{} {}",
-                pretty_ifc_type(&product.ifc_type),
-                imported + 1
-            )
+            format!("{} {}", pretty_ifc_type(&product.ifc_type), imported + 1)
         } else {
             product.name.clone()
         };
