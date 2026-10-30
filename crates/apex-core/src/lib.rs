@@ -18,6 +18,8 @@ mod kroute;
 mod level;
 mod param;
 mod path_join;
+mod path_snap;
+mod path_stretch;
 mod placement;
 mod plan_symbols;
 mod project;
@@ -79,6 +81,14 @@ pub use param::{ParamBinding, ParamError, ParamId, ParamKind, ParamMap, ParamSpe
 pub use path_join::{
     joinable_segment, peers_for, plan_joins, profile_half_width, JoinUpdate, JoinableSegment,
     PATH_JOIN_SNAP,
+};
+pub use path_snap::{
+    collect_joinable_snap_targets, curve_control_points, nearest_snap_target, snap_points_on_curve,
+    PathSnapKind, PathSnapTarget, PLACEMENT_SNAP,
+};
+pub use path_stretch::{
+    apply_vertex_moves, placement_vertex_moves, plan_stretch_from_edit, plan_stretch_translate,
+    translate_moves, StretchUpdate, STRETCH_SNAP,
 };
 pub use placement::{Placement, PlacementError, PlacementKind};
 pub use plan_symbols::opening_plan_symbols;

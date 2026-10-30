@@ -72,6 +72,8 @@ import initWasm, {
   createSpace,
   detectRoomsFromWalls,
   joinPaths,
+  joinableSnapTargets,
+  previewStretchTranslate,
   selectSpace,
   getSelectedSpace,
   setSpacePlacement,
@@ -579,6 +581,30 @@ export function apexDetectRoomsFromWalls(): SceneDto {
 /** Recompute path joins for a joinable element (also runs automatically on place). */
 export function apexJoinPaths(id: string): SceneDto {
   return asScene(joinPaths(id));
+}
+
+export type JoinableSnapTargetDto = {
+  point: [number, number, number];
+  kind: 'end' | 'mid' | 'vertex';
+  element_id: string;
+};
+
+/** Ends / mids / T-vertices of joinable peers on the active level. */
+export function apexJoinableSnapTargets(componentId: string): JoinableSnapTargetDto[] {
+  return (joinableSnapTargets(componentId) as JoinableSnapTargetDto[]) ?? [];
+}
+
+/** Ghost mesh for Move: selection + connected joinable stretch (no document mutate). */
+export function apexPreviewStretchTranslate(delta: Vec3): {
+  positions: Float32Array | number[];
+  normals: Float32Array | number[];
+  indices: Uint32Array | number[];
+} {
+  return previewStretchTranslate(encodeDelta(delta)) as {
+    positions: Float32Array | number[];
+    normals: Float32Array | number[];
+    indices: Uint32Array | number[];
+  };
 }
 
 export function apexSelectSpace(id: string | null): SceneDto {

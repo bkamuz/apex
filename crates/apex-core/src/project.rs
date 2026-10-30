@@ -36,6 +36,8 @@ use crate::history::History;
 use crate::level::{Level, LevelId};
 use crate::param::{ParamMap, ParamValue};
 use crate::path_join::{joinable_segment, peers_for, plan_joins};
+use crate::path_snap::{collect_joinable_snap_targets, PathSnapTarget};
+use crate::path_stretch::{plan_stretch_from_edit, plan_stretch_translate};
 use crate::placement::{Placement, PlacementKind};
 use crate::reference::{RefId, Reference, ReferenceKind};
 use crate::registry::{ComponentRegistry, RegistryError};
@@ -191,6 +193,9 @@ pub struct Project {
     history: History,
     pub(crate) kernel: kernel::KernelSlot,
     pub(crate) memo: memo::SolidMemo,
+    /// When >0, placement edits skip connected-joinable stretch (batch translate
+    /// plans stretch itself so multi-select movers are not double-pulled).
+    suppress_join_stretch: u32,
 }
 
 impl Default for Project {
@@ -220,6 +225,7 @@ impl Project {
             history: History::default(),
             kernel: Default::default(),
             memo: Default::default(),
+            suppress_join_stretch: 0,
         };
         project.ensure_default_views();
         project
@@ -439,6 +445,31 @@ impl Project {
         self.apply_path_joins(id, true)
     }
 
+    /// Snap targets (ends / mids / T-vertices) for joinable peers of `component_id`
+    /// on the active level. Used by placement tools — no per-type branches.
+    pub fn joinable_snap_targets(
+        &self,
+        component_id: &str,
+        exclude: &[ElementId],
+    ) -> Vec<PathSnapTarget> {
+        let Some(level_id) = self.document.active_level_id() else {
+            return Vec::new();
+        };
+        let elements: Vec<Element> = self
+            .document
+            .elements_on_level(level_id)
+            .into_iter()
+            .filter_map(|id| self.document.get_element(id).cloned())
+            .collect();
+        collect_joinable_snap_targets(
+            &self.registry,
+            elements.into_iter(),
+            component_id,
+            level_id,
+            exclude,
+        )
+    }
+
     fn apply_path_joins(&mut self, id: ElementId, record: bool) -> Result<usize, RegistryError> {
         let element = self
             .document
@@ -531,6 +562,9 @@ impl Project {
     /// When `record` is false, intermediate edits (e.g. live anchor drags) skip
     /// history. When a coalesced edit is open ([`Self::begin_undo_group`]),
     /// pass `record: true` on the final mutation to commit one undo step.
+    ///
+    /// Joinable path placement edits also stretch connected peers (shared
+    /// endpoints / T-vertices follow) unless [`Self::suppress_join_stretch`] is set.
     fn update_element_unscoped(
         &mut self,
         id: ElementId,
@@ -551,6 +585,8 @@ impl Project {
         // Solids that depended on the old state (join neighbours, slabs
         // under a stair) must follow the edit too.
         let old_dependents = self.solid_dependents(&element);
+        let old_placement = element.placement.clone();
+        let placement_changed = placement.is_some();
 
         let mut patch = params.unwrap_or_default();
         self.registry
@@ -593,6 +629,11 @@ impl Project {
             .and_then(|d| d.host_cut.as_ref())
             .is_some();
         let parent_id = element.parent_id;
+        let new_placement = element.placement.clone();
+        let joinable = self
+            .registry
+            .get(&element.component_id)
+            .is_some_and(|d| d.joinable);
         let mesh = self.build_element_mesh_with_cuts(&element)?;
         let new_dependents = self.solid_dependents(&element);
         self.document.update_element(element, mesh);
@@ -630,10 +671,52 @@ impl Project {
                 }
             }
         }
+
+        if placement_changed && joinable && self.suppress_join_stretch == 0 {
+            self.propagate_joinable_stretch(id, &old_placement, &new_placement)?;
+        }
+
         if record {
             self.finish_recorded_edit(before);
         }
         Ok(())
+    }
+
+    /// Stretch joinable peers whose vertices coincided with `old` so they
+    /// follow the corresponding points on `new`. Re-runs path joins.
+    fn propagate_joinable_stretch(
+        &mut self,
+        source_id: ElementId,
+        old_placement: &Placement,
+        new_placement: &Placement,
+    ) -> Result<(), RegistryError> {
+        let (Some(old_curve), Some(new_curve)) = (old_placement.curve(), new_placement.curve())
+        else {
+            return Ok(());
+        };
+        let Some(source) = self.document.get_element(source_id).cloned() else {
+            return Ok(());
+        };
+        let peers = peers_for(&self.registry, self.document.elements(), &source);
+        let updates = plan_stretch_from_edit(source_id, old_curve, new_curve, &peers);
+        if updates.is_empty() {
+            let _ = self.apply_path_joins(source_id, false);
+            return Ok(());
+        }
+        self.suppress_join_stretch += 1;
+        let result: Result<(), RegistryError> = (|| {
+            let mut join_ids = vec![source_id];
+            for update in updates {
+                join_ids.push(update.id);
+                self.update_element(update.id, None, Some(update.placement), false)?;
+            }
+            for id in join_ids {
+                let _ = self.apply_path_joins(id, false);
+            }
+            Ok(())
+        })();
+        self.suppress_join_stretch = self.suppress_join_stretch.saturating_sub(1);
+        result
     }
 
     /// Rebuild an element's mesh from its current state, after the level moved.
@@ -1305,6 +1388,10 @@ impl Project {
     ///
     /// Descendants travel with their parent. A child named in `ids` alongside
     /// its ancestor is moved once, not twice, because the set is deduplicated.
+    ///
+    /// Joinable path peers that share endpoints (or T-junction vertices) with
+    /// the movers stretch: shared verts follow, far ends stay. Miters are
+    /// recomputed for the affected cluster.
     fn translate_elements_unscoped(
         &mut self,
         ids: &[ElementId],
@@ -1329,19 +1416,142 @@ impl Project {
             moving.extend(self.document.descendants_of(*id));
         }
 
-        for id in moving {
-            let element = self
-                .document
-                .get_element(id)
-                .cloned()
-                .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
-            let placement = element.placement.translated(delta);
-            self.update_element(id, None, Some(placement), false)?;
+        let stretch = self.plan_connected_stretch_translate(&moving, delta);
+        let mut join_ids: std::collections::BTreeSet<ElementId> = moving.clone();
+
+        self.suppress_join_stretch += 1;
+        let translate_result: Result<(), RegistryError> = (|| {
+            for id in &moving {
+                let element = self
+                    .document
+                    .get_element(*id)
+                    .cloned()
+                    .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
+                let placement = element.placement.translated(delta);
+                self.update_element(*id, None, Some(placement), false)?;
+            }
+            for update in &stretch {
+                join_ids.insert(update.id);
+                self.update_element(update.id, None, Some(update.placement.clone()), false)?;
+            }
+            Ok(())
+        })();
+        self.suppress_join_stretch = self.suppress_join_stretch.saturating_sub(1);
+        translate_result?;
+
+        for id in join_ids {
+            let _ = self.apply_path_joins(id, false);
         }
         if record {
             self.finish_recorded_edit(before);
         }
         Ok(())
+    }
+
+    /// Plan stretch updates for joinable peers of `moving` under a translate.
+    fn plan_connected_stretch_translate(
+        &self,
+        moving: &std::collections::BTreeSet<ElementId>,
+        delta: Vec3,
+    ) -> Vec<crate::path_stretch::StretchUpdate> {
+        // Group by (component_id, level) so walls don't stretch beams.
+        let mut groups: BTreeMap<(String, String), Vec<ElementId>> = BTreeMap::new();
+        for id in moving {
+            let Some(el) = self.document.get_element(*id) else {
+                continue;
+            };
+            if !self
+                .registry
+                .get(&el.component_id)
+                .is_some_and(|d| d.joinable)
+            {
+                continue;
+            }
+            groups
+                .entry((el.component_id.clone(), el.level_id.to_string()))
+                .or_default()
+                .push(*id);
+        }
+        let mut updates = Vec::new();
+        for ((component_id, level_key), mover_ids) in groups {
+            let mut movers = Vec::new();
+            for id in &mover_ids {
+                let Some(el) = self.document.get_element(*id) else {
+                    continue;
+                };
+                if let Some(seg) = joinable_segment(&self.registry, el) {
+                    movers.push(seg);
+                }
+            }
+            if movers.is_empty() {
+                continue;
+            }
+            let mut peer_pool = Vec::new();
+            for other in self.document.elements() {
+                if other.component_id != component_id || other.level_id.to_string() != level_key {
+                    continue;
+                }
+                if moving.contains(&other.id) {
+                    continue;
+                }
+                if let Some(seg) = joinable_segment(&self.registry, other) {
+                    peer_pool.push(seg);
+                }
+            }
+            updates.extend(plan_stretch_translate(&movers, &peer_pool, delta));
+        }
+        updates
+    }
+
+    /// Ghost mesh for a translate that includes connected-stretch peers.
+    ///
+    /// Does not mutate the document. Used by the Move tool preview so stretched
+    /// neighbours stay visually attached.
+    pub fn preview_stretch_translate(
+        &self,
+        ids: &[ElementId],
+        delta: Vec3,
+    ) -> Result<TriangleMesh, RegistryError> {
+        let mut moving: std::collections::BTreeSet<ElementId> = std::collections::BTreeSet::new();
+        for id in ids {
+            if self.document.get_element(*id).is_none() {
+                return Err(RegistryError::Unknown(id.to_string()));
+            }
+            moving.insert(*id);
+            moving.extend(self.document.descendants_of(*id));
+        }
+        let stretch = self.plan_connected_stretch_translate(&moving, delta);
+        let mut mesh = TriangleMesh::empty();
+        for id in &moving {
+            let Some(el) = self.document.get_element(*id) else {
+                continue;
+            };
+            let placement = el.placement.translated(delta);
+            if let Ok(part) = self.registry.build_mesh(
+                &el.component_id,
+                &placement,
+                &el.params,
+                self.work_plane(el.level_id),
+                self.document.references(),
+            ) {
+                mesh.append(&part);
+            }
+        }
+        for update in stretch {
+            let Some(el) = self.document.get_element(update.id) else {
+                continue;
+            };
+            if let Ok(part) = self.registry.build_mesh(
+                &el.component_id,
+                &update.placement,
+                &el.params,
+                self.work_plane(el.level_id),
+                self.document.references(),
+            ) {
+                mesh.append(&part);
+            }
+        }
+        Ok(mesh)
     }
 
     /// Duplicate elements, optionally offsetting the copies. One undo step.
@@ -3582,6 +3792,95 @@ mod tests {
             "beam join_start={}",
             eb.join_start
         );
+    }
+
+    #[test]
+    fn joinable_snap_targets_include_ends_and_mid() {
+        let mut project = Project::new();
+        project
+            .create_element(
+                "apex.wall",
+                Placement::line(Vec3::ZERO, Vec3::new(4.0, 0.0, 0.0)),
+                ParamMap::new(),
+            )
+            .expect("wall");
+        let targets = project.joinable_snap_targets("apex.wall", &[]);
+        assert!(
+            targets.len() >= 3,
+            "expected end+end+mid, got {}",
+            targets.len()
+        );
+        assert!(targets
+            .iter()
+            .any(|t| t.kind == crate::PathSnapKind::End && t.point[0].abs() < 1e-4));
+        assert!(targets
+            .iter()
+            .any(|t| t.kind == crate::PathSnapKind::Mid && (t.point[0] - 2.0).abs() < 1e-4));
+    }
+
+    #[test]
+    fn translate_joinable_wall_stretches_connected_peer() {
+        let mut project = Project::new();
+        let a = project
+            .create_element(
+                "apex.wall",
+                Placement::line(Vec3::ZERO, Vec3::new(5.0, 0.0, 0.0)),
+                ParamMap::new(),
+            )
+            .expect("a");
+        let b = project
+            .create_element(
+                "apex.wall",
+                Placement::line(Vec3::new(5.0, 0.0, 0.0), Vec3::new(5.0, 0.0, 4.0)),
+                ParamMap::new(),
+            )
+            .expect("b");
+
+        project
+            .translate_elements(&[a], Vec3::new(0.0, 0.0, 2.0), true)
+            .expect("translate a");
+
+        let ea = project.document().get_element(a).unwrap();
+        let eb = project.document().get_element(b).unwrap();
+        // A fully translated.
+        assert!((ea.placement.curve().unwrap().start().z - 2.0).abs() < 1e-3);
+        assert!((ea.placement.curve().unwrap().end().z - 2.0).abs() < 1e-3);
+        // B shared corner follows; far end stays.
+        assert!((eb.placement.curve().unwrap().start().z - 2.0).abs() < 1e-3);
+        assert!((eb.placement.curve().unwrap().end().z - 4.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn anchor_drag_on_joinable_stretches_peer() {
+        let mut project = Project::new();
+        let a = project
+            .create_element(
+                "apex.wall",
+                Placement::line(Vec3::ZERO, Vec3::new(5.0, 0.0, 0.0)),
+                ParamMap::new(),
+            )
+            .expect("a");
+        let b = project
+            .create_element(
+                "apex.wall",
+                Placement::line(Vec3::new(5.0, 0.0, 0.0), Vec3::new(5.0, 0.0, 4.0)),
+                ParamMap::new(),
+            )
+            .expect("b");
+
+        project
+            .update_element(
+                a,
+                None,
+                Some(Placement::line(Vec3::ZERO, Vec3::new(6.0, 0.0, 1.0))),
+                true,
+            )
+            .expect("edit a end");
+
+        let eb = project.document().get_element(b).unwrap();
+        assert!((eb.placement.curve().unwrap().start().x - 6.0).abs() < 1e-3);
+        assert!((eb.placement.curve().unwrap().start().z - 1.0).abs() < 1e-3);
+        assert!((eb.placement.curve().unwrap().end().z - 4.0).abs() < 1e-3);
     }
 
     #[test]

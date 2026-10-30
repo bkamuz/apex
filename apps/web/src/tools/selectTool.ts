@@ -1,6 +1,7 @@
 import { t } from '../i18n';
 import type { Vec3 } from '../viewport/ViewportRenderer';
 import { ApexIcons } from './icons';
+import { resolveJoinablePoint } from './joinableSnap';
 import type { Tool } from './Tool';
 
 export const SELECT_TOOL_ID = 'select';
@@ -64,10 +65,19 @@ export function createSelectTool(): Tool {
 
       // Constrain against a neighbouring anchor so Shift-ortho has a reference.
       const neighbour = drag.anchors[drag.index === 0 ? drag.anchors.length - 1 : 0] ?? null;
-      const point = ctx.resolvePoint(e.clientX, e.clientY, e.shift, neighbour);
+      const joinableId = ctx.selectedJoinableComponentId();
+      let point: Vec3 | null = null;
+      let joinSnapped = false;
+      if (joinableId) {
+        const hit = resolveJoinablePoint(ctx, e.clientX, e.clientY, e.shift, neighbour, joinableId);
+        point = hit?.point ?? null;
+        joinSnapped = !!hit?.snapped;
+      } else {
+        point = ctx.resolvePoint(e.clientX, e.clientY, e.shift, neighbour);
+      }
       if (!point) return;
 
-      ctx.showSnapMarker(point, e.shift);
+      ctx.showSnapMarker(point, e.shift || joinSnapped);
       drag.anchors[drag.index] = point;
       drag.moved = true;
       ctx.previewAnchors(drag.anchors);

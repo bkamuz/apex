@@ -2014,6 +2014,38 @@ pub fn join_paths(id: &str) -> Result<JsValue, JsValue> {
     })
 }
 
+/// Placement snap targets (ends / mids / T-vertices) for joinable peers of
+/// `component_id` on the active level. Universal — no wall/beam branches.
+#[wasm_bindgen(js_name = joinableSnapTargets)]
+pub fn joinable_snap_targets(component_id: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let targets = project.joinable_snap_targets(component_id, &[]);
+        to_js(&targets)
+    })
+}
+
+/// Ghost mesh for Move preview: selection translated + connected joinable peers
+/// stretched. Does not mutate the document.
+#[wasm_bindgen(js_name = previewStretchTranslate)]
+pub fn preview_stretch_translate(delta_json: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let delta = delta_from_json(delta_json)?;
+        let ids = with_selection(|s| s.0.clone());
+        if ids.is_empty() {
+            return Err(err("Nothing selected to preview"));
+        }
+        let mesh = project
+            .preview_stretch_translate(&ids, delta)
+            .map_err(err)?;
+        to_js(&MeshDto {
+            positions: mesh.positions,
+            normals: mesh.normals,
+            indices: mesh.indices,
+            edge_positions: mesh.edges,
+        })
+    })
+}
+
 /// Detect enclosed rooms from walls on the active level; refresh auto spaces.
 #[wasm_bindgen(js_name = detectRoomsFromWalls)]
 pub fn detect_rooms_from_walls() -> Result<JsValue, JsValue> {

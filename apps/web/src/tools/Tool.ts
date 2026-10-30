@@ -13,6 +13,15 @@ export type { ToolIcon, ToolIconName } from './icons';
 export interface ToolContext {
   /** Screen point to a world point on the active work plane, with Shift snapping. */
   resolvePoint(clientX: number, clientY: number, shift: boolean, anchor: Vec3 | null): Vec3 | null;
+  /**
+   * Joinable peer snap targets (ends / mids / T-vertices) for `componentId` on
+   * the active level. Empty when the definition is not joinable or no peers.
+   */
+  joinableSnapTargets(componentId: string): {
+    point: Vec3;
+    kind: 'end' | 'mid' | 'vertex';
+    element_id: string;
+  }[];
   /** Commit picks as a new element of `componentId`. */
   createElement(componentId: string, points: Vec3[], placementKind?: PlacementKind): void;
   /** Commit picks as a child of `parentId` (openings / host cuts). */
@@ -92,6 +101,11 @@ export interface ToolContext {
   ): { id: string; name: string; category: string }[];
   /** Ids of the currently selected elements. */
   selectedElementIds(): string[];
+  /**
+   * Component id when a single joinable path element is selected (for endpoint
+   * snap while dragging anchors). Null otherwise.
+   */
+  selectedJoinableComponentId(): string | null;
   /** The parent of `id`, or null when it is a root. */
   elementParentId(id: string): string | null;
   /** A world point to highlight for `id` — its placement origin. */
