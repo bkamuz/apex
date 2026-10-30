@@ -2455,6 +2455,7 @@ export default function App() {
       syncCatalog();
       setPlacementDraft({});
       setError(null);
+      setInfo(null);
       try {
         if (localStorage.getItem('apex.gettingStarted.dismissed') !== '1') {
           setShowGettingStarted(true);
@@ -2646,74 +2647,89 @@ export default function App() {
     />
   );
 
+  const onboarding = showGettingStarted && elements.length === 0;
+  const statusText = `${info ?? tool.hint(pending.length)}${
+    pending.length > 0 && tool.group === 'create'
+      ? typedLength
+        ? ` — length ${typedLength} m (Enter)`
+        : ' — type a length, Shift snaps to grid'
+      : ''
+  }`;
+
   return (
-    <div className="app">
+    <div className={`app${onboarding ? ' app--onboarding' : ''}`}>
       <header className="topbar">
         <div className="topbar-doc">
           <div className="brand">APEX</div>
           <div className="file-actions">
-            <button
-              type="button"
-              onClick={onUndo}
-              disabled={!scene?.can_undo}
-              title="Undo (Ctrl+Z)"
-              data-testid="undo"
-            >
-              Undo
-            </button>
-            <button
-              type="button"
-              onClick={onRedo}
-              disabled={!scene?.can_redo}
-              title="Redo (Ctrl+Shift+Z)"
-              data-testid="redo"
-            >
-              Redo
-            </button>
-            <button type="button" onClick={onSaveProject} data-testid="save-project">
-              Save
-            </button>
-            {exporters.map((exporter) => (
+            <div className="file-actions-group" data-group="history">
               <button
-                key={exporter.id}
                 type="button"
-                data-testid={`export-${exporter.id}`}
-                title={exporter.title}
-                onClick={() => {
-                  try {
-                    const text = exporter.export();
-                    downloadText(exporter.filename, text);
-                    setError(null);
-                  } catch (err) {
-                    setError(err instanceof Error ? err.message : String(err));
-                  }
-                }}
+                onClick={onUndo}
+                disabled={!scene?.can_undo}
+                title="Undo (Ctrl+Z)"
+                data-testid="undo"
               >
-                {exporter.label}
+                Undo
               </button>
-            ))}
-            <button
-              type="button"
-              onClick={() => fileRef.current?.click()}
-              data-testid="open-project"
-            >
-              Open
-            </button>
-            <button type="button" onClick={onNewProject} data-testid="new-project">
-              New
-            </button>
-            <AgentBridgeControl
-              onModelChanged={(fit) => {
-                applyScene(apexGetScene(), fit);
-                syncCatalog();
-              }}
-              screenshot={async () => {
-                const r = rendererRef.current;
-                if (!r) throw new Error('no 3D viewport is open');
-                return r.snapshotDataUrl();
-              }}
-            />
-            <KernelToggle key={kernelEpoch} onScene={(next) => applyScene(next)} />
+              <button
+                type="button"
+                onClick={onRedo}
+                disabled={!scene?.can_redo}
+                title="Redo (Ctrl+Shift+Z)"
+                data-testid="redo"
+              >
+                Redo
+              </button>
+            </div>
+            <div className="file-actions-group" data-group="document">
+              <button type="button" onClick={onSaveProject} data-testid="save-project">
+                Save
+              </button>
+              {exporters.map((exporter) => (
+                <button
+                  key={exporter.id}
+                  type="button"
+                  data-testid={`export-${exporter.id}`}
+                  title={exporter.title}
+                  onClick={() => {
+                    try {
+                      const text = exporter.export();
+                      downloadText(exporter.filename, text);
+                      setError(null);
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : String(err));
+                    }
+                  }}
+                >
+                  {exporter.label}
+                </button>
+              ))}
+              <button
+                type="button"
+                onClick={() => fileRef.current?.click()}
+                data-testid="open-project"
+              >
+                Open
+              </button>
+              <button type="button" onClick={onNewProject} data-testid="new-project">
+                New
+              </button>
+            </div>
+            <div className="file-actions-group file-actions-group--secondary" data-group="dev">
+              <AgentBridgeControl
+                onModelChanged={(fit) => {
+                  applyScene(apexGetScene(), fit);
+                  syncCatalog();
+                }}
+                screenshot={async () => {
+                  const r = rendererRef.current;
+                  if (!r) throw new Error('no 3D viewport is open');
+                  return r.snapshotDataUrl();
+                }}
+              />
+              <KernelToggle key={kernelEpoch} onScene={(next) => applyScene(next)} />
+            </div>
             <input
               ref={fileRef}
               type="file"
@@ -2745,16 +2761,12 @@ export default function App() {
           onFitView={fitView}
           extra={attachToolbar}
         />
-        <div className="topbar-hint" data-testid="topbar-hint">
+        <div
+          className={`topbar-hint${info ? ' topbar-hint--notice' : ''}`}
+          data-testid="topbar-hint"
+        >
           <b>INFO</b>
-          <span>
-            {info ?? tool.hint(pending.length)}
-            {pending.length > 0 && tool.group === 'create'
-              ? typedLength
-                ? ` — length ${typedLength} m (Enter)`
-                : ' — type a length, Shift snaps to grid'
-              : ''}
-          </span>
+          <span>{statusText}</span>
         </div>
       </header>
 
@@ -2891,9 +2903,15 @@ export default function App() {
             Menu
           </button>
         ) : null}
-        <div className="viewport-badge">
-          WebGL2 · {fps > 0 ? `${fps} fps` : '…'} · {activeLevel?.name ?? '—'} · v
-          {scene?.version ?? 0}
+        <div
+          className="viewport-badge"
+          title={`WebGL2 · ${fps > 0 ? `${fps} fps` : '…'} · rev ${scene?.version ?? 0}`}
+        >
+          <span className="viewport-badge-primary">{activeLevel?.name ?? '—'}</span>
+          <span className="viewport-badge-meta" aria-hidden="true">
+            {' · '}
+            {fps > 0 ? `${fps} fps` : '…'} · v{scene?.version ?? 0}
+          </span>
         </div>
         {isMobile ? (
           <MobileMenuSheet

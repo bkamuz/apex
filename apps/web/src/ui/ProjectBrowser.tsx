@@ -504,6 +504,8 @@ export function ProjectBrowser({
   const [collapsed, setCollapsed] = useState<Partial<Record<BrowserGroupBy, string[]>>>(
     initial.collapsed,
   );
+  /** Group/Sort are secondary; keep the tree + filters as the primary scan path. */
+  const [arrangeOpen, setArrangeOpen] = useState(false);
 
   const persist = useCallback(
     (next: Partial<BrowserPrefs>) => {
@@ -705,42 +707,12 @@ export function ProjectBrowser({
           + Profile
         </button>
       </div>
-      <div className="browser-toolbar">
-        <label>
-          Group
-          <select
-            value={groupBy}
-            aria-label="Group by"
-            data-testid="browser-group"
-            onChange={(e) => setGroup(e.target.value as BrowserGroupBy)}
-          >
-            <option value="kind">Type / instance</option>
-            <option value="category">Category</option>
-            <option value="level">Level</option>
-            <option value="profile">Profile</option>
-            <option value="none">None</option>
-          </select>
-        </label>
-        <label>
-          Sort
-          <select
-            value={sortBy}
-            aria-label="Sort by"
-            data-testid="browser-sort"
-            onChange={(e) => setSort(e.target.value as BrowserSortBy)}
-          >
-            <option value="name">Name</option>
-            <option value="kind">Kind</option>
-            <option value="category">Category</option>
-          </select>
-        </label>
-      </div>
       <div className="browser-filter" role="tablist" aria-label="Show">
         {(
           [
             ['all', 'All'],
             ['types', 'Types'],
-            ['instances', 'Instances'],
+            ['instances', 'Placed'],
             ['references', 'Refs'],
             ['grids', 'Grids'],
             ['annotations', 'Annot.'],
@@ -758,6 +730,52 @@ export function ProjectBrowser({
             {label}
           </button>
         ))}
+      </div>
+      <div className={`browser-arrange${arrangeOpen ? ' is-open' : ''}`}>
+        <button
+          type="button"
+          className="browser-arrange-toggle"
+          aria-expanded={arrangeOpen}
+          data-testid="browser-arrange-toggle"
+          onClick={() => setArrangeOpen((open) => !open)}
+        >
+          Arrange
+          <span className="browser-arrange-meta">
+            {groupBy === 'kind' ? 'type/instance' : groupBy} · {sortBy}
+          </span>
+        </button>
+        {arrangeOpen ? (
+          <div className="browser-toolbar">
+            <label>
+              Group
+              <select
+                value={groupBy}
+                aria-label="Group by"
+                data-testid="browser-group"
+                onChange={(e) => setGroup(e.target.value as BrowserGroupBy)}
+              >
+                <option value="kind">Type / instance</option>
+                <option value="category">Category</option>
+                <option value="level">Level</option>
+                <option value="profile">Profile</option>
+                <option value="none">None</option>
+              </select>
+            </label>
+            <label>
+              Sort
+              <select
+                value={sortBy}
+                aria-label="Sort by"
+                data-testid="browser-sort"
+                onChange={(e) => setSort(e.target.value as BrowserSortBy)}
+              >
+                <option value="name">Name</option>
+                <option value="kind">Kind</option>
+                <option value="category">Category</option>
+              </select>
+            </label>
+          </div>
+        ) : null}
       </div>
       {onOpenView && onNewPlanView && onNewThreeDView ? (
         <ViewsSheetsPanel

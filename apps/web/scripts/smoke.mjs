@@ -930,6 +930,7 @@ await page.getByTestId('browser-filter-instances').click();
 const instCount = await page.locator('[data-kind="instance"]').count();
 check('instance browser lists elements', instCount >= 8, `got ${instCount}`);
 await page.getByTestId('browser-filter-all').click();
+await page.getByTestId('browser-arrange-toggle').click();
 await page.getByTestId('browser-group').selectOption('category');
 check(
   'grouping by category still lists instances',
