@@ -61,6 +61,15 @@ export interface ToolContext {
   pick(clientX: number, clientY: number): number | null;
   /** Resolve a viewport click to element or datum selection. */
   selectAt(clientX: number, clientY: number, multi: boolean): void;
+  /** Select (or toggle) an element by id — used after Tab-cycle hover commit. */
+  selectElementId(id: string, multi: boolean): void;
+  /**
+   * Olive pre-highlight pick ids in the viewport (not selection).
+   * Pass `[]` to clear. Select tool uses this for hover / Tab cycle.
+   */
+  setHoverPickIds(pickIds: number[]): void;
+  /** Force status-line re-read of `tool.hint` after internal tool state changes. */
+  refreshToolUi(): void;
   /** Anchor index of the edit handle under the cursor, or null. */
   hitEditHandle(clientX: number, clientY: number): number | null;
   /** Shape-edit handle under the cursor (slab sub-element mode), or null. */
@@ -98,7 +107,7 @@ export interface ToolContext {
   pickElementCandidates(
     clientX: number,
     clientY: number,
-  ): { id: string; name: string; category: string }[];
+  ): { id: string; name: string; category: string; pickId: number }[];
   /** Ids of the currently selected elements. */
   selectedElementIds(): string[];
   /**

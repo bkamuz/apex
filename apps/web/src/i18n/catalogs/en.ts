@@ -99,7 +99,8 @@ export const en: MessageCatalog = {
   'tool.apex.text_note.label': 'Text',
 
   // —— Tool hints ——
-  'tool.select.hint': 'MMB pan · RMB orbit · wheel zoom · dbl-click a level to activate it',
+  'tool.select.hint':
+    'Hover to highlight · Tab cycles stacked · click to select · MMB pan · RMB orbit · wheel zoom',
   'tool.apex.move.hintBase': 'Select objects, then pick base point (move)',
   'tool.apex.move.hintTarget': 'Pick target point to move',
   'tool.apex.copy.hintBase': 'Select objects, then pick base point (copy)',
