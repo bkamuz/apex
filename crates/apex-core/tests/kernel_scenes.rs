@@ -360,22 +360,16 @@ fn every_element_type_matches_the_mesh_kernel() {
     assert!(bad.is_empty(), "{bad:#?}");
 }
 
-/// Geometric fingerprint: component, volume and bounds rounded to 1e-4.
-/// SMLib's tessellation of a planar face may differ between runs (other
-/// diagonals, occasionally other splits), so the exact path is held to
-/// geometric, not bitwise, determinism.
-fn fingerprint(p: &Project) -> Vec<(String, i64, Vec<i64>)> {
-    let r = |x: f64| (x * 1e4).round() as i64;
+/// Bitwise fingerprint: component, positions, normals and indices. The
+/// encoded kernel input is canonical (face grouping never depends on hash
+/// order), so the exact path is held to bit-identical output.
+type Print = (String, Vec<u32>, Vec<u32>, Vec<u32>);
+fn fingerprint(p: &Project) -> Vec<Print> {
+    let bits = |v: &[f32]| v.iter().map(|x| x.to_bits()).collect::<Vec<_>>();
     meshes(p)
         .into_values()
-        .map(|(c, m)| {
-            let bb = m
-                .aabb()
-                .map(|(a, b)| a.iter().chain(&b).map(|x| r(*x as f64)).collect())
-                .unwrap_or_default();
-            (c, r(mesh_volume(&m) as f64), bb)
-        })
-        .collect::<Vec<_>>()
+        .map(|(c, m)| (c, bits(&m.positions), bits(&m.normals), m.indices.clone()))
+        .collect()
 }
 
 #[test]
@@ -463,5 +457,130 @@ fn external_kernel_settles_on_the_house() {
             p.apply_kernel_results(results);
         }
         eprintln!("{name}: settled in {rounds} rounds");
+    }
+}
+
+/// The browser path again, through the three benchmark edits: each must
+/// return and the pump must settle afterwards.
+#[test]
+fn external_kernel_edits_settle() {
+    fn pump(p: &mut Project) {
+        for _ in 0..40 {
+            let jobs = p.take_kernel_jobs();
+            if jobs.is_empty() {
+                return;
+            }
+            let results = jobs
+                .iter()
+                .map(|j| {
+                    let r = apex_smlib::run(&j.solids, 1e-3).ok();
+                    (j.key, r.map(|r| (r.points, r.tris)))
+                })
+                .collect();
+            p.apply_kernel_results(results);
+        }
+        panic!("kernel did not settle");
+    }
+    let mut p = scenes::e2e_house();
+    p.set_external_kernel();
+    pump(&mut p);
+    for e in house_edits(&p) {
+        eprintln!("EDIT {e}");
+        ex(&mut p, e);
+        pump(&mut p);
+    }
+}
+
+fn house_edits(p: &Project) -> Vec<serde_json::Value> {
+    let find = |comp: &str, pick: &dyn Fn(&TriangleMesh) -> bool| {
+        p.document()
+            .elements()
+            .filter(|e| e.component_id == comp)
+            .find(|e| p.document().get_mesh(e.id).is_some_and(pick))
+            .map(|e| e.id.to_string())
+            .unwrap()
+    };
+    let mid = find("apex.wall", &|m| {
+        m.aabb()
+            .is_some_and(|(a, b)| b[0] - a[0] < 0.5 && a[0] > 4.0 && a[1] < 1.0)
+    });
+    let window = find("apex.window", &|_| true);
+    let roof = find("apex.roof.pitched", &|_| true);
+    vec![
+        json!({"op":"move_elements","ids":[mid],"delta":[0.3,0,0]}),
+        json!({"op":"set_element_species","id":window,"species":"apex.window.double-1500x1400"}),
+        json!({"op":"update_element","id":roof,"params":{"overhang":0.7}}),
+    ]
+}
+
+/// Before/after numbers for the performance phase: full load and three
+/// edits per kernel, with the number of element rebuilds each one costs.
+/// `cargo test --release -p apex-core --test kernel_scenes bench -- --ignored --nocapture`
+#[test]
+#[ignore]
+fn bench_house_edits() {
+    use apex_core::{element_build_ms, element_builds};
+    for kernel in ["mesh", "smlib"] {
+        let mut p = scenes::e2e_house();
+        let t = Instant::now();
+        let b0 = element_builds();
+        if kernel == "smlib" {
+            p.set_kernel(Arc::new(SmlibKernel::default()));
+        } else {
+            p.reset_kernel();
+        }
+        let full = (t.elapsed().as_secs_f64() * 1e3, element_builds() - b0);
+        let find = |p: &Project, comp: &str, pick: &dyn Fn(&TriangleMesh) -> bool| {
+            p.document()
+                .elements()
+                .filter(|e| e.component_id == comp)
+                .find(|e| p.document().get_mesh(e.id).is_some_and(pick))
+                .map(|e| e.id.to_string())
+                .unwrap()
+        };
+        let mid = find(&p, "apex.wall", &|m| {
+            m.aabb()
+                .is_some_and(|(a, b)| b[0] - a[0] < 0.5 && a[0] > 4.0 && a[1] < 1.0)
+        });
+        let window = find(&p, "apex.window", &|_| true);
+        let roof = find(&p, "apex.roof.pitched", &|_| true);
+        let edits = [
+            (
+                "move wall",
+                json!({"op":"move_elements","ids":[mid],"delta":[0.3,0,0]}),
+            ),
+            (
+                "window species",
+                json!({"op":"set_element_species","id":window,"species":"apex.window.double-1500x1400"}),
+            ),
+            (
+                "roof overhang",
+                json!({"op":"update_element","id":roof,"params":{"overhang":0.7}}),
+            ),
+        ];
+        let mut out = vec![format!("full {:.0} ms / {} builds", full.0, full.1)];
+        for (name, e) in edits {
+            eprintln!("EDIT {kernel} {name}");
+            let b0 = element_builds();
+            let m0 = element_build_ms();
+            let t = Instant::now();
+            ex(&mut p, e);
+            out.push(format!(
+                "{name} {:.1} ms ({:.1} ms building) / {} builds",
+                t.elapsed().as_secs_f64() * 1e3,
+                element_build_ms() - m0,
+                element_builds() - b0
+            ));
+        }
+        let t = Instant::now();
+        let buffers = p.document().build_scene_buffers();
+        let tb = t.elapsed().as_secs_f64() * 1e3;
+        let t = Instant::now();
+        p.hide_buried_edges(&buffers.edge_positions);
+        out.push(format!(
+            "scene buffers {tb:.1} ms, buried edges {:.1} ms",
+            t.elapsed().as_secs_f64() * 1e3
+        ));
+        eprintln!("BENCH {kernel}: {}", out.join("; "));
     }
 }

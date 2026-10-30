@@ -28,6 +28,11 @@ use super::{project_onto_curve_xz, Project};
 const STAIR: &str = "apex.stair";
 const SLAB: &str = "apex.slab";
 
+/// Build context that changes derived solids, for the per-edit memo.
+fn memo_ctx() -> u8 {
+    u8::from(crate::kroute::active()) | (u8::from(SKIP_VOIDS.with(|s| s.get())) << 1)
+}
+
 thread_local! {
     /// Set while building a host without its openings for an exact kernel.
     static SKIP_VOIDS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
@@ -530,13 +535,25 @@ impl Project {
     /// z-fighting, one closed surface. `None` when the element is not in
     /// such a cluster or the kernel fails (then pieces render on their own).
     fn attached_cluster_share(&self, element: &Element) -> Option<TriangleMesh> {
-        use apex_geometry::BooleanOp;
         if !self.in_attached_cluster(element) {
             return None;
         }
         let members = self.join_cluster(element);
+        let stamp = self.document.shape_version();
+        let (union, pieces) = self.memo.cluster(stamp, memo_ctx(), &members, || {
+            self.attached_cluster_union(&members)
+        })?;
+        Some(share_of_union(&union, &pieces, element.id))
+    }
+
+    /// The attached cluster's exact union plus each member's piece.
+    fn attached_cluster_union(
+        &self,
+        members: &[ElementId],
+    ) -> Option<(TriangleMesh, Vec<(ElementId, LayeredSolid)>)> {
+        use apex_geometry::BooleanOp;
         let mut pieces = Vec::with_capacity(members.len());
-        for id in &members {
+        for id in members {
             let e = self.document.get_element(*id)?;
             let (piece, _, _) = self.solid_piece_full(e)?;
             pieces.push((*id, piece));
@@ -575,7 +592,7 @@ impl Project {
         if !apex_geometry::is_closed(&union) {
             return None;
         }
-        Some(share_of_union(&union, &pieces, element.id))
+        Some((union, pieces))
     }
 
     /// This element's own closed solid (its join-cluster share with every
@@ -625,6 +642,16 @@ impl Project {
     /// plan direction, stays inside some solid; edges on a solid's own
     /// boundary always have one nudge outside and survive.
     pub fn hide_buried_edges(&self, edges: &[f32]) -> Vec<f32> {
+        let stamp = self.document.shape_version();
+        self.memo.buried_edges(stamp, memo_ctx(), edges, || {
+            self.memo.enter();
+            let out = self.hide_buried_edges_uncached(edges);
+            self.memo.leave();
+            out
+        })
+    }
+
+    fn hide_buried_edges_uncached(&self, edges: &[f32]) -> Vec<f32> {
         let solids: Vec<(LayeredSolid, [f64; 4], (f64, f64))> = self
             .document
             .elements()
@@ -703,6 +730,16 @@ impl Project {
     /// [`Self::solid_piece`] plus the peers it clusters with.
     #[allow(clippy::type_complexity)]
     fn solid_piece_full(
+        &self,
+        element: &Element,
+    ) -> Option<(LayeredSolid, Option<LayeredSolid>, Vec<ElementId>)> {
+        let stamp = self.document.shape_version();
+        self.memo.piece(stamp, memo_ctx(), element, || {
+            self.solid_piece_uncached(element)
+        })
+    }
+
+    fn solid_piece_uncached(
         &self,
         element: &Element,
     ) -> Option<(LayeredSolid, Option<LayeredSolid>, Vec<ElementId>)> {
@@ -805,6 +842,12 @@ impl Project {
 
     /// Rebuild meshes of `ids` in place (no history, no cascade).
     pub(crate) fn refresh_meshes(&mut self, ids: impl IntoIterator<Item = ElementId>) {
+        self.memo.enter();
+        self.refresh_meshes_unscoped(ids);
+        self.memo.leave();
+    }
+
+    fn refresh_meshes_unscoped(&mut self, ids: impl IntoIterator<Item = ElementId>) {
         let mut seen = std::collections::BTreeSet::new();
         for id in ids {
             if !seen.insert(id) {
@@ -1007,6 +1050,23 @@ fn below_top(solid: &LayeredSolid, top: f64) -> LayeredSolid {
         [b[0] - 1.0, b[3] + 1.0],
     ];
     solid.subtract(&LayeredSolid::polygon_prism(&big, top, y1 + 1.0))
+}
+
+/// Element builds so far in this process (diagnostics and benches).
+pub(crate) static ELEMENT_BUILDS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+/// Element builds so far in this process (diagnostics and benches).
+pub fn element_builds() -> usize {
+    ELEMENT_BUILDS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Nanoseconds spent in element builds (diagnostics and benches).
+pub(crate) static BUILD_NS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+/// Milliseconds spent in element builds so far (diagnostics and benches).
+pub fn element_build_ms() -> f64 {
+    BUILD_NS.load(std::sync::atomic::Ordering::Relaxed) as f64 / 1e6
 }
 
 #[cfg(test)]

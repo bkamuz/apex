@@ -202,12 +202,19 @@ pub fn planar_faces(mesh: &TriangleMesh) -> Result<Faces, KernelError> {
         }
         x
     }
-    for (&(a, b), &i) in &owner {
+    // Sorted edges and min-index roots: face grouping and order (and so the
+    // encoded input, its key, and the kernel's tessellation) never depend
+    // on hash iteration order.
+    let mut edge_list: Vec<((usize, usize), usize)> = owner.iter().map(|(k, v)| (*k, *v)).collect();
+    edge_list.sort_unstable();
+    for &((a, b), i) in &edge_list {
         let j = owner[&(b, a)];
         let (pi, pj) = (planes[i], planes[j]);
         if dot(pi.0, pj.0) > COPLANAR_DOT && (pi.1 - pj.1).abs() < COPLANAR_DIST {
             let (ri, rj) = (find(&mut parent, i), find(&mut parent, j));
-            parent[ri] = rj;
+            if ri != rj {
+                parent[ri.max(rj)] = ri.min(rj);
+            }
         }
     }
     let mut groups: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
