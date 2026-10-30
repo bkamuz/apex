@@ -1377,14 +1377,14 @@ input[type="radio"] {
   pointer-events: none;
 }
 
-/* CAD view cube — CSS 3D faces so labels stay flat/axis-aligned on each facet. */
+/* CAD view cube — WebGL textured faces; chrome plate behind the canvas. */
 .view-cube {
   position: absolute;
   top: 8px;
   right: 8px;
   z-index: 6;
-  width: 100px;
-  height: 100px;
+  width: 112px;
+  height: 112px;
   border-radius: var(--chrome-radius);
   box-shadow: none;
   pointer-events: auto;
@@ -1392,65 +1392,15 @@ input[type="radio"] {
   user-select: none;
   -webkit-user-select: none;
   cursor: pointer;
-}
-
-.view-cube-plate {
-  position: absolute;
-  inset: 0;
   background: rgba(28, 28, 28, 0.92);
   border: 1px solid var(--chrome-border);
-  border-radius: var(--chrome-radius);
-  pointer-events: none;
 }
 
-.view-cube-perspective {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  perspective: 420px;
-  perspective-origin: 50% 50%;
-}
-
-.view-cube-scene {
-  position: relative;
-  width: 56px;
-  height: 56px;
-  transform-style: preserve-3d;
-  transform-origin: center center;
-  will-change: transform;
-}
-
-.view-cube-face {
-  position: absolute;
-  inset: 0;
-  box-sizing: border-box;
-  border-radius: 0;
-  background-color: #5c5c5a;
-  background-size: 100% 100%;
-  background-repeat: no-repeat;
-  background-position: center;
-  backface-visibility: hidden;
-  -webkit-backface-visibility: hidden;
-}
-
-.view-cube-face--front {
-  transform: translateZ(28px);
-}
-.view-cube-face--back {
-  transform: rotateY(180deg) translateZ(28px);
-}
-.view-cube-face--right {
-  transform: rotateY(90deg) translateZ(28px);
-}
-.view-cube-face--left {
-  transform: rotateY(-90deg) translateZ(28px);
-}
-.view-cube-face--top {
-  transform: rotateX(90deg) translateZ(28px);
-}
-.view-cube-face--bottom {
-  transform: rotateX(-90deg) translateZ(28px);
+.view-cube canvas {
+  display: block;
+  width: 112px;
+  height: 112px;
+  touch-action: none;
 }
 
 .inspector-body {
@@ -1655,32 +1605,13 @@ input[type="radio"] {
   .view-cube {
     top: 8px;
     right: 8px;
-    width: 76px;
-    height: 76px;
+    width: 84px;
+    height: 84px;
   }
 
-  .view-cube-scene {
-    width: 44px;
-    height: 44px;
-  }
-
-  .view-cube-face--front {
-    transform: translateZ(22px);
-  }
-  .view-cube-face--back {
-    transform: rotateY(180deg) translateZ(22px);
-  }
-  .view-cube-face--right {
-    transform: rotateY(90deg) translateZ(22px);
-  }
-  .view-cube-face--left {
-    transform: rotateY(-90deg) translateZ(22px);
-  }
-  .view-cube-face--top {
-    transform: rotateX(90deg) translateZ(22px);
-  }
-  .view-cube-face--bottom {
-    transform: rotateX(-90deg) translateZ(22px);
+  .view-cube canvas {
+    width: 84px;
+    height: 84px;
   }
 
   .mobile-menu-fab {

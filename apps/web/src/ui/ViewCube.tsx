@@ -1,7 +1,6 @@
-import { useEffect, useMemo, useRef, type PointerEvent as ReactPointerEvent } from 'react';
+import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react';
 import type { ViewportRenderer } from '../viewport/ViewportRenderer';
 import {
-  FACE_LABEL,
   easeOutCubic,
   lerp,
   lerpAngle,
@@ -11,25 +10,11 @@ import {
   type ViewCubeFace,
   type ViewCubeHit,
 } from '../viewport/viewCube';
+import { ViewCubeGl } from '../viewport/viewCubeGl';
 
-const SIZE = 100;
+const SIZE = 112;
 const DRAG_THRESHOLD_PX = 4;
 const ANIM_MS = 240;
-/** Face texture resolution — crisp labels under CSS 3D. */
-const FACE_TEX = 128;
-
-const FACES: readonly ViewCubeFace[] = ['front', 'back', 'right', 'left', 'top', 'bottom'];
-
-const FACE_FILL: Record<ViewCubeFace, string> = {
-  front: '#636360',
-  back: '#4e4e4c',
-  right: '#585856',
-  left: '#585856',
-  top: '#6a6a66',
-  bottom: '#454543',
-};
-
-const FACE_FILL_HOVER = '#5a7d4e';
 
 export interface ViewCubeProps {
   renderer: ViewportRenderer | null;
@@ -37,44 +22,14 @@ export interface ViewCubeProps {
   visible: boolean;
 }
 
-/** Bake axis-aligned caption into a square face texture (data URL). */
-function bakeFaceTexture(face: ViewCubeFace, hover: boolean): string {
-  const canvas = document.createElement('canvas');
-  canvas.width = FACE_TEX;
-  canvas.height = FACE_TEX;
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return '';
-  ctx.fillStyle = hover ? FACE_FILL_HOVER : FACE_FILL[face];
-  ctx.fillRect(0, 0, FACE_TEX, FACE_TEX);
-  ctx.strokeStyle = hover ? '#6f9460' : '#111';
-  ctx.lineWidth = 3;
-  ctx.strokeRect(1.5, 1.5, FACE_TEX - 3, FACE_TEX - 3);
-
-  const label = FACE_LABEL[face];
-  let fontPx = 28;
-  ctx.font = `700 ${fontPx}px ui-sans-serif, system-ui, sans-serif`;
-  while (ctx.measureText(label).width > FACE_TEX * 0.82 && fontPx > 14) {
-    fontPx -= 1;
-    ctx.font = `700 ${fontPx}px ui-sans-serif, system-ui, sans-serif`;
-  }
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.lineJoin = 'round';
-  ctx.strokeStyle = 'rgba(12, 12, 12, 0.92)';
-  ctx.lineWidth = Math.max(3, fontPx * 0.16);
-  ctx.strokeText(label, FACE_TEX / 2, FACE_TEX / 2);
-  ctx.fillStyle = hover ? '#e8f0e4' : '#f2f2f2';
-  ctx.fillText(label, FACE_TEX / 2, FACE_TEX / 2);
-  return canvas.toDataURL('image/png');
-}
-
 /**
- * BIM/CAD view cube: CSS 3D cube with baked face textures (axis-aligned labels
- * in face UV). Pointer hit-testing keeps projected face/edge/corner pick + drag.
+ * BIM/CAD view cube — WebGL2 textured quads (labels baked into face UV) so
+ * captions stay flat on each face under perspective. Transparent hit canvas
+ * shares the projected picker for faces/edges/corners + drag orbit.
  */
 export function ViewCube({ renderer, visible }: ViewCubeProps) {
-  const rootRef = useRef<HTMLDivElement>(null);
-  const sceneRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const glRef = useRef<ViewCubeGl | null>(null);
   const hitRef = useRef<ViewCubeHit | null>(null);
   const dragRef = useRef<{
     pointerId: number;
@@ -87,53 +42,48 @@ export function ViewCube({ renderer, visible }: ViewCubeProps) {
   } | null>(null);
   const animRef = useRef<number | null>(null);
 
-  const textures = useMemo(() => {
-    if (typeof document === 'undefined') {
-      return null;
+  useEffect(() => {
+    if (!visible) return;
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    let cube: ViewCubeGl;
+    try {
+      cube = new ViewCubeGl(canvas);
+    } catch {
+      return;
     }
-    const normal = {} as Record<ViewCubeFace, string>;
-    const hover = {} as Record<ViewCubeFace, string>;
-    for (const face of FACES) {
-      normal[face] = bakeFaceTexture(face, false);
-      hover[face] = bakeFaceTexture(face, true);
-    }
-    return { normal, hover };
-  }, []);
+    glRef.current = cube;
+    return () => {
+      cube.dispose();
+      glRef.current = null;
+    };
+  }, [visible]);
 
   useEffect(() => {
     if (!visible || !renderer) return;
     let frame = 0;
-    let lastHoverKey = '';
     const tick = () => {
+      const cube = glRef.current;
+      const canvas = canvasRef.current;
       const cam = renderer.getCamera();
-      const scene = sceneRef.current;
-      if (scene) {
-        scene.style.transform = `rotateY(${-cam.yaw}rad) rotateX(${cam.pitch}rad)`;
-      }
-      const root = rootRef.current;
-      const hit = hitRef.current;
-      let hoverKey = '';
-      if (hit?.kind === 'face') hoverKey = hit.face;
-      else if (hit?.kind === 'edge' || hit?.kind === 'corner') hoverKey = hit.faces.join(' ');
-      if (root && hoverKey !== lastHoverKey) {
-        lastHoverKey = hoverKey;
-        if (hoverKey) root.setAttribute('data-hover-faces', hoverKey);
-        else root.removeAttribute('data-hover-faces');
-        // Swap face background images for olive hover without React state churn.
-        if (textures) {
-          for (const face of FACES) {
-            const el = root.querySelector<HTMLElement>(`.view-cube-face--${face}`);
-            if (!el) continue;
-            const on = hoverKey.split(' ').includes(face);
-            el.style.backgroundImage = `url(${on ? textures.hover[face] : textures.normal[face]})`;
-          }
-        }
+      if (cube && canvas) {
+        const hit = hitRef.current;
+        const hover: ViewCubeFace[] =
+          hit?.kind === 'face'
+            ? [hit.face]
+            : hit?.kind === 'edge' || hit?.kind === 'corner'
+              ? [...hit.faces]
+              : [];
+        cube.setHoverFaces(hover);
+        const w = canvas.clientWidth || SIZE;
+        const h = canvas.clientHeight || SIZE;
+        cube.draw(w, h, cam.yaw, cam.pitch);
       }
       frame = requestAnimationFrame(tick);
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [renderer, visible, textures]);
+  }, [renderer, visible]);
 
   useEffect(() => {
     return () => {
@@ -141,7 +91,7 @@ export function ViewCube({ renderer, visible }: ViewCubeProps) {
     };
   }, []);
 
-  if (!visible || !renderer || !textures) return null;
+  if (!visible || !renderer) return null;
 
   const cancelAnim = () => {
     if (animRef.current != null) {
@@ -170,7 +120,7 @@ export function ViewCube({ renderer, visible }: ViewCubeProps) {
     animRef.current = requestAnimationFrame(step);
   };
 
-  const localPoint = (e: ReactPointerEvent<HTMLDivElement>) => {
+  const localPoint = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     const rect = e.currentTarget.getBoundingClientRect();
     return {
       x: ((e.clientX - rect.left) / rect.width) * SIZE,
@@ -178,7 +128,7 @@ export function ViewCube({ renderer, visible }: ViewCubeProps) {
     };
   };
 
-  const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
+  const onPointerDown = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     if (e.button !== 0) return;
     e.preventDefault();
     e.stopPropagation();
@@ -199,7 +149,7 @@ export function ViewCube({ renderer, visible }: ViewCubeProps) {
     e.currentTarget.setPointerCapture(e.pointerId);
   };
 
-  const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
+  const onPointerMove = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== e.pointerId) {
       const { x, y } = localPoint(e);
@@ -225,7 +175,7 @@ export function ViewCube({ renderer, visible }: ViewCubeProps) {
     }
   };
 
-  const onPointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+  const onPointerUp = (e: ReactPointerEvent<HTMLCanvasElement>) => {
     const drag = dragRef.current;
     if (!drag || drag.pointerId !== e.pointerId) return;
     e.preventDefault();
@@ -252,32 +202,22 @@ export function ViewCube({ renderer, visible }: ViewCubeProps) {
 
   return (
     <div
-      ref={rootRef}
       className="view-cube"
       data-testid="view-cube"
       title="View cube — click to orient, drag to orbit"
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
-      onPointerLeave={onPointerLeave}
-      onContextMenu={(e) => e.preventDefault()}
     >
-      <div className="view-cube-plate" aria-hidden="true">
-        <div className="view-cube-perspective">
-          <div ref={sceneRef} className="view-cube-scene">
-            {FACES.map((face) => (
-              <div
-                key={face}
-                className={`view-cube-face view-cube-face--${face}`}
-                data-face={face}
-                style={{ backgroundImage: `url(${textures.normal[face]})` }}
-                aria-label={FACE_LABEL[face]}
-              />
-            ))}
-          </div>
-        </div>
-      </div>
+      <canvas
+        ref={canvasRef}
+        width={SIZE}
+        height={SIZE}
+        aria-label="View cube"
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
+        onPointerLeave={onPointerLeave}
+        onContextMenu={(e) => e.preventDefault()}
+      />
     </div>
   );
 }
