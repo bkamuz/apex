@@ -56,6 +56,12 @@ jobs:
         working-directory: apps/web
         run: npm run build
 
+      - name: MCP tests
+        working-directory: packages/apex-mcp
+        run: |
+          npm ci
+          npm test
+
   smoke:
     name: Browser smoke test
     runs-on: ubuntu-latest
@@ -97,9 +103,36 @@ jobs:
           APEX_SMOKE_OUT: ${{ github.workspace }}/smoke-screenshots
         run: node scripts/smoke.mjs
 
+      - name: Camera controls test
+        working-directory: apps/web
+        env:
+          APEX_SMOKE_URL: http://127.0.0.1:5173/
+        run: node scripts/camera-controls-test.mjs
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: smoke-screenshots
           path: smoke-screenshots
           if-no-files-found: ignore
+
+  # Rebuilds the committed SMLib wasm from third_party/smlib and fails when it
+  # differs, so the prebuilt apps/web/src/kernel/smlib/apex_smlib.{mjs,wasm}
+  # cannot drift from the vendored sources.
+  smlib-wasm:
+    name: SMLib wasm reproducibility
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 6.0.13
+          actions-cache-folder: emsdk-cache
+      - uses: actions/cache@v4
+        with:
+          path: third_party/smlib/build
+          key: smlib-wasm-6.0.13-${{ hashFiles('third_party/smlib/**/*.cpp', 'third_party/smlib/**/*.h', 'third_party/smlib/build-wasm.sh') }}
+      - name: Build SMLib wasm
+        run: third_party/smlib/build-wasm.sh
+      - name: Committed wasm is current
+        run: git diff --stat --exit-code apps/web/src/kernel/smlib/
