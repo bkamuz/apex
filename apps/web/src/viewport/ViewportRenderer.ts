@@ -2159,6 +2159,16 @@ export class ViewportRenderer {
     return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
   }
 
+  /**
+   * Turntable orbit by screen delta (same sensitivity as RMB drag).
+   * No-op in plan navigation / sheet presentation.
+   */
+  orbitByDelta(dx: number, dy: number): void {
+    if (this.viewNavigation === 'plan' || this.sheetPresentation) return;
+    this.applyOrbitDelta(dx, dy);
+    this.frameMats = null;
+  }
+
   private applyOrbitDelta(dx: number, dy: number): void {
     this.camera.yaw -= dx * 0.005;
     this.camera.pitch = Math.max(

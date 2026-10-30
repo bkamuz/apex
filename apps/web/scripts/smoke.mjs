@@ -48,7 +48,7 @@ await page.waitForSelector('canvas');
 await page.waitForTimeout(1200);
 await page.screenshot({ path: `${OUT}/apex-01-load.png`, fullPage: true });
 
-const canvas = page.locator('canvas');
+const canvas = page.getByTestId('viewport-canvas');
 const box = await canvas.boundingBox();
 if (!box) throw new Error('no canvas');
 

@@ -9,6 +9,7 @@
     "typecheck": "tsc -b",
     "test:smoke": "node scripts/smoke.mjs",
     "test:camera": "node scripts/camera-controls-test.mjs",
+    "test:view-cube": "node scripts/view-cube-test.mjs",
     "test:fit": "node scripts/fit-view-test.mjs",
     "test:wall-chain": "node scripts/wall-chain-test.mjs",
     "test:level": "node scripts/level-activation-test.mjs",

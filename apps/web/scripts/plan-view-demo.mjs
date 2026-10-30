@@ -43,7 +43,7 @@ async function useTool(name) {
   await page.waitForTimeout(120);
 }
 
-const canvas = page.locator('canvas');
+const canvas = page.getByTestId('viewport-canvas');
 const box = await canvas.boundingBox();
 if (!box) throw new Error('no canvas');
 
@@ -84,10 +84,12 @@ await page.waitForTimeout(500);
 await page.screenshot({ path: path.join(OUT, 'plan-view-back-to-3d.png'), fullPage: false });
 
 const pitch = await page.evaluate(() => {
-  const r = document.querySelector('canvas')?.__apexRenderer;
+  const r = document.querySelector('[data-testid="viewport-canvas"]')?.__apexRenderer;
   return r?.getCamera?.()?.pitch ?? null;
 });
-const nav = await page.evaluate(() => document.querySelector('canvas')?.__apexRenderer?.getViewNavigation?.());
+const nav = await page.evaluate(
+  () => document.querySelector('[data-testid="viewport-canvas"]')?.__apexRenderer?.getViewNavigation?.(),
+);
 
 console.log('plan pitch after 3d restore:', pitch);
 console.log('view navigation:', nav);

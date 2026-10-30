@@ -34,7 +34,7 @@ for (const tab of await page.locator('.tools-tab').all()) {
   if ((await page.getByRole('button', { name: 'Wall', exact: true }).count()) > 0) break;
 }
 await page.getByRole('button', { name: 'Wall', exact: true }).click();
-const box = await page.locator('canvas').boundingBox();
+const box = await page.getByTestId('viewport-canvas').boundingBox();
 const click = async (nx, ny) => {
   await page.mouse.click(box.x + box.width * nx, box.y + box.height * ny);
   await page.waitForTimeout(250);

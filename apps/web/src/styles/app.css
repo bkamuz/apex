@@ -1377,6 +1377,30 @@ input[type="radio"] {
   pointer-events: none;
 }
 
+/* CAD view cube — dense industrial plate, olive hover (matches chrome tokens). */
+.view-cube {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 6;
+  width: 92px;
+  height: 92px;
+  border-radius: var(--chrome-radius);
+  box-shadow: none;
+  pointer-events: auto;
+  touch-action: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.view-cube canvas {
+  display: block;
+  width: 92px;
+  height: 92px;
+  cursor: pointer;
+  touch-action: none;
+}
+
 .inspector-body {
   padding: 10px;
   display: flex;
@@ -1574,6 +1598,18 @@ input[type="radio"] {
     left: 8px;
     bottom: 8px;
     max-width: calc(100% - 88px);
+  }
+
+  .view-cube {
+    top: 8px;
+    right: 8px;
+    width: 76px;
+    height: 76px;
+  }
+
+  .view-cube canvas {
+    width: 76px;
+    height: 76px;
   }
 
   .mobile-menu-fab {

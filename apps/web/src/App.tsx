@@ -123,6 +123,7 @@ import type {
   SlabShapeInfoDto,
 } from './types';
 import { GridAxisLabels } from './ui/GridAxisLabels';
+import { ViewCube } from './ui/ViewCube';
 import { LevelList } from './ui/LevelList';
 import { MobileMenuSheet, type MobileMenuTab } from './ui/MobileMenuSheet';
 import { ComponentEditor } from './ui/ComponentEditor';
@@ -2824,8 +2825,10 @@ export default function App() {
                 spaces={activeLevelSpaces}
                 renderer={ready ? rendererRef.current : null}
               />
+              {/* Main WebGL canvas first so harnesses using querySelector('canvas') stay valid. */}
               <canvas
                 ref={canvasRef}
+                data-testid="viewport-canvas"
                 onClick={onCanvasClick}
                 onDoubleClick={onCanvasDoubleClick}
                 onContextMenu={(e) => e.preventDefault()}
@@ -2834,6 +2837,10 @@ export default function App() {
                 onPointerUp={onCanvasPointerUp}
                 onPointerCancel={onCanvasPointerUp}
                 onPointerLeave={onCanvasPointerLeave}
+              />
+              <ViewCube
+                renderer={ready ? rendererRef.current : null}
+                visible={ready && viewNavigation === '3d'}
               />
             </>
           }
