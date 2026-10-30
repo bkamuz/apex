@@ -11,7 +11,7 @@ import {
   type ViewCubeHit,
 } from '../viewport/viewCube';
 
-const SIZE = 92;
+const SIZE = 100;
 const DRAG_THRESHOLD_PX = 4;
 const ANIM_MS = 240;
 
@@ -253,14 +253,96 @@ function drawCube(
     ctx.lineWidth = active ? 1.25 : 1;
     ctx.stroke();
 
-    if (f.facing > 0.35) {
-      const cx = (v0.x + v1.x + v2.x + v3.x) / 4;
-      const cy = (v0.y + v1.y + v2.y + v3.y) / 4;
-      ctx.fillStyle = active && hoverFace === f.face ? '#e8f0e4' : '#c8c8c8';
-      ctx.font = '600 9px ui-sans-serif, system-ui, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(FACE_LABEL[f.face], cx, cy);
+    // Paint caption into the face plane (not screen-billboard) so it reads as
+    // sitting on the facet — standard CAD view-cube convention.
+    if (f.facing > 0.12) {
+      drawFaceCaption(ctx, v0, v1, v2, v3, FACE_LABEL[f.face], active && hoverFace === f.face);
     }
   }
+}
+
+type Pt = { x: number; y: number };
+
+const SHORT_FACE_LABEL: Record<string, string> = {
+  FRONT: 'F',
+  BACK: 'BK',
+  RIGHT: 'R',
+  LEFT: 'L',
+  TOP: 'TOP',
+  BOTTOM: 'BOT',
+};
+
+/**
+ * Paint caption on the face: centered, rotated with the face, never mirrored.
+ * Uses a pure rotation (CAD-readable) rather than a full affine face basis.
+ */
+function drawFaceCaption(
+  ctx: CanvasRenderingContext2D,
+  v0: Pt,
+  v1: Pt,
+  v2: Pt,
+  v3: Pt,
+  label: string,
+  active: boolean,
+): void {
+  const cx = (v0.x + v1.x + v2.x + v3.x) / 4;
+  const cy = (v0.y + v1.y + v2.y + v3.y) / 4;
+  const e1x = (v1.x - v0.x + (v2.x - v3.x)) * 0.5;
+  const e1y = (v1.y - v0.y + (v2.y - v3.y)) * 0.5;
+  const e2x = (v3.x - v0.x + (v2.x - v1.x)) * 0.5;
+  const e2y = (v3.y - v0.y + (v2.y - v1.y)) * 0.5;
+  const len1 = Math.hypot(e1x, e1y);
+  const len2 = Math.hypot(e2x, e2y);
+  if (len1 < 6 && len2 < 6) return;
+
+  // Prefer the more horizontal edge as the text baseline.
+  const horiz1 = Math.abs(e1x) / (len1 || 1);
+  const horiz2 = Math.abs(e2x) / (len2 || 1);
+  let bx = e1x;
+  let by = e1y;
+  let faceW = len1;
+  let faceH = len2;
+  if (horiz2 > horiz1) {
+    bx = e2x;
+    by = e2y;
+    faceW = len2;
+    faceH = len1;
+  }
+
+  let angle = Math.atan2(by, bx);
+  // Keep glyphs upright (never past ±90°).
+  if (Math.cos(angle) < 0) angle += Math.PI;
+
+  let fontPx = Math.max(7, Math.min(faceW * 0.36, faceH * 0.5, 12.5));
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.rotate(angle);
+
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+
+  let draw = label;
+  const fitFont = (text: string) => {
+    let size = fontPx;
+    ctx.font = `700 ${size}px ui-sans-serif, system-ui, sans-serif`;
+    while (ctx.measureText(text).width > faceW * 0.9 && size > 6.5) {
+      size -= 0.5;
+      ctx.font = `700 ${size}px ui-sans-serif, system-ui, sans-serif`;
+    }
+    fontPx = size;
+    return ctx.measureText(text).width <= faceW * 0.9;
+  };
+  if (!fitFont(draw)) {
+    draw = SHORT_FACE_LABEL[label] ?? label.slice(0, 1);
+    fitFont(draw);
+  }
+
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = 'rgba(12, 12, 12, 0.92)';
+  ctx.lineWidth = Math.max(1.5, fontPx * 0.18);
+  ctx.strokeText(draw, 0, 0);
+  ctx.fillStyle = active ? '#e8f0e4' : '#f2f2f2';
+  ctx.fillText(draw, 0, 0);
+  ctx.restore();
 }

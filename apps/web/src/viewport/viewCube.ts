@@ -14,6 +14,11 @@ export const FACE_EYE_DIR: Record<ViewCubeFace, readonly [number, number, number
   bottom: [0, -1, 0],
 };
 
+/**
+ * Default English face captions painted onto the cube (CAD-style caps).
+ * i18n-ready keys for AP-18: `viewCube.front` … `viewCube.bottom`
+ * (catalog not wired here until i18n lands on main).
+ */
 export const FACE_LABEL: Record<ViewCubeFace, string> = {
   front: 'FRONT',
   back: 'BACK',
@@ -21,6 +26,16 @@ export const FACE_LABEL: Record<ViewCubeFace, string> = {
   left: 'LEFT',
   top: 'TOP',
   bottom: 'BOTTOM',
+};
+
+/** Stable message keys for future `t('viewCube.*')` wiring. */
+export const FACE_LABEL_KEY: Record<ViewCubeFace, string> = {
+  front: 'viewCube.front',
+  back: 'viewCube.back',
+  right: 'viewCube.right',
+  left: 'viewCube.left',
+  top: 'viewCube.top',
+  bottom: 'viewCube.bottom',
 };
 
 export type ViewCubeHit =
