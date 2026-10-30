@@ -3,7 +3,7 @@ name = "apex-ifc"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-description = "IFC4 export for Apex projects (tessellated geometry)"
+description = "IFC4 export/import for Apex projects (tessellated geometry MVP)"
 
 [dependencies]
 apex-core = { workspace = true }

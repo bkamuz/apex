@@ -59,8 +59,8 @@ Two consequences worth remembering:
 
 ### Tools and plugins
 
-- One plugin = one toolbar contribution (`apps/web/src/plugins/`). `installPlugins()` rebuilds `ToolRegistry` and the exporter registry from `firstPartyPlugins` plus runtime `window.apex.registerTool` / `registerExporter`.
-- `PluginHost` can `registerTool`, `registerComponent`, and `registerExporter`. Domain packs (architecture, MEP, IFC) install through that host — never via `if (componentId === …)` in `App.tsx`.
+- One plugin = one toolbar contribution (`apps/web/src/plugins/`). `installPlugins()` rebuilds `ToolRegistry` and the exporter/importer registries from `firstPartyPlugins` plus runtime `window.apex.registerTool` / `registerExporter` / `registerImporter`.
+- `PluginHost` can `registerTool`, `registerComponent`, `registerExporter`, and `registerImporter`. Domain packs (architecture, MEP, IFC) install through that host — never via `if (componentId === …)` in `App.tsx`. Open routes `.ifc` (and other importer extensions) through the importer registry.
 - Placement finish rules live on `ComponentDefinition.placement_options` (`min_points`, `closed`, `seat_on_level`). Openings declare `host_cut`; MEP 3D routes set `seat_on_level: false` (PgUp/PgDn nudges elevation while placing).
 - **Joinable path components** set `joinable: true` on the definition (built-in Wall + Beam). On place (and via `Project::join_paths` / WASM `joinPaths`), peers of the **same component id** on the level get corner miters and T-junctions: sweep `join_start`/`join_end` extensions keep centerlines at user picks; T-hits insert a host polyline vertex and trim the stem. Algorithm: `crates/apex-core/src/path_join.rs` + geometry helpers in `apex-geometry` (`miter_extension`, `stem_trim`, …). Arcs skipped in MVP. No `apex.wall` branches in App/geometry.
 - Implement a tool by satisfying `Tool` in `apps/web/src/tools/Tool.ts` and registering it from a plugin's `install(host)` or at runtime via the SDK.

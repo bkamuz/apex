@@ -96,6 +96,10 @@ impl Document {
         self.levels.get(&id)
     }
 
+    pub fn get_level_mut(&mut self, id: LevelId) -> Option<&mut Level> {
+        self.levels.get_mut(&id)
+    }
+
     pub fn add_level(
         &mut self,
         name: impl Into<String>,

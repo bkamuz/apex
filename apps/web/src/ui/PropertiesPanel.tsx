@@ -651,6 +651,8 @@ export function PropertiesPanel({
     const specs = instanceSpecs(host, profile)
       .filter((spec) => !(shapeSection && spec.id === 'shape'))
       .filter((spec) => !typed || (spec.binding !== 'type' && spec.id !== 'species'))
+      // Internal payload params (e.g. IFC `_mesh` tessellation JSON).
+      .filter((spec) => !spec.id.startsWith('_'))
       .map((spec) =>
         component ? withProfileOptions(spec, component, profiles, profileId) : spec,
       );

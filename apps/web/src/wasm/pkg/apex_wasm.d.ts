@@ -158,6 +158,14 @@ export function getSelectedSectionCut(): any;
 export function getSelectedSpace(): any;
 
 /**
+ * Replace the current project by importing an IFC STEP file (tessellated MVP).
+ *
+ * Returns the usual scene object plus an `ifc_import` summary
+ * `{ levels, products, skipped_no_mesh, warnings }` for the status line.
+ */
+export function importIfc(text: string): any;
+
+/**
  * Replace the current project from a JSON snapshot.
  */
 export function importProject(json: string): any;
@@ -427,6 +435,7 @@ export interface InitOutput {
     readonly getSelectedReference: () => [number, number, number];
     readonly getSelectedSectionCut: () => [number, number, number];
     readonly getSelectedSpace: () => [number, number, number];
+    readonly importIfc: (a: number, b: number) => [number, number, number];
     readonly importProject: (a: number, b: number) => [number, number, number];
     readonly initApp: () => [number, number];
     readonly joinPaths: (a: number, b: number) => [number, number, number];

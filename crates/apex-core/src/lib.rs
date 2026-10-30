@@ -13,6 +13,7 @@ mod genus;
 mod genus_body;
 mod grid_axis;
 mod history;
+mod ifc_mesh;
 mod kroute;
 mod level;
 mod param;
@@ -69,6 +70,10 @@ pub use grid_axis::{
     grid_axis_param_specs, GridAxis, GridAxisError, GridAxisId, GridAxisLibrary, GridAxisOverlay,
 };
 pub use history::History;
+pub use ifc_mesh::{
+    decode_ifc_mesh_json, encode_ifc_mesh_json, encode_ifc_mesh_param, ifc_mesh_from_params,
+    IFC_MESH_COMPONENT,
+};
 pub use level::{Level, LevelId};
 pub use param::{ParamBinding, ParamError, ParamId, ParamKind, ParamMap, ParamSpec, ParamValue};
 pub use path_join::{

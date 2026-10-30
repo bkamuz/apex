@@ -100,6 +100,7 @@ impl ComponentRegistry {
         registry.register_builder("apex.roof.pitched", Box::new(pitched_roof));
         // Booleans are meshed by the project from their operands.
         registry.register_builder("apex.boolean", Box::new(empty_builder));
+        registry.register_builder("apex.ifc.mesh", crate::ifc_mesh::ifc_mesh_builder());
         for profile in builtin_profiles() {
             registry
                 .upsert_profile(profile)
@@ -1097,6 +1098,7 @@ pub fn builtin_components() -> Vec<ComponentDefinition> {
         duct(),
         cable_tray(),
         boolean(),
+        crate::ifc_mesh::ifc_mesh_definition(),
     ]
 }
 

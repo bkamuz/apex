@@ -34,7 +34,13 @@ export class MissingDescriptorError extends Error {
 
 /** Throw unless `value` carries a descriptor with a non-empty purpose. */
 export function assertDescribed(
-  kind: 'tool' | 'plugin' | 'annotation kind' | 'exporter' | 'opening generator',
+  kind:
+    | 'tool'
+    | 'plugin'
+    | 'annotation kind'
+    | 'exporter'
+    | 'importer'
+    | 'opening generator',
   id: string,
   value: { descriptor?: Descriptor } | undefined,
 ): void {

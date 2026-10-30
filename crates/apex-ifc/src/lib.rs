@@ -1,14 +1,23 @@
-//! Minimal IFC4 writer for Apex projects.
+//! IFC4 export and import for Apex projects.
 //!
-//! Geometry is exported as `IfcTriangulatedFaceSet` from each element's mesh.
-//! Semantic type comes from `ComponentDefinition.ifc_entity` (or a fallback
-//! mapping by category / explicit [`IfcMapping`]), so plugins extend export
-//! without per-type branches in the shell.
+//! **Export** writes tessellated `IfcTriangulatedFaceSet` meshes; semantic type
+//! comes from `ComponentDefinition.ifc_entity` (or a fallback mapping by
+//! category / explicit [`IfcMapping`]), so plugins extend export without
+//! per-type branches in the shell.
+//!
+//! **Import** (MVP) parses STEP Physical Files, resolves storeys and products
+//! with triangulated / faceted / simple extruded geometry, and places
+//! `apex.ifc.mesh` instances into a fresh project.
+
+mod import;
+mod parse;
+
+pub use import::{import_ifc4_into, ImportError, ImportStats};
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
-use apex_core::{ComponentDefinition, Element, Level, Project, TriangleMesh};
+use apex_core::{ComponentDefinition, Element, Level, Project, TriangleMesh, IFC_MESH_COMPONENT};
 use uuid::Uuid;
 
 /// Optional overrides: component id → IFC entity type name (`IfcWall`, …).
@@ -367,6 +376,14 @@ fn resolve_ifc_entity(
 ) -> String {
     if let Some(mapped) = mapping.get(&element.component_id) {
         return mapped.clone();
+    }
+    // Imported IFC meshes carry the original entity on `ifc_type`.
+    if element.component_id == IFC_MESH_COMPONENT {
+        if let Some(t) = element.params.text("ifc_type") {
+            if !t.is_empty() {
+                return t.to_string();
+            }
+        }
     }
     if let Some(def) = def {
         if let Some(entity) = &def.ifc_entity {

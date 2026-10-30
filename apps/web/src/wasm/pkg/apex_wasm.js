@@ -793,6 +793,24 @@ export function getSelectedSpace() {
 }
 
 /**
+ * Replace the current project by importing an IFC STEP file (tessellated MVP).
+ *
+ * Returns the usual scene object plus an `ifc_import` summary
+ * `{ levels, products, skipped_no_mesh, warnings }` for the status line.
+ * @param {string} text
+ * @returns {any}
+ */
+export function importIfc(text) {
+    const ptr0 = passStringToWasm0(text, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.importIfc(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * Replace the current project from a JSON snapshot.
  * @param {string} json
  * @returns {any}
@@ -1992,6 +2010,10 @@ function __wbg_get_imports() {
         __wbg_set_6be42768c690e380: function(arg0, arg1, arg2) {
             arg0[arg1] = arg2;
         },
+        __wbg_set_8535240470bf2500: function() { return handleError(function (arg0, arg1, arg2) {
+            const ret = Reflect.set(arg0, arg1, arg2);
+            return ret;
+        }, arguments); },
         __wbg_set_8a16b38e4805b298: function(arg0, arg1, arg2) {
             arg0[arg1 >>> 0] = arg2;
         },
