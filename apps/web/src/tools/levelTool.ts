@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import { ApexIcons } from './icons';
 import type { Tool, ToolContext, ToolTab } from './Tool';
 import { ApexTabs } from './tabs';
@@ -15,7 +16,7 @@ export function createLevelTool(tab: ToolTab = ApexTabs.basics): Tool {
     group: 'create',
     tab,
     icon: ApexIcons.level,
-    hint: () => 'Level: click to add a storey (+3 m above the highest)',
+    hint: () => t('tool.level.hint'),
 
     onClick(_e, ctx) {
       ctx.createLevel();

@@ -1,23 +1,47 @@
+import { useI18n } from '../i18n';
+
 interface Props {
   onDismiss: () => void;
   onLoadSample: () => void;
 }
 
 export function GettingStartedPanel({ onDismiss, onLoadSample }: Props) {
+  const { t } = useI18n();
+  const body = t('gettingStarted.body', {
+    w: 'W',
+    p: 'P',
+    f: 'F',
+    m: 'M',
+    c: 'C',
+    undo: 'Ctrl+Z',
+  });
+  // Wrap hotkey tokens in <kbd> by splitting on known keys.
+  const parts = body.split(/(W|P|F|M|C|Ctrl\+Z)/g);
+
   return (
     <div className="getting-started" data-testid="getting-started">
-      <div className="getting-started-kicker">Start here</div>
-      <div className="getting-started-title">Empty project</div>
+      <div className="getting-started-kicker">{t('gettingStarted.kicker')}</div>
+      <div className="getting-started-title">{t('gettingStarted.title')}</div>
       <p>
-        Place walls with <kbd>W</kbd>, switch to Plan <kbd>P</kbd>, frame with <kbd>F</kbd>.
-        Move <kbd>M</kbd> · Copy <kbd>C</kbd> · Undo <kbd>Ctrl+Z</kbd>.
+        {parts.map((part, i) =>
+          part === 'W' ||
+          part === 'P' ||
+          part === 'F' ||
+          part === 'M' ||
+          part === 'C' ||
+          part === 'Ctrl+Z' ? (
+            <kbd key={`${part}-${i}`}>{part}</kbd>
+          ) : (
+            <span key={i}>{part}</span>
+          ),
+        )}
       </p>
       <div className="getting-started-actions">
         <button type="button" data-testid="load-sample-project" onClick={onLoadSample}>
-          Load sample house
+          {t('gettingStarted.loadSample')}
         </button>
         <button type="button" className="panel-action" onClick={onDismiss}>
-          Dismiss
+          {t('gettingStarted.dismiss')}
         </button>
       </div>
     </div>

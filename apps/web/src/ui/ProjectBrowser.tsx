@@ -10,6 +10,7 @@ import type {
   SectionCutDto,
   SpaceDto,
 } from '../types';
+import { t, useI18n } from '../i18n';
 import { categoryDisplayLabel } from './categoryLabels';
 import { isUserAuthoredComponent } from './componentModel';
 import { profileLabel } from './profileModel';
@@ -132,22 +133,24 @@ function groupKey(
 ): string {
   switch (groupBy) {
     case 'kind':
-      if (item.kind === 'component_def') return 'User components';
-      if (item.kind === 'type') return 'Shared types';
-      if (item.kind === 'reference') return 'References';
-      if (item.kind === 'grid_axis') return 'Grid axes';
-      if (item.kind === 'construction_line') return 'Construction lines';
-      if (item.kind === 'section_cut') return 'Section cuts';
-      if (item.kind === 'space') return 'Spaces';
-      return 'Placed elements';
+      if (item.kind === 'component_def') return t('browser.kind.component_def');
+      if (item.kind === 'type') return t('browser.kind.type');
+      if (item.kind === 'reference') return t('browser.kind.reference');
+      if (item.kind === 'grid_axis') return t('browser.kind.grid_axis');
+      if (item.kind === 'construction_line') return t('browser.kind.construction_line');
+      if (item.kind === 'section_cut') return t('browser.kind.section_cut');
+      if (item.kind === 'space') return t('browser.kind.space');
+      return t('browser.kind.element');
     case 'category':
       return categoryDisplayLabel(item.category || 'uncategorized', components);
     case 'level':
-      return item.kind === 'type' ? 'Types (not on a level)' : item.levelName;
+      return item.kind === 'type' ? t('browser.typesNotOnLevel') : item.levelName;
     case 'profile':
-      return item.kind === 'type' ? `Type · ${item.name}` : item.profileName || 'No profile';
+      return item.kind === 'type'
+        ? t('browser.typePrefix', { name: item.name })
+        : item.profileName || t('browser.noProfile');
     case 'none':
-      return 'All';
+      return t('browser.filter.all');
     default: {
       const exhaustive: never = groupBy;
       return exhaustive;
@@ -497,6 +500,7 @@ export function ProjectBrowser({
   onRenameSheet,
   onDeleteSheet,
 }: Props) {
+  const { t: tx, locale } = useI18n();
   const initial = loadPrefs();
   const [groupBy, setGroupBy] = useState<BrowserGroupBy>(initial.groupBy);
   const [sortBy, setSortBy] = useState<BrowserSortBy>(initial.sortBy);
@@ -682,21 +686,21 @@ export function ProjectBrowser({
       map.set(key, list);
     }
     return [...map.entries()];
-  }, [items, groupBy, components]);
+  }, [items, groupBy, components, locale]);
 
   const selected = new Set(selectedIds);
 
   return (
     <div className="project-browser" data-testid="project-browser">
       <div className="panel-title-row">
-        <div className="panel-title">Project</div>
+        <div className="panel-title">{tx('panel.project')}</div>
         <button
           type="button"
           className="panel-action"
           onClick={onNewComponent}
           data-testid="browser-new-component"
         >
-          + Component
+          {tx('panel.addComponent')}
         </button>
         <button
           type="button"
@@ -704,20 +708,20 @@ export function ProjectBrowser({
           onClick={onNewProfile}
           data-testid="browser-new-profile"
         >
-          + Profile
+          {tx('panel.addProfile')}
         </button>
       </div>
-      <div className="browser-filter" role="tablist" aria-label="Show">
+      <div className="browser-filter" role="tablist" aria-label={tx('browser.show')}>
         {(
           [
-            ['all', 'All'],
-            ['types', 'Types'],
-            ['instances', 'Placed'],
-            ['references', 'Refs'],
-            ['grids', 'Grids'],
-            ['annotations', 'Annot.'],
+            ['all', 'browser.filter.all'],
+            ['types', 'browser.filter.types'],
+            ['instances', 'browser.filter.instances'],
+            ['references', 'browser.filter.references'],
+            ['grids', 'browser.filter.grids'],
+            ['annotations', 'browser.filter.annotations'],
           ] as const
-        ).map(([value, label]) => (
+        ).map(([value, key]) => (
           <button
             key={value}
             type="button"
@@ -727,7 +731,7 @@ export function ProjectBrowser({
             data-testid={`browser-filter-${value}`}
             onClick={() => setFilt(value)}
           >
-            {label}
+            {tx(key)}
           </button>
         ))}
       </div>
@@ -739,39 +743,39 @@ export function ProjectBrowser({
           data-testid="browser-arrange-toggle"
           onClick={() => setArrangeOpen((open) => !open)}
         >
-          Arrange
+          {tx('browser.arrange')}
           <span className="browser-arrange-meta">
-            {groupBy === 'kind' ? 'type/instance' : groupBy} · {sortBy}
+            {groupBy === 'kind' ? tx('browser.arrange.kindMeta') : groupBy} · {sortBy}
           </span>
         </button>
         {arrangeOpen ? (
           <div className="browser-toolbar">
             <label>
-              Group
+              {tx('browser.group')}
               <select
                 value={groupBy}
-                aria-label="Group by"
+                aria-label={tx('browser.groupBy')}
                 data-testid="browser-group"
                 onChange={(e) => setGroup(e.target.value as BrowserGroupBy)}
               >
-                <option value="kind">Type / instance</option>
-                <option value="category">Category</option>
-                <option value="level">Level</option>
-                <option value="profile">Profile</option>
-                <option value="none">None</option>
+                <option value="kind">{tx('browser.group.kind')}</option>
+                <option value="category">{tx('browser.group.category')}</option>
+                <option value="level">{tx('browser.group.level')}</option>
+                <option value="profile">{tx('browser.group.profile')}</option>
+                <option value="none">{tx('browser.group.none')}</option>
               </select>
             </label>
             <label>
-              Sort
+              {tx('browser.sort')}
               <select
                 value={sortBy}
-                aria-label="Sort by"
+                aria-label={tx('browser.sortBy')}
                 data-testid="browser-sort"
                 onChange={(e) => setSort(e.target.value as BrowserSortBy)}
               >
-                <option value="name">Name</option>
-                <option value="kind">Kind</option>
-                <option value="category">Category</option>
+                <option value="name">{tx('browser.sort.name')}</option>
+                <option value="kind">{tx('browser.sort.kind')}</option>
+                <option value="category">{tx('browser.sort.category')}</option>
               </select>
             </label>
           </div>
@@ -804,7 +808,7 @@ export function ProjectBrowser({
       ) : null}
       <div className="browser-tree-scroll shell-scroll" data-testid="browser-tree-scroll">
         {groups.length === 0 ? (
-          <div className="empty">No types or elements yet. Draw a profile or place a wall.</div>
+          <div className="empty">{tx('browser.emptyTree')}</div>
         ) : groupBy === 'none' ? (
           <ul className="browser-tree-items browser-tree-items--flat">
             {orderWithParentHierarchy(items).map(({ item, depth }) => (

@@ -7,6 +7,12 @@ import {
   toolsInTab,
   untabbedCreateTools,
 } from '../tools/tabs';
+import {
+  modeDisplayLabel,
+  tabDisplayLabel,
+  toolDisplayLabel,
+  useI18n,
+} from '../i18n';
 import { ToolIconGlyph } from './ToolIcon';
 
 export interface ToolsToolbarProps {
@@ -35,18 +41,19 @@ function ToolButton({
   onActivate: (id: string) => void;
   className?: string;
 }) {
+  const label = toolDisplayLabel(tool);
   const classes = [className, active ? 'active' : ''].filter(Boolean).join(' ');
-  const title = tool.shortcut ? `${tool.label} (${tool.shortcut})` : tool.label;
+  const title = tool.shortcut ? `${label} (${tool.shortcut})` : label;
   return (
     <button
       type="button"
       className={classes || undefined}
-      aria-label={tool.label}
+      aria-label={label}
       title={title}
       onClick={() => onActivate(tool.id)}
     >
       <ToolIconGlyph icon={tool.icon} />
-      <span className="tool-label">{tool.label}</span>
+      <span className="tool-label">{label}</span>
     </button>
   );
 }
@@ -84,6 +91,7 @@ export function ToolsToolbar({
   onFitView,
   extra,
 }: ToolsToolbarProps) {
+  const { t, locale } = useI18n();
   const activeTool = useMemo(
     () => tools.find((tool) => tool.id === activeToolId),
     [tools, activeToolId],
@@ -134,7 +142,7 @@ export function ToolsToolbar({
       el.removeEventListener('scroll', updateScrollHints);
       observer.disconnect();
     };
-  }, [updateScrollHints, tools, activeTabId, activeToolId, drawMode]);
+  }, [updateScrollHints, tools, activeTabId, activeToolId, drawMode, locale]);
 
   const tabTools = activeTabId ? toolsInTab(tools, activeTabId) : [];
   const createTools = [...tabTools, ...freeCreateTools];
@@ -155,29 +163,32 @@ export function ToolsToolbar({
   return (
     <>
       {tabs.length > 0 ? (
-        <div className="tools-tabs" role="tablist" aria-label="Tool tabs">
-          {tabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              className={`tools-tab${activeTabId === tab.id ? ' active' : ''}`}
-              aria-selected={activeTabId === tab.id}
-              data-testid={`tools-tab-${tab.id}`}
-              title={tab.label}
-              onClick={() => setActiveTabId(tab.id)}
-            >
-              {tab.label}
-            </button>
-          ))}
+        <div className="tools-tabs" role="tablist" aria-label={t('toolbar.toolTabs')}>
+          {tabs.map((tab) => {
+            const label = tabDisplayLabel(tab.id, tab.label);
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                className={`tools-tab${activeTabId === tab.id ? ' active' : ''}`}
+                aria-selected={activeTabId === tab.id}
+                data-testid={`tools-tab-${tab.id}`}
+                title={label}
+                onClick={() => setActiveTabId(tab.id)}
+              >
+                {label}
+              </button>
+            );
+          })}
         </div>
       ) : null}
 
       <div className="tools-bar">
         <div className={scrollClass}>
-          <div className="tools" ref={toolsScrollRef} role="toolbar" aria-label="Tools">
+          <div className="tools" ref={toolsScrollRef} role="toolbar" aria-label={t('toolbar.tools')}>
             {selectTools.length > 0 ? (
-              <ToolGroup label="Select">
+              <ToolGroup label={t('toolbar.select')}>
                 {selectTools.map((tool) => (
                   <ToolButton
                     key={tool.id}
@@ -190,7 +201,7 @@ export function ToolsToolbar({
             ) : null}
 
             {transformTools.length > 0 ? (
-              <ToolGroup label="Transform">
+              <ToolGroup label={t('toolbar.transform')}>
                 {transformTools.map((tool) => (
                   <ToolButton
                     key={tool.id}
@@ -205,7 +216,7 @@ export function ToolsToolbar({
             {extra}
 
             {createTools.length > 0 ? (
-              <ToolGroup label="Create">
+              <ToolGroup label={t('toolbar.create')}>
                 {createTools.map((tool) => (
                   <ToolButton
                     key={tool.id}
@@ -218,72 +229,75 @@ export function ToolsToolbar({
             ) : null}
 
             {showModes ? (
-              <ToolGroup label="Draw mode" className="tools-grp-modes">
-                {modes.map((mode) => (
-                  <button
-                    key={mode.id}
-                    type="button"
-                    className={`mode${drawMode === mode.id ? ' active' : ''}`}
-                    aria-label={mode.label}
-                    title={mode.label}
-                    onClick={() => onActivateDrawMode(mode.id)}
-                  >
-                    {mode.label}
-                  </button>
-                ))}
+              <ToolGroup label={t('toolbar.drawMode')} className="tools-grp-modes">
+                {modes.map((mode) => {
+                  const label = modeDisplayLabel(mode);
+                  return (
+                    <button
+                      key={mode.id}
+                      type="button"
+                      className={`mode${drawMode === mode.id ? ' active' : ''}`}
+                      aria-label={label}
+                      title={label}
+                      onClick={() => onActivateDrawMode(mode.id)}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
               </ToolGroup>
             ) : null}
           </div>
         </div>
         {/* View controls live outside the per-tab tools so they never move. */}
-        <div className="tools-view" role="toolbar" aria-label="View" data-testid="view-controls">
-          <ToolGroup label="View">
+        <div className="tools-view" role="toolbar" aria-label={t('toolbar.view')} data-testid="view-controls">
+          <ToolGroup label={t('toolbar.view')}>
             <button
               type="button"
               className={viewNavigation === '3d' ? 'active' : ''}
               onClick={() => onSetViewNavigation('3d')}
-              title="3D view (3)"
+              title={t('toolbar.view3dTitle')}
               data-testid="view-3d"
             >
-              3D
+              {t('toolbar.view3d')}
             </button>
             <button
               type="button"
               className={viewNavigation === 'plan' ? 'active' : ''}
               onClick={() => onSetViewNavigation('plan')}
-              title="Plan view — top-down cut (P)"
+              title={t('toolbar.planTitle')}
               data-testid="view-plan"
             >
-              Plan
+              {t('toolbar.plan')}
             </button>
             <button
               type="button"
               onClick={onFitView}
-              title="Fit view / zoom extents (F)"
+              title={t('toolbar.fitTitle')}
               data-testid="fit-view"
             >
-              Fit
+              {t('toolbar.fit')}
             </button>
           </ToolGroup>
 
-          <ToolGroup label="Projection">
+          <ToolGroup label={t('toolbar.projection')}>
             <button
               type="button"
               className={projection === 'orthographic' ? 'active' : ''}
               disabled={viewNavigation === 'plan'}
               onClick={() => onSetProjection('orthographic')}
-              title="Parallel axonometric projection"
+              title={t('toolbar.axonTitle')}
             >
-              Axon
+              {t('toolbar.axon')}
             </button>
             <button
               type="button"
               className={projection === 'perspective' ? 'active' : ''}
               disabled={viewNavigation === 'plan'}
               onClick={() => onSetProjection('perspective')}
-              title="Perspective projection"
+              title={t('toolbar.perspTitle')}
             >
-              Persp
+              {t('toolbar.persp')}
             </button>
           </ToolGroup>
         </div>

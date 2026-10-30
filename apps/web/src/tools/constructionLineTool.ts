@@ -1,3 +1,4 @@
+import { pluralS, t } from '../i18n';
 import type { Vec3 } from '../viewport/ViewportRenderer';
 import { ApexIcons } from './icons';
 import type { Tool, ToolContext, ToolTab } from './Tool';
@@ -32,8 +33,8 @@ export function createConstructionLineTool(tab: ToolTab = ApexTabs.basics): Tool
     hint(pendingCount) {
       const remaining = 2 - pendingCount;
       return remaining <= 0
-        ? 'Construction line: placing…'
-        : `Construction line: click ${remaining} more point${remaining === 1 ? '' : 's'}`;
+        ? t('tool.construction-line.hintPlacing')
+        : t('tool.construction-line.hintClicks', { n: remaining, s: pluralS(remaining) });
     },
 
     onPointerDown(e, ctx) {

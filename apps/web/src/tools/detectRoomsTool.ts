@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import { ApexIcons } from './icons';
 import type { Tool, ToolContext, ToolTab } from './Tool';
 import { ApexTabs } from './tabs';
@@ -14,7 +15,7 @@ export function createDetectRoomsTool(tab: ToolTab = ApexTabs.spaces): Tool {
     group: 'create',
     tab,
     icon: ApexIcons.detectRooms,
-    hint: () => 'Detect rooms: click to find closed wall loops on the active level',
+    hint: () => t('tool.detect-rooms.hint'),
 
     onClick(_e, ctx) {
       ctx.detectRoomsFromWalls();

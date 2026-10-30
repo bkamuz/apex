@@ -1,5 +1,9 @@
 import { apexRunQuery } from '../wasm/apex';
 import { useEffect, useState, type ReactNode } from 'react';
+import {
+  componentDisplayName,
+  useI18n,
+} from '../i18n';
 import type {
   ComponentDto,
   ConstructionLineDto,
@@ -265,15 +269,16 @@ function TypeBlock({
   onNewProfile?: () => void;
 }) {
   const specs = typeSpecs(profile);
+  const { t } = useI18n();
   return (
     <div className="inspector-section" data-section="type">
-      <div className="section-title">Shared type</div>
+      <div className="section-title">{t('inspector.sharedType')}</div>
       <div className="empty" style={{ padding: 0, marginBottom: 4 }}>
         Same for every element of this profile
       </div>
       {specs.length === 0 ? (
         <div className="empty" style={{ padding: 0 }}>
-          {profile ? 'No type parameters' : 'Built-in defaults — no shared type needed'}
+          {profile ? t('inspector.noTypeParams') : t('inspector.builtinDefaults')}
         </div>
       ) : (
         specs.map((spec) => (
@@ -366,6 +371,7 @@ export function PropertiesPanel({
   onDeleteSectionCut,
   onDeleteSpace,
 }: Props) {
+  const { t } = useI18n();
   const [draft, setDraft] = useState<Record<string, ParamValue>>({});
   const [gridDraft, setGridDraft] = useState<Record<string, ParamValue>>({});
   const [lineDraft, setLineDraft] = useState<Record<string, ParamValue>>({});
@@ -414,11 +420,13 @@ export function PropertiesPanel({
     return (
       <div className="inspector-body shell-scroll">
         <div className="field">
-          <label>Tool</label>
-          <div>{placement.component.display_name}</div>
+          <label>{t('inspector.tool')}</label>
+          <div>
+            {componentDisplayName(placement.component.id, placement.component.display_name)}
+          </div>
         </div>
         <div className="inspector-section" data-section="instance">
-          <div className="section-title">This element</div>
+          <div className="section-title">{t('inspector.thisElement')}</div>
           <SchemaFields
             specs={specs}
             values={placement.params}
@@ -446,15 +454,17 @@ export function PropertiesPanel({
     return (
       <div className="inspector-body shell-scroll">
         <div className="field">
-          <label>Name</label>
+          <label>{t('inspector.name')}</label>
           <div>{selectedReference.name}</div>
         </div>
         <div className="field">
-          <label>Type</label>
-          <div>{selectedReference.kind === 'plane' ? 'Ref plane' : 'Ref point'}</div>
+          <label>{t('inspector.type')}</label>
+          <div>
+            {selectedReference.kind === 'plane' ? t('inspector.refPlane') : t('inspector.refPoint')}
+          </div>
         </div>
         <div className="field">
-          <label>Origin</label>
+          <label>{t('inspector.origin')}</label>
           <div>
             {ox.toFixed(3)}, {oy.toFixed(3)}, {oz.toFixed(3)} m
           </div>
@@ -462,13 +472,13 @@ export function PropertiesPanel({
         {selectedReference.kind === 'plane' ? (
           <>
             <div className="field">
-              <label>Normal</label>
+              <label>{t('inspector.normal')}</label>
               <div>
                 {nx.toFixed(3)}, {ny.toFixed(3)}, {nz.toFixed(3)}
               </div>
             </div>
             <div className="field">
-              <label>Offset</label>
+              <label>{t('inspector.offset')}</label>
               <div>{(selectedReference.offset ?? 0).toFixed(3)} m</div>
             </div>
           </>
@@ -486,15 +496,15 @@ export function PropertiesPanel({
     return (
       <div className="inspector-body shell-scroll">
         <div className="field">
-          <label>Name</label>
+          <label>{t('inspector.name')}</label>
           <div>{selectedGridAxis.name}</div>
         </div>
         <div className="field">
-          <label>Type</label>
-          <div>Grid axis</div>
+          <label>{t('inspector.type')}</label>
+          <div>{t('inspector.gridAxis')}</div>
         </div>
         <div className="inspector-section" data-section="instance">
-          <div className="section-title">This axis</div>
+          <div className="section-title">{t('inspector.thisAxis')}</div>
           <SchemaFields
             specs={selectedGridAxis.param_specs}
             values={gridDraft}
@@ -506,7 +516,7 @@ export function PropertiesPanel({
           />
         </div>
         <button type="button" className="danger" onClick={onDeleteGridAxis}>
-          Delete
+          {t('inspector.delete')}
         </button>
       </div>
     );
@@ -521,15 +531,15 @@ export function PropertiesPanel({
     return (
       <div className="inspector-body shell-scroll">
         <div className="field">
-          <label>Name</label>
+          <label>{t('inspector.name')}</label>
           <div>{selectedConstructionLine.name}</div>
         </div>
         <div className="field">
-          <label>Type</label>
-          <div>Construction line</div>
+          <label>{t('inspector.type')}</label>
+          <div>{t('inspector.constructionLine')}</div>
         </div>
         <div className="inspector-section" data-section="instance">
-          <div className="section-title">This line</div>
+          <div className="section-title">{t('inspector.thisLine')}</div>
           <SchemaFields
             specs={selectedConstructionLine.param_specs}
             values={lineDraft}
@@ -541,7 +551,7 @@ export function PropertiesPanel({
           />
         </div>
         <button type="button" className="danger" onClick={onDeleteConstructionLine}>
-          Delete
+          {t('inspector.delete')}
         </button>
       </div>
     );
@@ -556,15 +566,15 @@ export function PropertiesPanel({
     return (
       <div className="inspector-body shell-scroll">
         <div className="field">
-          <label>Name</label>
+          <label>{t('inspector.name')}</label>
           <div>{selectedSectionCut.name}</div>
         </div>
         <div className="field">
-          <label>Type</label>
-          <div>Section cut</div>
+          <label>{t('inspector.type')}</label>
+          <div>{t('inspector.sectionCut')}</div>
         </div>
         <div className="inspector-section" data-section="instance">
-          <div className="section-title">This section</div>
+          <div className="section-title">{t('inspector.thisSection')}</div>
           <SchemaFields
             specs={selectedSectionCut.param_specs}
             values={cutDraft}
@@ -576,7 +586,7 @@ export function PropertiesPanel({
           />
         </div>
         <button type="button" className="danger" onClick={onDeleteSectionCut}>
-          Delete
+          {t('inspector.delete')}
         </button>
       </div>
     );
@@ -591,7 +601,7 @@ export function PropertiesPanel({
     return (
       <div className="inspector-body shell-scroll">
         <div className="field">
-          <label htmlFor="space-name">Name</label>
+          <label htmlFor="space-name">{t('inspector.name')}</label>
           <input
             id="space-name"
             data-testid="space-name"
@@ -609,11 +619,11 @@ export function PropertiesPanel({
           />
         </div>
         <div className="field">
-          <label>Type</label>
-          <div>Space</div>
+          <label>{t('inspector.type')}</label>
+          <div>{t('inspector.space')}</div>
         </div>
         <div className="inspector-section" data-section="instance">
-          <div className="section-title">This space</div>
+          <div className="section-title">{t('inspector.thisSpace')}</div>
           <SchemaFields
             specs={selectedSpace.param_specs}
             values={spaceDraft}
@@ -625,7 +635,7 @@ export function PropertiesPanel({
           />
         </div>
         <button type="button" className="danger" onClick={onDeleteSpace}>
-          Delete
+          {t('inspector.delete')}
         </button>
       </div>
     );
@@ -634,9 +644,9 @@ export function PropertiesPanel({
   if (selectedCount > 1) {
     return (
       <div className="inspector-body shell-scroll">
-        <div className="empty">{selectedCount} elements selected</div>
+        <div className="empty">{t('inspector.nSelected', { n: selectedCount })}</div>
         <button type="button" className="danger" onClick={onDelete}>
-          Delete selected
+          {t('inspector.delete')}
         </button>
       </div>
     );
@@ -668,38 +678,42 @@ export function PropertiesPanel({
     return (
       <div className="inspector-body shell-scroll">
         <div className="field">
-          <label>Name</label>
+          <label>{t('inspector.name')}</label>
           <div>{selected.name}</div>
         </div>
         <div className="field">
-          <label>Type</label>
-          <div>{component?.display_name ?? selected.component_id}</div>
+          <label>{t('inspector.type')}</label>
+          <div>
+            {component
+              ? componentDisplayName(component.id, component.display_name)
+              : selected.component_id}
+          </div>
         </div>
         <div className="field" data-field="parent">
-          <label>Parent</label>
+          <label>{t('inspector.parent')}</label>
           {parentName ? (
             <div className="parent-row">
               <span data-testid="parent-name">{parentName}</span>
               {onDetach ? (
                 <button type="button" onClick={onDetach}>
-                  Detach
+                  {t('inspector.detach')}
                 </button>
               ) : null}
             </div>
           ) : (
-            <div className="muted">None</div>
+            <div className="muted">{t('inspector.none')}</div>
           )}
         </div>
         {selected.length != null ? (
           <div className="field">
-            <label>Length</label>
+            <label>{t('inspector.length')}</label>
             <div>{selected.length.toFixed(3)} m</div>
           </div>
         ) : null}
 
         {selected.category === 'wall' ? (
           <div className="field" data-testid="wall-thickness-field">
-            <label>Thickness (this wall)</label>
+            <label>{t('inspector.wallThickness')}</label>
             <input
               type="number"
               step={0.01}
@@ -717,12 +731,14 @@ export function PropertiesPanel({
           <div className="inspector-section" data-section="boolean-operands">
             {booleanOperands.map((operand) => (
               <div className="field" key={operand.key}>
-                <label>{operand.key === 'operand_a' ? 'Solid A' : 'Solid B'}</label>
+                <label>
+                  {operand.key === 'operand_a' ? t('inspector.solidA') : t('inspector.solidB')}
+                </label>
                 <div className="parent-row">
                   <span data-testid={`boolean-${operand.key}`}>{operand.name}</span>
-                  {onSelectElement && operand.name !== '(missing)' ? (
+                  {onSelectElement && operand.name !== t('inspector.missing') && operand.name !== '(missing)' ? (
                     <button type="button" onClick={() => onSelectElement(operand.id)}>
-                      Select
+                      {t('tool.select.label')}
                     </button>
                   ) : null}
                 </div>
@@ -732,7 +748,7 @@ export function PropertiesPanel({
         ) : null}
 
         <div className="inspector-section" data-section="instance">
-          <div className="section-title">This element</div>
+          <div className="section-title">{t('inspector.thisElement')}</div>
           <SchemaFields
             specs={
               booleanOperands
@@ -763,7 +779,7 @@ export function PropertiesPanel({
         )}
 
         <button type="button" className="danger" onClick={onDelete}>
-          Delete
+          {t('inspector.delete')}
         </button>
       </div>
     );
@@ -774,11 +790,11 @@ export function PropertiesPanel({
     return (
       <div className="inspector-body shell-scroll">
         <div className="field">
-          <label>Level</label>
+          <label>{t('inspector.level')}</label>
           <div>{selectedLevel.name}</div>
         </div>
         <div className="field">
-          <label>Elevation</label>
+          <label>{t('inspector.elevation')}</label>
           <input
             type="number"
             step={0.1}
@@ -788,19 +804,15 @@ export function PropertiesPanel({
             onKeyDown={(e) => e.key === 'Enter' && applyLevel()}
           />
         </div>
-        <p className="panel-hint">
-          Double-click the level plane (or its contour) in the viewport to activate it.
-        </p>
+        <p className="panel-hint">{t('inspector.levelActivateHint')}</p>
       </div>
     );
   }
 
   return (
     <div className="inspector-empty">
-      <div className="inspector-empty-title">Nothing selected</div>
-      <p className="panel-hint">
-        Select an element in the viewport or Project browser. Click a level to edit elevation.
-      </p>
+      <div className="inspector-empty-title">{t('inspector.nothingSelected')}</div>
+      <p className="panel-hint">{t('inspector.emptyHint')}</p>
     </div>
   );
 }

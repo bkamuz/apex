@@ -161,6 +161,12 @@ import { requiredPoints, type PointerInfo, type ToolContext } from './tools/Tool
 import { buildTranslatedGhostMesh } from './tools/transformGhost';
 import { type TransformMode } from './tools/transformTypes';
 import { extensions, installGlobalSdk } from './extensions/sdk';
+import {
+  exporterDisplayLabel,
+  exporterDisplayTitle,
+  LanguageSwitcher,
+  useI18n,
+} from './i18n';
 import { exporterRegistry, importerRegistry, installPlugins } from './plugins';
 
 const DEFAULT_LEVEL_RISE = 3;
@@ -208,6 +214,7 @@ function pointerInfo(e: React.PointerEvent | React.MouseEvent): PointerInfo {
 }
 
 export default function App() {
+  const { t } = useI18n();
   const projectRestoreDoneRef = useRef(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const canvasSplitRef = useRef<HTMLCanvasElement>(null);
@@ -822,7 +829,7 @@ export default function App() {
             const target = (current?.elements ?? []).find((el) => el.id === picked);
             const ok = target && ['apex.roof', 'apex.roof.pitched', 'apex.slab'].includes(target.component_id);
             if (!ok) {
-              setError('Pick a roof or slab to attach to (Esc cancels).');
+              setError(t('attach.pickError'));
               return;
             }
             const op = attaching.end === 'top' ? 'attach_top' : 'attach_base';
@@ -1966,7 +1973,7 @@ export default function App() {
           setSelectedLevelId(initial.active_level_id);
           if (autoLoadedSample) {
             setShowGettingStarted(false);
-            setInfo('Sample house project loaded');
+            setInfo(t('chrome.sampleLoaded'));
           }
           projectRestoreDoneRef.current = true;
           setReady(true);
@@ -2443,9 +2450,7 @@ export default function App() {
 
   const onNewProject = () => {
     if (scene?.can_undo) {
-      const ok = window.confirm(
-        'Start a new empty project? Unsaved changes in this document will be cleared.',
-      );
+      const ok = window.confirm(t('chrome.newProjectConfirm'));
       if (!ok) return;
     }
     try {
@@ -2496,42 +2501,44 @@ export default function App() {
         <button
           type="button"
           data-testid="attach-top"
-          title="Attach top to the roofs above (auto)"
-          onClick={() => runAttach({ op: 'attach_top', ids: attachableIds }, 'Attached top to the roofs above.')}
+          title={t('attach.topAutoTitle')}
+          onClick={() =>
+            runAttach({ op: 'attach_top', ids: attachableIds }, t('attach.topAutoDone'))
+          }
         >
-          {compact ? 'Attach Top' : 'Attach top (auto)'}
+          {compact ? t('attach.topAuto') : t('attach.topAutoFull')}
         </button>
         <button
           type="button"
           data-testid="attach-top-pick"
           className={attachPick?.end === 'top' ? 'active' : undefined}
-          title="Attach top to a picked roof or slab"
+          title={t('attach.topPickTitle')}
           onClick={() => setAttachPick({ end: 'top', ids: attachableIds })}
         >
-          {compact ? 'Top to…' : 'Attach top to…'}
+          {compact ? t('attach.topPick') : t('attach.topPickFull')}
         </button>
         <button
           type="button"
           data-testid="attach-base-pick"
           className={attachPick?.end === 'base' ? 'active' : undefined}
-          title="Attach base to a picked slab or roof"
+          title={t('attach.basePickTitle')}
           onClick={() => setAttachPick({ end: 'base', ids: attachableIds })}
         >
-          {compact ? 'Base to…' : 'Attach base to…'}
+          {compact ? t('attach.basePick') : t('attach.basePickFull')}
         </button>
         <button
           type="button"
           data-testid="attach-detach"
-          title="Detach top and base"
-          onClick={() => runAttach({ op: 'detach', ids: attachableIds }, 'Detached top and base.')}
+          title={t('attach.detachTitle')}
+          onClick={() => runAttach({ op: 'detach', ids: attachableIds }, t('attach.detachDone'))}
         >
-          {compact ? 'Detach' : 'Detach top/base'}
+          {compact ? t('attach.detach') : t('attach.detachFull')}
         </button>
       </>
     );
   const attachToolbar =
     attachableIds.length > 0 ? (
-      <div className="tools-grp" role="group" aria-label="Attach">
+      <div className="tools-grp" role="group" aria-label={t('attach.group')}>
         {attachButtons(true)}
       </div>
     ) : null;
@@ -2539,13 +2546,13 @@ export default function App() {
     attachableIds.length > 0 ? (
       <div className="inspector-section" data-section="attach">
         <div className="field">
-          <label>Attach top / base ({attachableIds.length})</label>
+          <label>{t('attach.sectionLabel', { n: attachableIds.length })}</label>
           <div className="parent-row" style={{ flexWrap: 'wrap', gap: 4 }}>
             {attachButtons(false)}
           </div>
           {attachPick ? (
             <div className="empty" style={{ padding: 0, marginTop: 4 }} data-testid="attach-pick-hint">
-              Click a roof or slab for the {attachPick.end}… (Esc cancels)
+              {t('attach.pickHint', { end: attachPick.end })}
             </div>
           ) : null}
         </div>
@@ -2651,8 +2658,8 @@ export default function App() {
   const statusText = `${info ?? tool.hint(pending.length)}${
     pending.length > 0 && tool.group === 'create'
       ? typedLength
-        ? ` — length ${typedLength} m (Enter)`
-        : ' — type a length, Shift snaps to grid'
+        ? t('chrome.typedLength', { length: typedLength })
+        : t('chrome.typeLengthHint')
       : ''
   }`;
 
@@ -2667,31 +2674,31 @@ export default function App() {
                 type="button"
                 onClick={onUndo}
                 disabled={!scene?.can_undo}
-                title="Undo (Ctrl+Z)"
+                title={t('chrome.undoTitle')}
                 data-testid="undo"
               >
-                Undo
+                {t('chrome.undo')}
               </button>
               <button
                 type="button"
                 onClick={onRedo}
                 disabled={!scene?.can_redo}
-                title="Redo (Ctrl+Shift+Z)"
+                title={t('chrome.redoTitle')}
                 data-testid="redo"
               >
-                Redo
+                {t('chrome.redo')}
               </button>
             </div>
             <div className="file-actions-group" data-group="document">
               <button type="button" onClick={onSaveProject} data-testid="save-project">
-                Save
+                {t('chrome.save')}
               </button>
               {exporters.map((exporter) => (
                 <button
                   key={exporter.id}
                   type="button"
                   data-testid={`export-${exporter.id}`}
-                  title={exporter.title}
+                  title={exporterDisplayTitle(exporter)}
                   onClick={() => {
                     try {
                       const text = exporter.export();
@@ -2702,7 +2709,7 @@ export default function App() {
                     }
                   }}
                 >
-                  {exporter.label}
+                  {exporterDisplayLabel(exporter)}
                 </button>
               ))}
               <button
@@ -2710,10 +2717,10 @@ export default function App() {
                 onClick={() => fileRef.current?.click()}
                 data-testid="open-project"
               >
-                Open
+                {t('chrome.open')}
               </button>
               <button type="button" onClick={onNewProject} data-testid="new-project">
-                New
+                {t('chrome.new')}
               </button>
             </div>
             <div className="file-actions-group file-actions-group--secondary" data-group="dev">
@@ -2729,14 +2736,15 @@ export default function App() {
                 }}
               />
               <KernelToggle key={kernelEpoch} onScene={(next) => applyScene(next)} />
+              <LanguageSwitcher />
             </div>
             <input
               ref={fileRef}
               type="file"
               accept={['application/json', '.json', ...importers.map((i) => i.accept)].join(',')}
               hidden
-              aria-label="Open project or IFC file"
-              title="Open Apex project (.json) or IFC (.ifc)"
+              aria-label={t('chrome.openFile')}
+              title={t('chrome.openFileTitle')}
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 e.target.value = '';
@@ -2765,7 +2773,7 @@ export default function App() {
           className={`topbar-hint${info ? ' topbar-hint--notice' : ''}`}
           data-testid="topbar-hint"
         >
-          <b>INFO</b>
+          <b>{t('chrome.info')}</b>
           <span>{statusText}</span>
         </div>
       </header>
@@ -2815,7 +2823,7 @@ export default function App() {
       ) : null}
 
       <div className="viewport-wrap">
-        {!ready && !error && <div className="loading">Loading Apex core…</div>}
+        {!ready && !error && <div className="loading">{t('chrome.loading')}</div>}
         {error && <div className="error-banner">{error}</div>}
         {showGettingStarted && elements.length === 0 ? (
           <GettingStartedPanel
@@ -2831,7 +2839,7 @@ export default function App() {
               try {
                 applyScene(buildSampleProject(), true);
                 setShowGettingStarted(false);
-                setInfo('Sample house project loaded');
+                setInfo(t('chrome.sampleLoaded'));
                 setError(null);
               } catch (err) {
                 setError(err instanceof Error ? err.message : String(err));
@@ -2889,7 +2897,11 @@ export default function App() {
             </>
           }
           splitViewport={
-            <canvas ref={canvasSplitRef} className="view-canvas-split" aria-label="Secondary view" />
+            <canvas
+              ref={canvasSplitRef}
+              className="view-canvas-split"
+              aria-label={t('chrome.secondaryView')}
+            />
           }
         />
         {isMobile ? (
@@ -2897,10 +2909,10 @@ export default function App() {
             type="button"
             className="mobile-menu-fab"
             onClick={() => openMobileMenu()}
-            title="Open scene menu"
-            aria-label="Open scene menu"
+            title={t('chrome.menuTitle')}
+            aria-label={t('chrome.menuTitle')}
           >
-            Menu
+            {t('chrome.menu')}
           </button>
         ) : null}
         <div
@@ -2996,7 +3008,7 @@ export default function App() {
 
       {!isMobile ? (
         <aside className="inspector">
-          <div className="panel-title">Properties</div>
+          <div className="panel-title">{t('panel.properties')}</div>
           {inspector}
         </aside>
       ) : null}

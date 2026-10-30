@@ -1,3 +1,4 @@
+import { pluralS, t } from '../i18n';
 import type { Vec3 } from '../viewport/ViewportRenderer';
 import { ApexIcons } from './icons';
 import type { Tool, ToolContext, ToolTab } from './Tool';
@@ -35,8 +36,8 @@ export function createSectionCutTool(tab: ToolTab = ApexTabs.basics): Tool {
     hint(pendingCount) {
       const remaining = 2 - pendingCount;
       return remaining <= 0
-        ? 'Section cut: placing…'
-        : `Section cut: click ${remaining} more point${remaining === 1 ? '' : 's'}`;
+        ? t('tool.section-cut.hintPlacing')
+        : t('tool.section-cut.hintClicks', { n: remaining, s: pluralS(remaining) });
     },
 
     onPointerDown(e, ctx) {

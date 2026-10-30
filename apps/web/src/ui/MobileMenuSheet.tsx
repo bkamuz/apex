@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { useI18n } from '../i18n';
 
 export type MobileMenuTab = 'levels' | 'elements' | 'properties';
 
@@ -12,12 +13,6 @@ interface Props {
   properties: ReactNode;
 }
 
-const TABS: { id: MobileMenuTab; label: string }[] = [
-  { id: 'levels', label: 'Levels' },
-  { id: 'elements', label: 'Project' },
-  { id: 'properties', label: 'Properties' },
-];
-
 export function MobileMenuSheet({
   open,
   tab,
@@ -27,7 +22,14 @@ export function MobileMenuSheet({
   elements,
   properties,
 }: Props) {
+  const { t } = useI18n();
   if (!open) return null;
+
+  const tabs: { id: MobileMenuTab; label: string }[] = [
+    { id: 'levels', label: t('mobile.levels') },
+    { id: 'elements', label: t('mobile.project') },
+    { id: 'properties', label: t('mobile.properties') },
+  ];
 
   let content: ReactNode;
   switch (tab) {
@@ -48,25 +50,35 @@ export function MobileMenuSheet({
 
   return (
     <>
-      <button type="button" className="mobile-menu-backdrop" aria-label="Close menu" onClick={onClose} />
-      <div className="mobile-menu-sheet" role="dialog" aria-modal="true" aria-label="Scene menu">
+      <button
+        type="button"
+        className="mobile-menu-backdrop"
+        aria-label={t('mobile.closeMenu')}
+        onClick={onClose}
+      />
+      <div
+        className="mobile-menu-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('mobile.sceneMenu')}
+      >
         <div className="mobile-menu-header">
           <div className="mobile-menu-tabs" role="tablist">
-            {TABS.map((t) => (
+            {tabs.map((item) => (
               <button
-                key={t.id}
+                key={item.id}
                 type="button"
                 role="tab"
-                aria-selected={tab === t.id}
-                className={tab === t.id ? 'active' : ''}
-                onClick={() => onTabChange(t.id)}
+                aria-selected={tab === item.id}
+                className={tab === item.id ? 'active' : ''}
+                onClick={() => onTabChange(item.id)}
               >
-                {t.label}
+                {item.label}
               </button>
             ))}
           </div>
-          <button type="button" className="mobile-menu-close" onClick={onClose} title="Close">
-            Close
+          <button type="button" className="mobile-menu-close" onClick={onClose} title={t('panel.close')}>
+            {t('panel.close')}
           </button>
         </div>
         <div className="mobile-menu-content">{content}</div>

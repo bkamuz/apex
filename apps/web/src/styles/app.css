@@ -2302,3 +2302,26 @@ input[type="radio"] {
   font-size: 11px;
   color: var(--chrome-muted);
 }
+
+.language-switcher {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  padding: 0 8px;
+  color: var(--text);
+  border-right: 1px solid var(--chrome-line);
+}
+
+.language-switcher-label {
+  color: var(--chrome-muted);
+}
+
+.language-switcher select {
+  font: inherit;
+  padding: 2px 4px;
+  background: var(--chrome-bg, transparent);
+  color: var(--text);
+  border: 1px solid var(--chrome-line);
+  border-radius: var(--chrome-radius);
+}

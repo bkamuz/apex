@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import type { Vec3 } from '../viewport/ViewportRenderer';
 import { ApexIcons } from './icons';
 import type { Tool, ToolContext } from './Tool';
@@ -21,7 +22,6 @@ export function createTransformTool(mode: TransformMode): Tool {
 
   const id = mode === 'move' ? MOVE_TOOL_ID : COPY_TOOL_ID;
   const label = mode === 'move' ? 'Move' : 'Copy';
-  const verb = mode === 'move' ? 'move' : 'copy';
 
   const clearGesture = (ctx: ToolContext) => {
     base = null;
@@ -41,9 +41,9 @@ export function createTransformTool(mode: TransformMode): Tool {
 
     hint(pendingCount) {
       if (pendingCount === 0) {
-        return `Select objects, then pick base point (${verb})`;
+        return t(mode === 'move' ? 'tool.apex.move.hintBase' : 'tool.apex.copy.hintBase');
       }
-      return `Pick target point to ${verb}`;
+      return t(mode === 'move' ? 'tool.apex.move.hintTarget' : 'tool.apex.copy.hintTarget');
     },
 
     onClick(e, ctx) {
@@ -53,7 +53,9 @@ export function createTransformTool(mode: TransformMode): Tool {
       if (!base) {
         const selection = ctx.getTransformSelection();
         if (!selection || selection.length === 0) {
-          ctx.setError(`Select something to ${verb} first`);
+          ctx.setError(
+            t(mode === 'move' ? 'tool.apex.move.needSelection' : 'tool.apex.copy.needSelection'),
+          );
           return;
         }
         base = point;

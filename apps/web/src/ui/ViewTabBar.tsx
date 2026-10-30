@@ -1,3 +1,4 @@
+import { useI18n } from '../i18n';
 import type { SheetDto, ViewDto } from '../types';
 
 export type DocumentTab =
@@ -22,12 +23,18 @@ interface Props {
   onExportViewPdf?: () => void;
 }
 
-function tabLabel(tab: DocumentTab, views: ViewDto[], sheets: SheetDto[]): string {
+function tabLabel(
+  tab: DocumentTab,
+  views: ViewDto[],
+  sheets: SheetDto[],
+  viewFallback: string,
+  sheetFallback: string,
+): string {
   if (tab.kind === 'view') {
-    return views.find((v) => v.id === tab.id)?.name ?? 'View';
+    return views.find((v) => v.id === tab.id)?.name ?? viewFallback;
   }
   const sheet = sheets.find((s) => s.id === tab.id);
-  return sheet ? `${sheet.number} ${sheet.name}` : 'Sheet';
+  return sheet ? `${sheet.number} ${sheet.name}` : sheetFallback;
 }
 
 export function ViewTabBar({
@@ -47,6 +54,7 @@ export function ViewTabBar({
   onExportViewDxf,
   onExportViewPdf,
 }: Props) {
+  const { t } = useI18n();
   return (
     <div className="view-tab-bar" data-testid="view-tab-bar">
       <div className="view-tab-list" role="tablist">
@@ -65,12 +73,18 @@ export function ViewTabBar({
             >
               <button type="button" className="view-tab-open" onClick={() => onSelect(tab)}>
                 {tab.kind === 'sheet' ? '▦ ' : '◫ '}
-                {tabLabel(tab, views, sheets)}
+                {tabLabel(
+                  tab,
+                  views,
+                  sheets,
+                  t('viewTab.viewFallback'),
+                  t('viewTab.sheetFallback'),
+                )}
               </button>
               <button
                 type="button"
                 className="view-tab-close"
-                aria-label="Close tab"
+                aria-label={t('viewTab.close')}
                 onClick={() => onClose(tab)}
               >
                 ×
@@ -110,10 +124,10 @@ export function ViewTabBar({
         <button
           type="button"
           data-testid="toggle-split"
-          title="Split view side by side"
+          title={t('viewTab.splitTitle')}
           onClick={onToggleSplit}
         >
-          {splitEnabled ? 'Single pane' : 'Split'}
+          {splitEnabled ? t('viewTab.single') : t('viewTab.split')}
         </button>
       </div>
     </div>

@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import type { Vec3 } from '../viewport/ViewportRenderer';
 import { ApexIcons } from './icons';
 import type { Tool, ToolContext, ToolTab } from './Tool';
@@ -12,7 +13,7 @@ function farEnough(a: Vec3, b: Vec3): boolean {
 
 function finishSpace(picks: Vec3[], ctx: ToolContext, reset: (ctx: ToolContext) => void): boolean {
   if (picks.length < MIN_POINTS) {
-    ctx.setError(`Need at least ${MIN_POINTS} points to close a space.`);
+    ctx.setError(t('tool.space.needPoints', { n: MIN_POINTS }));
     return false;
   }
   ctx.createSpace([...picks]);
@@ -43,12 +44,15 @@ export function createSpaceTool(tab: ToolTab = ApexTabs.spaces): Tool {
 
     hint(pendingCount) {
       if (pendingCount === 0) {
-        return 'Space: click to start · double-click or Enter to close (≥3)';
+        return t('tool.space.hintStart');
       }
       if (pendingCount < MIN_POINTS) {
-        return `Space: ${pendingCount} picked · need ${MIN_POINTS - pendingCount} more · Enter/double-click to close`;
+        return t('tool.space.hintNeedMore', {
+          picked: pendingCount,
+          need: MIN_POINTS - pendingCount,
+        });
       }
-      return `Space: ${pendingCount} picked · double-click or Enter to close`;
+      return t('tool.space.hintClose', { picked: pendingCount });
     },
 
     onPointerDown(e, ctx) {

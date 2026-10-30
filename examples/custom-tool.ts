@@ -21,6 +21,10 @@
  * `ApexIcons.wall`). Pass `{ svg: '<svg>…</svg>' }` (or path markup) for a
  * custom glyph. Omit `icon` — or use an unknown name — for a label-only
  * button (never a broken image).
+ *
+ * i18n (docs/i18n.md): prefer `window.apex.i18n.t('…')` in `hint()` / errors so
+ * strings follow the Language switcher. Toolbar labels resolve `tool.<id>.label`
+ * from catalogs when present; otherwise `label` is shown as-is.
  */
 import type { Tool } from '../apps/web/src/tools/Tool';
 import { ApexIcons } from '../apps/web/src/tools/icons';
@@ -34,9 +38,20 @@ export const helloTool: Tool = {
   label: 'Hello',
   group: 'transform',
   shortcut: 'H',
-  hint: () => 'Click the canvas — this tool does nothing yet',
+  hint: () =>
+    typeof window !== 'undefined' && window.apex?.i18n
+      ? window.apex.i18n.t(
+          'tool.acme.hello.hint',
+          undefined,
+          'Click the canvas — this tool does nothing yet',
+        )
+      : 'Click the canvas — this tool does nothing yet',
   onClick(_e, ctx) {
-    ctx.setError('Hello from a custom tool');
+    const msg =
+      typeof window !== 'undefined' && window.apex?.i18n
+        ? window.apex.i18n.t('tool.acme.hello.error', undefined, 'Hello from a custom tool')
+        : 'Hello from a custom tool';
+    ctx.setError(msg);
   },
 };
 

@@ -1,13 +1,14 @@
+import { componentDisplayName, t } from '../i18n';
 import type { ComponentDto } from '../types';
 
-const STATIC_CATEGORY_LABELS: Record<string, string> = {
-  grid: 'Grid',
-  construction: 'Construction line',
-  section: 'Section cut',
-  space: 'Space',
-  point: 'Reference point',
-  plane: 'Reference plane',
-  uncategorized: 'Uncategorized',
+const STATIC_CATEGORY_KEYS: Record<string, string> = {
+  grid: 'category.grid',
+  construction: 'category.construction',
+  section: 'category.section',
+  space: 'category.space',
+  point: 'category.point',
+  plane: 'category.plane',
+  uncategorized: 'category.uncategorized',
 };
 
 /** User-facing label for internal category / kind strings in the project browser. */
@@ -17,8 +18,11 @@ export function categoryDisplayLabel(
 ): string {
   if (!category) return '—';
   const fromComponent = components.find((c) => c.category === category);
-  if (fromComponent) return fromComponent.display_name;
-  if (STATIC_CATEGORY_LABELS[category]) return STATIC_CATEGORY_LABELS[category];
+  if (fromComponent) {
+    return componentDisplayName(fromComponent.id, fromComponent.display_name);
+  }
+  const key = STATIC_CATEGORY_KEYS[category];
+  if (key) return t(key);
   const dot = category.lastIndexOf('.');
   if (dot >= 0 && dot < category.length - 1) {
     const tail = category.slice(dot + 1);
