@@ -1,3 +1,4 @@
+import { pluralS, t } from '../i18n';
 import type { ReferenceKind } from '../types';
 import type { Vec3 } from '../viewport/ViewportRenderer';
 import { ApexIcons } from './icons';
@@ -37,9 +38,10 @@ export function createReferenceTool(
 
     hint(pendingCount) {
       const remaining = required - pendingCount;
+      const name = t(`tool.${kind === 'point' ? 'ref-point' : 'ref-plane'}.label`, undefined, label);
       return remaining <= 0
-        ? `${label}: placing…`
-        : `${label}: click ${remaining} more point${remaining === 1 ? '' : 's'}`;
+        ? t('tool.ref.hintPlacing', { name })
+        : t('tool.ref.hintClicks', { name, n: remaining, s: pluralS(remaining) });
     },
 
     onPointerDown(e, ctx) {

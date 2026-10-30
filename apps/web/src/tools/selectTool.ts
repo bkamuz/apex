@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import type { Vec3 } from '../viewport/ViewportRenderer';
 import { ApexIcons } from './icons';
 import type { Tool } from './Tool';
@@ -28,7 +29,7 @@ export function createSelectTool(): Tool {
     icon: ApexIcons.select,
 
     hint() {
-      return 'MMB pan · RMB orbit · wheel zoom · dbl-click a level to activate it';
+      return t('tool.select.hint');
     },
 
     onPointerDown(e, ctx) {

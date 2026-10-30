@@ -1,4 +1,5 @@
 import type { LevelDto } from '../types';
+import { useI18n } from '../i18n';
 
 interface Props {
   levels: LevelDto[];
@@ -17,24 +18,22 @@ export function LevelList({
   onCreate,
   onClose,
 }: Props) {
+  const { t } = useI18n();
   return (
     <div className="level-panel">
-      <div
-        className="panel-title-row"
-        title="Click a level to activate its work plane; elevation edits live in Properties"
-      >
-        <div className="panel-title">Levels</div>
-        <button type="button" className="panel-action" onClick={onCreate} title="Add level">
-          + Level
+      <div className="panel-title-row" title={t('panel.levelsRowTitle')}>
+        <div className="panel-title">{t('panel.levels')}</div>
+        <button type="button" className="panel-action" onClick={onCreate} title={t('panel.addLevelTitle')}>
+          {t('panel.addLevel')}
         </button>
         {onClose ? (
-          <button type="button" className="panel-close" onClick={onClose} title="Close">
-            Close
+          <button type="button" className="panel-close" onClick={onClose} title={t('panel.close')}>
+            {t('panel.close')}
           </button>
         ) : null}
       </div>
       {levels.length === 0 ? (
-        <div className="empty">No levels.</div>
+        <div className="empty">{t('panel.noLevels')}</div>
       ) : (
         <ul className="level-list shell-scroll">
           {levels.map((level) => {
@@ -46,15 +45,11 @@ export function LevelList({
                 className={`${selected ? 'selected' : ''} ${active ? 'active-level' : ''}`.trim()}
                 onClick={() => onSelect(level.id)}
                 onDoubleClick={() => onSelect(level.id)}
-                title={
-                  active
-                    ? 'Active work plane'
-                    : 'Click to activate this level and edit elevation in Properties'
-                }
+                title={active ? t('panel.activePlane') : t('panel.activateLevel')}
               >
                 <span>
                   {level.name}
-                  {active ? <span className="level-badge">active</span> : null}
+                  {active ? <span className="level-badge">{t('panel.activeBadge')}</span> : null}
                 </span>
                 <span className="cat">{level.elevation.toFixed(2)} m</span>
               </li>

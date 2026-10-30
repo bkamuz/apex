@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import { apexSelectElement, apexSetElementParent } from '../wasm/apex';
 import { ApexIcons } from './icons';
 import type { Tool } from './Tool';
@@ -25,18 +26,18 @@ export function createParentTool(): Tool {
     // No letter hotkey: P toggles the plan view.
 
     hint() {
-      return childId ? 'Click the parent element' : 'Click the element to attach';
+      return childId ? t('tool.apex.parent.hintParent') : t('tool.apex.parent.hintChild');
     },
 
     onClick(e, ctx) {
       if (childId) {
         const parentId = ctx.pickElementId(e.clientX, e.clientY);
         if (!parentId) {
-          ctx.setError('Click an element to use as parent');
+          ctx.setError(t('tool.apex.parent.clickParent'));
           return;
         }
         if (parentId === childId) {
-          ctx.setError('An element cannot be its own parent');
+          ctx.setError(t('tool.apex.parent.self'));
           return;
         }
         // The core refuses cycles; let it report the reason verbatim.
@@ -56,7 +57,7 @@ export function createParentTool(): Tool {
 
       const picked = ctx.pickElementId(e.clientX, e.clientY);
       if (!picked) {
-        ctx.setError('Click an element to attach');
+        ctx.setError(t('tool.apex.parent.clickChild'));
         return;
       }
       childId = picked;
@@ -89,14 +90,14 @@ export function createDetachTool(): Tool {
     icon: ApexIcons.detach,
 
     hint() {
-      return 'Select one element, then click Detach';
+      return t('tool.apex.detach.hint');
     },
 
     onClick(_e, ctx) {
       const selection = ctx.selectedElementIds();
       if (selection.length !== 1) {
         ctx.setError(
-          selection.length === 0 ? 'Select an element first' : 'Select one element',
+          selection.length === 0 ? t('tool.apex.detach.needAny') : t('tool.apex.detach.needOne'),
         );
         return;
       }

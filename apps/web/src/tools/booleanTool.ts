@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import { apexCreateElement } from '../wasm/apex';
 import { ApexIcons } from './icons';
 import type { Tool } from './Tool';
@@ -44,8 +45,7 @@ export function createBooleanTool(): Tool {
 
     hint() {
       return (
-        (first ? 'Click solid B (result A − B; change Operation in Properties)' : 'Click solid A') +
-        cycleHint()
+        (first ? t('tool.apex.booleanTool.hintB') : t('tool.apex.booleanTool.hintA')) + cycleHint()
       );
     },
 

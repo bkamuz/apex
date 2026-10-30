@@ -1,4 +1,5 @@
 import { describeFromComponent } from '../descriptor';
+import { componentDisplayName } from '../i18n';
 import type { ComponentDto } from '../types';
 import type { Vec3 } from '../viewport/ViewportRenderer';
 import { COMPONENT_ICON_BY_ID } from './icons';
@@ -107,7 +108,8 @@ export function createHostedPlacementTool(
     placementKind: () => 'point',
 
     hint() {
-      return `${component.display_name}: move near a ${hostLabel} and click to place · Esc`;
+      const name = componentDisplayName(component.id, component.display_name);
+      return `${name}: move near a ${hostLabel} and click to place · Esc`;
     },
 
     onClick(e, ctx) {

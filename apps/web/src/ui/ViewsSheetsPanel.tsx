@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useI18n } from '../i18n';
 import type { LevelDto, PaperOrientation, PaperSize, SheetDto, ViewDto } from '../types';
 import { viewsByType } from './viewModel';
 import { SheetLayoutControls } from './SheetLayoutControls';
@@ -119,6 +120,7 @@ export function ViewsSheetsPanel({
   onRenameSheet,
   onDeleteSheet,
 }: Props) {
+  const { t } = useI18n();
   const [viewsOpen, setViewsOpen] = useState(true);
   /** Sheets create chrome stays collapsed until needed — empty sheet forms add noise. */
   const [sheetsOpen, setSheetsOpen] = useState(() => sheets.length > 0);
@@ -136,7 +138,7 @@ export function ViewsSheetsPanel({
           <button type="button" className="browser-tree-toggle" onClick={() => setViewsOpen((v) => !v)}>
             <span className="browser-tree-chevron" aria-hidden="true" />
           </button>
-          <span className="browser-tree-group-label">Views</span>
+          <span className="browser-tree-group-label">{t('panel.views')}</span>
           <span className="browser-tree-group-count">{views.length}</span>
           <button
             type="button"
@@ -144,11 +146,17 @@ export function ViewsSheetsPanel({
             data-testid="new-plan-view"
             disabled={!levelId}
             onClick={() => levelId && onNewPlanView(levelId)}
-            title="New plan view for active level"
+            title={t('views.newPlan')}
           >
             + Plan
           </button>
-          <button type="button" className="panel-action" data-testid="new-3d-view" onClick={onNewThreeDView}>
+          <button
+            type="button"
+            className="panel-action"
+            data-testid="new-3d-view"
+            onClick={onNewThreeDView}
+            title={t('views.new3d')}
+          >
             + 3D
           </button>
         </div>
@@ -175,7 +183,7 @@ export function ViewsSheetsPanel({
           <button type="button" className="browser-tree-toggle" onClick={() => setSheetsOpen((v) => !v)}>
             <span className="browser-tree-chevron" aria-hidden="true" />
           </button>
-          <span className="browser-tree-group-label">Sheets</span>
+          <span className="browser-tree-group-label">{t('panel.sheets')}</span>
           <span className="browser-tree-group-count">{sheets.length}</span>
         </div>
         {sheetsOpen ? (

@@ -1,4 +1,5 @@
 import type { AnnotationKindRegistration } from './types';
+import { t } from '../i18n';
 import type { Tool } from '../tools/Tool';
 import { ApexIcons } from '../tools/icons';
 import { ApexTabs } from '../tools/tabs';
@@ -15,13 +16,13 @@ function createTextNoteTool(): Tool {
     shortcut: 'N',
 
     hint() {
-      return 'Text: click to place a note (snaps to walls/grids)';
+      return t('tool.apex.text_note.hint');
     },
 
     onPointerDown(e, ctx) {
       const viewId = ctx.activeViewId();
       if (!viewId) {
-        ctx.setError('Open a saved plan view (or activate a sheet viewport) to add text.');
+        ctx.setError(t('tool.apex.text_note.needView'));
         return true;
       }
       ctx.setError(null);

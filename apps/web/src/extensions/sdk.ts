@@ -7,6 +7,14 @@ import {
   type OpeningGeneratorFn,
 } from '../wasm/apex';
 import type { Descriptor } from '../descriptor';
+import {
+  getLocale,
+  hasMessage,
+  LOCALES,
+  setLocale,
+  t,
+  type Locale,
+} from '../i18n';
 import { TOOL_ICONS } from '../tools/icons';
 import { createPlacementTool } from '../tools/placementTool';
 import { ApexTabs, TOOL_TABS } from '../tools/tabs';
@@ -144,6 +152,15 @@ export interface OpeningGeneratorRegistration {
   readonly generate: OpeningGeneratorFn;
 }
 
+/** Runtime i18n surface for plugins (see docs/i18n.md). */
+export interface ApexI18n {
+  t: typeof t;
+  getLocale: typeof getLocale;
+  setLocale: typeof setLocale;
+  hasMessage: typeof hasMessage;
+  locales: readonly Locale[];
+}
+
 export interface ApexGlobal {
   defineComponent(definition: unknown): void;
   registerTool(tool: Tool): void;
@@ -155,6 +172,8 @@ export interface ApexGlobal {
   tabs: typeof TOOL_TABS;
   /** Known toolbar icon names — prefer these; omit icon or use `{ svg }` for custom. */
   icons: typeof TOOL_ICONS;
+  /** Translate UI strings; prefer message keys over hard-coded English. */
+  i18n: ApexI18n;
 }
 
 declare global {
@@ -174,5 +193,12 @@ export function installGlobalSdk(): void {
     registerOpeningGenerator: (registration) => extensions.registerOpeningGenerator(registration),
     tabs: TOOL_TABS,
     icons: TOOL_ICONS,
+    i18n: {
+      t,
+      getLocale,
+      setLocale,
+      hasMessage,
+      locales: LOCALES,
+    },
   };
 }

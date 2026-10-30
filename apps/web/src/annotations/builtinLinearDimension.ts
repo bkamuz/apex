@@ -1,4 +1,5 @@
 import type { AnnotationKindRegistration } from './types';
+import { pluralS, t } from '../i18n';
 import type { Tool, ToolContext } from '../tools/Tool';
 import { ApexIcons } from '../tools/icons';
 import { ApexTabs } from '../tools/tabs';
@@ -39,14 +40,14 @@ function createLinearDimensionTool(): Tool {
     hint(pendingCount) {
       const remaining = 2 - pendingCount;
       return remaining <= 0
-        ? 'Dimension: placing…'
-        : `Dimension: click ${remaining} more point${remaining === 1 ? '' : 's'} (snaps to walls/grids)`;
+        ? t('tool.apex.dimension.hintPlacing')
+        : t('tool.apex.dimension.hintClicks', { n: remaining, s: pluralS(remaining) });
     },
 
     onPointerDown(e, ctx) {
       const viewId = ctx.activeViewId();
       if (!viewId) {
-        ctx.setError('Open a saved plan view (or activate a sheet viewport) to dimension.');
+        ctx.setError(t('tool.apex.dimension.needView'));
         return true;
       }
       ctx.setError(null);

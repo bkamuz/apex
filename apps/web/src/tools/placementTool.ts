@@ -1,4 +1,5 @@
 import { describeFromComponent } from '../descriptor';
+import { componentDisplayName, modeDisplayLabel, pluralS, t } from '../i18n';
 import type { ComponentDto, PlacementKind } from '../types';
 import type { Vec3 } from '../viewport/ViewportRenderer';
 import { COMPONENT_ICON_BY_ID, type ToolIcon } from './icons';
@@ -54,7 +55,7 @@ export function createPlacementTool(
   const activeKind = (): PlacementKind =>
     modes.find((mode) => mode.id === modeId)?.placement ?? component.placement;
 
-  const modeLabel = (): string | undefined => modes.find((mode) => mode.id === modeId)?.label;
+  const activeMode = (): ToolMode | undefined => modes.find((mode) => mode.id === modeId);
 
   const applyElevation = (point: Vec3): Vec3 =>
     freeElevation ? [point[0], point[1] + elevationOffset, point[2]] : point;
@@ -72,8 +73,9 @@ export function createPlacementTool(
   };
 
   const toolName = () => {
-    const mode = modeLabel();
-    return mode ? `${component.display_name} · ${mode}` : component.display_name;
+    const base = componentDisplayName(component.id, component.display_name);
+    const mode = activeMode();
+    return mode ? `${base} · ${modeDisplayLabel(mode)}` : base;
   };
 
   return {
@@ -99,22 +101,29 @@ export function createPlacementTool(
       const name = toolName();
       const elev =
         freeElevation && elevationOffset !== 0
-          ? ` · elev ${elevationOffset >= 0 ? '+' : ''}${elevationOffset.toFixed(2)}`
+          ? t('placement.elevOffset', {
+              offset: `${elevationOffset >= 0 ? '+' : ''}${elevationOffset.toFixed(2)}`,
+            })
           : freeElevation
-            ? ' · PgUp/PgDn elev'
+            ? t('placement.elevNudge')
             : '';
       if (chainWalls() && pendingCount >= 1) {
-        return `${name}: click next corner · snap start to close · Esc / right-click / double-click to finish${elev}`;
+        return t('placement.chainNext', { name, elev });
       }
       if (needed === null) {
         return pendingCount === 0
-          ? `${name}: click to start · double-click to finish${elev}`
-          : `${name}: ${pendingCount} picked · double-click to finish${elev}`;
+          ? t('placement.pathStart', { name, elev })
+          : t('placement.pathContinue', { name, n: pendingCount, elev });
       }
       const remaining = needed - pendingCount;
       return remaining <= 0
-        ? `${name}: placing…`
-        : `${name}: ${remaining} more click${remaining === 1 ? '' : 's'} · Shift snap · Esc${elev}`;
+        ? t('placement.placing', { name })
+        : t('placement.moreClicks', {
+            name,
+            n: remaining,
+            s: pluralS(remaining),
+            elev,
+          });
     },
 
     onClick(e, ctx) {
