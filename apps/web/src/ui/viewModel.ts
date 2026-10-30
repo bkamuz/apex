@@ -84,7 +84,7 @@ export function applyViewToRenderer(view: ViewDto, renderer: ViewportRenderer): 
         target: [0, kind.cut_height, 0],
         distance: renderer.getCamera().distance,
         yaw: 0,
-        pitch: Math.PI / 2 - 0.001,
+        pitch: Math.PI / 2,
       });
       renderer.fitViewExtents();
       break;
