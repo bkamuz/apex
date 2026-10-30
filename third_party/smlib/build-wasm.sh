@@ -14,7 +14,7 @@ jobs="${JOBS:-$(nproc 2>/dev/null || echo 4)}"
 mkdir -p "$obj" "$out"
 
 flags=(-std=c++17 -Oz -flto -fwasm-exceptions -DNDEBUG -DNOMINMAX -DSM_NO_DEBUG_CODE
-  -DSM_NO_GFX_OUTPUT_CODE -DSM_API_EXPORTS -ffp-contract=off -w
+  -DSM_NO_GFX_OUTPUT_CODE -DSM_API_EXPORTS -ffp-contract=off -w -ffile-prefix-map="$root"=.
   -I"$here/shim" -I"$here/SMLib/inc" -I"$here/SM_API/inc" -include SmApiGeneral.h)
 
 compile() {
