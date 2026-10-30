@@ -572,6 +572,15 @@ fn bench_house_edits() {
                 element_builds() - b0
             ));
         }
+        let t = Instant::now();
+        let buffers = p.document().build_scene_buffers();
+        let tb = t.elapsed().as_secs_f64() * 1e3;
+        let t = Instant::now();
+        p.hide_buried_edges(&buffers.edge_positions);
+        out.push(format!(
+            "scene buffers {tb:.1} ms, buried edges {:.1} ms",
+            t.elapsed().as_secs_f64() * 1e3
+        ));
         eprintln!("BENCH {kernel}: {}", out.join("; "));
     }
 }

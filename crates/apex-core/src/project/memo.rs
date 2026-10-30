@@ -50,13 +50,47 @@ impl State {
     }
 }
 
+/// Last [`crate::Project::hide_buried_edges`] answer: (stamp, ctx, hash of
+/// the input edges, output). Kept across edits; any change to the document,
+/// the build context or the edges themselves misses.
+type BuriedEdges = (u64, u8, u64, Vec<f32>);
+
 #[derive(Default)]
-pub(crate) struct SolidMemo(Mutex<State>);
+pub(crate) struct SolidMemo(Mutex<State>, Mutex<Option<BuriedEdges>>);
 
 impl SolidMemo {
     fn with<R>(&self, f: impl FnOnce(&mut State) -> R) -> R {
         let mut guard = self.0.lock().unwrap_or_else(|e| e.into_inner());
         f(&mut guard)
+    }
+
+    /// Cached buried-edge filter for these inputs, or `make`'s answer (kept
+    /// unless it met a pending kernel result).
+    pub(crate) fn buried_edges(
+        &self,
+        stamp: u64,
+        ctx: u8,
+        edges: &[f32],
+        make: impl FnOnce() -> Vec<f32>,
+    ) -> Vec<f32> {
+        use std::hash::Hasher;
+        let mut h = std::collections::hash_map::DefaultHasher::new();
+        for v in edges {
+            h.write_u32(v.to_bits());
+        }
+        let hash = h.finish();
+        let lock = || self.1.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some((s, c, hh, out)) = lock().as_ref() {
+            if (*s, *c, *hh) == (stamp, ctx, hash) {
+                return out.clone();
+            }
+        }
+        let misses = kroute::pending_misses();
+        let out = make();
+        if kroute::pending_misses() == misses {
+            *lock() = Some((stamp, ctx, hash, out.clone()));
+        }
+        out
     }
 
     pub(crate) fn enter(&self) {

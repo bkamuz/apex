@@ -27,13 +27,21 @@ for (const kernel of ['mesh', 'smlib']) {
         }
       };
       const timed = async (f) => {
+        const s0 = window.__apexTest.kernelStats();
         const t0 = performance.now();
         f();
         await settle();
         const ms = performance.now() - t0;
         if (mod.apexKernelStatus().pending) throw new Error(`kernel did not settle: ${f}`);
+        const s1 = window.__apexTest.kernelStats();
+        detail[String(f).includes('setKernel') ? 'full' : String(f).match(/op: '(\w+)'/)[1]] = {
+          rounds: s1.rounds - s0.rounds,
+          jobs: s1.jobs - s0.jobs,
+          applyMs: Math.round(s1.applyMs - s0.applyMs),
+        };
         return ms;
       };
+      const detail = {};
       const out = { full: [], 'move wall': [], 'window species': [], 'roof overhang': [] };
       for (let run = 0; run < runs; run++) {
         mod.apexImportProject(house);
@@ -59,9 +67,11 @@ for (const kernel of ['mesh', 'smlib']) {
         out['roof overhang'].push(await timed(() => ex({ op: 'update_element', id: roof.id, params: { overhang: 0.7 } })));
       }
       const med = (a) => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)];
-      return Object.fromEntries(
-        Object.entries(out).map(([n, a]) => [n, Math.round(med(a))]),
-      );
+      return {
+        ms: Object.fromEntries(Object.entries(out).map(([n, a]) => [n, Math.round(med(a))])),
+        detail,
+        cores: navigator.hardwareConcurrency,
+      };
     },
     { k: kernel, house: HOUSE, runs: RUNS },
   );

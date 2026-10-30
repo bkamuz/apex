@@ -642,6 +642,16 @@ impl Project {
     /// plan direction, stays inside some solid; edges on a solid's own
     /// boundary always have one nudge outside and survive.
     pub fn hide_buried_edges(&self, edges: &[f32]) -> Vec<f32> {
+        let stamp = self.document.shape_version();
+        self.memo.buried_edges(stamp, memo_ctx(), edges, || {
+            self.memo.enter();
+            let out = self.hide_buried_edges_uncached(edges);
+            self.memo.leave();
+            out
+        })
+    }
+
+    fn hide_buried_edges_uncached(&self, edges: &[f32]) -> Vec<f32> {
         let solids: Vec<(LayeredSolid, [f64; 4], (f64, f64))> = self
             .document
             .elements()
