@@ -8,15 +8,19 @@
 //! `IfcLocalPlacement` chains. Geometry is converted from IFC Z-up into Apex
 //! Y-up and stored on `apex.ifc.mesh` instances.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{HashMap, HashSet};
 
 use apex_core::{
-    encode_ifc_mesh_param, ifc_mesh_from_params, Element, LevelId, ParamMap, ParamValue, Placement,
-    Project, TriangleMesh, IFC_MESH_COMPONENT,
+    encode_ifc_mesh_param, Element, LevelId, ParamMap, ParamValue, Placement, Project,
+    TriangleMesh, IFC_MESH_COMPONENT,
 };
 use glam::{Mat4, Vec3, Vec4};
 
 use crate::parse::{parse_step, Entity, ParseError, StepFile, Value};
+
+/// Dihedral threshold for IFC mesh CAD edges (~40°). Slightly looser than the
+/// CSG default so finely faceted IFC roofs drop soft seams.
+const IFC_FEATURE_RADIANS: f32 = 0.70;
 
 /// Summary returned after a successful import.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -127,7 +131,17 @@ pub fn import_ifc4_into(project: &mut Project, text: &str) -> Result<ImportStats
             continue;
         }
 
-        let (origin, local_mesh) = localize_mesh(&mesh_world);
+        let (origin, mut local_mesh) = localize_mesh(&mesh_world);
+        // Weld + dihedral creases: drop triangulation diagonals and coplanar
+        // B-rep face seams that authoring loops would otherwise keep.
+        local_mesh.rebuild_feature_edges(IFC_FEATURE_RADIANS);
+        // Keep wireframe on simple solids (box wall ≈ 12 edges). Stairs, glazed
+        // windows, and faceted roofs still emit hundreds of creases that read as
+        // spaghetti in plan/axon — shade those only.
+        const MAX_EDGES: usize = 48;
+        if local_mesh.edge_count() > MAX_EDGES {
+            local_mesh.edges.clear();
+        }
         let level_id = product
             .storey
             .and_then(|s| level_by_storey.get(&s).copied())
@@ -156,9 +170,9 @@ pub fn import_ifc4_into(project: &mut Project, text: &str) -> Result<ImportStats
             Placement::point(origin),
             params,
         );
-        let mesh = ifc_mesh_from_params(&element.params)
-            .map(|m| offset_mesh(&m, origin))
-            .unwrap_or_else(|| mesh_world.clone());
+        // Use the feature-edged local mesh directly — do not round-trip through
+        // decode that used to regenerate every triangle edge.
+        let mesh = offset_mesh(&local_mesh, origin);
         project.document_mut().upsert_element(element, mesh);
         imported += 1;
     }
@@ -326,6 +340,20 @@ fn collect_products(file: &StepFile) -> Vec<Product> {
 }
 
 fn is_product_type(type_name: &str) -> bool {
+    // Skip openings (voids, not solids) and spaces (room volumes) — importing
+    // them as opaque meshes cluttered the viewport and tanked edge FPS.
+    if matches!(
+        type_name,
+        "IFCOPENINGELEMENT"
+            | "IFCOPENINGSTANDARDCASE"
+            | "IFCSPACE"
+            | "IFCSPACESTYPE"
+            // Finish layers + furniture clutter Open and dominate edge counts.
+            | "IFCCOVERING"
+            | "IFCFURNISHINGELEMENT"
+    ) {
+        return false;
+    }
     matches!(
         type_name,
         "IFCWALL"
@@ -350,10 +378,6 @@ fn is_product_type(type_name: &str) -> bool {
             | "IFCFLOWTERMINAL"
             | "IFCDISTRIBUTIONELEMENT"
             | "IFCCABLECARRIERSEGMENT"
-            | "IFCCOVERING"
-            | "IFCFURNISHINGELEMENT"
-            | "IFCSPACE"
-            | "IFCOPENINGELEMENT"
             | "IFCPROXY"
     ) || type_name.starts_with("IFCBUILDINGELEMENT")
         || type_name.starts_with("IFCDISTRIBUTION")
@@ -485,6 +509,23 @@ fn collect_representation_mesh(
                 out.append(&transform_mesh_local(&m, local));
             }
         }
+        "IFCFACETEDBREP"
+        | "IFCFACEBASEDSURFACEMODEL"
+        | "IFCSHELLBASEDSURFACEMODEL"
+        | "IFCCONNECTEDFACESET"
+        | "IFCCLOSEDSHELL"
+        | "IFCOPENSHELL" => {
+            // Explicit shell walk so Body/Brep and SurfaceModel pick up every
+            // face polyloop (generic walk also works; this keeps the intent clear).
+            for arg in &entity.args {
+                walk_value_for_geometry(file, arg, scale, local, out, visiting);
+            }
+        }
+        "IFCFACE" | "IFCFACEOUTERBOUND" | "IFCFACEBOUND" => {
+            for arg in &entity.args {
+                walk_value_for_geometry(file, arg, scale, local, out, visiting);
+            }
+        }
         "IFCMAPPEDITEM" => {
             // MappingSource = IfcRepresentationMap; MappingTarget = Cartesian op.
             let Some(map_id) = entity.args.first().and_then(Value::as_ref_id) else {
@@ -584,8 +625,6 @@ fn transform_mesh_local(mesh: &TriangleMesh, transform: Mat4) -> TriangleMesh {
     out.positions = positions;
     out.normals = normals;
     out.indices = mesh.indices.clone();
-    // Keep authoring edges (profile / shell) — do not explode every triangle
-    // diagonal into the wireframe.
     out.edges = transform_edge_list(&mesh.edges, transform);
     out
 }
@@ -707,11 +746,7 @@ fn triangulated_face_set(file: &StepFile, entity: &Entity, scale: f32) -> Option
         indices.push(b - 1);
         indices.push(c - 1);
     }
-    let mut mesh = mesh_from_indexed(&positions, &indices);
-    // Drop per-triangle edges so the IFC→Apex transform can emit a boundary
-    // wireframe instead of triangulation diagonals.
-    mesh.edges.clear();
-    Some(mesh)
+    Some(mesh_from_indexed(&positions, &indices))
 }
 
 fn poly_loop_mesh(file: &StepFile, entity: &Entity, scale: f32) -> Option<TriangleMesh> {
@@ -1202,50 +1237,17 @@ fn transform_mesh_ifc_to_apex(mesh: &TriangleMesh, transform: Mat4) -> TriangleM
     out.positions = positions;
     out.normals = normals;
     out.indices = mesh.indices.clone();
-    if mesh.edges.is_empty() {
-        // Tessellated face sets often carry no feature edges — keep a boundary
-        // wireframe (edges used by exactly one triangle) instead of every
-        // triangulation diagonal.
-        out.edges = boundary_edges_from_indices(&out.positions, &out.indices);
-    } else {
-        for p in mesh.edges.chunks(3) {
-            if p.len() < 3 {
-                break;
-            }
-            let pw = (transform * Vec4::new(p[0], p[1], p[2], 1.0)).truncate();
-            out.edges.push(pw.x);
-            out.edges.push(pw.z);
-            out.edges.push(-pw.y);
+    // Carry face-loop / profile edges through Z-up flip (not triangle diagonals).
+    for p in mesh.edges.chunks(3) {
+        if p.len() < 3 {
+            break;
         }
+        let pw = (transform * Vec4::new(p[0], p[1], p[2], 1.0)).truncate();
+        out.edges.push(pw.x);
+        out.edges.push(pw.z);
+        out.edges.push(-pw.y);
     }
     out
-}
-
-fn boundary_edges_from_indices(positions: &[f32], indices: &[u32]) -> Vec<f32> {
-    let mut counts: BTreeMap<(u32, u32), u32> = BTreeMap::new();
-    for tri in indices.chunks(3) {
-        if tri.len() < 3 {
-            continue;
-        }
-        for (a, b) in [(tri[0], tri[1]), (tri[1], tri[2]), (tri[2], tri[0])] {
-            let key = if a < b { (a, b) } else { (b, a) };
-            *counts.entry(key).or_default() += 1;
-        }
-    }
-    let mut edges = Vec::new();
-    for ((a, b), count) in counts {
-        if count != 1 {
-            continue;
-        }
-        let ai = (a as usize) * 3;
-        let bi = (b as usize) * 3;
-        if ai + 3 > positions.len() || bi + 3 > positions.len() {
-            continue;
-        }
-        edges.extend_from_slice(&positions[ai..ai + 3]);
-        edges.extend_from_slice(&positions[bi..bi + 3]);
-    }
-    edges
 }
 
 fn localize_mesh(mesh: &TriangleMesh) -> (Vec3, TriangleMesh) {
@@ -1296,9 +1298,6 @@ fn mesh_from_indexed(positions: &[f32], indices: &[u32]) -> TriangleMesh {
         let ac = Vec3::from(c) - Vec3::from(a);
         let n = ab.cross(ac).normalize_or_zero().to_array();
         mesh.push_triangle(a, b, c, n);
-        mesh.push_edge(a, b);
-        mesh.push_edge(b, c);
-        mesh.push_edge(c, a);
     }
     mesh
 }
@@ -1449,5 +1448,21 @@ END-ISO-10303-21;
             (dx - 1.0).abs() < 1e-3 && (dy - 1.0).abs() < 1e-3 && (dz - 1.0).abs() < 1e-3,
             "expected 1 m cube, got {dx}×{dy}×{dz}"
         );
+    }
+
+    #[test]
+    fn demo_box_uses_feature_edges_not_diagonals() {
+        let text = include_str!("../tests/fixtures/demo-box.ifc");
+        let mut project = Project::new();
+        let stats = import_ifc4_into(&mut project, text).expect("import");
+        assert_eq!(stats.products, 1);
+        let mesh = project
+            .document()
+            .elements()
+            .find_map(|e| project.document().get_mesh(e.id))
+            .expect("mesh");
+        // 4×3×2.7 box → 12 silhouette edges; never 36 triangle edges.
+        assert_eq!(mesh.edge_count(), 12, "edges={}", mesh.edge_count());
+        assert!(mesh.triangle_count() >= 12);
     }
 }
