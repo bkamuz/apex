@@ -21,6 +21,12 @@ use crate::element::ElementId;
 /// Kernel results kept for reuse; older entries are dropped past this.
 const CACHE_LIMIT: usize = 1024;
 
+/// Result-driven rebuilds per element before it keeps its mesh-path body.
+/// Chained exact booleans whose inputs depend on other exact results (joined
+/// attached walls) can otherwise feed back forever, because SMLib's
+/// tessellation is not bitwise stable.
+const MAX_RESULT_ROUNDS: u32 = 6;
+
 /// A kernel computed elsewhere: requests become jobs, results are cached by
 /// the exact encoded input.
 #[derive(Default)]
@@ -90,6 +96,8 @@ pub(crate) struct KernelSlot {
     pub(crate) external: Option<Arc<ExternalKernel>>,
     /// Pending job key -> elements waiting for it.
     pub(crate) waiting: Mutex<HashMap<u64, Vec<ElementId>>>,
+    /// Result-driven rebuild count per element since the kernel settled.
+    pub(crate) rounds: Mutex<HashMap<ElementId, u32>>,
 }
 
 impl Default for KernelSlot {
@@ -98,6 +106,7 @@ impl Default for KernelSlot {
             kernel: Arc::new(MeshKernel),
             external: None,
             waiting: Mutex::default(),
+            rounds: Mutex::default(),
         }
     }
 }
@@ -116,6 +125,7 @@ impl Project {
             kernel,
             external: None,
             waiting: Mutex::default(),
+            rounds: Mutex::default(),
         };
         self.refresh_hosts();
     }
@@ -127,6 +137,7 @@ impl Project {
             kernel: ext.clone(),
             external: Some(ext.clone()),
             waiting: Mutex::default(),
+            rounds: Mutex::default(),
         };
         self.refresh_hosts();
         ext
@@ -178,7 +189,47 @@ impl Project {
                 all.extend(self.neighbour_cut_dependents(&e));
             }
         }
-        self.refresh_meshes(all);
+        all.sort();
+        all.dedup();
+        {
+            let mut rounds = self.kernel.rounds.lock().unwrap();
+            all.retain(|id| {
+                let n = rounds.entry(*id).or_insert(0);
+                *n += 1;
+                *n <= MAX_RESULT_ROUNDS
+            });
+        }
+        if !all.is_empty() {
+            self.refresh_meshes(all);
+        }
+        {
+            let mut waiting = self.kernel.waiting.lock().unwrap();
+            let rounds = self.kernel.rounds.lock().unwrap();
+            waiting.retain(|_, ids| {
+                ids.retain(|id| rounds.get(id).is_none_or(|n| *n < MAX_RESULT_ROUNDS));
+                !ids.is_empty()
+            });
+            if waiting.is_empty() {
+                drop(rounds);
+                self.kernel.rounds.lock().unwrap().clear();
+            }
+        }
+        ids
+    }
+
+    /// Elements waiting on external kernel results (diagnostics).
+    pub fn kernel_waiting_ids(&self) -> Vec<ElementId> {
+        let mut ids: Vec<ElementId> = self
+            .kernel
+            .waiting
+            .lock()
+            .unwrap()
+            .values()
+            .flatten()
+            .copied()
+            .collect();
+        ids.sort();
+        ids.dedup();
         ids
     }
 

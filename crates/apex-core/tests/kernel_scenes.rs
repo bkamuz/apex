@@ -360,12 +360,12 @@ fn every_element_type_matches_the_mesh_kernel() {
     assert!(bad.is_empty(), "{bad:#?}");
 }
 
-/// Geometric fingerprint: component, triangle count, volume and bounds
-/// rounded to 1e-6. SMLib's tessellation of a planar face may pick other
-/// diagonals between runs (same solid, same triangle count), so the exact
-/// path is held to geometric, not bitwise, determinism.
-fn fingerprint(p: &Project) -> Vec<(String, usize, i64, Vec<i64>)> {
-    let r = |x: f64| (x * 1e6).round() as i64;
+/// Geometric fingerprint: component, volume and bounds rounded to 1e-4.
+/// SMLib's tessellation of a planar face may differ between runs (other
+/// diagonals, occasionally other splits), so the exact path is held to
+/// geometric, not bitwise, determinism.
+fn fingerprint(p: &Project) -> Vec<(String, i64, Vec<i64>)> {
+    let r = |x: f64| (x * 1e4).round() as i64;
     meshes(p)
         .into_values()
         .map(|(c, m)| {
@@ -373,7 +373,7 @@ fn fingerprint(p: &Project) -> Vec<(String, usize, i64, Vec<i64>)> {
                 .aabb()
                 .map(|(a, b)| a.iter().chain(&b).map(|x| r(*x as f64)).collect())
                 .unwrap_or_default();
-            (c, m.triangle_count(), r(mesh_volume(&m) as f64), bb)
+            (c, r(mesh_volume(&m) as f64), bb)
         })
         .collect::<Vec<_>>()
 }
@@ -426,4 +426,42 @@ fn dump_house_snapshot() {
     let p = scenes::e2e_house();
     let path = std::env::var("APEX_DUMP").unwrap_or_else(|_| "e2e_house.json".into());
     std::fs::write(path, serde_json::to_string(&p.export_snapshot()).unwrap()).unwrap();
+}
+
+/// The browser path: an external kernel fed by a job pump must settle.
+#[test]
+fn external_kernel_settles_on_the_house() {
+    for (name, scene) in SCENES {
+        let mut p = scene();
+        p.set_external_kernel();
+        let mut rounds = 0;
+        loop {
+            let jobs = p.take_kernel_jobs();
+            if jobs.is_empty() {
+                break;
+            }
+            rounds += 1;
+            if rounds > 40 {
+                let ids: Vec<_> = p
+                    .kernel_waiting_ids()
+                    .into_iter()
+                    .map(|id| p.document().get_element(id).map(|e| e.component_id.clone()))
+                    .collect();
+                panic!(
+                    "{name}: still {} jobs after 40 rounds; waiting {:?}",
+                    jobs.len(),
+                    ids
+                );
+            }
+            let results = jobs
+                .iter()
+                .map(|j| {
+                    let r = apex_smlib::run(&j.solids, 1e-3).ok();
+                    (j.key, r.map(|r| (r.points, r.tris)))
+                })
+                .collect();
+            p.apply_kernel_results(results);
+        }
+        eprintln!("{name}: settled in {rounds} rounds");
+    }
 }
