@@ -50,6 +50,9 @@ pub struct Document {
     shape_version: u64,
     /// Level used for new placements (active work plane).
     active_level: Option<LevelId>,
+    /// Element ids in [`Element::order_key`] order, valid for the
+    /// `shape_version` and element count stored with it.
+    order: std::sync::Mutex<Option<(u64, usize, Vec<ElementId>)>>,
 }
 
 impl Document {
@@ -228,9 +231,39 @@ impl Document {
 
     /// Every element, in a deterministic order (see [`Element::order_key`]).
     pub fn elements(&self) -> impl Iterator<Item = &Element> {
+        let ids = self.ordered_ids();
+        ids.into_iter().filter_map(move |id| self.elements.get(&id))
+    }
+
+    /// Ids of every element in deterministic order, cached until the next
+    /// shape change (every element edit bumps `shape_version`).
+    fn ordered_ids(&self) -> Vec<ElementId> {
+        let mut slot = self.order.lock().unwrap();
+        if let Some((v, n, ids)) = slot.as_ref() {
+            if *v == self.shape_version && *n == self.elements.len() {
+                return ids.clone();
+            }
+        }
         let mut all: Vec<&Element> = self.elements.values().collect();
         all.sort_by_cached_key(|e| e.order_key());
-        all.into_iter()
+        let ids: Vec<ElementId> = all.into_iter().map(|e| e.id).collect();
+        *slot = Some((self.shape_version, self.elements.len(), ids.clone()));
+        ids
+    }
+
+    /// Position of `id` in [`Self::elements`] order.
+    pub fn order_index(&self, id: ElementId) -> Option<usize> {
+        let ids = self.ordered_ids();
+        ids.iter().position(|x| *x == id)
+    }
+
+    /// Rank of each element in [`Self::elements`] order.
+    pub fn order_rank(&self) -> HashMap<ElementId, usize> {
+        self.ordered_ids()
+            .into_iter()
+            .enumerate()
+            .map(|(i, id)| (id, i))
+            .collect()
     }
 
     pub fn get_element(&self, id: ElementId) -> Option<&Element> {
@@ -245,7 +278,10 @@ impl Document {
             .filter(|element| element.parent_id == Some(id) && element.id != id)
             .map(|element| element.id)
             .collect();
-        children.sort_by_cached_key(|child| self.elements[child].order_key());
+        if children.len() > 1 {
+            let rank = self.order_rank();
+            children.sort_by_key(|c| rank.get(c).copied());
+        }
         children
     }
 
@@ -303,7 +339,8 @@ impl Document {
             .filter(|element| self.effective_level_id(element.id) == Some(level))
             .map(|element| element.id)
             .collect();
-        ids.sort_by_cached_key(|id| self.elements[id].order_key());
+        let rank = self.order_rank();
+        ids.sort_by_key(|id| rank.get(id).copied());
         ids
     }
 

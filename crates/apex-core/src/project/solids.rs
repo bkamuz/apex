@@ -499,13 +499,23 @@ impl Project {
             }
         }
         let mut out: Vec<ElementId> = seen.into_iter().collect();
-        out.sort_by_cached_key(|id| {
-            self.document
-                .get_element(*id)
-                .map(|e| e.order_key())
-                .unwrap_or_default()
-        });
+        let rank = self.document.order_rank();
+        out.sort_by_key(|id| rank.get(id).copied());
         out
+    }
+
+    /// Whether `a` sorts before `b` in document order (content, then id).
+    fn content_before(&self, a: &Element, b: &Element) -> bool {
+        let stored = |e: &Element| self.document.get_element(e.id) == Some(e);
+        if stored(a) && stored(b) {
+            if let (Some(i), Some(j)) = (
+                self.document.order_index(a.id),
+                self.document.order_index(b.id),
+            ) {
+                return i < j;
+            }
+        }
+        a.order_key() < b.order_key()
     }
 
     /// True when `element` is joined into a cluster with at least one wall
@@ -773,11 +783,10 @@ impl Project {
             // the same on every run.
             let peer_wins = phw > hw + 1e-5
                 || ((phw - hw).abs() <= 1e-5
-                    && (self.ends_against(peer, &mine, phw), peer.order_key())
-                        < (
-                            self.ends_against(element, &their_fp, hw),
-                            element.order_key(),
-                        ));
+                    && (
+                        self.ends_against(peer, &mine, phw),
+                        !self.content_before(peer, element),
+                    ) < (self.ends_against(element, &their_fp, hw), true));
             if peer_wins {
                 piece = piece.subtract(&theirs);
             }

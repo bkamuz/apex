@@ -38,6 +38,9 @@ for (const kernel of ['mesh', 'smlib']) {
           rounds: s1.rounds - s0.rounds,
           jobs: s1.jobs - s0.jobs,
           applyMs: Math.round(s1.applyMs - s0.applyMs),
+          takeMs: Math.round(s1.takeMs - s0.takeMs),
+          workerMs: Math.round(s1.workerMs - s0.workerMs),
+          sinkMs: Math.round(s1.sinkMs - s0.sinkMs),
         };
         return ms;
       };
