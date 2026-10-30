@@ -106,14 +106,24 @@ fn external_kernel_round_trip_matches_native() {
     let jobs = p.take_kernel_jobs();
     assert!(!jobs.is_empty());
     assert_eq!(p.kernel_status().pending, jobs.len());
-    let results = jobs
-        .iter()
-        .map(|j| {
-            let r = apex_smlib::run(&j.solids, 1e-3).ok();
-            (j.key, r.map(|r| (r.points, r.tris)))
-        })
-        .collect();
-    let rebuilt = p.apply_kernel_results(results);
+    // Chained booleans (cut, then the body's exact union) settle over a
+    // few rounds, like the browser's job pump.
+    let mut jobs = jobs;
+    let mut rebuilt = Vec::new();
+    for _ in 0..8 {
+        if jobs.is_empty() {
+            break;
+        }
+        let results = jobs
+            .iter()
+            .map(|j| {
+                let r = apex_smlib::run(&j.solids, 1e-3).ok();
+                (j.key, r.map(|r| (r.points, r.tris)))
+            })
+            .collect();
+        rebuilt.extend(p.apply_kernel_results(results));
+        jobs = p.take_kernel_jobs();
+    }
     assert!(rebuilt.contains(&wall));
     assert_eq!(p.kernel_status().pending, 0);
     let ext = mesh(&p, wall);

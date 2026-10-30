@@ -7,7 +7,7 @@
 //! live because roofs list attached walls as solid dependents.
 
 use apex_geometry::{
-    mesh_boolean, polygon_region, BooleanOp, LayeredSolid, ShapedSurface, TriangleMesh, Underside,
+    polygon_region, BooleanOp, LayeredSolid, ShapedSurface, TriangleMesh, Underside,
 };
 #[cfg(test)]
 use glam::Vec3;
@@ -298,7 +298,7 @@ impl Project {
         for s in &tops {
             let below = s.surface.solid(Underside::Flat(lo - 1.0)).ok()?;
             let column = LayeredSolid::polygon_prism(&s.footprint, lo, hi + 1.0).to_mesh();
-            cutters.push(mesh_boolean(&column, &below, BooleanOp::Subtract).ok()?);
+            cutters.push(crate::kroute::kbool(&column, &below, BooleanOp::Subtract).ok()?);
         }
         for s in &bases {
             cutters.push(s.surface.solid(Underside::Flat(lo)).ok()?);
@@ -377,7 +377,7 @@ impl Project {
                 .map(|s| {
                     let below = s.surface.solid(Underside::Flat(lo - 1.0)).ok()?;
                     let column = LayeredSolid::polygon_prism(&s.footprint, lo, hi + 1.0).to_mesh();
-                    mesh_boolean(&column, &below, BooleanOp::Subtract).ok()
+                    crate::kroute::kbool(&column, &below, BooleanOp::Subtract).ok()
                 })
                 .collect()
         };
@@ -397,7 +397,7 @@ impl Project {
         let sequential = || -> Option<TriangleMesh> {
             let mut mesh = keep.to_mesh();
             for c in cutters()?.iter() {
-                mesh = mesh_boolean(&mesh, c, BooleanOp::Subtract).ok()?;
+                mesh = crate::kroute::kbool(&mesh, c, BooleanOp::Subtract).ok()?;
             }
             Some(mesh)
         };
@@ -407,9 +407,9 @@ impl Project {
         let combined = || -> Option<TriangleMesh> {
             let mut cut = TriangleMesh::empty();
             for c in cutters()? {
-                cut = mesh_boolean(&cut, &c, BooleanOp::Union).ok()?;
+                cut = crate::kroute::kbool(&cut, &c, BooleanOp::Union).ok()?;
             }
-            mesh_boolean(&keep.to_mesh(), &cut, BooleanOp::Subtract).ok()
+            crate::kroute::kbool(&keep.to_mesh(), &cut, BooleanOp::Subtract).ok()
         };
         // The kernel can also return a surface that no longer closes once
         // its vertices are rounded to f32; never keep such a result.

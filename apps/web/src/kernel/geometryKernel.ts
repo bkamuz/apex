@@ -1,6 +1,6 @@
 // Selects the boolean kernel for wall openings and pumps exact-kernel jobs
-// through a Web Worker. Defaults to the mesh kernel; opt in with
-// `?kernel=smlib` or the settings toggle (stored in localStorage).
+// through a Web Worker. Defaults to the exact SMLib kernel; `?kernel=mesh`
+// or the settings toggle (stored in localStorage) selects the mesh kernel.
 import {
   apexApplyKernelResults,
   apexSetGeometryKernel,
@@ -16,9 +16,9 @@ export function preferredKernel(): GeometryKernelName {
   const q = new URLSearchParams(location.search).get('kernel');
   if (q === 'smlib' || q === 'mesh') return q;
   try {
-    return localStorage.getItem(STORAGE_KEY) === 'smlib' ? 'smlib' : 'mesh';
+    return localStorage.getItem(STORAGE_KEY) === 'mesh' ? 'mesh' : 'smlib';
   } catch {
-    return 'mesh';
+    return 'smlib';
   }
 }
 

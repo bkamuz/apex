@@ -7,7 +7,7 @@
 //! the boolean, or deleting either recomputes through `solid_dependents`,
 //! so undo/redo restore everything via the normal snapshot path.
 
-use apex_geometry::{mesh_boolean, BooleanOp, TriangleMesh};
+use apex_geometry::{BooleanOp, TriangleMesh};
 
 use crate::element::{Element, ElementId};
 use crate::param::ParamMap;
@@ -131,7 +131,7 @@ impl Project {
         let run = |unpinch: bool| {
             let ma = self.operand_mesh(a, depth, unpinch);
             let mb = self.operand_mesh(b, depth, unpinch);
-            let r = mesh_boolean(&ma, &mb, op)
+            let r = crate::kroute::kbool(&ma, &mb, op)
                 .ok()
                 .filter(apex_geometry::is_closed);
             (r, ma)

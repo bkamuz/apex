@@ -530,7 +530,7 @@ impl Project {
     /// z-fighting, one closed surface. `None` when the element is not in
     /// such a cluster or the kernel fails (then pieces render on their own).
     fn attached_cluster_share(&self, element: &Element) -> Option<TriangleMesh> {
-        use apex_geometry::{mesh_boolean, BooleanOp};
+        use apex_geometry::BooleanOp;
         if !self.in_attached_cluster(element) {
             return None;
         }
@@ -564,14 +564,14 @@ impl Project {
             }
             let mut cut = TriangleMesh::empty();
             for c in &cutters {
-                cut = mesh_boolean(&cut, c, BooleanOp::Union).ok()?;
+                cut = crate::kroute::kbool(&cut, c, BooleanOp::Union).ok()?;
             }
             let column = super::roof_attach::unpinch(&column).to_mesh();
-            let mine = mesh_boolean(&column, &cut, BooleanOp::Intersect).ok()?;
-            cutter = mesh_boolean(&cutter, &mine, BooleanOp::Union).ok()?;
+            let mine = crate::kroute::kbool(&column, &cut, BooleanOp::Intersect).ok()?;
+            cutter = crate::kroute::kbool(&cutter, &mine, BooleanOp::Union).ok()?;
         }
         let base = super::roof_attach::unpinch(&LayeredSolid::empty().union(&whole)).to_mesh();
-        let union = mesh_boolean(&base, &cutter, BooleanOp::Subtract).ok()?;
+        let union = crate::kroute::kbool(&base, &cutter, BooleanOp::Subtract).ok()?;
         if !apex_geometry::is_closed(&union) {
             return None;
         }
