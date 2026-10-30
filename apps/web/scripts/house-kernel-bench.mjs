@@ -13,7 +13,7 @@ const browser = await chromium.launch();
 const results = {};
 for (const kernel of ['mesh', 'smlib']) {
   const page = await browser.newPage();
-  page.on('console', (m) => (m.type() === 'error' || m.text().startsWith('BENCH')) && console.log(`[${kernel}] console:`, m.text()));
+  page.on('console', (m) => m.type() === 'error' && console.log(`[${kernel}] console:`, m.text()));
   await page.addInitScript(() => localStorage.clear());
   await page.goto(`${BASE}?kernel=mesh`, { waitUntil: 'networkidle' });
   await page.waitForFunction(() => window.__apexTest?.setKernel);
@@ -21,7 +21,8 @@ for (const kernel of ['mesh', 'smlib']) {
     async ({ k, house, runs }) => {
       const mod = await import('/src/wasm/apex.ts');
       const settle = async () => {
-        for (let i = 0; i < 4000 && mod.apexKernelStatus().pending > 0; i++) {
+        const end = performance.now() + 20000;
+        while (performance.now() < end && mod.apexKernelStatus().pending > 0) {
           await new Promise((r) => setTimeout(r, 2));
         }
       };
@@ -30,18 +31,14 @@ for (const kernel of ['mesh', 'smlib']) {
         f();
         await settle();
         const ms = performance.now() - t0;
-        log('edit', ms, JSON.stringify(mod.apexKernelStatus()));
+        if (mod.apexKernelStatus().pending) throw new Error(`kernel did not settle: ${f}`);
         return ms;
       };
-      const log = (...a) => console.warn('BENCH', ...a);
       const out = { full: [], 'move wall': [], 'window species': [], 'roof overhang': [] };
       for (let run = 0; run < runs; run++) {
-        log('import');
         mod.apexImportProject(house);
-        log('imported');
         if (k !== 'mesh') window.__apexTest.setKernel('mesh');
         out.full.push(await timed(() => window.__apexTest.setKernel(k)));
-        log('full', out.full.at(-1));
         const els = mod.apexListElements();
         const geo = (id) => mod.apexRunQuery({ op: 'element_geometry', id })?.bbox;
         const mid = els.find((e) => {
@@ -52,8 +49,8 @@ for (const kernel of ['mesh', 'smlib']) {
         const win = els.find((e) => e.component_id === 'apex.window');
         const roof = els.find((e) => e.component_id === 'apex.roof.pitched');
         const ex = (c) => {
-          const r = mod.apexExecuteCommand(c);
-          if (r && r.ok === false) throw new Error(JSON.stringify(r));
+          // Through the app, so the scene updates and the kernel pump runs.
+          window.__apexTest.command(c);
         };
         out['move wall'].push(await timed(() => ex({ op: 'move_elements', ids: [mid.id], delta: [0.3, 0, 0] })));
         out['window species'].push(

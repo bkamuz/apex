@@ -1877,6 +1877,8 @@ export default function App() {
             setKernelEpoch((n) => n + 1);
           },
           kernelStats: () => ({ ...kernelStats, kernel: currentKernel() }),
+          /** Run a project command the way the UI does (scene + kernel pump). */
+          command: (cmd: Record<string, unknown>) => applyScene(apexCommandScene(cmd)),
           worldToClient: (p: Vec3) => rendererRef.current?.worldToClient(p) ?? null,
           getCamera: () => rendererRef.current?.getCamera() ?? null,
           setCamera: (c: Parameters<ViewportRenderer['setCamera']>[0]) => rendererRef.current?.setCamera(c),
