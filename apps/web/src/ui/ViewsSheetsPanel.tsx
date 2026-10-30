@@ -120,7 +120,8 @@ export function ViewsSheetsPanel({
   onDeleteSheet,
 }: Props) {
   const [viewsOpen, setViewsOpen] = useState(true);
-  const [sheetsOpen, setSheetsOpen] = useState(true);
+  /** Sheets create chrome stays collapsed until needed — empty sheet forms add noise. */
+  const [sheetsOpen, setSheetsOpen] = useState(() => sheets.length > 0);
   const [newPaper, setNewPaper] = useState<PaperSize>('A3');
   const [newOrientation, setNewOrientation] = useState<PaperOrientation>('landscape');
   const [newCustomW, setNewCustomW] = useState(420);

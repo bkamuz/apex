@@ -19,7 +19,10 @@ export function LevelList({
 }: Props) {
   return (
     <div className="level-panel">
-      <div className="panel-title-row">
+      <div
+        className="panel-title-row"
+        title="Click a level to activate its work plane; elevation edits live in Properties"
+      >
         <div className="panel-title">Levels</div>
         <button type="button" className="panel-action" onClick={onCreate} title="Add level">
           + Level
@@ -30,7 +33,6 @@ export function LevelList({
           </button>
         ) : null}
       </div>
-      <div className="level-panel-hint">Click or double-click a level to activate its work plane.</div>
       {levels.length === 0 ? (
         <div className="empty">No levels.</div>
       ) : (

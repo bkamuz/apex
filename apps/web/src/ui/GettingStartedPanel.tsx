@@ -6,11 +6,11 @@ interface Props {
 export function GettingStartedPanel({ onDismiss, onLoadSample }: Props) {
   return (
     <div className="getting-started" data-testid="getting-started">
-      <div className="getting-started-title">Getting started</div>
+      <div className="getting-started-kicker">Start here</div>
+      <div className="getting-started-title">Empty project</div>
       <p>
-        Draw walls <kbd>W</kbd>, switch to Plan <kbd>P</kbd>, frame the model <kbd>F</kbd>, then
-        Move <kbd>M</kbd> or Copy <kbd>C</kbd>. Undo with <kbd>Ctrl+Z</kbd>. Or load the sample
-        two-storey house with rooms and a pitched roof.
+        Place walls with <kbd>W</kbd>, switch to Plan <kbd>P</kbd>, frame with <kbd>F</kbd>.
+        Move <kbd>M</kbd> · Copy <kbd>C</kbd> · Undo <kbd>Ctrl+Z</kbd>.
       </p>
       <div className="getting-started-actions">
         <button type="button" data-testid="load-sample-project" onClick={onLoadSample}>

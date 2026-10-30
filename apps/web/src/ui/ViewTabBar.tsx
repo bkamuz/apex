@@ -85,20 +85,27 @@ export function ViewTabBar({
             Save view
           </button>
         ) : null}
-        {showViewExport && onExportViewSvg ? (
-          <button type="button" data-testid="export-view-svg" onClick={onExportViewSvg}>
-            Export SVG
-          </button>
-        ) : null}
-        {showViewExport && onExportViewDxf ? (
-          <button type="button" data-testid="export-view-dxf" onClick={onExportViewDxf}>
-            Export DXF
-          </button>
-        ) : null}
-        {showViewExport && onExportViewPdf ? (
-          <button type="button" data-testid="export-view-pdf" onClick={onExportViewPdf}>
-            Export PDF
-          </button>
+        {showViewExport && (onExportViewSvg || onExportViewDxf || onExportViewPdf) ? (
+          <details className="view-export-menu">
+            <summary className="view-export-summary">Export</summary>
+            <div className="view-export-panel" role="menu">
+              {onExportViewSvg ? (
+                <button type="button" role="menuitem" data-testid="export-view-svg" onClick={onExportViewSvg}>
+                  SVG
+                </button>
+              ) : null}
+              {onExportViewDxf ? (
+                <button type="button" role="menuitem" data-testid="export-view-dxf" onClick={onExportViewDxf}>
+                  DXF
+                </button>
+              ) : null}
+              {onExportViewPdf ? (
+                <button type="button" role="menuitem" data-testid="export-view-pdf" onClick={onExportViewPdf}>
+                  PDF
+                </button>
+              ) : null}
+            </div>
+          </details>
         ) : null}
         <button
           type="button"

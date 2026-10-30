@@ -786,16 +786,19 @@ export function PropertiesPanel({
             onKeyDown={(e) => e.key === 'Enter' && applyLevel()}
           />
         </div>
-        <div className="empty" style={{ padding: 0 }}>
+        <p className="panel-hint">
           Double-click the level plane (or its contour) in the viewport to activate it.
-        </div>
+        </p>
       </div>
     );
   }
 
   return (
-    <div className="empty">
-      Select an element or a level. Double-click a level contour to activate its work plane.
+    <div className="inspector-empty">
+      <div className="inspector-empty-title">Nothing selected</div>
+      <p className="panel-hint">
+        Select an element in the viewport or Project browser. Click a level to edit elevation.
+      </p>
     </div>
   );
 }
