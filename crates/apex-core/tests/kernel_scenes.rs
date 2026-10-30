@@ -460,6 +460,59 @@ fn external_kernel_settles_on_the_house() {
     }
 }
 
+/// The browser path again, through the three benchmark edits: each must
+/// return and the pump must settle afterwards.
+#[test]
+fn external_kernel_edits_settle() {
+    fn pump(p: &mut Project) {
+        for _ in 0..40 {
+            let jobs = p.take_kernel_jobs();
+            if jobs.is_empty() {
+                return;
+            }
+            let results = jobs
+                .iter()
+                .map(|j| {
+                    let r = apex_smlib::run(&j.solids, 1e-3).ok();
+                    (j.key, r.map(|r| (r.points, r.tris)))
+                })
+                .collect();
+            p.apply_kernel_results(results);
+        }
+        panic!("kernel did not settle");
+    }
+    let mut p = scenes::e2e_house();
+    p.set_external_kernel();
+    pump(&mut p);
+    for e in house_edits(&p) {
+        eprintln!("EDIT {e}");
+        ex(&mut p, e);
+        pump(&mut p);
+    }
+}
+
+fn house_edits(p: &Project) -> Vec<serde_json::Value> {
+    let find = |comp: &str, pick: &dyn Fn(&TriangleMesh) -> bool| {
+        p.document()
+            .elements()
+            .filter(|e| e.component_id == comp)
+            .find(|e| p.document().get_mesh(e.id).is_some_and(pick))
+            .map(|e| e.id.to_string())
+            .unwrap()
+    };
+    let mid = find("apex.wall", &|m| {
+        m.aabb()
+            .is_some_and(|(a, b)| b[0] - a[0] < 0.5 && a[0] > 4.0 && a[1] < 1.0)
+    });
+    let window = find("apex.window", &|_| true);
+    let roof = find("apex.roof.pitched", &|_| true);
+    vec![
+        json!({"op":"move_elements","ids":[mid],"delta":[0.3,0,0]}),
+        json!({"op":"set_element_species","id":window,"species":"apex.window.double-1500x1400"}),
+        json!({"op":"update_element","id":roof,"params":{"overhang":0.7}}),
+    ]
+}
+
 /// Before/after numbers for the performance phase: full load and three
 /// edits per kernel, with the number of element rebuilds each one costs.
 /// `cargo test --release -p apex-core --test kernel_scenes bench -- --ignored --nocapture`
