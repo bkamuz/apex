@@ -94,6 +94,7 @@ import {
   selectKernel,
   setKernelSceneSink,
 } from './kernel/geometryKernel';
+import { KernelToggle } from './ui/KernelToggle';
 import {
   GRID_STEP,
   orthoConstrain,
@@ -244,6 +245,7 @@ export default function App() {
 
   const [ready, setReady] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [kernelEpoch, setKernelEpoch] = useState(0);
   const [info, setInfo] = useState<string | null>(null);
   const [showGettingStarted, setShowGettingStarted] = useState(() => {
     try {
@@ -1869,8 +1871,11 @@ export default function App() {
         rendererRef.current = new ViewportRenderer(canvas);
         // Test hook: world -> client mapping so UI scripts can click real points.
         (window as unknown as { __apexTest?: unknown }).__apexTest = {
-          /** Boolean kernel for wall openings: 'mesh' (default) or 'smlib'. */
-          setKernel: (name: 'mesh' | 'smlib') => applyScene(selectKernel(name)),
+          /** Geometry kernel: 'smlib' (default, exact) or 'mesh'. */
+          setKernel: (name: 'mesh' | 'smlib') => {
+            applyScene(selectKernel(name));
+            setKernelEpoch((n) => n + 1);
+          },
           kernelStats: () => ({ ...kernelStats, kernel: currentKernel() }),
           worldToClient: (p: Vec3) => rendererRef.current?.worldToClient(p) ?? null,
           getCamera: () => rendererRef.current?.getCamera() ?? null,
@@ -1910,9 +1915,10 @@ export default function App() {
         syncCatalog();
         installGlobalSdk();
 
-        // Exact SMLib booleans for wall openings: opt-in until parity.
+        // Exact SMLib booleans by default; `?kernel=mesh` or the toggle opts out.
         setKernelSceneSink((next) => applySceneRef.current(next, false));
         if (preferredKernel() === 'smlib') selectKernel('smlib');
+        setKernelEpoch((n) => n + 1);
 
         let initial = apexGetScene();
         if (
@@ -2645,6 +2651,7 @@ export default function App() {
                 return r.snapshotDataUrl();
               }}
             />
+            <KernelToggle key={kernelEpoch} onScene={(next) => applyScene(next)} />
             <input
               ref={fileRef}
               type="file"

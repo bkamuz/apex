@@ -4,8 +4,8 @@
 //! ComponentDefinitions stay data: a Custom recipe step points at these.
 
 use apex_geometry::{
-    box_mesh, extrude, mesh_boolean, mesh_volume, BooleanOp, Curve, Frame, GeometryError, Profile,
-    ShapedSurface, TriangleMesh, Underside,
+    box_mesh, extrude, mesh_volume, BooleanOp, Curve, Frame, GeometryError, Profile, ShapedSurface,
+    TriangleMesh, Underside,
 };
 use glam::Vec3;
 
@@ -256,7 +256,7 @@ impl RoofShape {
                     ],
                     [mx[0] as f32 + 1.0, hi as f32, mx[1] as f32 + 1.0],
                 );
-                mesh = mesh_boolean(&mesh, &keep, BooleanOp::Intersect).unwrap_or(mesh);
+                mesh = crate::kroute::kbool(&mesh, &keep, BooleanOp::Intersect).unwrap_or(mesh);
             }
             EaveCut::Perpendicular => {
                 // One half-space per eave edge: the plane through the top
@@ -310,7 +310,7 @@ impl RoofShape {
                     } else {
                         keep
                     };
-                    if let Ok(cut) = mesh_boolean(&mesh, &keep, BooleanOp::Intersect) {
+                    if let Ok(cut) = crate::kroute::kbool(&mesh, &keep, BooleanOp::Intersect) {
                         if !cut.is_empty() {
                             mesh = cut;
                         }

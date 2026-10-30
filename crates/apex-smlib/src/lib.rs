@@ -74,6 +74,46 @@ pub fn describe(status: i32) -> String {
     }
 }
 
+/// The bridge's triangles in a canonical order (each rotated to start at
+/// its smallest vertex, then sorted; vertices renumbered by first use), so
+/// equal results are bit-identical whatever order the BRep walked faces in.
+fn canonical(points: &[f64], tris: &[i32]) -> (Vec<f64>, Vec<i32>) {
+    let p = |i: i32| {
+        let k = i as usize * 3;
+        [points[k], points[k + 1], points[k + 2]]
+    };
+    let key = |v: [f64; 3]| v.map(f64::to_bits);
+    let lt = |a: [f64; 3], b: [f64; 3]| a.partial_cmp(&b) == Some(std::cmp::Ordering::Less);
+    let mut list: Vec<[[f64; 3]; 3]> = tris
+        .chunks(3)
+        .map(|t| {
+            let v = [p(t[0]), p(t[1]), p(t[2])];
+            let m = if lt(v[1], v[0]) && !lt(v[2], v[1]) {
+                1
+            } else if lt(v[2], v[0]) && lt(v[2], v[1]) {
+                2
+            } else {
+                0
+            };
+            [v[m], v[(m + 1) % 3], v[(m + 2) % 3]]
+        })
+        .collect();
+    list.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    let mut ids = std::collections::HashMap::new();
+    let (mut out_p, mut out_t) = (Vec::new(), Vec::with_capacity(tris.len()));
+    for t in &list {
+        for v in t {
+            let n = ids.len() as i32;
+            let id = *ids.entry(key(*v)).or_insert_with(|| {
+                out_p.extend_from_slice(v);
+                n
+            });
+            out_t.push(id);
+        }
+    }
+    (out_p, out_t)
+}
+
 /// Exact BRep boolean kernel.
 #[derive(Debug, Clone, Copy)]
 pub struct SmlibKernel {
@@ -99,7 +139,8 @@ impl GeometryKernel for SmlibKernel {
     ) -> Result<TriangleMesh, KernelError> {
         let solids = PlanarSolids::encode(base, tools)?;
         let r = run(&solids, self.chord)?;
-        Ok(mesh_from_indexed(&r.points, &r.tris))
+        let (points, tris) = canonical(&r.points, &r.tris);
+        Ok(mesh_from_indexed(&points, &tris))
     }
 }
 

@@ -1,7 +1,7 @@
 //! Universal genus geometry in a project: hosted (frame from the host
 //! curve) and free (point / line) placements, host cuts and neighbour cuts.
 
-use apex_geometry::{mesh_boolean, BooleanOp, TriangleMesh};
+use apex_geometry::{BooleanOp, TriangleMesh};
 use glam::Vec3;
 
 use super::{project_onto_curve_xz, Project};
@@ -216,7 +216,7 @@ impl Project {
 /// Subtract every cut mesh, keeping the mesh when a boolean fails.
 pub(crate) fn subtract_all(mut mesh: TriangleMesh, cuts: &[GenusCut]) -> TriangleMesh {
     for cut in cuts {
-        if let Ok(r) = mesh_boolean(&mesh, &cut.mesh, BooleanOp::Subtract) {
+        if let Ok(r) = crate::kroute::kbool(&mesh, &cut.mesh, BooleanOp::Subtract) {
             mesh = r;
         }
     }

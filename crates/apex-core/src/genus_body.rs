@@ -21,7 +21,7 @@
 use std::collections::BTreeMap;
 use std::fmt;
 
-use apex_geometry::{mesh_boolean, triangulate_shape, BooleanOp, TriangleMesh};
+use apex_geometry::{triangulate_shape, BooleanOp, TriangleMesh};
 use glam::Vec3;
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -773,8 +773,27 @@ pub struct GenusBuild {
 impl GenusBuild {
     pub fn mesh(&self) -> TriangleMesh {
         let mut out = TriangleMesh::empty();
+        // With an exact kernel active, the opaque solids (frame, sashes,
+        // leaves) become one seamless union; glass stays separate (tagged).
+        let opaque: Vec<&TriangleMesh> = self
+            .solids
+            .iter()
+            .filter(|s| !s.glass && !s.mesh.is_empty())
+            .map(|s| &s.mesh)
+            .collect();
+        let united = if crate::kroute::active() && !opaque.is_empty() {
+            crate::kroute::union_parts(&opaque)
+        } else {
+            None
+        };
         for s in &self.solids {
+            if united.is_some() && !s.glass {
+                continue;
+            }
             out.append(&s.mesh);
+        }
+        if let Some(u) = &united {
+            out.append(u);
         }
         out.append(&self.lines);
         out
@@ -1051,7 +1070,7 @@ fn build_level(
     // Self cuts: real booleans against each own solid, in body order.
     for (cut_path, cut) in &self_cuts {
         for solid in &mut out.solids {
-            match mesh_boolean(&solid.mesh, cut, BooleanOp::Subtract) {
+            match crate::kroute::kbool(&solid.mesh, cut, BooleanOp::Subtract) {
                 Ok(mut m) => {
                     if solid.glass {
                         tag(&mut m, GLASS_NORMAL_TAG);
@@ -1358,7 +1377,7 @@ mod tests {
             1.0,
         );
         let cut = apex_geometry::box_mesh([0.5, -1.0, 0.5], [2.0, 2.0, 2.0]);
-        let r0 = mesh_boolean(&m, &cut, BooleanOp::Subtract).expect("closed");
+        let r0 = crate::kroute::kbool(&m, &cut, BooleanOp::Subtract).expect("closed");
         assert!((apex_geometry::mesh_volume(&r0) - 0.75).abs() < 1e-4);
         assert!((apex_geometry::mesh_volume(&m) - 1.0).abs() < 1e-5);
         let mut r = TriangleMesh::empty();

@@ -19,9 +19,7 @@
 //! subtractions. Edits go through the param, so they are ordinary undoable
 //! element updates.
 
-use apex_geometry::{
-    mesh_boolean, BooleanOp, LayeredSolid, ShapedSurface, TriangleMesh, Underside,
-};
+use apex_geometry::{BooleanOp, LayeredSolid, ShapedSurface, TriangleMesh, Underside};
 use serde::{Deserialize, Serialize};
 
 use crate::element::{Element, ElementId};
@@ -194,7 +192,7 @@ impl Project {
         if all.is_empty() {
             return Some(mesh);
         }
-        if let Ok(cut) = mesh_boolean(&mesh, &all.to_mesh(), BooleanOp::Subtract) {
+        if let Ok(cut) = crate::kroute::kbool(&mesh, &all.to_mesh(), BooleanOp::Subtract) {
             mesh = cut;
         }
         Some(mesh)

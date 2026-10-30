@@ -382,6 +382,60 @@ fn contains(poly: &[[f64; 2]], q: [f64; 2]) -> bool {
     inside
 }
 
+/// Split a mesh into its connected shells (vertices welded), in order of
+/// first triangle. Feature edges are dropped.
+pub fn split_shells(mesh: &TriangleMesh) -> Vec<TriangleMesh> {
+    let mut lookup: HashMap<[i64; 3], usize> = HashMap::new();
+    let ids: Vec<usize> = mesh
+        .positions
+        .chunks(3)
+        .map(|p| {
+            let k = [p[0], p[1], p[2]].map(|v| (v as f64 / WELD).round() as i64);
+            let n = lookup.len();
+            *lookup.entry(k).or_insert(n)
+        })
+        .collect();
+    let mut parent: Vec<usize> = (0..lookup.len()).collect();
+    fn find(p: &mut [usize], mut x: usize) -> usize {
+        while p[x] != x {
+            p[x] = p[p[x]];
+            x = p[x];
+        }
+        x
+    }
+    for t in mesh.indices.chunks(3) {
+        let a = find(&mut parent, ids[t[0] as usize]);
+        for &i in &t[1..] {
+            let b = find(&mut parent, ids[i as usize]);
+            parent[b] = a;
+        }
+    }
+    let mut order: BTreeMap<usize, usize> = BTreeMap::new();
+    let mut out: Vec<TriangleMesh> = Vec::new();
+    for t in mesh.indices.chunks(3) {
+        let root = find(&mut parent, ids[t[0] as usize]);
+        let next = out.len();
+        let k = *order.entry(root).or_insert(next);
+        if k == out.len() {
+            out.push(TriangleMesh::empty());
+        }
+        let v = |i: u32| {
+            let i = i as usize * 3;
+            [
+                mesh.positions[i],
+                mesh.positions[i + 1],
+                mesh.positions[i + 2],
+            ]
+        };
+        let n = {
+            let i = t[0] as usize * 3;
+            [mesh.normals[i], mesh.normals[i + 1], mesh.normals[i + 2]]
+        };
+        out[k].push_triangle(v(t[0]), v(t[1]), v(t[2]), n);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

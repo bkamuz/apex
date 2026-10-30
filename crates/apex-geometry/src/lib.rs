@@ -27,7 +27,8 @@ pub use join::{
     plan_distance, split_curve_at, stem_trim, JOIN_SNAP,
 };
 pub use kernel::{
-    mesh_from_indexed, planar_faces, GeometryKernel, KernelError, MeshKernel, PlanarSolids,
+    mesh_from_indexed, planar_faces, split_shells, GeometryKernel, KernelError, MeshKernel,
+    PlanarSolids,
 };
 pub use mesh::TriangleMesh;
 pub use prism::{

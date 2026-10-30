@@ -214,19 +214,9 @@ impl Project {
         }
     }
 
-    /// Rebuild every element that has hosted children (walls with openings).
+    /// Rebuild every element: the kernel routes every boolean and body.
     fn refresh_hosts(&mut self) {
-        let hosts: Vec<ElementId> = self
-            .document
-            .elements()
-            .filter_map(|e| e.parent_id)
-            .collect();
-        let mut all = hosts.clone();
-        for id in &hosts {
-            if let Some(e) = self.document.get_element(*id).cloned() {
-                all.extend(self.neighbour_cut_dependents(&e));
-            }
-        }
+        let all: Vec<ElementId> = self.document.elements().map(|e| e.id).collect();
         self.refresh_meshes(all);
     }
 }

@@ -1714,6 +1714,32 @@ impl Project {
         &self,
         element: &Element,
     ) -> Result<TriangleMesh, RegistryError> {
+        if !self.exact_kernel_selected() {
+            return self.build_element_mesh_routed(element);
+        }
+        let (mesh, pending) = crate::kroute::with_kernel(self.kernel.kernel.clone(), || {
+            self.build_element_mesh_routed(element)
+        });
+        if pending.is_empty() {
+            // Settled: a canonical triangle order keeps exact builds stable.
+            return mesh.map(crate::kroute::canonical);
+        }
+        {
+            let mut waiting = self.kernel.waiting.lock().unwrap();
+            for key in pending {
+                let ids = waiting.entry(key).or_default();
+                if !ids.contains(&element.id) {
+                    ids.push(element.id);
+                }
+            }
+        }
+        // Still waiting on an external kernel: the mesh path, untouched.
+        mesh
+    }
+
+    /// [`Self::build_element_mesh_with_cuts`] with booleans routed through
+    /// the active kernel (see `kroute`).
+    fn build_element_mesh_routed(&self, element: &Element) -> Result<TriangleMesh, RegistryError> {
         if element.component_id == booleans::BOOLEAN {
             return Ok(self.boolean_mesh(element));
         }
@@ -1731,7 +1757,18 @@ impl Project {
             tag_normals(&mut mesh, GHOST_NORMAL_TAG);
             return Ok(mesh);
         }
-        self.build_uncombined_mesh(element)
+        let mesh = self.build_uncombined_mesh(element)?;
+        if self.element_genus_build_kind(element) {
+            // Genus bodies are unioned per solid in `GenusBuild::mesh`.
+            return Ok(mesh);
+        }
+        Ok(crate::kroute::solidify(mesh))
+    }
+
+    fn element_genus_build_kind(&self, element: &Element) -> bool {
+        self.registry
+            .get(&element.component_id)
+            .is_some_and(|d| d.genus.is_some())
     }
 
     /// Slab opening shown as a translucent, pickable ghost filling the

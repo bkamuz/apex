@@ -2005,3 +2005,17 @@ input[type="radio"] {
 .agent-bridge-panel .agent-bridge-actions button {
   border: 1px solid var(--chrome-line);
 }
+
+.kernel-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  padding: 0 8px;
+  color: var(--text);
+}
+
+.kernel-toggle select {
+  font: inherit;
+  padding: 2px 4px;
+}
