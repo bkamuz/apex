@@ -2208,6 +2208,31 @@ pub fn import_ifc(text: &str) -> Result<JsValue, JsValue> {
     })
 }
 
+/// Replace the current project from pre-tessellated IFC meshes (Apex Y-up metres).
+///
+/// `payload_json` matches [`apex_ifc::MeshImportPayload`]:
+/// `{ levels: [{name, elevation}], products: [{name, ifc_type, origin, positions, indices, level_index?}] }`.
+/// Used by the IFC-Lite / web-ifc PluginHost Open path.
+#[wasm_bindgen(js_name = importIfcMeshes)]
+pub fn import_ifc_meshes(payload_json: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let payload: apex_ifc::MeshImportPayload = parse_json("ifc mesh payload", payload_json)?;
+        let stats =
+            apex_ifc::import_meshes_into(project, payload).map_err(|e| err(e.to_string()))?;
+        with_selection(|s| s.set(None));
+        clear_datum_selections();
+        let scene_val = scene(project)?;
+        let summary = to_js(&serde_json::json!({
+            "levels": stats.levels,
+            "products": stats.products,
+            "skipped_no_mesh": stats.skipped_no_mesh,
+            "warnings": stats.warnings,
+        }))?;
+        let _ = js_sys::Reflect::set(&scene_val, &JsValue::from_str("ifc_import"), &summary);
+        Ok(scene_val)
+    })
+}
+
 /// Replace the current project from a JSON snapshot.
 #[wasm_bindgen(js_name = importProject)]
 pub fn import_project(json: &str) -> Result<JsValue, JsValue> {

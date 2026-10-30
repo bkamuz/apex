@@ -41,7 +41,16 @@ await page.waitForTimeout(800);
 
 const fileInput = page.locator('input[type="file"][accept*=".ifc"], input[type="file"]').first();
 await fileInput.setInputFiles(IFC_PATH);
-await page.waitForTimeout(1500);
+// IFC-Lite tessellation + mesh ingest can take several seconds on public samples.
+await page.waitForFunction(
+  () => {
+    const status = document.querySelector('[data-testid="status-line"], .status-line, footer');
+    const text = status?.textContent ?? '';
+    return /Opened IFC:|Opened IFC\b/i.test(text) || /error|fail/i.test(text);
+  },
+  { timeout: 120_000 },
+).catch(() => {});
+await page.waitForTimeout(800);
 
 // Prefer a 3D view if a view tab exists.
 const view3d = page.getByRole('button', { name: /3D|3d|Perspective/i }).first();

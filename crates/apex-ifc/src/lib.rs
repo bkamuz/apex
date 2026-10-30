@@ -13,7 +13,10 @@
 mod import;
 mod parse;
 
-pub use import::{import_ifc4_into, ImportError, ImportStats};
+pub use import::{
+    import_ifc4_into, import_meshes_into, ImportError, ImportStats, MeshImportLevel,
+    MeshImportPayload, MeshImportProduct,
+};
 
 use std::collections::BTreeMap;
 use std::fmt::Write as _;

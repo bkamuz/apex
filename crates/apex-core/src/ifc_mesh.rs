@@ -106,30 +106,100 @@ fn offset_mesh(mesh: &TriangleMesh, delta: Vec3) -> TriangleMesh {
     out
 }
 
+/// Cosine of the feature-edge bend threshold (~20°), matching `apex_geometry`.
+const FEATURE_EDGE_COS: f32 = 0.9393727; // cos(0.35 rad)
+/// Quantize positions when welding IFC-Lite flat-shaded verts (mm-ish).
+const WELD_Q: f32 = 1e4;
+
 fn mesh_from_indexed(positions: &[f32], indices: &[u32]) -> TriangleMesh {
-    let mut mesh = TriangleMesh::empty();
+    // IFC-Lite (and many tessellators) emit unique verts per face for flat
+    // shading. Weld by quantized position so opposite half-edges meet and we
+    // keep silhouette / crease edges instead of every triangle diagonal.
+    let mut weld: std::collections::HashMap<[i64; 3], u32> = std::collections::HashMap::new();
+    let mut welded_pos: Vec<[f32; 3]> = Vec::new();
+    let remap = |i: u32,
+                 weld: &mut std::collections::HashMap<[i64; 3], u32>,
+                 welded_pos: &mut Vec<[f32; 3]>|
+     -> Option<u32> {
+        let i = i as usize;
+        let p = [
+            *positions.get(i * 3)?,
+            *positions.get(i * 3 + 1)?,
+            *positions.get(i * 3 + 2)?,
+        ];
+        let key = [
+            (p[0] * WELD_Q).round() as i64,
+            (p[1] * WELD_Q).round() as i64,
+            (p[2] * WELD_Q).round() as i64,
+        ];
+        if let Some(&id) = weld.get(&key) {
+            return Some(id);
+        }
+        let id = welded_pos.len() as u32;
+        weld.insert(key, id);
+        welded_pos.push(p);
+        Some(id)
+    };
+
+    let mut welded_indices: Vec<u32> = Vec::with_capacity(indices.len());
     for tri in indices.chunks(3) {
         if tri.len() < 3 {
             continue;
         }
-        let vert = |i: u32| -> Option<[f32; 3]> {
-            let i = i as usize;
-            Some([
-                *positions.get(i * 3)?,
-                *positions.get(i * 3 + 1)?,
-                *positions.get(i * 3 + 2)?,
-            ])
-        };
-        let (Some(a), Some(b), Some(c)) = (vert(tri[0]), vert(tri[1]), vert(tri[2])) else {
+        let (Some(a), Some(b), Some(c)) = (
+            remap(tri[0], &mut weld, &mut welded_pos),
+            remap(tri[1], &mut weld, &mut welded_pos),
+            remap(tri[2], &mut weld, &mut welded_pos),
+        ) else {
             continue;
         };
+        if a == b || b == c || c == a {
+            continue;
+        }
+        welded_indices.extend_from_slice(&[a, b, c]);
+    }
+
+    let mut mesh = TriangleMesh::empty();
+    let mut face_normals: Vec<Vec3> = Vec::new();
+    let mut halfedges: std::collections::HashMap<(u32, u32), usize> =
+        std::collections::HashMap::new();
+
+    for tri in welded_indices.chunks(3) {
+        let a = welded_pos[tri[0] as usize];
+        let b = welded_pos[tri[1] as usize];
+        let c = welded_pos[tri[2] as usize];
         let ab = Vec3::from(b) - Vec3::from(a);
         let ac = Vec3::from(c) - Vec3::from(a);
-        let n = ab.cross(ac).normalize_or_zero().to_array();
-        mesh.push_triangle(a, b, c, n);
-        mesh.push_edge(a, b);
-        mesh.push_edge(b, c);
-        mesh.push_edge(c, a);
+        let n = ab.cross(ac).normalize_or_zero();
+        let face_i = face_normals.len();
+        face_normals.push(n);
+        mesh.push_triangle(a, b, c, n.to_array());
+        halfedges.insert((tri[0], tri[1]), face_i);
+        halfedges.insert((tri[1], tri[2]), face_i);
+        halfedges.insert((tri[2], tri[0]), face_i);
+    }
+
+    let mut seen: std::collections::HashSet<(u32, u32)> = std::collections::HashSet::new();
+    // Prefer sharp creases, then boundaries; cap so dense tessellations stay interactive.
+    const EDGE_CAP: usize = 2_048;
+    let mut creases: Vec<(u32, u32)> = Vec::new();
+    let mut boundaries: Vec<(u32, u32)> = Vec::new();
+    for (&(a, b), &fi) in &halfedges {
+        let key = if a < b { (a, b) } else { (b, a) };
+        if !seen.insert(key) {
+            continue;
+        }
+        match halfedges.get(&(b, a)) {
+            Some(&fj) => {
+                if face_normals[fi].dot(face_normals[fj]) < FEATURE_EDGE_COS {
+                    creases.push((a, b));
+                }
+            }
+            None => boundaries.push((a, b)),
+        }
+    }
+    for (a, b) in creases.into_iter().chain(boundaries).take(EDGE_CAP) {
+        mesh.push_edge(welded_pos[a as usize], welded_pos[b as usize]);
     }
     mesh
 }

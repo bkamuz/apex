@@ -166,6 +166,15 @@ export function getSelectedSpace(): any;
 export function importIfc(text: string): any;
 
 /**
+ * Replace the current project from pre-tessellated IFC meshes (Apex Y-up metres).
+ *
+ * `payload_json` matches [`apex_ifc::MeshImportPayload`]:
+ * `{ levels: [{name, elevation}], products: [{name, ifc_type, origin, positions, indices, level_index?}] }`.
+ * Used by the IFC-Lite / web-ifc PluginHost Open path.
+ */
+export function importIfcMeshes(payload_json: string): any;
+
+/**
  * Replace the current project from a JSON snapshot.
  */
 export function importProject(json: string): any;
@@ -448,6 +457,7 @@ export interface InitOutput {
     readonly getSelectedSectionCut: () => [number, number, number];
     readonly getSelectedSpace: () => [number, number, number];
     readonly importIfc: (a: number, b: number) => [number, number, number];
+    readonly importIfcMeshes: (a: number, b: number) => [number, number, number];
     readonly importProject: (a: number, b: number) => [number, number, number];
     readonly initApp: () => [number, number];
     readonly joinPaths: (a: number, b: number) => [number, number, number];
