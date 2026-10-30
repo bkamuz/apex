@@ -1,4 +1,8 @@
 import initWasm, {
+  setGeometryKernel,
+  takeKernelJobs,
+  applyKernelResults,
+  kernelStatus,
   createElement,
   createElementWithParent,
   createLevel,
@@ -779,4 +783,41 @@ export function apexRunQuery(query: Record<string, unknown>): unknown {
 /** Machine-readable catalog of element types, commands, queries and annotation kinds. */
 export function apexDescribeApi(): unknown {
   return JSON.parse(describeApi());
+}
+
+// ---------------------------------------------------------------------------
+// Geometry kernel
+// ---------------------------------------------------------------------------
+
+export type GeometryKernelName = 'mesh' | 'smlib';
+
+export interface KernelJobDto {
+  key: string;
+  points: number[];
+  ints: number[];
+  ops: number[];
+  solids: number;
+}
+
+export interface KernelResultDto {
+  key: string;
+  points?: number[];
+  tris?: number[];
+  error?: string;
+}
+
+export function apexSetGeometryKernel(name: GeometryKernelName): SceneDto {
+  return setGeometryKernel(name) as SceneDto;
+}
+
+export function apexTakeKernelJobs(): KernelJobDto[] {
+  return takeKernelJobs() as KernelJobDto[];
+}
+
+export function apexApplyKernelResults(results: KernelResultDto[]): SceneDto {
+  return applyKernelResults(results) as SceneDto;
+}
+
+export function apexKernelStatus(): { kernel: string; pending: number } {
+  return kernelStatus() as { kernel: string; pending: number };
 }

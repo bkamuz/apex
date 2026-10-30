@@ -179,6 +179,16 @@ meshes; type → entity mapping comes from each definition's `ifc_entity`.
 - Desktop via Tauri
 - Rotate / mirror / array transforms; richer MEP fittings (tees)
 
+## Geometry kernels
+
+Wall and slab openings (doors, windows, slab openings) are subtracted by a
+pluggable `GeometryKernel` (`apex-geometry`). The default is the existing
+mesh/layered-solid path. An exact B-rep kernel built on the vendored
+[SMLib](third_party/smlib/README.md) runs in a Web Worker; try it with
+`?kernel=smlib` (or `__apexTest.setKernel('smlib')`). Until the worker answers,
+the default result is shown. Parity tests: `cargo test -p apex-core --test kernel_parity`.
+
 ## License
 
-MIT
+MIT. Third-party code keeps its own license: `third_party/smlib` (SMLib,
+Apache-2.0, see its `NOTICE`), `third_party/boolmesh`.

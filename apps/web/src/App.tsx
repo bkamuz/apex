@@ -87,6 +87,14 @@ import {
   apexSlabShapeInfo,
 } from './wasm/apex';
 import {
+  currentKernel,
+  kernelStats,
+  preferredKernel,
+  pumpKernelJobs,
+  selectKernel,
+  setKernelSceneSink,
+} from './kernel/geometryKernel';
+import {
   GRID_STEP,
   orthoConstrain,
   snapPointToGrid,
@@ -577,6 +585,7 @@ export default function App() {
   const applyScene = useCallback(
     (next: SceneDto, fitCamera = false) => {
       setScene(next);
+      pumpKernelJobs();
       if (next.room_detect_report) {
         const { created, loops_found } = next.room_detect_report;
         if (created > 0) {
@@ -622,6 +631,8 @@ export default function App() {
     },
     [activeViewId, splitTab, syncEditGizmo, syncSceneToRenderer],
   );
+  const applySceneRef = useRef(applyScene);
+  applySceneRef.current = applyScene;
 
   /** Screen point to a world point on the active work plane, with Shift snapping. */
   const resolvePoint = useCallback(
@@ -1858,6 +1869,9 @@ export default function App() {
         rendererRef.current = new ViewportRenderer(canvas);
         // Test hook: world -> client mapping so UI scripts can click real points.
         (window as unknown as { __apexTest?: unknown }).__apexTest = {
+          /** Boolean kernel for wall openings: 'mesh' (default) or 'smlib'. */
+          setKernel: (name: 'mesh' | 'smlib') => applyScene(selectKernel(name)),
+          kernelStats: () => ({ ...kernelStats, kernel: currentKernel() }),
           worldToClient: (p: Vec3) => rendererRef.current?.worldToClient(p) ?? null,
           getCamera: () => rendererRef.current?.getCamera() ?? null,
           setCamera: (c: Parameters<ViewportRenderer['setCamera']>[0]) => rendererRef.current?.setCamera(c),
@@ -1895,6 +1909,10 @@ export default function App() {
         // The toolbar is generated from whatever the core has installed.
         syncCatalog();
         installGlobalSdk();
+
+        // Exact SMLib booleans for wall openings: opt-in until parity.
+        setKernelSceneSink((next) => applySceneRef.current(next, false));
+        if (preferredKernel() === 'smlib') selectKernel('smlib');
 
         let initial = apexGetScene();
         if (
