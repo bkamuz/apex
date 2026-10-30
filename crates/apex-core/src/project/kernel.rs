@@ -21,7 +21,6 @@ use crate::element::ElementId;
 /// Kernel results kept for reuse; older entries are dropped past this.
 const CACHE_LIMIT: usize = 1024;
 
-
 /// A kernel computed elsewhere: requests become jobs, results are cached by
 /// the exact encoded input.
 #[derive(Default)]
@@ -161,6 +160,13 @@ impl Project {
     /// Results from the external kernel: `(key, Some((points, tris)))`, or
     /// `None` when it failed. Rebuilds the waiting elements; returns them.
     pub fn apply_kernel_results(&mut self, results: Vec<KernelResult>) -> Vec<ElementId> {
+        self.memo.enter();
+        let out = self.apply_kernel_results_unscoped(results);
+        self.memo.leave();
+        out
+    }
+
+    fn apply_kernel_results_unscoped(&mut self, results: Vec<KernelResult>) -> Vec<ElementId> {
         let Some(ext) = self.kernel.external.clone() else {
             return Vec::new();
         };

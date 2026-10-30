@@ -9,12 +9,14 @@ mod booleans;
 pub mod commands;
 mod genus_build;
 pub mod kernel;
+mod memo;
 mod roof_attach;
 mod slab_shape;
 pub use genus_build::GenusParamInput;
 pub use roof_attach::AttachEnd;
 pub use slab_shape::{ShapeHandle, ShapeInfo, SlabShape};
 mod solids;
+pub use solids::{element_build_ms, element_builds};
 mod space_labels;
 pub use booleans::boolean_params;
 
@@ -188,6 +190,7 @@ pub struct Project {
     pub(crate) view_annotation_counter: u32,
     history: History,
     pub(crate) kernel: kernel::KernelSlot,
+    pub(crate) memo: memo::SolidMemo,
 }
 
 impl Default for Project {
@@ -216,6 +219,7 @@ impl Project {
             view_annotation_counter: 0,
             history: History::default(),
             kernel: Default::default(),
+            memo: Default::default(),
         };
         project.ensure_default_views();
         project
@@ -509,12 +513,25 @@ impl Project {
         Ok(())
     }
 
+    pub fn update_element(
+        &mut self,
+        id: ElementId,
+        params: Option<ParamMap>,
+        placement: Option<Placement>,
+        record: bool,
+    ) -> Result<(), RegistryError> {
+        self.memo.enter();
+        let out = self.update_element_unscoped(id, params, placement, record);
+        self.memo.leave();
+        out
+    }
+
     /// Apply a parameter patch and/or a new placement, then rebuild the mesh.
     ///
     /// When `record` is false, intermediate edits (e.g. live anchor drags) skip
     /// history. When a coalesced edit is open ([`Self::begin_undo_group`]),
     /// pass `record: true` on the final mutation to commit one undo step.
-    pub fn update_element(
+    fn update_element_unscoped(
         &mut self,
         id: ElementId,
         params: Option<ParamMap>,
@@ -1272,11 +1289,23 @@ impl Project {
         self.document.effective_level_id(id)
     }
 
+    pub fn translate_elements(
+        &mut self,
+        ids: &[ElementId],
+        delta: Vec3,
+        record: bool,
+    ) -> Result<(), RegistryError> {
+        self.memo.enter();
+        let out = self.translate_elements_unscoped(ids, delta, record);
+        self.memo.leave();
+        out
+    }
+
     /// Move one or more elements by a plan-space offset.
     ///
     /// Descendants travel with their parent. A child named in `ids` alongside
     /// its ancestor is moved once, not twice, because the set is deduplicated.
-    pub fn translate_elements(
+    fn translate_elements_unscoped(
         &mut self,
         ids: &[ElementId],
         delta: Vec3,
@@ -1714,6 +1743,22 @@ impl Project {
         &self,
         element: &Element,
     ) -> Result<TriangleMesh, RegistryError> {
+        solids::ELEMENT_BUILDS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        #[cfg(not(target_arch = "wasm32"))]
+        let t0 = std::time::Instant::now();
+        let r = self.build_element_mesh_with_cuts_inner(element);
+        #[cfg(not(target_arch = "wasm32"))]
+        solids::BUILD_NS.fetch_add(
+            t0.elapsed().as_nanos() as usize,
+            std::sync::atomic::Ordering::Relaxed,
+        );
+        r
+    }
+
+    fn build_element_mesh_with_cuts_inner(
+        &self,
+        element: &Element,
+    ) -> Result<TriangleMesh, RegistryError> {
         if !self.exact_kernel_selected() {
             return self.build_element_mesh_routed(element);
         }
@@ -2131,10 +2176,21 @@ impl Project {
         Ok(ids)
     }
 
+    pub fn set_element_species(
+        &mut self,
+        id: ElementId,
+        type_id: &str,
+    ) -> Result<(), RegistryError> {
+        self.memo.enter();
+        let out = self.set_element_species_unscoped(id, type_id);
+        self.memo.leave();
+        out
+    }
+
     /// Swap an element to another type, possibly of another genus (window
     /// → door). Placement, host and shared instance params (sill) are kept.
     /// One undo step.
-    pub fn set_element_species(
+    fn set_element_species_unscoped(
         &mut self,
         id: ElementId,
         type_id: &str,
@@ -2315,6 +2371,13 @@ impl Project {
     }
 
     fn restore_snapshot(&mut self, snap: ProjectSnapshot) -> Result<(), RegistryError> {
+        self.memo.enter();
+        let out = self.restore_snapshot_unscoped(snap);
+        self.memo.leave();
+        out
+    }
+
+    fn restore_snapshot_unscoped(&mut self, snap: ProjectSnapshot) -> Result<(), RegistryError> {
         // Format 3 predates element parentage; `parent_id` defaults to None on
         // load, so a format 3 file imports as a flat document.
         // Format ≤4 predates construction lines / section cuts (empty via default).

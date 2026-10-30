@@ -459,3 +459,66 @@ fn external_kernel_settles_on_the_house() {
         eprintln!("{name}: settled in {rounds} rounds");
     }
 }
+
+/// Before/after numbers for the performance phase: full load and three
+/// edits per kernel, with the number of element rebuilds each one costs.
+/// `cargo test --release -p apex-core --test kernel_scenes bench -- --ignored --nocapture`
+#[test]
+#[ignore]
+fn bench_house_edits() {
+    use apex_core::{element_build_ms, element_builds};
+    for kernel in ["mesh", "smlib"] {
+        let mut p = scenes::e2e_house();
+        let t = Instant::now();
+        let b0 = element_builds();
+        if kernel == "smlib" {
+            p.set_kernel(Arc::new(SmlibKernel::default()));
+        } else {
+            p.reset_kernel();
+        }
+        let full = (t.elapsed().as_secs_f64() * 1e3, element_builds() - b0);
+        let find = |p: &Project, comp: &str, pick: &dyn Fn(&TriangleMesh) -> bool| {
+            p.document()
+                .elements()
+                .filter(|e| e.component_id == comp)
+                .find(|e| p.document().get_mesh(e.id).is_some_and(pick))
+                .map(|e| e.id.to_string())
+                .unwrap()
+        };
+        let mid = find(&p, "apex.wall", &|m| {
+            m.aabb()
+                .is_some_and(|(a, b)| b[0] - a[0] < 0.5 && a[0] > 4.0 && a[1] < 1.0)
+        });
+        let window = find(&p, "apex.window", &|_| true);
+        let roof = find(&p, "apex.roof.pitched", &|_| true);
+        let edits = [
+            (
+                "move wall",
+                json!({"op":"move_elements","ids":[mid],"delta":[0.3,0,0]}),
+            ),
+            (
+                "window species",
+                json!({"op":"set_element_species","id":window,"species":"apex.window.double-1500x1400"}),
+            ),
+            (
+                "roof overhang",
+                json!({"op":"update_element","id":roof,"params":{"overhang":0.7}}),
+            ),
+        ];
+        let mut out = vec![format!("full {:.0} ms / {} builds", full.0, full.1)];
+        for (name, e) in edits {
+            eprintln!("EDIT {kernel} {name}");
+            let b0 = element_builds();
+            let m0 = element_build_ms();
+            let t = Instant::now();
+            ex(&mut p, e);
+            out.push(format!(
+                "{name} {:.1} ms ({:.1} ms building) / {} builds",
+                t.elapsed().as_secs_f64() * 1e3,
+                element_build_ms() - m0,
+                element_builds() - b0
+            ));
+        }
+        eprintln!("BENCH {kernel}: {}", out.join("; "));
+    }
+}

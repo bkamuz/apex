@@ -84,6 +84,7 @@ pub use project::commands::{
 pub use project::kernel::{ExternalKernel, KernelJob, KernelResult, KernelStatus};
 pub use project::ProjectSnapshot;
 pub use project::{boolean_params, Project, ShapeHandle, ShapeInfo, SlabShape};
+pub use project::{element_build_ms, element_builds};
 pub use reference::{
     RefId, Reference, ReferenceError, ReferenceFilter, ReferenceKind, ReferenceLibrary,
 };

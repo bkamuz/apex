@@ -18,6 +18,13 @@ use apex_geometry::{
 thread_local! {
     static ACTIVE: RefCell<Option<Arc<dyn GeometryKernel>>> = const { RefCell::new(None) };
     static PENDING: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
+    static MISSES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+}
+
+/// Pending results met on this thread so far. A value built while it moved
+/// is provisional and must not be memoized.
+pub(crate) fn pending_misses() -> u64 {
+    MISSES.with(|m| m.get())
 }
 
 /// Run `f` with `kernel` routing booleans. Nested calls keep the outer
@@ -57,6 +64,7 @@ pub(crate) fn kcombine(
         Ok(m) if !m.is_empty() => Some(m),
         Ok(_) => None,
         Err(KernelError::Pending(key)) => {
+            MISSES.with(|m| m.set(m.get() + 1));
             PENDING.with(|p| p.borrow_mut().push(key));
             None
         }

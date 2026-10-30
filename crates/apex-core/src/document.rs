@@ -45,6 +45,9 @@ pub struct Document {
     section_cuts: SectionCutLibrary,
     spaces: SpaceLibrary,
     version: u64,
+    /// Bumped by every change except a mesh-only rewrite of an unchanged
+    /// element: solids derived from element data stay valid while it holds.
+    shape_version: u64,
     /// Level used for new placements (active work plane).
     active_level: Option<LevelId>,
 }
@@ -62,6 +65,11 @@ impl Document {
 
     pub fn version(&self) -> u64 {
         self.version
+    }
+
+    /// Version of everything but meshes (see the field).
+    pub fn shape_version(&self) -> u64 {
+        self.shape_version
     }
 
     pub fn active_level_id(&self) -> Option<LevelId> {
@@ -172,6 +180,7 @@ impl Document {
             }
         }
 
+        self.shape_version = self.shape_version.wrapping_add(1);
         let before = self.level_of_subtree(id);
         if let Some(element) = self.elements.get_mut(&id) {
             element.parent_id = parent;
@@ -399,9 +408,15 @@ impl Document {
 
     pub fn upsert_element(&mut self, element: Element, mesh: TriangleMesh) -> DocumentChange {
         let id = element.id;
+        let shape = self.shape_version;
+        let same = self.elements.get(&id) == Some(&element);
         self.elements.insert(id, element);
         self.meshes.insert(id, mesh);
-        self.bump(DocumentChangeKind::Upsert, vec![id])
+        let change = self.bump(DocumentChangeKind::Upsert, vec![id]);
+        if same {
+            self.shape_version = shape;
+        }
+        change
     }
 
     pub fn update_element(&mut self, element: Element, mesh: TriangleMesh) -> DocumentChange {
@@ -440,6 +455,7 @@ impl Document {
                 .and_then(|element| element.parent_id)
                 == Some(id);
             if is_direct {
+                self.shape_version = self.shape_version.wrapping_add(1);
                 if let Some(element) = self.elements.get_mut(orphan) {
                     element.parent_id = None;
                 }
@@ -496,6 +512,7 @@ impl Document {
                 .map(|level| level.id);
         }
         self.version = self.version.saturating_add(1);
+        self.shape_version = self.shape_version.wrapping_add(1);
     }
 
     /// Build a single scene mesh with per-triangle element pick ids and CAD edges.
@@ -602,6 +619,7 @@ impl Document {
 
     fn bump(&mut self, kind: DocumentChangeKind, element_ids: Vec<ElementId>) -> DocumentChange {
         self.version = self.version.saturating_add(1);
+        self.shape_version = self.shape_version.wrapping_add(1);
         DocumentChange {
             kind,
             element_ids,
