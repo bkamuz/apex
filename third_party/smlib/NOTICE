@@ -1,0 +1,15 @@
+SMLib / SM_API — Solid Modeling Library
+Copyright (c) 2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+Licensed under the Apache License, Version 2.0 (see LICENSE in this directory).
+
+Source: https://github.com/NVIDIA-Omniverse/usd-brep
+Version: usd-brep 1.0.1, commit 3fd5b95
+Vendored paths: SMLib/{inc,src}, SM_API/{inc,src} — copied unmodified.
+
+Added by Apex (also Apache-2.0, part of this vendor drop):
+  shim/tbb/             minimal serial stand-in for the oneTBB headers SMLib
+                        includes (no threads; parallel_for runs in order)
+  bridge/apex_smlib.cpp C entry points used by Apex (planar solids in,
+                        boolean result triangles out)
+  build-wasm.sh         emscripten build of the above into
+                        apps/web/src/kernel/smlib/apex_smlib.{mjs,wasm}

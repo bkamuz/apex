@@ -2,6 +2,7 @@
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
 export const abortUndoGroup: () => [number, number];
+export const applyKernelResults: (a: any) => [number, number, number];
 export const beginUndoGroup: () => [number, number];
 export const canRedo: () => [number, number, number];
 export const canUndo: () => [number, number, number];
@@ -52,6 +53,7 @@ export const getSelectedSpace: () => [number, number, number];
 export const importProject: (a: number, b: number) => [number, number, number];
 export const initApp: () => [number, number];
 export const joinPaths: (a: number, b: number) => [number, number, number];
+export const kernelStatus: () => [number, number, number];
 export const listComponents: () => [number, number, number];
 export const listElements: () => [number, number, number];
 export const listProfiles: (a: number, b: number) => [number, number, number];
@@ -83,6 +85,7 @@ export const setActiveLevel: (a: number, b: number) => [number, number, number];
 export const setConstructionLinePlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
 export const setElementParent: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const setElementPlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
+export const setGeometryKernel: (a: number, b: number) => [number, number, number];
 export const setGridAxisPlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
 export const setLevelElevation: (a: number, b: number, c: number) => [number, number, number];
 export const setReferencePlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
@@ -92,6 +95,7 @@ export const setSheetViewportScale: (a: number, b: number, c: number, d: number,
 export const setSlabShape: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const setSpacePlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
 export const slabShapeInfo: (a: number, b: number) => [number, number, number];
+export const takeKernelJobs: () => [number, number, number];
 export const togglePickById: (a: number) => [number, number, number];
 export const toggleSelectElement: (a: number, b: number) => [number, number, number];
 export const translateSelection: (a: number, b: number, c: number) => [number, number, number];

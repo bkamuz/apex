@@ -22,6 +22,17 @@ use wasm_bindgen::prelude::*;
 
 thread_local! {
     static PROJECT: RefCell<Option<Project>> = const { RefCell::new(None) };
+    /// Selected boolean kernel ("mesh" or "smlib"), kept across new projects.
+    static KERNEL_MODE: RefCell<String> = RefCell::new("mesh".to_string());
+}
+
+/// A new project using the selected kernel.
+fn fresh_project() -> Project {
+    let mut project = Project::new();
+    if KERNEL_MODE.with(|m| m.borrow().as_str() == "smlib") {
+        project.set_external_kernel();
+    }
+    project
 }
 
 fn with_project<R>(f: impl FnOnce(&mut Project) -> Result<R, JsValue>) -> Result<R, JsValue> {
@@ -968,7 +979,7 @@ fn parse_placement_kind(name: &str) -> Result<Option<PlacementKind>, JsValue> {
 #[wasm_bindgen(js_name = initApp)]
 pub fn init_app() -> Result<(), JsValue> {
     console_error_panic_hook::set_once();
-    PROJECT.with(|cell| *cell.borrow_mut() = Some(Project::new()));
+    PROJECT.with(|cell| *cell.borrow_mut() = Some(fresh_project()));
     with_selection(|s| s.set(None));
     Ok(())
 }
@@ -2158,7 +2169,7 @@ pub fn import_project(json: &str) -> Result<JsValue, JsValue> {
 /// Discard the current project and start a blank one with the built-in types.
 #[wasm_bindgen(js_name = newProject)]
 pub fn new_project() -> Result<JsValue, JsValue> {
-    PROJECT.with(|cell| *cell.borrow_mut() = Some(Project::new()));
+    PROJECT.with(|cell| *cell.borrow_mut() = Some(fresh_project()));
     with_selection(|s| s.set(None));
     clear_datum_selections();
     with_project(|project| scene(project))
@@ -2663,4 +2674,92 @@ pub fn register_opening_generator(
             .map_err(err)?;
         scene(project)
     })
+}
+
+// ---------------------------------------------------------------------------
+// Geometry kernel (exact SMLib booleans computed in a Web Worker)
+// ---------------------------------------------------------------------------
+
+/// Select the boolean kernel for wall openings: "mesh" (default) or "smlib".
+/// With "smlib" the host cuts become jobs (see `takeKernelJobs`); until their
+/// results arrive the mesh result is shown.
+#[wasm_bindgen(js_name = setGeometryKernel)]
+pub fn set_geometry_kernel(name: &str) -> Result<JsValue, JsValue> {
+    let mode = match name {
+        "mesh" | "smlib" => name.to_string(),
+        other => return Err(err(format!("unknown geometry kernel `{other}`"))),
+    };
+    KERNEL_MODE.with(|m| *m.borrow_mut() = mode.clone());
+    with_project(|project| {
+        if mode == "smlib" {
+            project.set_external_kernel();
+        } else {
+            project.reset_kernel();
+        }
+        scene(project)
+    })
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct KernelJobDto {
+    /// Hex, since u64 does not fit a JS number.
+    key: String,
+    points: Vec<f64>,
+    ints: Vec<i32>,
+    ops: Vec<i32>,
+    solids: usize,
+}
+
+/// Queued kernel jobs (removed from the queue).
+#[wasm_bindgen(js_name = takeKernelJobs)]
+pub fn take_kernel_jobs() -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let jobs: Vec<KernelJobDto> = project
+            .take_kernel_jobs()
+            .into_iter()
+            .map(|j| KernelJobDto {
+                key: format!("{:016x}", j.key),
+                points: j.solids.points,
+                ints: j.solids.ints,
+                ops: j.solids.ops,
+                solids: j.solids.solids,
+            })
+            .collect();
+        to_js(&jobs)
+    })
+}
+
+#[derive(Deserialize)]
+struct KernelResultDto {
+    key: String,
+    #[serde(default)]
+    points: Option<Vec<f64>>,
+    #[serde(default)]
+    tris: Option<Vec<i32>>,
+}
+
+/// Results from the worker: `[{ key, points?, tris? }]` (no points = failed).
+/// Returns the updated scene.
+#[wasm_bindgen(js_name = applyKernelResults)]
+pub fn apply_kernel_results(results: JsValue) -> Result<JsValue, JsValue> {
+    let results: Vec<KernelResultDto> =
+        serde_wasm_bindgen::from_value(results).map_err(|e| err(e.to_string()))?;
+    let parsed = results
+        .into_iter()
+        .filter_map(|r| {
+            let key = u64::from_str_radix(&r.key, 16).ok()?;
+            Some((key, r.points.zip(r.tris)))
+        })
+        .collect();
+    with_project(|project| {
+        project.apply_kernel_results(parsed);
+        scene(project)
+    })
+}
+
+/// `{ kernel, pending }` for the status line.
+#[wasm_bindgen(js_name = kernelStatus)]
+pub fn kernel_status() -> Result<JsValue, JsValue> {
+    with_project(|project| to_js(&project.kernel_status()))
 }

@@ -7,6 +7,12 @@
 export function abortUndoGroup(): void;
 
 /**
+ * Results from the worker: `[{ key, points?, tris? }]` (no points = failed).
+ * Returns the updated scene.
+ */
+export function applyKernelResults(results: any): any;
+
+/**
  * Open a coalesced undo group (e.g. at the start of an anchor drag).
  */
 export function beginUndoGroup(): void;
@@ -170,6 +176,11 @@ export function initApp(): void;
 export function joinPaths(id: string): any;
 
 /**
+ * `{ kernel, pending }` for the status line.
+ */
+export function kernelStatus(): any;
+
+/**
  * Every installed component. The UI builds its toolbar and inspector from this.
  */
 export function listComponents(): any;
@@ -289,6 +300,13 @@ export function setElementParent(id: string, parent_id?: string | null): any;
  */
 export function setElementPlacement(id: string, points_json: string, rotation: number, record_history: boolean): any;
 
+/**
+ * Select the boolean kernel for wall openings: "mesh" (default) or "smlib".
+ * With "smlib" the host cuts become jobs (see `takeKernelJobs`); until their
+ * results arrive the mesh result is shown.
+ */
+export function setGeometryKernel(name: string): any;
+
 export function setGridAxisPlacement(id: string, points_json: string, rotation: number, record_history: boolean): any;
 
 export function setLevelElevation(id: string, elevation: number): any;
@@ -313,6 +331,11 @@ export function setSpacePlacement(id: string, points_json: string, rotation: num
  * `null` when the element has none.
  */
 export function slabShapeInfo(id: string): any;
+
+/**
+ * Queued kernel jobs (removed from the queue).
+ */
+export function takeKernelJobs(): any;
 
 export function togglePickById(pick_id: number): any;
 
@@ -356,6 +379,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly abortUndoGroup: () => [number, number];
+    readonly applyKernelResults: (a: any) => [number, number, number];
     readonly beginUndoGroup: () => [number, number];
     readonly canRedo: () => [number, number, number];
     readonly canUndo: () => [number, number, number];
@@ -406,6 +430,7 @@ export interface InitOutput {
     readonly importProject: (a: number, b: number) => [number, number, number];
     readonly initApp: () => [number, number];
     readonly joinPaths: (a: number, b: number) => [number, number, number];
+    readonly kernelStatus: () => [number, number, number];
     readonly listComponents: () => [number, number, number];
     readonly listElements: () => [number, number, number];
     readonly listProfiles: (a: number, b: number) => [number, number, number];
@@ -437,6 +462,7 @@ export interface InitOutput {
     readonly setConstructionLinePlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly setElementParent: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly setElementPlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
+    readonly setGeometryKernel: (a: number, b: number) => [number, number, number];
     readonly setGridAxisPlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly setLevelElevation: (a: number, b: number, c: number) => [number, number, number];
     readonly setReferencePlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
@@ -446,6 +472,7 @@ export interface InitOutput {
     readonly setSlabShape: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly setSpacePlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly slabShapeInfo: (a: number, b: number) => [number, number, number];
+    readonly takeKernelJobs: () => [number, number, number];
     readonly togglePickById: (a: number) => [number, number, number];
     readonly toggleSelectElement: (a: number, b: number) => [number, number, number];
     readonly translateSelection: (a: number, b: number, c: number) => [number, number, number];

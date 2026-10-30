@@ -11,6 +11,7 @@ mod curve;
 mod error;
 mod frame;
 mod join;
+mod kernel;
 mod mesh;
 mod prism;
 mod profile;
@@ -24,6 +25,9 @@ pub use frame::Frame;
 pub use join::{
     adjust_end, angle_between, closest_on_segment_xz, inward_dir, miter_extension, outward_dir,
     plan_distance, split_curve_at, stem_trim, JOIN_SNAP,
+};
+pub use kernel::{
+    mesh_from_indexed, planar_faces, GeometryKernel, KernelError, MeshKernel, PlanarSolids,
 };
 pub use mesh::TriangleMesh;
 pub use prism::{

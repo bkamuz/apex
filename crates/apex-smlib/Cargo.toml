@@ -1,0 +1,14 @@
+[package]
+name = "apex-smlib"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Exact BRep booleans through the vendored SMLib kernel (native builds)"
+build = "build.rs"
+links = "apex_smlib"
+
+[dependencies]
+apex-geometry = { workspace = true }
+
+[build-dependencies]
+cc = { version = "1", features = ["parallel"] }

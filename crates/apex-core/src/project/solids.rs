@@ -28,6 +28,11 @@ use super::{project_onto_curve_xz, Project};
 const STAIR: &str = "apex.stair";
 const SLAB: &str = "apex.slab";
 
+thread_local! {
+    /// Set while building a host without its openings for an exact kernel.
+    static SKIP_VOIDS: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
 fn xz(v: Vec3) -> [f64; 2] {
     [v.x as f64, v.z as f64]
 }
@@ -301,6 +306,9 @@ impl Project {
     /// Exact void solids of everything that cuts `host`: hosted doors,
     /// windows and slab openings, plus stair wells for slabs at a stair top.
     pub(crate) fn void_solids(&self, host: &Element) -> Vec<LayeredSolid> {
+        if SKIP_VOIDS.with(|s| s.get()) {
+            return Vec::new();
+        }
         let Some(host_def) = self.registry.get(&host.component_id) else {
             return Vec::new();
         };
@@ -428,6 +436,32 @@ impl Project {
     /// Final mesh for prism hosts and joinable elements, or `None` to fall
     /// back to the plain recipe mesh.
     pub(crate) fn solid_mesh(&self, element: &Element) -> Option<TriangleMesh> {
+        if let Some(mesh) = self.kernel_solid_mesh(element) {
+            return Some(mesh);
+        }
+        self.layered_solid_mesh(element)
+    }
+
+    /// With an exact kernel selected: the element's solid built without its
+    /// hosted openings, then the opening voids subtracted by the kernel.
+    /// `None` keeps the layered-solid result (mesh kernel, no openings,
+    /// pending or rejected kernel job).
+    fn kernel_solid_mesh(&self, element: &Element) -> Option<TriangleMesh> {
+        if !self.exact_kernel_selected() || SKIP_VOIDS.with(|s| s.get()) {
+            return None;
+        }
+        let voids = self.void_solids(element);
+        if voids.is_empty() {
+            return None;
+        }
+        SKIP_VOIDS.with(|s| s.set(true));
+        let uncut = self.layered_solid_mesh(element);
+        SKIP_VOIDS.with(|s| s.set(false));
+        let tools: Vec<TriangleMesh> = voids.iter().map(|v| v.to_mesh()).collect();
+        self.kernel_host_cuts(element.id, &uncut?, &tools)
+    }
+
+    fn layered_solid_mesh(&self, element: &Element) -> Option<TriangleMesh> {
         if let Some(mesh) = self.attached_cluster_share(element) {
             return Some(mesh);
         }

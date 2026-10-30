@@ -80,6 +80,7 @@ pub use project::commands::{
     annotation_descriptors, api_catalog, command_descriptors, component_catalog, conventions,
     query_descriptors, Command, CommandError, Query,
 };
+pub use project::kernel::{ExternalKernel, KernelJob, KernelResult, KernelStatus};
 pub use project::ProjectSnapshot;
 pub use project::{boolean_params, Project, ShapeHandle, ShapeInfo, SlabShape};
 pub use reference::{

@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 mod booleans;
 pub mod commands;
 mod genus_build;
+pub mod kernel;
 mod roof_attach;
 mod slab_shape;
 pub use genus_build::GenusParamInput;
@@ -57,34 +58,46 @@ fn punch_rotated_box(
     if yaw.abs() < 1e-6 {
         return mesh.punch_aabbs(&[(min, max)]);
     }
-    // World → local is a rotation by -yaw about +Y around `center`.
-    let rotate = |m: &TriangleMesh, a: f32| {
-        let (s, c) = a.sin_cos();
-        let mut out = m.clone();
-        let rot = |x: f32, z: f32, ox: f32, oz: f32| {
-            let (dx, dz) = (x - ox, z - oz);
-            (ox + dx * c + dz * s, oz - dx * s + dz * c)
-        };
-        for p in out.positions.chunks_mut(3) {
-            let (x, z) = rot(p[0], p[2], center.x, center.z);
-            p[0] = x;
-            p[2] = z;
-        }
-        for p in out.edges.chunks_mut(3) {
-            let (x, z) = rot(p[0], p[2], center.x, center.z);
-            p[0] = x;
-            p[2] = z;
-        }
-        for n in out.normals.chunks_mut(3) {
-            let (x, z) = rot(n[0], n[2], 0.0, 0.0);
-            n[0] = x;
-            n[2] = z;
-        }
-        out
-    };
+    let rotate = |m: &TriangleMesh, a: f32| rotate_about_y(m, a, center);
     // Rotating by -yaw with this convention maps the wall direction onto +X.
     let local = rotate(mesh, -yaw);
     rotate(&local.punch_aabbs(&[(min, max)]), yaw)
+}
+
+/// The solid of a rotated box void (see [`punch_rotated_box`]).
+fn rotated_box_mesh(yaw: f32, center: Vec3, min: [f32; 3], max: [f32; 3]) -> TriangleMesh {
+    let b = apex_geometry::box_mesh(min, max);
+    if yaw.abs() < 1e-6 {
+        b
+    } else {
+        rotate_about_y(&b, yaw, center)
+    }
+}
+
+/// Rotate a mesh by `a` about +Y through `center`.
+fn rotate_about_y(m: &TriangleMesh, a: f32, center: Vec3) -> TriangleMesh {
+    let (s, c) = a.sin_cos();
+    let mut out = m.clone();
+    let rot = |x: f32, z: f32, ox: f32, oz: f32| {
+        let (dx, dz) = (x - ox, z - oz);
+        (ox + dx * c + dz * s, oz - dx * s + dz * c)
+    };
+    for p in out.positions.chunks_mut(3) {
+        let (x, z) = rot(p[0], p[2], center.x, center.z);
+        p[0] = x;
+        p[2] = z;
+    }
+    for p in out.edges.chunks_mut(3) {
+        let (x, z) = rot(p[0], p[2], center.x, center.z);
+        p[0] = x;
+        p[2] = z;
+    }
+    for n in out.normals.chunks_mut(3) {
+        let (x, z) = rot(n[0], n[2], 0.0, 0.0);
+        n[0] = x;
+        n[2] = z;
+    }
+    out
 }
 
 fn opening_void_aabb(
@@ -174,6 +187,7 @@ pub struct Project {
     pub(crate) view_annotations: crate::view_annotation::ViewAnnotationLibrary,
     pub(crate) view_annotation_counter: u32,
     history: History,
+    pub(crate) kernel: kernel::KernelSlot,
 }
 
 impl Default for Project {
@@ -201,6 +215,7 @@ impl Project {
             view_annotations: Default::default(),
             view_annotation_counter: 0,
             history: History::default(),
+            kernel: Default::default(),
         };
         project.ensure_default_views();
         project
@@ -1790,10 +1805,20 @@ impl Project {
             self.document.references(),
         )?;
         let voids = self.host_cut_voids(element.id);
+        let cuts = self.genus_host_cuts(element);
+        if !voids.is_empty() || !cuts.is_empty() {
+            let mut tools: Vec<TriangleMesh> = voids
+                .iter()
+                .map(|&(yaw, center, min, max)| rotated_box_mesh(yaw, center, min, max))
+                .collect();
+            tools.extend(cuts.iter().map(|c| c.mesh.clone()));
+            if let Some(exact) = self.kernel_host_cuts(element.id, &mesh, &tools) {
+                return Ok(exact);
+            }
+        }
         for (yaw, center, min, max) in voids {
             mesh = punch_rotated_box(&mesh, yaw, center, min, max);
         }
-        let cuts = self.genus_host_cuts(element);
         Ok(genus_build::subtract_all(mesh, &cuts))
     }
 
