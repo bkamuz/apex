@@ -604,13 +604,19 @@ export function apexJoinableSnapTargets(componentId: string): JoinableSnapTarget
   return (joinableSnapTargets(componentId) as JoinableSnapTargetDto[]) ?? [];
 }
 
-/** Ghost mesh for Move: selection + connected joinable stretch (no document mutate). */
+/**
+ * Ghost mesh of connected-stretch peers for Move (no document mutate).
+ * Movers are translated from the live scene in the UI. Returns null when no
+ * peers need remeshing.
+ */
 export function apexPreviewStretchTranslate(delta: Vec3): {
   positions: Float32Array | number[];
   normals: Float32Array | number[];
   indices: Uint32Array | number[];
-} {
-  return previewStretchTranslate(encodeDelta(delta)) as {
+} | null {
+  const mesh = previewStretchTranslate(delta[0], delta[1], delta[2]);
+  if (mesh == null) return null;
+  return mesh as {
     positions: Float32Array | number[];
     normals: Float32Array | number[];
     indices: Uint32Array | number[];

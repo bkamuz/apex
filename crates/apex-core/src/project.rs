@@ -1503,10 +1503,11 @@ impl Project {
         updates
     }
 
-    /// Ghost mesh for a translate that includes connected-stretch peers.
+    /// Ghost mesh of **connected-stretch peers only** for a Move translate.
     ///
-    /// Does not mutate the document. Used by the Move tool preview so stretched
-    /// neighbours stay visually attached.
+    /// Does not mutate the document. Movers themselves are rigid translates —
+    /// the UI extracts those from the live scene buffers. Remeshing every
+    /// selected wall (+ openings) on each pointer move was the Move stutter.
     pub fn preview_stretch_translate(
         &self,
         ids: &[ElementId],
@@ -1522,32 +1523,20 @@ impl Project {
         }
         let stretch = self.plan_connected_stretch_translate(&moving, delta);
         let mut mesh = TriangleMesh::empty();
-        for id in &moving {
-            let Some(el) = self.document.get_element(*id) else {
-                continue;
-            };
-            let placement = el.placement.translated(delta);
-            if let Ok(part) = self.registry.build_mesh(
-                &el.component_id,
-                &placement,
-                &el.params,
-                self.work_plane(el.level_id),
-                self.document.references(),
-            ) {
-                mesh.append(&part);
-            }
-        }
+        // Recipe mesh only (no host-cut / boolean) — preview must stay cheap.
+        // Skip edges: ghost overlay does not draw them.
         for update in stretch {
             let Some(el) = self.document.get_element(update.id) else {
                 continue;
             };
-            if let Ok(part) = self.registry.build_mesh(
-                &el.component_id,
-                &update.placement,
-                &el.params,
-                self.work_plane(el.level_id),
+            let mut preview = el.clone();
+            preview.placement = update.placement;
+            if let Ok(mut part) = self.registry.build_element_mesh(
+                &preview,
+                self.work_plane(preview.level_id),
                 self.document.references(),
             ) {
+                part.edges.clear();
                 mesh.append(&part);
             }
         }
@@ -3848,6 +3837,125 @@ mod tests {
         // B shared corner follows; far end stays.
         assert!((eb.placement.curve().unwrap().start().z - 2.0).abs() < 1e-3);
         assert!((eb.placement.curve().unwrap().end().z - 4.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn preview_stretch_translate_remeshes_peers_only() {
+        let mut project = Project::new();
+        let a = project
+            .create_element(
+                "apex.wall",
+                Placement::line(Vec3::ZERO, Vec3::new(5.0, 0.0, 0.0)),
+                ParamMap::new(),
+            )
+            .expect("a");
+        let _b = project
+            .create_element(
+                "apex.wall",
+                Placement::line(Vec3::new(5.0, 0.0, 0.0), Vec3::new(5.0, 0.0, 4.0)),
+                ParamMap::new(),
+            )
+            .expect("b");
+        // Isolated wall: no stretch peers → empty ghost (UI translates scene mesh).
+        let alone = project
+            .create_element(
+                "apex.wall",
+                Placement::line(Vec3::new(20.0, 0.0, 0.0), Vec3::new(24.0, 0.0, 0.0)),
+                ParamMap::new(),
+            )
+            .expect("alone");
+        let empty = project
+            .preview_stretch_translate(&[alone], Vec3::new(1.0, 0.0, 0.0))
+            .expect("alone preview");
+        assert!(empty.is_empty(), "no peers → no remesh");
+
+        let stretched = project
+            .preview_stretch_translate(&[a], Vec3::new(0.0, 0.0, 1.0))
+            .expect("stretch preview");
+        assert!(
+            !stretched.is_empty(),
+            "connected peer must remesh for ghost"
+        );
+        assert!(stretched.edges.is_empty(), "ghost skips edge polylines");
+    }
+
+    /// House-like 6-wall cluster: time peer-only preview vs legacy remesh-all.
+    #[test]
+    fn preview_stretch_translate_perf_house_cluster() {
+        let mut project = Project::new();
+        let walls = [
+            (Vec3::ZERO, Vec3::new(10.0, 0.0, 0.0)),
+            (Vec3::new(10.0, 0.0, 0.0), Vec3::new(10.0, 0.0, 8.0)),
+            (Vec3::new(10.0, 0.0, 8.0), Vec3::new(0.0, 0.0, 8.0)),
+            (Vec3::ZERO, Vec3::new(0.0, 0.0, 8.0)),
+            (Vec3::new(5.0, 0.0, 0.0), Vec3::new(5.0, 0.0, 8.0)),
+            (Vec3::new(5.0, 0.0, 4.0), Vec3::new(10.0, 0.0, 4.0)),
+        ];
+        let mut ids = Vec::new();
+        for (a, b) in walls {
+            ids.push(
+                project
+                    .create_element("apex.wall", Placement::line(a, b), ParamMap::new())
+                    .expect("wall"),
+            );
+        }
+        let mover = ids[4];
+        let _ = project
+            .preview_stretch_translate(&[mover], Vec3::new(0.3, 0.0, 0.0))
+            .expect("warm");
+
+        let n = 40usize;
+        let t0 = std::time::Instant::now();
+        let mut peer_tris = 0usize;
+        for i in 0..n {
+            let mesh = project
+                .preview_stretch_translate(&[mover], Vec3::new(0.01 * i as f32, 0.0, 0.0))
+                .expect("preview");
+            peer_tris = mesh.triangle_count();
+        }
+        let peer_ms = t0.elapsed().as_secs_f64() * 1000.0 / n as f64;
+
+        // Legacy cost: remesh mover + stretch peers each frame (no scene cache).
+        let t1 = std::time::Instant::now();
+        let mut legacy_tris = 0usize;
+        for i in 0..n {
+            let delta = Vec3::new(0.01 * i as f32, 0.0, 0.0);
+            let mut moving = std::collections::BTreeSet::new();
+            moving.insert(mover);
+            let stretch = project.plan_connected_stretch_translate(&moving, delta);
+            let mut mesh = TriangleMesh::empty();
+            let el = project.document().get_element(mover).unwrap();
+            let placement = el.placement.translated(delta);
+            if let Ok(part) = project.registry.build_mesh(
+                &el.component_id,
+                &placement,
+                &el.params,
+                project.work_plane(el.level_id),
+                project.document().references(),
+            ) {
+                mesh.append(&part);
+            }
+            for update in stretch {
+                let el = project.document().get_element(update.id).unwrap();
+                if let Ok(part) = project.registry.build_mesh(
+                    &el.component_id,
+                    &update.placement,
+                    &el.params,
+                    project.work_plane(el.level_id),
+                    project.document().references(),
+                ) {
+                    mesh.append(&part);
+                }
+            }
+            legacy_tris = mesh.triangle_count();
+        }
+        let legacy_ms = t1.elapsed().as_secs_f64() * 1000.0 / n as f64;
+        eprintln!(
+            "preview_stretch house: peer_only={peer_ms:.3}ms ({peer_tris} tris) legacy_remesh={legacy_ms:.3}ms ({legacy_tris} tris)"
+        );
+        // Peer-only remeshes fewer solids; allow noise on debug timings.
+        assert!(peer_tris < legacy_tris);
+        assert!(peer_ms < legacy_ms * 2.0 + 1.0);
     }
 
     #[test]

@@ -252,10 +252,13 @@ export function previewElement(component_id: string, points_json: string, rotati
 export function previewProfile(profile_json: string, params_json: string): any;
 
 /**
- * Ghost mesh for Move preview: selection translated + connected joinable peers
- * stretched. Does not mutate the document.
+ * Ghost mesh of connected-stretch peers for Move preview (movers come from
+ * the live scene in JS). Does not mutate the document.
+ *
+ * `dx/dy/dz` avoid a JSON round-trip on every pointer move. Mesh buffers are
+ * copied into typed arrays — serde number arrays were a major frame cost.
  */
-export function previewStretchTranslate(delta_json: string): any;
+export function previewStretchTranslate(dx: number, dy: number, dz: number): any;
 
 export function redo(): any;
 
@@ -473,7 +476,7 @@ export interface InitOutput {
     readonly previewComponentDefinition: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
     readonly previewElement: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
     readonly previewProfile: (a: number, b: number, c: number, d: number) => [number, number, number];
-    readonly previewStretchTranslate: (a: number, b: number) => [number, number, number];
+    readonly previewStretchTranslate: (a: number, b: number, c: number) => [number, number, number];
     readonly redo: () => [number, number, number];
     readonly registerComponent: (a: number, b: number) => [number, number, number];
     readonly registerOpeningGenerator: (a: number, b: number, c: number, d: number, e: any) => [number, number, number];

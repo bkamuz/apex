@@ -19,11 +19,23 @@ export function createTransformTool(mode: TransformMode): Tool {
   let base: Vec3 | null = null;
   let originals: TransformOriginal[] | null = null;
   let previewing = false;
+  /** Coalesce Move ghost updates to one per animation frame. */
+  let previewRaf = 0;
+  let pendingPreview: { originals: TransformOriginal[]; delta: Vec3 } | null = null;
 
   const id = mode === 'move' ? MOVE_TOOL_ID : COPY_TOOL_ID;
   const label = mode === 'move' ? 'Move' : 'Copy';
 
+  const clearPreviewRaf = () => {
+    if (previewRaf) {
+      cancelAnimationFrame(previewRaf);
+      previewRaf = 0;
+    }
+    pendingPreview = null;
+  };
+
   const clearGesture = (ctx: ToolContext) => {
+    clearPreviewRaf();
     base = null;
     originals = null;
     previewing = false;
@@ -66,6 +78,7 @@ export function createTransformTool(mode: TransformMode): Tool {
       }
 
       const delta = deltaVec3(base, point);
+      clearPreviewRaf();
       ctx.commitTransform(originals!, delta, mode);
       clearGesture(ctx);
     },
@@ -84,12 +97,21 @@ export function createTransformTool(mode: TransformMode): Tool {
 
       if (mode === 'move') {
         const delta = deltaVec3(base, point);
-        ctx.previewTransform(originals, delta);
+        pendingPreview = { originals, delta };
         previewing = true;
+        if (!previewRaf) {
+          previewRaf = requestAnimationFrame(() => {
+            previewRaf = 0;
+            const next = pendingPreview;
+            pendingPreview = null;
+            if (next) ctx.previewTransform(next.originals, next.delta);
+          });
+        }
       }
     },
 
     cancel(ctx) {
+      clearPreviewRaf();
       if (previewing && originals) {
         ctx.restoreTransformOriginals(originals);
       }

@@ -160,7 +160,11 @@ import { useMediaQuery } from './hooks/useMediaQuery';
 import { ToolRegistry } from './tools/registry';
 import { finishOpenGesture } from './tools/placementTool';
 import { requiredPoints, type PointerInfo, type ToolContext } from './tools/Tool';
-import { buildTranslatedGhostMesh } from './tools/transformGhost';
+import {
+  buildTranslatedGhostMesh,
+  expandTransformOriginals,
+  mergeGhostMeshes,
+} from './tools/transformGhost';
 import { type TransformMode } from './tools/transformTypes';
 import { extensions, installGlobalSdk } from './extensions/sdk';
 import {
@@ -1234,30 +1238,39 @@ export default function App() {
 
       previewTransform: (originals, delta) => {
         // Ghost-only: never mutate placements while the pointer moves.
-        // Joinable selections use core stretch preview so connected peers stay attached.
-        const hasElements = originals.some((o) => o.kind === 'element');
-        if (hasElements) {
-          try {
-            const mesh = apexPreviewStretchTranslate(delta);
-            if (mesh && mesh.indices.length > 0) {
-              renderer.setGhostMesh({
-                positions: toFloatArray(mesh.positions),
-                normals: toFloatArray(mesh.normals),
-                indices: toUint32Array(mesh.indices),
-              });
-              return;
-            }
-          } catch {
-            /* fall through to translate-only ghost */
-          }
-        }
+        // Movers: translate live scene triangles (cheap). Stretch peers: remesh
+        // in WASM only the connected joinables whose shape actually changes.
         const current = sceneRef.current;
         if (!current) {
           renderer.setGhostMesh(null);
           return;
         }
-        const ghost = buildTranslatedGhostMesh(current, originals, delta);
-        renderer.setGhostMesh(ghost);
+        const expanded = expandTransformOriginals(originals, current.elements);
+        const movers = buildTranslatedGhostMesh(current, expanded, delta);
+        let stretch: ReturnType<typeof buildTranslatedGhostMesh> = null;
+        const joinableIds = new Set(
+          components.filter((c) => c.joinable).map((c) => c.id),
+        );
+        const needsStretch = originals.some((o) => {
+          if (o.kind !== 'element') return false;
+          const el = current.elements.find((e) => e.id === o.id);
+          return !!el && joinableIds.has(el.component_id);
+        });
+        if (needsStretch) {
+          try {
+            const mesh = apexPreviewStretchTranslate(delta);
+            if (mesh && mesh.indices.length > 0) {
+              stretch = {
+                positions: toFloatArray(mesh.positions),
+                normals: toFloatArray(mesh.normals),
+                indices: toUint32Array(mesh.indices),
+              };
+            }
+          } catch {
+            /* translate-only ghost still useful */
+          }
+        }
+        renderer.setGhostMesh(mergeGhostMeshes(movers, stretch));
       },
 
       commitTransform: (_originals, delta, mode: TransformMode) => {
@@ -1348,6 +1361,7 @@ export default function App() {
     };
   }, [
     applyScene,
+    components,
     resolvePoint,
     syncConstructionLineOverlays,
     syncEditGizmo,
