@@ -1272,20 +1272,9 @@ pub fn set_element_placement(
 ) -> Result<JsValue, JsValue> {
     with_project(|project| {
         let element = element_id(id)?;
-        let (component_id, kind) = {
-            let existing = project
-                .document()
-                .get_element(element)
-                .ok_or_else(|| err("Element not found"))?;
-            (
-                existing.component_id.clone(),
-                existing.placement.source_kind(),
-            )
-        };
-
         let points = points_from_json(points_json)?;
         let placement = project
-            .placement_from_gesture(&component_id, Some(kind), &points, rotation)
+            .placement_from_element_anchors(element, &points, rotation)
             .map_err(err)?;
         project
             .update_element(element, None, Some(placement), record_history)
@@ -2057,19 +2046,9 @@ pub fn preview_path_anchor_edit(
 ) -> Result<JsValue, JsValue> {
     with_project(|project| {
         let element = element_id(id)?;
-        let (component_id, kind) = {
-            let existing = project
-                .document()
-                .get_element(element)
-                .ok_or_else(|| err("Element not found"))?;
-            (
-                existing.component_id.clone(),
-                existing.placement.source_kind(),
-            )
-        };
         let points = points_from_json(points_json)?;
         let placement = project
-            .placement_from_gesture(&component_id, Some(kind), &points, rotation)
+            .placement_from_element_anchors(element, &points, rotation)
             .map_err(err)?;
         let (mesh, hide) = project
             .preview_path_anchor_edit(element, &placement)

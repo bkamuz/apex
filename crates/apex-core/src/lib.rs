@@ -87,7 +87,8 @@ pub use path_snap::{
     PathSnapKind, PathSnapTarget, PLACEMENT_SNAP,
 };
 pub use path_stretch::{
-    apply_vertex_moves, placement_vertex_moves, plan_stretch_from_edit, plan_stretch_translate,
+    apply_endpoint_vertex_moves, apply_vertex_moves, closest_on_curve, placement_vertex_moves,
+    plan_stretch_from_edit, plan_stretch_translate, remap_curve_endpoints, tip_on_host_midspan,
     translate_moves, StretchUpdate, STRETCH_SNAP,
 };
 pub use placement::{Placement, PlacementError, PlacementKind};
