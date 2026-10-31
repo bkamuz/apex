@@ -42,6 +42,7 @@ export function createSelectTool(): Tool {
   /** True after the user Tab-cycled since the last candidate-stack change. */
   let tabbed = false;
   let lastPointer: { x: number; y: number } | null = null;
+  let lastHintKey = '';
 
   const current = (): Candidate | null =>
     candidates.length === 0 ? null : (candidates[index % candidates.length] ?? null);
@@ -49,7 +50,14 @@ export function createSelectTool(): Tool {
   const syncHover = (ctx: ToolContext) => {
     const cur = current();
     ctx.setHoverPickIds(cur ? [cur.pickId] : []);
-    ctx.refreshToolUi();
+    const hintKey =
+      candidates.length === 0
+        ? ''
+        : `${cur?.id ?? ''}:${index}:${candidates.length}`;
+    if (hintKey !== lastHintKey) {
+      lastHintKey = hintKey;
+      ctx.refreshToolUi();
+    }
   };
 
   const refreshCandidates = (ctx: ToolContext, clientX: number, clientY: number) => {
@@ -152,15 +160,18 @@ export function createSelectTool(): Tool {
     },
 
     onKey(e, ctx) {
+      // Always claim Tab while Select is active so browser focus does not walk
+      // the toolbar. Cycle only when a multi-hit stack is under the cursor.
       if (e.key !== 'Tab') return false;
       if (lastPointer) {
         refreshCandidates(ctx, lastPointer.x, lastPointer.y);
       }
-      if (candidates.length < 2) return false;
-      const len = candidates.length;
-      index = (index + (e.shiftKey ? len - 1 : 1)) % len;
-      tabbed = true;
-      syncHover(ctx);
+      if (candidates.length >= 2) {
+        const len = candidates.length;
+        index = (index + (e.shiftKey ? len - 1 : 1)) % len;
+        tabbed = true;
+        syncHover(ctx);
+      }
       return true;
     },
 
@@ -192,6 +203,7 @@ export function createSelectTool(): Tool {
       index = 0;
       tabbed = false;
       lastPointer = null;
+      lastHintKey = '';
       ctx.setHoverPickIds([]);
       ctx.setTouchOrbitEnabled(true);
       ctx.refreshToolUi();

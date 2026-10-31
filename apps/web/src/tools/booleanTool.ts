@@ -60,7 +60,9 @@ export function createBooleanTool(): Tool {
     },
 
     onKey(e, ctx) {
-      if (e.key !== 'Tab' || candidates.length < 2) return false;
+      // Claim Tab whenever Boolean is active so chrome focus does not move.
+      if (e.key !== 'Tab') return false;
+      if (candidates.length < 2) return true;
       index = (index + (e.shiftKey ? candidates.length - 1 : 1)) % candidates.length;
       const c = current();
       if (c) {
