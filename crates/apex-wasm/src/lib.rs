@@ -2085,11 +2085,7 @@ pub fn preview_path_anchor_edit(
 }
 
 /// Copy mesh buffers into JS typed arrays (no per-element serde).
-fn mesh_buffers_to_js(
-    positions: &[f32],
-    normals: &[f32],
-    indices: &[u32],
-) -> js_sys::Object {
+fn mesh_buffers_to_js(positions: &[f32], normals: &[f32], indices: &[u32]) -> js_sys::Object {
     let obj = js_sys::Object::new();
     let pos = js_sys::Float32Array::new_with_length(positions.len() as u32);
     pos.copy_from(positions);

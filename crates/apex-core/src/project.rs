@@ -1599,8 +1599,7 @@ impl Project {
             },
         );
 
-        let mut hide: std::collections::BTreeSet<ElementId> =
-            std::collections::BTreeSet::new();
+        let mut hide: std::collections::BTreeSet<ElementId> = std::collections::BTreeSet::new();
         let mut mesh = TriangleMesh::empty();
         for update in &updates {
             hide.insert(update.id);
@@ -3936,10 +3935,7 @@ mod tests {
             )
             .expect("b");
         let (mesh, hide) = project
-            .preview_path_anchor_edit(
-                a,
-                &Placement::line(Vec3::ZERO, Vec3::new(6.0, 0.0, 1.0)),
-            )
+            .preview_path_anchor_edit(a, &Placement::line(Vec3::ZERO, Vec3::new(6.0, 0.0, 1.0)))
             .expect("preview");
         assert!(!mesh.is_empty(), "source + peer must remesh for ghost");
         assert!(mesh.edges.is_empty(), "ghost skips edge polylines");
