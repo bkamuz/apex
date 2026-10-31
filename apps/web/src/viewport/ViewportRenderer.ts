@@ -130,6 +130,8 @@ uniform vec3 uGroundColor;
 uniform float uSelectedPick; // unused when count>0; kept for layout stability
 uniform float uSelectedPicks[32];
 uniform int uSelectedCount;
+uniform float uHoverPicks[8];
+uniform int uHoverCount;
 uniform bool uPickPass;
 uniform float uPickExclude[8];
 uniform int uPickExcludeCount;
@@ -159,6 +161,14 @@ bool isSelectedPick(float pick) {
   return false;
 }
 
+bool isHoverPick(float pick) {
+  for (int i = 0; i < 8; i++) {
+    if (i >= uHoverCount) break;
+    if (abs(pick - uHoverPicks[i]) < 0.5) return true;
+  }
+  return false;
+}
+
 void main(){
   // Plan: geometry above the cut is invisible, so it must not be pickable
   // either (a roof would otherwise swallow every click inside the plan).
@@ -180,6 +190,8 @@ void main(){
   bool selected = isSelectedPick(vPick);
   if (uSelectionMode == 1 && selected) discard;
   if (uSelectionMode == 2 && !selected) discard;
+  // Pre-highlight under the cursor (Select Tab cycle); selection tint wins.
+  bool hovered = !selected && isHoverPick(vPick);
   bool slab = isSlabPick(vPick);
   if (uPlanMode != 0 && uMeshLayer == 1 && !slab) discard;
   if (uPlanMode != 0 && uMeshLayer == 2 && slab) discard;
@@ -189,7 +201,12 @@ void main(){
   float hemi = abs(n.y) * 0.5 + 0.5;
   vec3 ambient = mix(uGroundColor, uSkyColor, hemi);
   float wrap = ndl * 0.65 + 0.35;
-  vec3 base = selected ? vec3(0.86, 0.52, 0.22) : vec3(0.72, 0.76, 0.80);
+  // Selection: warm orange. Hover: olive (industrial chrome), readable but distinct.
+  vec3 base = selected
+    ? vec3(0.86, 0.52, 0.22)
+    : hovered
+      ? vec3(0.42, 0.58, 0.28)
+      : vec3(0.72, 0.76, 0.80);
   float alpha = uOpacity;
   if (uPlanMode != 0) {
     float above = vWorld.y - uCutY;
@@ -205,12 +222,16 @@ void main(){
     }
   }
   vec3 color = base * (ambient * 0.45 + vec3(wrap) * 0.7);
+  if (hovered && !selected) {
+    // Stronger wash so pre-highlight reads against gray walls and green slabs.
+    color = mix(color, vec3(0.58, 0.78, 0.34), 0.45);
+  }
   if (uGlassPass == 1 && vGhost > 0.5) {
     // Ghost: faint warm wash so it reads as a modelling aid, not a solid.
     color = mix(vec3(0.95, 0.72, 0.38), color, selected ? 0.6 : 0.3);
     alpha *= selected ? 0.32 : 0.18;
   } else if (uGlassPass == 1) {
-    color = mix(vec3(0.55, 0.75, 0.86), color, selected ? 0.5 : 0.15);
+    color = mix(vec3(0.55, 0.75, 0.86), color, selected ? 0.5 : hovered ? 0.35 : 0.15);
     alpha *= 0.28;
   }
   outColor = vec4(color, alpha);
@@ -352,6 +373,8 @@ type MeshUniforms = {
   uSelectedPick: WebGLUniformLocation | null;
   uSelectedPicks: WebGLUniformLocation | null;
   uSelectedCount: WebGLUniformLocation | null;
+  uHoverPicks: WebGLUniformLocation | null;
+  uHoverCount: WebGLUniformLocation | null;
   uPickPass: WebGLUniformLocation | null;
   uPickExclude: WebGLUniformLocation | null;
   uPickExcludeCount: WebGLUniformLocation | null;
@@ -401,6 +424,8 @@ function meshUniforms(gl: WebGL2RenderingContext, prog: WebGLProgram): MeshUnifo
     uSelectedPick: gl.getUniformLocation(prog, 'uSelectedPick'),
     uSelectedPicks: gl.getUniformLocation(prog, 'uSelectedPicks'),
     uSelectedCount: gl.getUniformLocation(prog, 'uSelectedCount'),
+    uHoverPicks: gl.getUniformLocation(prog, 'uHoverPicks'),
+    uHoverCount: gl.getUniformLocation(prog, 'uHoverCount'),
     uPickPass: gl.getUniformLocation(prog, 'uPickPass'),
     uPickExclude: gl.getUniformLocation(prog, 'uPickExclude'),
     uPickExcludeCount: gl.getUniformLocation(prog, 'uPickExcludeCount'),
@@ -881,6 +906,9 @@ export class ViewportRenderer {
   private lastPlanBubbleDistance = -1;
   private sceneExtent = 10;
   private selectedPickIds: number[] = [];
+  /** Pre-selection hover (Select tool / Tab cycle); not committed selection. */
+  private hoveredPickIds: number[] = [];
+  private scratchHoverPicks = new Float32Array(8);
   /** Locked for the whole gesture so MMB never falls through into orbit/zoom. */
   private dragMode: 'pan' | 'orbit' | null = null;
   private lastX = 0;
@@ -1316,6 +1344,11 @@ export class ViewportRenderer {
 
   setSelectedPickIds(ids: number[]): void {
     this.selectedPickIds = ids.slice(0, 32);
+  }
+
+  /** Olive pre-highlight under the cursor (distinct from selection orange). */
+  setHoveredPickIds(ids: number[]): void {
+    this.hoveredPickIds = ids.slice(0, 8);
   }
 
   /**
@@ -2422,6 +2455,12 @@ export class ViewportRenderer {
     gl.uniform1fv(u.uSelectedPicks, this.scratchPicks);
     gl.uniform1i(u.uSelectedCount, this.selectedPickIds.length);
     gl.uniform1f(u.uSelectedPick, this.selectedPickIds[0] ?? 0);
+    this.scratchHoverPicks.fill(0);
+    for (let i = 0; i < this.hoveredPickIds.length && i < 8; i++) {
+      this.scratchHoverPicks[i] = this.hoveredPickIds[i]!;
+    }
+    gl.uniform1fv(u.uHoverPicks, this.scratchHoverPicks);
+    gl.uniform1i(u.uHoverCount, pickPass ? 0 : this.hoveredPickIds.length);
     gl.uniform1i(u.uPickPass, pickPass ? 1 : 0);
     gl.uniform1fv(u.uPickExclude, this.pickExclude);
     gl.uniform1i(u.uPickExcludeCount, pickPass ? this.pickExcludeCount : 0);

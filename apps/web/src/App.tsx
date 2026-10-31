@@ -313,6 +313,8 @@ export default function App() {
   const [selectedSpace, setSelectedSpace] = useState<SpaceDto | null>(null);
   const [selectedLevelId, setSelectedLevelId] = useState<string | null>(null);
   const [pending, setPending] = useState<Vec3[]>([]);
+  /** Bumps when a tool wants the status line to re-read `hint()`. */
+  const [, setToolUiTick] = useState(0);
   /** Digits typed mid-gesture: the next segment's length in metres. */
   const [typedLength, setTypedLength] = useState('');
   const typedLengthRef = useRef('');
@@ -836,6 +838,18 @@ export default function App() {
 
       pick: (x, y) => renderer.pick(x, y),
 
+      selectElementId: (id, multi) => {
+        applyScene(multi ? apexToggleSelectElement(id) : apexSelectElement(id));
+      },
+
+      setHoverPickIds: (pickIds) => {
+        renderer.setHoveredPickIds(pickIds);
+      },
+
+      refreshToolUi: () => {
+        setToolUiTick((n) => n + 1);
+      },
+
       selectAt: (clientX, clientY, multi) => {
         const current = sceneRef.current;
         const attaching = attachPickRef.current;
@@ -1304,9 +1318,13 @@ export default function App() {
         if (!current) return [];
         return renderer
           .pickAll(clientX, clientY)
-          .map((pickId) => current.elements.find((c) => c.pick_id === pickId))
-          .filter((c): c is NonNullable<typeof c> => !!c)
-          .map((c) => ({ id: c.id, name: c.name, category: c.category }));
+          .map((pickId) => {
+            const el = current.elements.find((c) => c.pick_id === pickId);
+            return el
+              ? { id: el.id, name: el.name, category: el.category, pickId }
+              : null;
+          })
+          .filter((c): c is NonNullable<typeof c> => !!c);
       },
 
       selectedElementIds: () => apexGetSelectedElements().map((element) => element.id),
@@ -1378,11 +1396,13 @@ export default function App() {
     setPending([]);
     clearPreview();
     rendererRef.current.setSnapMarker(null);
+    rendererRef.current.setHoveredPickIds([]);
   }, [clearPreview, toolContext]);
 
   const activateTool = useCallback(
     (id: string) => {
       cancelGesture();
+      rendererRef.current?.setHoveredPickIds([]);
       setToolId(id);
       const next = registryRef.current.get(id);
       if (next?.group === 'create') {
@@ -1969,6 +1989,28 @@ export default function App() {
             }
             applyScene(apexSelectElement(best?.id ?? null));
             return best?.id ?? null;
+          },
+          /** Multi-hit stack under a client point (nearest first). */
+          pickCandidates: (clientX: number, clientY: number) => {
+            const r = rendererRef.current;
+            const current = sceneRef.current;
+            if (!r || !current) return [];
+            return r
+              .pickAll(clientX, clientY)
+              .map((pickId) => {
+                const el = current.elements.find((c) => c.pick_id === pickId);
+                return el
+                  ? { id: el.id, name: el.name, category: el.category, pickId }
+                  : { id: null, name: `pick:${pickId}`, category: '?', pickId };
+              });
+          },
+          clearSelection: () => {
+            applyScene(apexSelectElement(null));
+            applyScene(apexSelectReference(null));
+            applyScene(apexSelectGridAxis(null));
+            applyScene(apexSelectConstructionLine(null));
+            applyScene(apexSelectSectionCut(null));
+            applyScene(apexSelectSpace(null));
           },
         };
 
