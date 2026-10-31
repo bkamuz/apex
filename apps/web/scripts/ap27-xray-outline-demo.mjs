@@ -141,7 +141,7 @@ await page.evaluate(() => window.__apexTest.clearSelection?.());
 await page.keyboard.press('Escape');
 await page.waitForTimeout(100);
 
-const planAim = await page.evaluate(() => window.__apexTest.worldToClient([11.3, 0.05, 1.3]));
+const planAim = await page.evaluate(() => window.__apexTest.worldToClient([5.0, 0.05, 4.0]));
 if (planAim) {
   await page.mouse.move(planAim[0], planAim[1]);
   await page.waitForTimeout(350);
