@@ -502,8 +502,18 @@ export default function App() {
         return;
       }
       // A boolean has no geometry of its own to drag; its origin is noise.
-      const anchors = el?.anchors?.length && el.component_id !== 'apex.boolean'
-        ? el.anchors
+      // Joinable paths expose only endpoints — T-junction mid vertices are
+      // join topology, and dragging them kinked hosts into acute spikes.
+      const joinable =
+        !!el && components.some((c) => c.id === el.component_id && c.joinable);
+      const elementAnchors =
+        el?.anchors?.length && el.component_id !== 'apex.boolean'
+          ? joinable && el.anchors.length > 2
+            ? [el.anchors[0], el.anchors[el.anchors.length - 1]]
+            : el.anchors
+          : null;
+      const anchors = elementAnchors?.length
+        ? elementAnchors
         : ref?.anchors?.length
           ? ref.anchors
           : axis?.anchors?.length
@@ -517,7 +527,7 @@ export default function App() {
                   : null;
       rendererRef.current?.setEditGizmo(anchors);
     },
-    [],
+    [components],
   );
 
   const clearPreview = useCallback(() => {
@@ -1063,7 +1073,13 @@ export default function App() {
         if (selectedSectionCutRef.current) return selectedSectionCutRef.current.anchors;
         if (selectedSpaceRef.current) return selectedSpaceRef.current.anchors;
         if (selectedReferenceRef.current) return selectedReferenceRef.current.anchors;
-        return selectedCountRef.current === 1 ? (selectedRef.current?.anchors ?? null) : null;
+        if (selectedCountRef.current !== 1 || !selectedRef.current) return null;
+        const el = selectedRef.current;
+        const joinable = components.some((c) => c.id === el.component_id && c.joinable);
+        if (joinable && el.anchors.length > 2) {
+          return [el.anchors[0], el.anchors[el.anchors.length - 1]];
+        }
+        return el.anchors;
       },
 
       selectedAnchorPlaneElevation: () => selectedAnchorPlaneElevation(),
