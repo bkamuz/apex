@@ -98,6 +98,9 @@ layout(location=2) in float aPick;
 uniform mat4 uMVP;
 uniform mat4 uModel;
 uniform mat3 uNormalMat;
+uniform highp int uOutlinePass; // 0=lit, 1=stencil mask, 2=expanded ring, 3=x-ray wash
+uniform float uOutlinePx;
+uniform vec2 uResolution;
 out vec3 vNormal;
 out vec3 vWorld;
 flat out float vPick;
@@ -113,7 +116,25 @@ void main(){
   vGlass = tag > 1.5 ? 1.0 : 0.0;
   vGhost = tag > 2.5 ? 1.0 : 0.0;
   vPick = aPick;
-  gl_Position = uMVP * vec4(aPos, 1.0);
+  vec4 clip = uMVP * vec4(aPos, 1.0);
+  // Screen-space expand along the projected geometric normal for the
+  // outer ring of the x-ray silhouette (pass 2 only).
+  if (uOutlinePass == 2 && tag > 1e-5) {
+    vec3 nObj = aNormal / tag;
+    vec4 clipN = uMVP * vec4(aPos + nObj, 1.0);
+    float w = abs(clip.w) < 1e-6 ? 1.0 : clip.w;
+    float wN = abs(clipN.w) < 1e-6 ? 1.0 : clipN.w;
+    vec2 ndc = clip.xy / w;
+    vec2 ndcN = clipN.xy / wN;
+    vec2 dir = ndcN - ndc;
+    float len = length(dir);
+    if (len > 1e-8) {
+      dir /= len;
+      vec2 pixelToNdc = 2.0 / max(uResolution, vec2(1.0));
+      clip.xy += dir * uOutlinePx * pixelToNdc * w;
+    }
+  }
+  gl_Position = clip;
 }`;
 
 const FRAG = `#version 300 es
@@ -143,6 +164,7 @@ uniform float uCutFade;
 uniform int uMeshLayer;
 uniform int uSlabPickCount;
 uniform float uSlabPicks[32];
+uniform highp int uOutlinePass; // 0=lit, 1=stencil mask, 2=expanded ring, 3=x-ray wash
 out vec4 outColor;
 
 bool isSlabPick(float pick) {
@@ -184,6 +206,25 @@ void main(){
     float b = float((id >> 16u) & 255u) / 255.0;
     float a = float((id >> 24u) & 255u) / 255.0;
     outColor = vec4(r, g, b, a);
+    return;
+  }
+  // X-ray silhouette: full projected shape of hover/selection (no glass split).
+  if (uOutlinePass != 0) {
+    bool selected = isSelectedPick(vPick);
+    bool hovered = isHoverPick(vPick);
+    if (!selected && !hovered) discard;
+    if (uOutlinePass == 1) {
+      outColor = vec4(0.0);
+      return;
+    }
+    // Selection orange wins over hover olive when both apply.
+    vec3 col = selected ? vec3(0.98, 0.62, 0.20) : vec3(0.62, 0.84, 0.30);
+    if (uOutlinePass == 3) {
+      // Soft body wash so buried faces still read through occluders.
+      outColor = vec4(col, selected ? 0.16 : 0.14);
+      return;
+    }
+    outColor = vec4(col, 1.0);
     return;
   }
   if ((vGlass > 0.5) != (uGlassPass == 1)) discard;
@@ -387,6 +428,9 @@ type MeshUniforms = {
   uMeshLayer: WebGLUniformLocation | null;
   uSlabPickCount: WebGLUniformLocation | null;
   uSlabPicks: WebGLUniformLocation | null;
+  uOutlinePass: WebGLUniformLocation | null;
+  uOutlinePx: WebGLUniformLocation | null;
+  uResolution: WebGLUniformLocation | null;
 };
 
 type LineUniforms = {
@@ -438,6 +482,9 @@ function meshUniforms(gl: WebGL2RenderingContext, prog: WebGLProgram): MeshUnifo
     uMeshLayer: gl.getUniformLocation(prog, 'uMeshLayer'),
     uSlabPickCount: gl.getUniformLocation(prog, 'uSlabPickCount'),
     uSlabPicks: gl.getUniformLocation(prog, 'uSlabPicks'),
+    uOutlinePass: gl.getUniformLocation(prog, 'uOutlinePass'),
+    uOutlinePx: gl.getUniformLocation(prog, 'uOutlinePx'),
+    uResolution: gl.getUniformLocation(prog, 'uResolution'),
   };
 }
 
@@ -958,7 +1005,8 @@ export class ViewportRenderer {
       antialias: true,
       alpha: this.transparentBackground,
       depth: true,
-      stencil: false,
+      // Stencil ring for x-ray hover/selection silhouette (see drawHighlightOutline).
+      stencil: true,
       premultipliedAlpha: this.transparentBackground,
       // false: cheaper swap-chain on high-Hz displays; pick uses an offscreen FBO.
       preserveDrawingBuffer: false,
@@ -2465,6 +2513,9 @@ export class ViewportRenderer {
     gl.uniform1fv(u.uPickExclude, this.pickExclude);
     gl.uniform1i(u.uPickExcludeCount, pickPass ? this.pickExcludeCount : 0);
     gl.uniform1i(u.uGlassPass, 0);
+    gl.uniform1i(u.uOutlinePass, 0);
+    gl.uniform1f(u.uOutlinePx, 0);
+    gl.uniform2f(u.uResolution, this.canvas.width, this.canvas.height);
     gl.uniform1i(u.uPlanMode, this.viewNavigation === 'plan' ? 1 : 0);
     gl.uniform1f(u.uCutY, this.planCutY);
     gl.uniform1f(u.uCutFade, this.planCutFade);
@@ -2548,6 +2599,96 @@ export class ViewportRenderer {
     gl.bindVertexArray(null);
   }
 
+  /**
+   * X-ray silhouette for hover + selection: stencil-mask the projected mesh,
+   * then draw a screen-space-expanded ring with depth test off so the outline
+   * reads through occluding walls/objects. Uses existing pick-id tagging only.
+   */
+  private drawHighlightOutline(): void {
+    const gl = this.gl;
+    if (this.indexCount === 0) return;
+    if (this.selectedPickIds.length === 0 && this.hoveredPickIds.length === 0) return;
+
+    const { viewProj } = this.cameraMatrices();
+    const u = this.meshUniforms;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const plan = this.viewNavigation === 'plan';
+    // Thick enough to read as a stroke through busy CAD edges; plan a bit fatter.
+    const outlinePx = (plan ? 4.5 : 3.25) * dpr;
+
+    gl.disable(gl.DEPTH_TEST);
+    gl.depthMask(false);
+    gl.disable(gl.BLEND);
+    gl.disable(gl.CULL_FACE);
+    gl.disable(gl.POLYGON_OFFSET_FILL);
+
+    gl.enable(gl.STENCIL_TEST);
+    gl.clearStencil(0);
+    gl.clear(gl.STENCIL_BUFFER_BIT);
+
+    gl.useProgram(this.meshProg);
+    gl.uniformMatrix4fv(u.uMVP, false, viewProj);
+    gl.uniformMatrix4fv(u.uModel, false, MAT4_IDENTITY);
+    gl.uniformMatrix3fv(u.uNormalMat, false, this.scratchNormalMat);
+    this.scratchPicks.fill(0);
+    for (let i = 0; i < this.selectedPickIds.length && i < 32; i++) {
+      this.scratchPicks[i] = this.selectedPickIds[i]!;
+    }
+    gl.uniform1fv(u.uSelectedPicks, this.scratchPicks);
+    gl.uniform1i(u.uSelectedCount, this.selectedPickIds.length);
+    gl.uniform1f(u.uSelectedPick, this.selectedPickIds[0] ?? 0);
+    this.scratchHoverPicks.fill(0);
+    for (let i = 0; i < this.hoveredPickIds.length && i < 8; i++) {
+      this.scratchHoverPicks[i] = this.hoveredPickIds[i]!;
+    }
+    gl.uniform1fv(u.uHoverPicks, this.scratchHoverPicks);
+    gl.uniform1i(u.uHoverCount, this.hoveredPickIds.length);
+    gl.uniform1i(u.uPickPass, 0);
+    gl.uniform1i(u.uPickExcludeCount, 0);
+    gl.uniform1i(u.uGlassPass, 0);
+    gl.uniform1i(u.uSelectionMode, 0);
+    gl.uniform1f(u.uOpacity, 1.0);
+    gl.uniform1i(u.uPlanMode, plan ? 1 : 0);
+    gl.uniform1f(u.uCutY, this.planCutY);
+    gl.uniform1f(u.uCutFade, this.planCutFade);
+    gl.uniform1i(u.uMeshLayer, 0);
+    gl.uniform2f(u.uResolution, this.canvas.width, this.canvas.height);
+    gl.uniform1f(u.uOutlinePx, outlinePx);
+    this.uploadSlabPickUniforms(u);
+
+    gl.bindVertexArray(this.vao);
+
+    // Pass 1: write stencil = 1 for the unexpanded silhouette (no color).
+    gl.colorMask(false, false, false, false);
+    gl.stencilFunc(gl.ALWAYS, 1, 0xff);
+    gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE);
+    gl.stencilMask(0xff);
+    gl.uniform1i(u.uOutlinePass, 1);
+    gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_INT, 0);
+
+    // Pass 2: expanded mesh only where stencil != 1 → outer ring stroke.
+    gl.colorMask(true, true, true, true);
+    gl.stencilFunc(gl.NOTEQUAL, 1, 0xff);
+    gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
+    gl.uniform1i(u.uOutlinePass, 2);
+    gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_INT, 0);
+
+    // Pass 3: soft body wash (still depth-off) so faces buried under roofs/walls
+    // keep a readable tint, not only a thin silhouette ring.
+    gl.disable(gl.STENCIL_TEST);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+    gl.uniform1i(u.uOutlinePass, 3);
+    gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_INT, 0);
+    gl.disable(gl.BLEND);
+
+    gl.bindVertexArray(null);
+    gl.uniform1i(u.uOutlinePass, 0);
+    gl.stencilMask(0xff);
+    gl.depthMask(true);
+    gl.enable(gl.DEPTH_TEST);
+  }
+
   private drawGhost(): void {
     const gl = this.gl;
     if (this.ghostIndexCount === 0) return;
@@ -2567,6 +2708,7 @@ export class ViewportRenderer {
     gl.uniform1f(u.uSelectedPick, 0);
     gl.uniform1i(u.uPickPass, 0);
     gl.uniform1i(u.uSelectionMode, 0);
+    gl.uniform1i(u.uOutlinePass, 0);
     gl.uniform1f(u.uOpacity, 0.35);
     gl.uniform1i(u.uPlanMode, this.viewNavigation === 'plan' ? 1 : 0);
     gl.uniform1f(u.uCutY, this.planCutY);
@@ -2793,6 +2935,8 @@ export class ViewportRenderer {
         2.6,
       );
     }
+    // Hover/selection x-ray outline on top of scene geometry + CAD edges.
+    this.drawHighlightOutline();
     this.drawHandles();
     this.drawSnapMarker();
     this.frameMats = null;
