@@ -7,9 +7,10 @@
 //! and one plan [`Region`] per band between consecutive elevations. That class
 //! is closed under union, subtraction and intersection, so booleans reduce to
 //! exact 2D polygon booleans per band (via `i_overlay`), and the result is
-//! meshed watertight: side walls per band, horizontal caps only where adjacent
-//! bands differ (the XOR), and every ring edge subdivided at every vertex of
-//! its level so no T-junctions are left.
+//! meshed watertight: side panels merge across band breaks except at real
+//! horizontal creases (opening sill/head), caps only where adjacent bands
+//! differ (the XOR), and jamb Steiner vertices keep reveals closed without
+//! drawing a face seam from the opening out to the wall corner.
 //!
 //! Plan coordinates are `[x, z]`, elevations are world `y`.
 
@@ -459,17 +460,14 @@ impl LayeredSolid {
             level_points.push(pts);
         }
 
-        // Within a cluster, side strips split at breakpoints from either
-        // neighbouring level and those splits run on up through every band
-        // the edge spans. Give every level the same breakpoint set so caps
-        // and side strips share vertices (no T-junction left open).
-        if whole.is_some() {
-            let mut all: Vec<[f64; 2]> = level_points.iter().flatten().copied().collect();
-            all.sort_by(|a, b| a.partial_cmp(b).unwrap());
-            all.dedup();
-            for pts in &mut level_points {
-                pts.clone_from(&all);
-            }
+        // Share every contour / jamb vertex across levels so side edges
+        // subdivide identically in every band (no T-junction left open, and
+        // atomic segments can be matched for Y-merging below).
+        let mut all_pts: Vec<[f64; 2]> = level_points.iter().flatten().copied().collect();
+        all_pts.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        all_pts.dedup();
+        for pts in &mut level_points {
+            pts.clone_from(&all_pts);
         }
 
         let keep = |centroid: [f64; 3], normal: [f64; 3]| -> bool {
@@ -484,59 +482,138 @@ impl LayeredSolid {
             !whole.contains(probe)
         };
 
-        // Side walls.
-        for k in 0..n - 1 {
-            let (yb, yt) = (this.levels[k], this.levels[k + 1]);
-            for ring in this.bands[k].iter().flat_map(|s| s.iter()) {
-                let m = ring.len();
-                for i in 0..m {
-                    let (p, q) = (ring[i], ring[(i + 1) % m]);
-                    let d = [q[0] - p[0], q[1] - p[1]];
-                    let len = (d[0] * d[0] + d[1] * d[1]).sqrt();
-                    if len < 1e-9 {
-                        continue;
+        // Horizontal creases (opening sill/head, steps): undirected atomic
+        // edges of the up/down caps at each level. Side faces only break here.
+        let crease_at: Vec<std::collections::HashSet<([i64; 2], [i64; 2])>> = caps
+            .iter()
+            .map(|(up, down)| {
+                let mut keys = std::collections::HashSet::new();
+                for region in [up, down] {
+                    for ring in region.iter().flat_map(|s| s.iter()) {
+                        let m = ring.len();
+                        for i in 0..m {
+                            let chain = points_on_segment(&all_pts, ring[i], ring[(i + 1) % m]);
+                            for w in chain.windows(2) {
+                                keys.insert(edge_key(w[0].1, w[1].1));
+                            }
+                        }
                     }
-                    let normal = [d[1] / len, 0.0, -d[0] / len];
-                    let bottom = points_on_segment(&level_points[k], p, q);
-                    let top = points_on_segment(&level_points[k + 1], p, q);
-                    // Split at every breakpoint of either chain.
-                    let mut cuts: Vec<f64> =
-                        bottom.iter().chain(top.iter()).map(|(t, _)| *t).collect();
-                    if whole.is_none() {
-                        cuts = vec![0.0, 1.0];
-                    }
-                    cuts.sort_by(|a, b| a.partial_cmp(b).unwrap());
-                    cuts.dedup_by(|a, b| (*a - *b).abs() < 1e-12);
-                    for w in cuts.windows(2) {
-                        let (ta, tb) = (w[0], w[1]);
-                        let tm = 0.5 * (ta + tb);
-                        let mid = [p[0] + d[0] * tm, 0.5 * (yb + yt), p[1] + d[1] * tm];
-                        if !keep(mid, normal) {
+                }
+                keys
+            })
+            .collect();
+
+        // Side walls: collect atomic plan segments per band, then merge
+        // contiguous Y spans of the same segment unless a real horizontal
+        // crease sits between them. Without this, every opening sill/head
+        // band break leaves a shading seam across the wall face from the
+        // jamb out to the corner.
+        {
+            #[derive(Clone)]
+            struct Seg {
+                y0: f64,
+                y1: f64,
+                a: [f64; 2],
+                b: [f64; 2],
+                normal: [f64; 3],
+            }
+            let mut by_key: std::collections::BTreeMap<([i64; 2], [i64; 2]), Vec<Seg>> =
+                std::collections::BTreeMap::new();
+            for k in 0..n - 1 {
+                let (yb, yt) = (this.levels[k], this.levels[k + 1]);
+                for ring in this.bands[k].iter().flat_map(|s| s.iter()) {
+                    let m = ring.len();
+                    for i in 0..m {
+                        let (p, q) = (ring[i], ring[(i + 1) % m]);
+                        let d = [q[0] - p[0], q[1] - p[1]];
+                        let len = (d[0] * d[0] + d[1] * d[1]).sqrt();
+                        if len < 1e-9 {
                             continue;
                         }
-                        // Each chain clipped to [ta, tb]; a breakpoint that only
-                        // the other chain carries gets an interpolated point so
-                        // both sides of the strip always reach its ends.
-                        let at = |t: f64| (t, [p[0] + d[0] * t, p[1] + d[1] * t]);
-                        let within = |c: &[(f64, [f64; 2])]| -> Vec<(f64, [f64; 2])> {
-                            let mut v: Vec<(f64, [f64; 2])> = c
-                                .iter()
-                                .filter(|(t, _)| *t > ta + 1e-12 && *t < tb - 1e-12)
-                                .copied()
-                                .collect();
-                            let end = |t: f64| {
-                                c.iter()
-                                    .copied()
-                                    .find(|(u, _)| (u - t).abs() <= 1e-12)
-                                    .unwrap_or(at(t))
-                            };
-                            v.insert(0, end(ta));
-                            v.push(end(tb));
-                            v
-                        };
-                        let (bs, ts) = (within(&bottom), within(&top));
-                        zipper(&mut mesh, &bs, yb, &ts, yt, normal);
+                        let normal = [d[1] / len, 0.0, -d[0] / len];
+                        let chain = points_on_segment(&all_pts, p, q);
+                        for w in chain.windows(2) {
+                            let (ta, tb) = (w[0].0, w[1].0);
+                            if tb - ta < 1e-12 {
+                                continue;
+                            }
+                            let (pa, pb) = (w[0].1, w[1].1);
+                            let tm = 0.5 * (ta + tb);
+                            let mid = [p[0] + d[0] * tm, 0.5 * (yb + yt), p[1] + d[1] * tm];
+                            if !keep(mid, normal) {
+                                continue;
+                            }
+                            by_key.entry(edge_key(pa, pb)).or_default().push(Seg {
+                                y0: yb,
+                                y1: yt,
+                                a: pa,
+                                b: pb,
+                                normal,
+                            });
+                        }
                     }
+                }
+            }
+            for segs in by_key.values_mut() {
+                segs.sort_by(|u, v| u.y0.partial_cmp(&v.y0).unwrap());
+                let mut merged: Vec<Seg> = Vec::new();
+                for seg in segs.drain(..) {
+                    let split = merged.last().is_some_and(|prev| {
+                        if (prev.y1 - seg.y0).abs() > LEVEL_EPS {
+                            return true;
+                        }
+                        // Abutting band: keep separate only at a real crease.
+                        let y = seg.y0;
+                        let Some(ki) = this
+                            .levels
+                            .iter()
+                            .position(|&lv| (lv - y).abs() < LEVEL_EPS)
+                        else {
+                            return true;
+                        };
+                        crease_at
+                            .get(ki)
+                            .is_some_and(|c| c.contains(&edge_key(seg.a, seg.b)))
+                    });
+                    if split {
+                        merged.push(seg);
+                    } else if let Some(prev) = merged.last_mut() {
+                        prev.y1 = seg.y1;
+                    } else {
+                        merged.push(seg);
+                    }
+                }
+                for seg in &merged {
+                    // Steiner Y on the vertical edges where a sill/head crease
+                    // meets a jamb endpoint — keeps the mesh closed with the
+                    // reveal caps without drawing a horizontal face seam.
+                    let mut ya = vec![seg.y0, seg.y1];
+                    let mut yb = vec![seg.y0, seg.y1];
+                    for (ki, &y) in this.levels.iter().enumerate() {
+                        if y <= seg.y0 + LEVEL_EPS || y >= seg.y1 - LEVEL_EPS {
+                            continue;
+                        }
+                        let Some(creases) = crease_at.get(ki) else {
+                            continue;
+                        };
+                        let touch_a = creases
+                            .iter()
+                            .any(|(p, q)| *p == snap_key(seg.a) || *q == snap_key(seg.a));
+                        let touch_b = creases
+                            .iter()
+                            .any(|(p, q)| *p == snap_key(seg.b) || *q == snap_key(seg.b));
+                        if touch_a {
+                            ya.push(y);
+                        }
+                        if touch_b {
+                            yb.push(y);
+                        }
+                    }
+                    ya.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                    ya.dedup_by(|a, b| (*a - *b).abs() < LEVEL_EPS);
+                    yb.sort_by(|a, b| a.partial_cmp(b).unwrap());
+                    yb.dedup_by(|a, b| (*a - *b).abs() < LEVEL_EPS);
+                    side_panel(&mut mesh, seg.a, seg.b, &ya, &yb, seg.normal);
                 }
             }
         }
@@ -698,13 +775,61 @@ impl LayeredSolid {
     }
 }
 
+fn snap_key(v: [f64; 2]) -> [i64; 2] {
+    [(v[0] / GRID).round() as i64, (v[1] / GRID).round() as i64]
+}
+
 fn edge_key(p: [f64; 2], q: [f64; 2]) -> ([i64; 2], [i64; 2]) {
-    let k = |v: [f64; 2]| [(v[0] / GRID).round() as i64, (v[1] / GRID).round() as i64];
-    let (a, b) = (k(p), k(q));
+    let (a, b) = (snap_key(p), snap_key(q));
     if a <= b {
         (a, b)
     } else {
         (b, a)
+    }
+}
+
+/// Vertical wall panel between plan points `a→b`, with optional Steiner Y
+/// samples on each vertical edge (where opening reveals meet the face).
+/// Fans from the bottom-`b` corner across the `a`-edge samples so jamb
+/// vertices are shared without a horizontal face crease to the corner.
+fn side_panel(
+    mesh: &mut TriangleMesh,
+    a: [f64; 2],
+    b: [f64; 2],
+    ya: &[f64],
+    yb: &[f64],
+    normal: [f64; 3],
+) {
+    if ya.len() < 2 || yb.len() < 2 {
+        return;
+    }
+    if ya.len() == 2 && yb.len() == 2 {
+        let bottom = [(0.0, a), (1.0, b)];
+        zipper(mesh, &bottom, ya[0], &bottom, ya[1], normal);
+        return;
+    }
+    let left: Vec<[f64; 3]> = ya.iter().map(|&y| [a[0], y, a[1]]).collect();
+    let right: Vec<[f64; 3]> = yb.iter().map(|&y| [b[0], y, b[1]]).collect();
+    // Prefer fanning from the edge with fewer samples so Steiner points on
+    // the denser (usually jamb) edge stay on the boundary only.
+    if right.len() <= left.len() {
+        let pivot = right[0];
+        for w in left.windows(2) {
+            push_oriented(mesh, pivot, w[0], w[1], normal);
+        }
+        let top_l = *left.last().unwrap();
+        for w in right.windows(2) {
+            push_oriented(mesh, top_l, w[1], w[0], normal);
+        }
+    } else {
+        let pivot = left[0];
+        for w in right.windows(2) {
+            push_oriented(mesh, pivot, w[1], w[0], normal);
+        }
+        let top_r = *right.last().unwrap();
+        for w in left.windows(2) {
+            push_oriented(mesh, top_r, w[0], w[1], normal);
+        }
     }
 }
 
@@ -1005,7 +1130,10 @@ mod tests {
         assert!(close(cut.volume(), 4.0 * 0.2 * 3.0 - 1.2 * 0.2 * 1.2));
         assert_eq!(cut.levels(), &[0.0, 0.9, 2.1, 3.0]);
         let mesh = cut.to_mesh();
-        assert!(is_watertight(&mesh));
+        assert!(
+            is_watertight(&mesh),
+            "wall with opening must stay watertight"
+        );
         // Reveal faces: sill (up), head (down), and two jambs.
         let has_face = |n: [f32; 3], at: [f32; 3]| {
             mesh.positions
@@ -1200,5 +1328,92 @@ mod side_strip_tests {
             (alone - within).abs() < 1e-3,
             "alone {alone} within {within}"
         );
+    }
+
+    /// Opening sill/head levels must not leave coplanar triangle seams on the
+    /// wall face past the jambs (the visible "stripe to the corner").
+    #[test]
+    fn opening_does_not_stripe_wall_face_past_jambs() {
+        let wall = LayeredSolid::polygon_prism(
+            &[[0.0, -0.1], [10.0, -0.1], [10.0, 0.1], [0.0, 0.1]],
+            0.0,
+            3.0,
+        );
+        let window = LayeredSolid::polygon_prism(
+            &[[6.9, -0.6], [8.1, -0.6], [8.1, 0.6], [6.9, 0.6]],
+            0.88,
+            2.12,
+        );
+        let cut = wall.subtract(&window);
+        let mesh = cut.to_mesh();
+        assert!(is_watertight(&mesh));
+        let half_z = 0.1_f32;
+        let sill = 0.88_f32;
+        let head = 2.12_f32;
+        let mut bad = Vec::new();
+        for t in mesh.indices.chunks(3) {
+            let p = |i: u32| {
+                let k = i as usize * 3;
+                [
+                    mesh.positions[k],
+                    mesh.positions[k + 1],
+                    mesh.positions[k + 2],
+                ]
+            };
+            let (a, b, c) = (p(t[0]), p(t[1]), p(t[2]));
+            let n = [
+                mesh.normals[t[0] as usize * 3],
+                mesh.normals[t[0] as usize * 3 + 1],
+                mesh.normals[t[0] as usize * 3 + 2],
+            ];
+            if n[2] < 0.9 {
+                continue;
+            }
+            for (u, v) in [(a, b), (b, c), (c, a)] {
+                for y in [sill, head] {
+                    if (u[1] - y).abs() > 1e-3 || (v[1] - y).abs() > 1e-3 {
+                        continue;
+                    }
+                    if (u[2] - half_z).abs() > 0.02 || (v[2] - half_z).abs() > 0.02 {
+                        continue;
+                    }
+                    let (x0, x1) = (u[0].min(v[0]), u[0].max(v[0]));
+                    let len = x1 - x0;
+                    if len < 0.05 {
+                        continue;
+                    }
+                    // Opening reveal only: exactly the window width.
+                    let on_reveal = (x0 - 6.9).abs() < 0.02 && (x1 - 8.1).abs() < 0.02;
+                    if !on_reveal {
+                        bad.push((y, x0, x1, len));
+                    }
+                }
+            }
+        }
+        assert!(
+            bad.is_empty(),
+            "spurious front-face seams past jambs: {bad:?}"
+        );
+        // CAD feature edges at sill/head on the front face are reveal-only too.
+        for seg in mesh.edges.chunks(6) {
+            let a = [seg[0], seg[1], seg[2]];
+            let b = [seg[3], seg[4], seg[5]];
+            for y in [sill, head] {
+                if (a[1] - y).abs() > 1e-3 || (b[1] - y).abs() > 1e-3 {
+                    continue;
+                }
+                if (a[2] - half_z).abs() > 0.02 || (b[2] - half_z).abs() > 0.02 {
+                    continue;
+                }
+                let (x0, x1) = (a[0].min(b[0]), a[0].max(b[0]));
+                if x1 - x0 < 0.05 {
+                    continue;
+                }
+                assert!(
+                    (x0 - 6.9).abs() < 0.02 && (x1 - 8.1).abs() < 0.02,
+                    "feature edge past jamb at y={y}: [{x0},{x1}]"
+                );
+            }
+        }
     }
 }
