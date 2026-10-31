@@ -170,7 +170,7 @@ export const en: MessageCatalog = {
 
   // —— Exporters ——
   'exporter.apex.ifc.label': 'IFC',
-  'exporter.apex.ifc.title': 'Export building model as IFC4 (.ifc)',
+  'exporter.apex.ifc.title': 'Export IFC4 (.ifc) — levels, elements, spaces, openings',
 
   // —— Panels ——
   'panel.levels': 'Levels',

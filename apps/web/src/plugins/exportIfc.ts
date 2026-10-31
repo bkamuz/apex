@@ -2,17 +2,28 @@ import { apexExportIfc } from '../wasm/apex';
 import { importIfcWithIfcLite } from './ifcLiteImport';
 import type { Plugin } from './types';
 
-/** First-party IFC4 export + import — registered through PluginHost, not App branches. */
+/**
+ * First-party IFC4 export + import — registered through PluginHost, not App branches.
+ *
+ * Export coverage (MVP): levels → IfcBuildingStorey; mesh components → typed
+ * products (walls/slabs/…); plan spaces → IfcSpace extrusions; slab openings →
+ * IfcOpeningElement + IfcRelVoidsElement. Gaps: doors/windows are IfcDoor/
+ * IfcWindow with host CSG already applied (no separate opening + RelFills);
+ * no property sets, materials, or grids/refs.
+ */
 export const exportIfcPlugin: Plugin = {
   id: 'apex.export.ifc',
   descriptor: {
     purpose:
-      'IFC4 export and IFC-Lite–backed Open (Rust+WASM tessellation with CSG openings).',
+      'IFC4 export (elements, levels, spaces, opening voids) and IFC-Lite–backed Open.',
   },
   install(host) {
     host.registerExporter({
       id: 'apex.ifc',
-      descriptor: { purpose: 'IFC4 STEP file of every element, level and space.' },
+      descriptor: {
+        purpose:
+          'IFC4 STEP of levels, mesh elements, plan spaces, and opening voids.',
+      },
       label: 'IFC',
       title: 'Export building model as IFC4 (.ifc)',
       filename: 'apex-export.ifc',
