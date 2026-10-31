@@ -252,6 +252,8 @@ export default function App() {
   const selectedSectionCutRef = useRef<SectionCutDto | null>(null);
   const selectedSpaceRef = useRef<SpaceDto | null>(null);
   const selectedCountRef = useRef(0);
+  /** Joinable component ids for edit-handle filtering (ref avoids setState loops). */
+  const joinableComponentIdsRef = useRef<Set<string>>(new Set());
   /** Attach Top/Base pick mode: the next clicked roof/slab becomes the target. */
   const attachPickRef = useRef<{ end: 'top' | 'base'; ids: string[] } | null>(null);
   const [attachPick, setAttachPickState] = useState<{ end: 'top' | 'base'; ids: string[] } | null>(null);
@@ -352,6 +354,11 @@ export default function App() {
   selectedSpaceRef.current = selectedSpace;
   selectedCountRef.current = scene?.selected_ids?.length ?? 0;
   sceneRef.current = scene;
+  // Keep joinable ids off syncEditGizmo's deps — applyScene calls setComponents
+  // every time, and a components→syncEditGizmo→applyScene cycle re-rendered forever.
+  joinableComponentIdsRef.current = new Set(
+    components.filter((c) => c.joinable).map((c) => c.id),
+  );
 
   const [shapeEditing, setShapeEditing] = useState(false);
   const [shapeHandle, setShapeHandle] = useState<number | null>(null);
@@ -505,7 +512,7 @@ export default function App() {
       // Joinable paths expose only endpoints — T-junction mid vertices are
       // join topology, and dragging them kinked hosts into acute spikes.
       const joinable =
-        !!el && components.some((c) => c.id === el.component_id && c.joinable);
+        !!el && joinableComponentIdsRef.current.has(el.component_id);
       const elementAnchors =
         el?.anchors?.length && el.component_id !== 'apex.boolean'
           ? joinable && el.anchors.length > 2
@@ -527,7 +534,7 @@ export default function App() {
                   : null;
       rendererRef.current?.setEditGizmo(anchors);
     },
-    [components],
+    [],
   );
 
   const clearPreview = useCallback(() => {
@@ -1075,7 +1082,7 @@ export default function App() {
         if (selectedReferenceRef.current) return selectedReferenceRef.current.anchors;
         if (selectedCountRef.current !== 1 || !selectedRef.current) return null;
         const el = selectedRef.current;
-        const joinable = components.some((c) => c.id === el.component_id && c.joinable);
+        const joinable = joinableComponentIdsRef.current.has(el.component_id);
         if (joinable && el.anchors.length > 2) {
           return [el.anchors[0], el.anchors[el.anchors.length - 1]];
         }
