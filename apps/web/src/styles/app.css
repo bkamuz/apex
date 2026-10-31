@@ -248,8 +248,8 @@ input[type="radio"] {
   flex-shrink: 0;
   gap: 0;
   min-width: 0;
-  overflow-x: auto;
-  scrollbar-width: thin;
+  /* Allow File menu panel to escape; secondary controls can scroll if needed. */
+  overflow: visible;
 }
 
 .file-actions-group {
@@ -272,7 +272,8 @@ input[type="radio"] {
   opacity: 1;
 }
 
-.file-actions button {
+.file-actions button,
+.file-menu-summary {
   border: 0;
   border-right: 1px solid var(--chrome-line);
   border-radius: var(--chrome-radius);
@@ -287,7 +288,8 @@ input[type="radio"] {
   border-right: 0;
 }
 
-.file-actions button:hover:not(:disabled) {
+.file-actions button:hover:not(:disabled),
+.file-menu-summary:hover {
   background: var(--chrome-hover);
   border-color: var(--chrome-line);
 }
@@ -302,9 +304,92 @@ input[type="radio"] {
   background: transparent;
 }
 
-.file-actions button:focus-visible {
+.file-actions button:focus-visible,
+.file-menu-summary:focus-visible {
   outline: 1px solid var(--chrome-active);
   outline-offset: -1px;
+}
+
+.file-menu {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+
+.file-menu-summary {
+  list-style: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.file-menu-summary::-webkit-details-marker {
+  display: none;
+}
+
+.file-menu[open] > .file-menu-summary {
+  background: var(--chrome-active);
+  color: #f2f2f2;
+}
+
+.file-menu-dirty {
+  color: #c9b26a;
+  font-weight: 700;
+}
+
+.file-menu[open] .file-menu-dirty {
+  color: #f0e2a8;
+}
+
+.file-menu-panel {
+  position: absolute;
+  top: calc(100% + 1px);
+  left: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  min-width: 168px;
+  background: var(--chrome-bg-doc);
+  border: 1px solid var(--chrome-border);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.35);
+}
+
+.file-menu-panel button {
+  border: 0;
+  border-bottom: 1px solid var(--chrome-line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  padding: 6px 10px;
+  font-size: 12px;
+  min-height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+}
+
+.file-menu-panel button:last-child {
+  border-bottom: 0;
+}
+
+.file-menu-panel button:hover {
+  background: var(--chrome-hover);
+}
+
+.file-menu-panel button:focus-visible {
+  outline: 1px solid var(--chrome-active);
+  outline-offset: -1px;
+}
+
+.file-menu-panel kbd {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--chrome-muted);
+  font-weight: 400;
 }
 
 .topbar-level {

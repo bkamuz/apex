@@ -938,6 +938,10 @@ check(
 );
 
 const beforeReload = await elementCount();
+check('File menu is present', (await page.getByTestId('file-menu').count()) === 1);
+await page.locator('[data-testid="file-menu"]').evaluate((el) => {
+  el.open = true;
+});
 await page.getByTestId('save-project').click();
 await page.waitForTimeout(200);
 await page.reload({ waitUntil: 'networkidle' });

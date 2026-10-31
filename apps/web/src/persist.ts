@@ -24,8 +24,20 @@ export function clearStoredProject(): void {
   }
 }
 
-export function downloadText(filename: string, text: string): void {
-  const blob = new Blob([text], { type: 'application/json' });
+export const DEFAULT_PROJECT_FILENAME = 'apex-project.json';
+
+/** Ensure a project download name ends with `.json`. */
+export function normalizeProjectFilename(name: string): string {
+  const trimmed = name.trim() || DEFAULT_PROJECT_FILENAME;
+  return /\.json$/i.test(trimmed) ? trimmed : `${trimmed}.json`;
+}
+
+export function downloadText(
+  filename: string,
+  text: string,
+  mime = 'application/json',
+): void {
+  const blob = new Blob([text], { type: mime });
   const url = URL.createObjectURL(blob);
   const link = document.createElement('a');
   link.href = url;
