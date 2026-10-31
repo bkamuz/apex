@@ -8,6 +8,7 @@ import { hostedComponentPlugin } from './hostedComponentPlugin';
 import { levelPlugin } from './level';
 import { movePlugin } from './move';
 import { parentPlugin } from './parent';
+import { projectJsonPlugin } from './projectJson';
 import { refPlanePlugin } from './refPlane';
 import { refPointPlugin } from './refPoint';
 import { sectionCutPlugin } from './sectionCut';
@@ -54,5 +55,7 @@ export const firstPartyPlugins: Plugin[] = [
   // Spaces tab (after Engineering).
   spacePlugin,
   annotatePlugin,
+  // Document Open (.json) before IFC so both register through PluginHost.
+  projectJsonPlugin,
   exportIfcPlugin,
 ];

@@ -156,7 +156,14 @@ import { GettingStartedPanel } from './ui/GettingStartedPanel';
 import { buildSampleProject } from './ui/sampleProject';
 import { defaultNewProfile, defaultPlacementParams, nextProfileId } from './ui/profileModel';
 import { AgentBridgeControl } from './ui/AgentBridgeControl';
-import { clearStoredProject, downloadText, loadStoredProject, storeProject } from './persist';
+import {
+  clearStoredProject,
+  DEFAULT_PROJECT_FILENAME,
+  downloadText,
+  loadStoredProject,
+  normalizeProjectFilename,
+  storeProject,
+} from './persist';
 import { useMediaQuery } from './hooks/useMediaQuery';
 import { ToolRegistry } from './tools/registry';
 import { finishOpenGesture } from './tools/placementTool';
@@ -175,6 +182,7 @@ import {
   useI18n,
 } from './i18n';
 import { exporterRegistry, importerRegistry, installPlugins } from './plugins';
+import { FileMenu } from './ui/FileMenu';
 
 const DEFAULT_LEVEL_RISE = 3;
 
@@ -331,6 +339,10 @@ export default function App() {
   const [mobileMenuTab, setMobileMenuTab] = useState<MobileMenuTab>('levels');
   const isMobile = useMediaQuery('(max-width: 900px)');
   const fileRef = useRef<HTMLInputElement>(null);
+  /** Baseline JSON after New / Open / Save — dirty when live export differs. */
+  const cleanProjectJsonRef = useRef<string | null>(null);
+  const [projectFileName, setProjectFileName] = useState(DEFAULT_PROJECT_FILENAME);
+  const [projectDirty, setProjectDirty] = useState(false);
 
   selectedRef.current = selected;
   selectedReferenceRef.current = selectedReference;
@@ -2120,6 +2132,13 @@ export default function App() {
         if (!cancelled) {
           applyScene(initial, false);
           setSelectedLevelId(initial.active_level_id);
+          try {
+            cleanProjectJsonRef.current = apexExportProject();
+            setProjectDirty(false);
+          } catch {
+            cleanProjectJsonRef.current = stored;
+            setProjectDirty(false);
+          }
           if (autoLoadedSample) {
             setShowGettingStarted(false);
             setInfo(t('chrome.sampleLoaded'));
@@ -2548,77 +2567,150 @@ export default function App() {
 
   const onDelete = () => applyScene(apexDeleteSelected());
 
-  const onSaveProject = () => {
+  const markProjectClean = useCallback((json?: string, fileName?: string) => {
+    try {
+      const snapshot = json ?? apexExportProject();
+      cleanProjectJsonRef.current = snapshot;
+      setProjectDirty(false);
+      if (fileName) setProjectFileName(normalizeProjectFilename(fileName));
+    } catch {
+      cleanProjectJsonRef.current = json ?? null;
+      setProjectDirty(false);
+      if (fileName) setProjectFileName(normalizeProjectFilename(fileName));
+    }
+  }, []);
+
+  const isProjectDirty = useCallback(() => {
     try {
       const json = apexExportProject();
+      const clean = cleanProjectJsonRef.current;
+      if (clean === null) return Boolean(sceneRef.current?.can_undo);
+      return json !== clean;
+    } catch {
+      return Boolean(sceneRef.current?.can_undo);
+    }
+  }, []);
+
+  const refreshProjectDirty = useCallback(() => {
+    setProjectDirty(isProjectDirty());
+  }, [isProjectDirty]);
+
+  const confirmDiscardIfDirty = useCallback(
+    (message: string) => {
+      if (!isProjectDirty()) return true;
+      return window.confirm(message);
+    },
+    [isProjectDirty],
+  );
+
+  const writeProjectFile = useCallback(
+    (fileName: string) => {
+      const json = apexExportProject();
+      const name = normalizeProjectFilename(fileName);
       storeProject(json);
-      downloadText('apex-project.json', json);
+      downloadText(name, json);
+      markProjectClean(json, name);
+      setInfo(t('chrome.saveDone', { name }));
       setError(null);
+    },
+    [markProjectClean, t],
+  );
+
+  const onSaveProject = useCallback(() => {
+    try {
+      writeProjectFile(projectFileName);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  };
+  }, [projectFileName, writeProjectFile]);
 
-  const onOpenProjectFile = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = () => {
-      void (async () => {
-        try {
-          const text = String(reader.result ?? '');
-          const importer = importerRegistry.findForFile(file.name);
-          if (importer) {
-            setInfo(`Opening ${importer.label}…`);
-            const next = (await Promise.resolve(importer.import(text))) as SceneDto & {
-              ifc_import?: {
-                levels: number;
-                products: number;
-                skipped_no_mesh: number;
-                warnings: string[];
+  const onSaveProjectAs = useCallback(() => {
+    const suggested = projectFileName || DEFAULT_PROJECT_FILENAME;
+    const entered = window.prompt(t('chrome.saveAsPrompt'), suggested);
+    if (entered == null) return;
+    try {
+      writeProjectFile(entered);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, [projectFileName, t, writeProjectFile]);
+
+  const onRequestOpenProject = useCallback(() => {
+    if (!confirmDiscardIfDirty(t('chrome.openConfirm'))) return;
+    fileRef.current?.click();
+  }, [confirmDiscardIfDirty, t]);
+
+  const onOpenProjectFile = useCallback(
+    (file: File) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        void (async () => {
+          try {
+            const text = String(reader.result ?? '');
+            const importer = importerRegistry.findForFile(file.name);
+            if (importer) {
+              setInfo(t('chrome.opening', { label: importer.label }));
+              const next = (await Promise.resolve(importer.import(text))) as SceneDto & {
+                ifc_import?: {
+                  levels: number;
+                  products: number;
+                  skipped_no_mesh: number;
+                  warnings: string[];
+                };
               };
-            };
-            clearStoredProject();
+              applyScene(next, true);
+              syncCatalog();
+              if (importer.id === 'apex.project') {
+                storeProject(text);
+                markProjectClean(text, file.name);
+              } else {
+                // Non-JSON imports (IFC) start a new live document until Save.
+                clearStoredProject();
+                markProjectClean(undefined, DEFAULT_PROJECT_FILENAME);
+              }
+              const summary = next.ifc_import;
+              if (summary) {
+                const skipped =
+                  summary.skipped_no_mesh > 0
+                    ? ` (${summary.skipped_no_mesh} without mesh skipped)`
+                    : '';
+                setInfo(
+                  `Opened IFC: ${summary.products} product${summary.products === 1 ? '' : 's'}, ${summary.levels} level${summary.levels === 1 ? '' : 's'}${skipped}`,
+                );
+              } else {
+                setInfo(
+                  t('chrome.openImporterDone', { label: importer.label, name: file.name }),
+                );
+              }
+              setError(null);
+              return;
+            }
+            const next = apexImportProject(text);
+            storeProject(text);
+            markProjectClean(text, file.name);
             applyScene(next, true);
             syncCatalog();
-            const summary = next.ifc_import;
-            if (summary) {
-              const skipped =
-                summary.skipped_no_mesh > 0
-                  ? ` (${summary.skipped_no_mesh} without mesh skipped)`
-                  : '';
-              setInfo(
-                `Opened IFC: ${summary.products} product${summary.products === 1 ? '' : 's'}, ${summary.levels} level${summary.levels === 1 ? '' : 's'}${skipped}`,
-              );
-            } else {
-              setInfo(`Opened ${importer.label}: ${file.name}`);
-            }
+            setInfo(t('chrome.openDone', { name: file.name }));
             setError(null);
-            return;
+          } catch (err) {
+            setError(err instanceof Error ? err.message : String(err));
           }
-          const next = apexImportProject(text);
-          storeProject(text);
-          applyScene(next, true);
-          syncCatalog();
-          setInfo(`Opened project: ${file.name}`);
-          setError(null);
-        } catch (err) {
-          setError(err instanceof Error ? err.message : String(err));
-        }
-      })();
-    };
-    reader.readAsText(file);
-  };
+        })();
+      };
+      reader.readAsText(file);
+    },
+    [applyScene, markProjectClean, syncCatalog, t],
+  );
 
-  const onNewProject = () => {
-    if (scene?.can_undo) {
-      const ok = window.confirm(t('chrome.newProjectConfirm'));
-      if (!ok) return;
-    }
+  const onNewProject = useCallback(() => {
+    if (!confirmDiscardIfDirty(t('chrome.newProjectConfirm'))) return;
     try {
       const next = apexNewProject();
       clearStoredProject();
       applyScene(next, true);
       syncCatalog();
       setPlacementDraft({});
+      markProjectClean(undefined, DEFAULT_PROJECT_FILENAME);
       setError(null);
       setInfo(null);
       try {
@@ -2631,7 +2723,41 @@ export default function App() {
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  };
+  }, [applyScene, confirmDiscardIfDirty, markProjectClean, syncCatalog, t]);
+
+  useEffect(() => {
+    if (!ready) return;
+    refreshProjectDirty();
+  }, [ready, scene?.version, scene?.can_undo, refreshProjectDirty]);
+
+  useEffect(() => {
+    const onFileKeyDown = (e: KeyboardEvent) => {
+      const active = document.activeElement;
+      const typing =
+        active instanceof HTMLElement &&
+        (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT');
+      const mod = e.ctrlKey || e.metaKey;
+      if (typing || !mod) return;
+      const key = e.key.toLowerCase();
+      if (key === 's') {
+        e.preventDefault();
+        if (e.shiftKey) onSaveProjectAs();
+        else onSaveProject();
+        return;
+      }
+      if (key === 'o') {
+        e.preventDefault();
+        onRequestOpenProject();
+        return;
+      }
+      if (key === 'n') {
+        e.preventDefault();
+        onNewProject();
+      }
+    };
+    window.addEventListener('keydown', onFileKeyDown, true);
+    return () => window.removeEventListener('keydown', onFileKeyDown, true);
+  }, [onNewProject, onRequestOpenProject, onSaveProject, onSaveProjectAs]);
 
   const onSelectType = (profileId: string) => {
     onEditType(profileId);
@@ -2850,9 +2976,13 @@ export default function App() {
               </button>
             </div>
             <div className="file-actions-group" data-group="document">
-              <button type="button" onClick={onSaveProject} data-testid="save-project">
-                {t('chrome.save')}
-              </button>
+              <FileMenu
+                dirty={projectDirty}
+                onNew={onNewProject}
+                onOpen={onRequestOpenProject}
+                onSave={onSaveProject}
+                onSaveAs={onSaveProjectAs}
+              />
               {exporters.map((exporter) => (
                 <button
                   key={exporter.id}
@@ -2862,7 +2992,7 @@ export default function App() {
                   onClick={() => {
                     try {
                       const text = exporter.export();
-                      downloadText(exporter.filename, text);
+                      downloadText(exporter.filename, text, 'application/octet-stream');
                       setError(null);
                     } catch (err) {
                       setError(err instanceof Error ? err.message : String(err));
@@ -2872,16 +3002,6 @@ export default function App() {
                   {exporterDisplayLabel(exporter)}
                 </button>
               ))}
-              <button
-                type="button"
-                onClick={() => fileRef.current?.click()}
-                data-testid="open-project"
-              >
-                {t('chrome.open')}
-              </button>
-              <button type="button" onClick={onNewProject} data-testid="new-project">
-                {t('chrome.new')}
-              </button>
             </div>
             <div className="file-actions-group file-actions-group--secondary" data-group="dev">
               <AgentBridgeControl
