@@ -657,14 +657,30 @@ impl Project {
                 let _ = self.rebuild_element(parent_id);
             }
         } else {
-            // Hosted openings take their orientation from this host: refresh
-            // their meshes (not via update_element, which would recurse here).
+            // Hosted openings take their frame from this host. When the host
+            // path stretches (join corner drag), reproject each child's origin
+            // onto the new centreline so voids and frames stay on the wall —
+            // otherwise a kinked host + stale opening cut leaves face stripes.
+            let host_curve = self
+                .document
+                .get_element(id)
+                .and_then(|e| e.placement.curve().cloned());
             for child_id in self.document.children_of(id) {
-                let Some(child) = self.document.get_element(child_id).cloned() else {
+                let Some(mut child) = self.document.get_element(child_id).cloned() else {
                     continue;
                 };
                 if self.hosted_opening_yaw(&child).is_none() {
                     continue;
+                }
+                if placement_changed {
+                    if let Some(curve) = host_curve.as_ref() {
+                        let origin = child.placement.origin();
+                        if let Some(on_host) = project_onto_curve_xz(curve, origin) {
+                            if (on_host - origin).length_squared() > 1e-10 {
+                                child.placement = Placement::point(on_host);
+                            }
+                        }
+                    }
                 }
                 if let Ok(mesh) = self.build_element_mesh_with_cuts(&child) {
                     self.document.update_element(child, mesh);
