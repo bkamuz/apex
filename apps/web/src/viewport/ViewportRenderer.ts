@@ -1806,6 +1806,11 @@ export class ViewportRenderer {
     return [((ndcX + 1) * 0.5) * rect.width, ((1 - ndcY) * 0.5) * rect.height];
   }
 
+  /** Current edit-handle world positions, or null when no gizmo is shown. */
+  getEditHandles(): Vec3[] | null {
+    return this.editHandles ? this.editHandles.map((p) => [...p] as Vec3) : null;
+  }
+
   /** Hit-test edit handles in screen space; returns the anchor index. */
   hitEditHandle(clientX: number, clientY: number, pixelRadius = 12): number | null {
     if (!this.editHandles) return null;
