@@ -247,6 +247,13 @@ export function previewComponentDefinition(definition_json: string, points_json:
 export function previewElement(component_id: string, points_json: string, rotation: number, params_json: string, placement_kind: string): any;
 
 /**
+ * Ghost mesh for dragging path anchors (node / endpoint). Does not mutate the
+ * document — commit via `setElementPlacement`. Returns typed-array mesh plus
+ * `hide_ids` (source + stretch peers + descendants) for the UI to suppress.
+ */
+export function previewPathAnchorEdit(id: string, points_json: string, rotation: number): any;
+
+/**
  * Evaluate a profile spec (or a full `ProfileType`) to a 2D outline for the editor.
  */
 export function previewProfile(profile_json: string, params_json: string): any;
@@ -475,6 +482,7 @@ export interface InitOutput {
     readonly placeViewOnSheet: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number];
     readonly previewComponentDefinition: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
     readonly previewElement: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number, i: number) => [number, number, number];
+    readonly previewPathAnchorEdit: (a: number, b: number, c: number, d: number, e: number) => [number, number, number];
     readonly previewProfile: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly previewStretchTranslate: (a: number, b: number, c: number) => [number, number, number];
     readonly redo: () => [number, number, number];

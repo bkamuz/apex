@@ -1059,6 +1059,27 @@ export function previewElement(component_id, points_json, rotation, params_json,
 }
 
 /**
+ * Ghost mesh for dragging path anchors (node / endpoint). Does not mutate the
+ * document — commit via `setElementPlacement`. Returns typed-array mesh plus
+ * `hide_ids` (source + stretch peers + descendants) for the UI to suppress.
+ * @param {string} id
+ * @param {string} points_json
+ * @param {number} rotation
+ * @returns {any}
+ */
+export function previewPathAnchorEdit(id, points_json, rotation) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(points_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.previewPathAnchorEdit(ptr0, len0, ptr1, len1, rotation);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * Evaluate a profile spec (or a full `ProfileType`) to a 2D outline for the editor.
  * @param {string} profile_json
  * @param {string} params_json
@@ -2060,6 +2081,10 @@ function __wbg_get_imports() {
         },
         __wbg_new_with_length_f048f86e32f1515e: function(arg0) {
             const ret = new Uint32Array(arg0 >>> 0);
+            return ret;
+        },
+        __wbg_new_with_length_f8cbc3a5b9ff9368: function(arg0) {
+            const ret = new Array(arg0 >>> 0);
             return ret;
         },
         __wbg_next_6dbf2c0ac8cde20f: function(arg0) {

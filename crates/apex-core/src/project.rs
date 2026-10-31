@@ -1543,6 +1543,85 @@ impl Project {
         Ok(mesh)
     }
 
+    /// Ghost mesh for dragging a path element's anchors (node / endpoint edit).
+    ///
+    /// Does not mutate the document. Remeshes the edited element plus any
+    /// joinable peers that would stretch so joins stay attached. Recipe mesh
+    /// only (no host-cut / boolean / edges) — full joins land on commit.
+    ///
+    /// Returns `(ghost, hide_ids)` where `hide_ids` are the source, stretch
+    /// peers, and their descendants — the UI hides those live solids while the
+    /// ghost is shown so the drag does not double-draw.
+    pub fn preview_path_anchor_edit(
+        &self,
+        id: ElementId,
+        new_placement: &Placement,
+    ) -> Result<(TriangleMesh, Vec<ElementId>), RegistryError> {
+        let source = self
+            .document
+            .get_element(id)
+            .cloned()
+            .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
+        let level_id = self
+            .document
+            .effective_level_id(id)
+            .unwrap_or(source.level_id);
+        let seat = self
+            .registry
+            .get(&source.component_id)
+            .map(|def| def.placement_options.seat_on_level)
+            .unwrap_or(true);
+        let placement = if seat {
+            let elevation = self.work_plane(level_id).origin.y;
+            new_placement.with_elevation(elevation)
+        } else {
+            new_placement.clone()
+        };
+
+        let mut updates = Vec::new();
+        let joinable = self
+            .registry
+            .get(&source.component_id)
+            .is_some_and(|d| d.joinable);
+        if joinable {
+            if let (Some(old_curve), Some(new_curve)) =
+                (source.placement.curve(), placement.curve())
+            {
+                let peers = peers_for(&self.registry, self.document.elements(), &source);
+                updates = plan_stretch_from_edit(id, old_curve, new_curve, &peers);
+            }
+        }
+        updates.insert(
+            0,
+            crate::path_stretch::StretchUpdate {
+                id,
+                placement: placement.clone(),
+            },
+        );
+
+        let mut hide: std::collections::BTreeSet<ElementId> =
+            std::collections::BTreeSet::new();
+        let mut mesh = TriangleMesh::empty();
+        for update in &updates {
+            hide.insert(update.id);
+            hide.extend(self.document.descendants_of(update.id));
+            let Some(el) = self.document.get_element(update.id) else {
+                continue;
+            };
+            let mut preview = el.clone();
+            preview.placement = update.placement.clone();
+            if let Ok(mut part) = self.registry.build_element_mesh(
+                &preview,
+                self.work_plane(preview.level_id),
+                self.document.references(),
+            ) {
+                part.edges.clear();
+                mesh.append(&part);
+            }
+        }
+        Ok((mesh, hide.into_iter().collect()))
+    }
+
     /// Duplicate elements, optionally offsetting the copies. One undo step.
     pub fn copy_elements(
         &mut self,
@@ -3837,6 +3916,38 @@ mod tests {
         // B shared corner follows; far end stays.
         assert!((eb.placement.curve().unwrap().start().z - 2.0).abs() < 1e-3);
         assert!((eb.placement.curve().unwrap().end().z - 4.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn preview_path_anchor_edit_ghosts_source_and_peers() {
+        let mut project = Project::new();
+        let a = project
+            .create_element(
+                "apex.wall",
+                Placement::line(Vec3::ZERO, Vec3::new(5.0, 0.0, 0.0)),
+                ParamMap::new(),
+            )
+            .expect("a");
+        let b = project
+            .create_element(
+                "apex.wall",
+                Placement::line(Vec3::new(5.0, 0.0, 0.0), Vec3::new(5.0, 0.0, 4.0)),
+                ParamMap::new(),
+            )
+            .expect("b");
+        let (mesh, hide) = project
+            .preview_path_anchor_edit(
+                a,
+                &Placement::line(Vec3::ZERO, Vec3::new(6.0, 0.0, 1.0)),
+            )
+            .expect("preview");
+        assert!(!mesh.is_empty(), "source + peer must remesh for ghost");
+        assert!(mesh.edges.is_empty(), "ghost skips edge polylines");
+        assert!(hide.contains(&a), "hide edited wall");
+        assert!(hide.contains(&b), "hide stretched peer");
+        // Document untouched — peer still at original placement.
+        let eb = project.document().get_element(b).unwrap();
+        assert!((eb.placement.curve().unwrap().start().x - 5.0).abs() < 1e-3);
     }
 
     #[test]
