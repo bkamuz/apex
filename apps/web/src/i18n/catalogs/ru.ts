@@ -164,7 +164,7 @@ export const ru: MessageCatalog = {
   'placement.moreClicks': '{name}: осталось кликов: {n} · Shift — привязка · Esc{elev}',
 
   'exporter.apex.ifc.label': 'IFC',
-  'exporter.apex.ifc.title': 'Экспорт модели здания в IFC4 (.ifc)',
+  'exporter.apex.ifc.title': 'Экспорт IFC4 (.ifc) — уровни, элементы, пространства, проёмы',
 
   'panel.levels': 'Уровни',
   'panel.addLevel': '+ Уровень',

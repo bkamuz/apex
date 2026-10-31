@@ -1,9 +1,15 @@
 //! IFC4 export and import for Apex projects.
 //!
-//! **Export** writes tessellated `IfcTriangulatedFaceSet` meshes; semantic type
-//! comes from `ComponentDefinition.ifc_entity` (or a fallback mapping by
-//! category / explicit [`IfcMapping`]), so plugins extend export without
-//! per-type branches in the shell.
+//! **Export** writes tessellated `IfcTriangulatedFaceSet` meshes for components
+//! plus extruded `IfcSpace` volumes from plan spaces. Semantic type comes from
+//! `ComponentDefinition.ifc_entity` (or a fallback mapping by category /
+//! explicit [`IfcMapping`]), so plugins extend export without per-type branches
+//! in the shell.
+//!
+//! Hosted `IfcOpeningElement` children emit `IfcRelVoidsElement` against their
+//! parent when both products export. Doors/windows stay `IfcDoor`/`IfcWindow`
+//! with the host mesh already CSG-cut (no separate opening + `IfcRelFillsElement`
+//! yet — see gaps in the AP-34 notes).
 //!
 //! **Import** parses STEP Physical Files, resolves storeys and products with
 //! triangulated / faceted / extruded geometry (including composite-curve
@@ -21,7 +27,12 @@ pub use import::{
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
-use apex_core::{ComponentDefinition, Element, Level, Project, TriangleMesh, IFC_MESH_COMPONENT};
+use apex_core::{
+    ComponentDefinition, Element, ElementId, Level, Project, Space, TriangleMesh,
+    IFC_MESH_COMPONENT,
+};
+use apex_geometry::Curve;
+use glam::Vec3;
 use uuid::Uuid;
 
 /// Optional overrides: component id → IFC entity type name (`IfcWall`, …).
@@ -241,6 +252,8 @@ fn write_file(out: &mut String, project: &Project, mapping: &IfcMapping) {
     .ok();
 
     let mut contained: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    let mut product_by_element: BTreeMap<ElementId, usize> = BTreeMap::new();
+    let mut opening_children: Vec<(ElementId, ElementId)> = Vec::new();
 
     for element in project.document().elements() {
         let Some(mesh) = project.document().get_mesh(element.id) else {
@@ -252,10 +265,48 @@ fn write_file(out: &mut String, project: &Project, mapping: &IfcMapping) {
         let def = project.registry().get(&element.component_id);
         let entity = resolve_ifc_entity(element, def, mapping);
         let product = write_product(out, &mut ids, owner_hist, body_ctx, element, mesh, &entity);
+        product_by_element.insert(element.id, product);
+        if entity == "IfcOpeningElement" {
+            if let Some(parent) = element.parent_id {
+                opening_children.push((parent, element.id));
+            }
+        }
         let level_key = project
             .effective_level_id(element.id)
             .unwrap_or(element.level_id)
             .to_string();
+        if let Some(&storey) = storey_ids.get(&level_key) {
+            contained.entry(storey).or_default().push(product);
+        }
+    }
+
+    for (parent_id, child_id) in opening_children {
+        let (Some(&host), Some(&opening)) = (
+            product_by_element.get(&parent_id),
+            product_by_element.get(&child_id),
+        ) else {
+            continue;
+        };
+        let rel = ids.next();
+        writeln!(
+            out,
+            "#{rel}=IFCRELVOIDSELEMENT('{guid}',#{owner_hist},$,$,#{host},#{opening});",
+            guid = new_guid()
+        )
+        .ok();
+    }
+
+    let level_elev: BTreeMap<String, f64> = levels
+        .iter()
+        .map(|level| (level.id.to_string(), level.elevation as f64))
+        .collect();
+
+    for space in project.document().spaces() {
+        let Some(product) = write_space(out, &mut ids, owner_hist, body_ctx, space, &level_elev)
+        else {
+            continue;
+        };
+        let level_key = space.level_id.to_string();
         if let Some(&storey) = storey_ids.get(&level_key) {
             contained.entry(storey).or_default().push(product);
         }
@@ -281,6 +332,119 @@ fn write_file(out: &mut String, project: &Project, mapping: &IfcMapping) {
 
     writeln!(out, "ENDSEC;").ok();
     writeln!(out, "END-ISO-10303-21;").ok();
+}
+
+/// Plan space → `IfcSpace` with an extruded footprint (Apex Y-up → IFC Z-up).
+fn write_space(
+    out: &mut String,
+    ids: &mut IdGen,
+    owner_hist: usize,
+    body_ctx: usize,
+    space: &Space,
+    level_elev: &BTreeMap<String, f64>,
+) -> Option<usize> {
+    let ring = space_ring_points(space)?;
+    let height = space
+        .resolved_params()
+        .number("height")
+        .filter(|h| *h > 1e-4)
+        .unwrap_or(2.5);
+    let elev = level_elev
+        .get(&space.level_id.to_string())
+        .copied()
+        .unwrap_or(0.0);
+
+    let product = ids.next();
+    let place = ids.next();
+    let axis = ids.next();
+    let origin = ids.next();
+    let shape = ids.next();
+    let rep = ids.next();
+    let solid = ids.next();
+    let profile = ids.next();
+    let polyline = ids.next();
+    let extrude_dir = ids.next();
+    let solid_pos = ids.next();
+    let solid_origin = ids.next();
+
+    // Storey-relative placement at the level elevation (IFC Z-up).
+    writeln!(out, "#{origin}=IFCCARTESIANPOINT((0.,0.,{elev:.6}));").ok();
+    writeln!(out, "#{axis}=IFCAXIS2PLACEMENT3D(#{origin},$,$);").ok();
+    writeln!(out, "#{place}=IFCLOCALPLACEMENT($,#{axis});").ok();
+
+    let mut poly_pts = Vec::new();
+    for p in &ring {
+        let pt = ids.next();
+        // Apex plan XZ → IFC local XY of the extruded profile.
+        let x = p.x as f64;
+        let y = -p.z as f64;
+        writeln!(out, "#{pt}=IFCCARTESIANPOINT(({x:.6},{y:.6}));").ok();
+        poly_pts.push(pt);
+    }
+    // Close the ring.
+    if let Some(first) = poly_pts.first().copied() {
+        poly_pts.push(first);
+    }
+    let poly_list = poly_pts
+        .iter()
+        .map(|id| format!("#{id}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    writeln!(out, "#{polyline}=IFCPOLYLINE(({poly_list}));").ok();
+    writeln!(
+        out,
+        "#{profile}=IFCARBITRARYCLOSEDPROFILEDEF(.AREA.,$,#{polyline});"
+    )
+    .ok();
+    writeln!(out, "#{solid_origin}=IFCCARTESIANPOINT((0.,0.,0.));").ok();
+    writeln!(
+        out,
+        "#{solid_pos}=IFCAXIS2PLACEMENT3D(#{solid_origin},$,$);"
+    )
+    .ok();
+    writeln!(out, "#{extrude_dir}=IFCDIRECTION((0.,0.,1.));").ok();
+    writeln!(
+        out,
+        "#{solid}=IFCEXTRUDEDAREASOLID(#{profile},#{solid_pos},#{extrude_dir},{height:.6});"
+    )
+    .ok();
+    writeln!(
+        out,
+        "#{rep}=IFCSHAPEREPRESENTATION(#{body_ctx},'Body','SweptSolid',(#{solid}));"
+    )
+    .ok();
+    writeln!(out, "#{shape}=IFCPRODUCTDEFINITIONSHAPE($,$,(#{rep}));").ok();
+
+    let params = space.resolved_params();
+    let label = params
+        .text("label")
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or(space.name.as_str());
+    let name = escape(label);
+    writeln!(
+        out,
+        "#{product}=IFCSPACE('{guid}',#{owner_hist},'{name}',$,$,#{place},#{shape},$,.ELEMENT.,.SPACE.,$);",
+        guid = new_guid(),
+    )
+    .ok();
+    Some(product)
+}
+
+fn space_ring_points(space: &Space) -> Option<Vec<Vec3>> {
+    let curve = space.placement.curve()?;
+    let Curve::Polyline { points } = curve else {
+        return None;
+    };
+    let ring: Vec<Vec3> = if points.len() > 3 && points.first() == points.last() {
+        points[..points.len() - 1].to_vec()
+    } else {
+        points.to_vec()
+    };
+    if ring.len() < 3 {
+        return None;
+    }
+    Some(ring)
 }
 
 fn write_product(
@@ -366,6 +530,7 @@ fn entity_tag(entity: &str) -> String {
         "IfcRoof" => "IFCROOF",
         "IfcStair" => "IFCSTAIR",
         "IfcOpeningElement" => "IFCOPENINGELEMENT",
+        "IfcSpace" => "IFCSPACE",
         "IfcFlowSegment" => "IFCFLOWSEGMENT",
         "IfcCableCarrierSegment" => "IFCCABLECARRIERSEGMENT",
         _ => "IFCBUILDINGELEMENTPROXY",
@@ -467,5 +632,86 @@ mod tests {
         assert!(text.contains("IFCWALL"));
         assert!(text.contains("IFCTRIANGULATEDFACESET"));
         assert!(text.contains("IFCRELCONTAINEDINSPATIALSTRUCTURE"));
+    }
+
+    #[test]
+    fn space_exports_as_ifcspace_extrusion() {
+        use apex_core::PlacementKind;
+        use apex_geometry::Frame;
+
+        let mut project = Project::new();
+        let ground = Frame::horizontal(0.0);
+        let placement = PlacementKind::Polyline
+            .build(
+                &[
+                    Vec3::ZERO,
+                    Vec3::new(4.0, 0.0, 0.0),
+                    Vec3::new(4.0, 0.0, 3.0),
+                    Vec3::new(0.0, 0.0, 3.0),
+                ],
+                0.0,
+                &ground,
+            )
+            .expect("placement");
+        project
+            .create_space(
+                placement,
+                ParamMap::new().with("label", apex_core::ParamValue::Text("Kitchen".into())),
+            )
+            .expect("space");
+        let text = export_ifc4(&project, &IfcMapping::new());
+        assert!(text.contains("IFCSPACE"));
+        assert!(text.contains("IFCEXTRUDEDAREASOLID"));
+        assert!(text.contains("IFCARBITRARYCLOSEDPROFILEDEF"));
+        assert!(text.contains("'Kitchen'"));
+        assert!(text.contains("IFCRELCONTAINEDINSPATIALSTRUCTURE"));
+    }
+
+    #[test]
+    fn slab_opening_exports_rel_voids() {
+        let mut project = Project::new();
+        let slab_pts = [
+            Vec3::new(0.0, 0.0, 0.0),
+            Vec3::new(6.0, 0.0, 0.0),
+            Vec3::new(6.0, 0.0, 4.0),
+            Vec3::new(0.0, 0.0, 4.0),
+        ];
+        let slab_placement = project
+            .placement_from_points("apex.slab", &slab_pts, 0.0)
+            .expect("slab placement");
+        let slab = project
+            .create_element("apex.slab", slab_placement, ParamMap::new())
+            .expect("slab");
+        let opening_pts = [
+            Vec3::new(2.0, 0.0, 1.0),
+            Vec3::new(3.0, 0.0, 1.0),
+            Vec3::new(3.0, 0.0, 2.0),
+            Vec3::new(2.0, 0.0, 2.0),
+        ];
+        let opening_placement = project
+            .placement_from_points("apex.slab_opening", &opening_pts, 0.0)
+            .expect("opening placement");
+        let opening = project
+            .create_element_with_parent(
+                "apex.slab_opening",
+                opening_placement,
+                ParamMap::new(),
+                Some(slab),
+            )
+            .expect("opening");
+        assert_eq!(
+            project.document().get_element(opening).unwrap().parent_id,
+            Some(slab)
+        );
+        let text = export_ifc4(&project, &IfcMapping::new());
+        assert!(text.contains("IFCSLAB"), "missing IFCSLAB");
+        assert!(
+            text.contains("IFCOPENINGELEMENT"),
+            "missing IFCOPENINGELEMENT"
+        );
+        assert!(
+            text.contains("IFCRELVOIDSELEMENT"),
+            "missing IFCRELVOIDSELEMENT"
+        );
     }
 }
