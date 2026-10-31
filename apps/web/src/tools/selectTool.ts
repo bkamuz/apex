@@ -10,6 +10,8 @@ interface AnchorDrag {
   index: number;
   anchors: Vec3[];
   moved: boolean;
+  /** World Y of the editable's level plane, frozen at pointer-down. */
+  planeY: number;
 }
 
 type Candidate = { id: string; name: string; category: string; pickId: number };
@@ -124,7 +126,20 @@ export function createSelectTool(): Tool {
       const indexHandle = ctx.hitEditHandle(e.clientX, e.clientY);
       if (indexHandle === null) return false;
 
-      drag = { index: indexHandle, anchors: anchors.map((p) => [...p] as Vec3), moved: false };
+      // Freeze the work-plane Y for this gesture. Prefer the element's level;
+      // fall back to the handle we grabbed so a stale selection ref cannot
+      // later lift the gizmo to the active storey in 3D.
+      const planeY =
+        ctx.selectedAnchorPlaneElevation() ??
+        anchors[indexHandle]?.[1] ??
+        anchors[0]?.[1] ??
+        0;
+      drag = {
+        index: indexHandle,
+        anchors: anchors.map((p) => [p[0], planeY, p[2]] as Vec3),
+        moved: false,
+        planeY,
+      };
       ctx.beginUndoGroup();
       ctx.setTouchOrbitEnabled(false);
       return true;
@@ -146,17 +161,31 @@ export function createSelectTool(): Tool {
 
       // Constrain against a neighbouring anchor so Shift-ortho has a reference.
       const neighbour = drag.anchors[drag.index === 0 ? drag.anchors.length - 1 : 0] ?? null;
+      // Always intersect the frozen element plane — never the active level —
+      // so 3D drag cannot draw a rising gizmo when storeys differ.
+      const planeY = drag.planeY;
       const joinableId = ctx.selectedJoinableComponentId();
       let point: Vec3 | null = null;
       let joinSnapped = false;
       if (joinableId) {
-        const hit = resolveJoinablePoint(ctx, e.clientX, e.clientY, e.shift, neighbour, joinableId);
+        const hit = resolveJoinablePoint(
+          ctx,
+          e.clientX,
+          e.clientY,
+          e.shift,
+          neighbour,
+          joinableId,
+          planeY,
+        );
         point = hit?.point ?? null;
         joinSnapped = !!hit?.snapped;
       } else {
-        point = ctx.resolvePoint(e.clientX, e.clientY, e.shift, neighbour);
+        point = ctx.resolvePoint(e.clientX, e.clientY, e.shift, neighbour, planeY);
       }
       if (!point) return;
+      // Belt-and-suspenders: keep every handle on the captured plane even if a
+      // snap target carried a foreign Y.
+      point = [point[0], planeY, point[2]];
 
       ctx.showSnapMarker(point, e.shift || joinSnapped);
       drag.anchors[drag.index] = point;

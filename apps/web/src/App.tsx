@@ -655,12 +655,19 @@ export default function App() {
   const applySceneRef = useRef(applyScene);
   applySceneRef.current = applyScene;
 
-  /** Screen point to a world point on the active work plane, with Shift snapping. */
+  /** Screen point to a world point on a work plane, with Shift snapping. */
   const resolvePoint = useCallback(
-    (clientX: number, clientY: number, shift: boolean, anchor: Vec3 | null): Vec3 | null => {
+    (
+      clientX: number,
+      clientY: number,
+      shift: boolean,
+      anchor: Vec3 | null,
+      elevation?: number,
+    ): Vec3 | null => {
       const renderer = rendererRef.current;
       if (!renderer) return null;
-      const raw = renderer.screenToGround(clientX, clientY, activeElevationRef.current);
+      const planeY = elevation ?? activeElevationRef.current;
+      const raw = renderer.screenToGround(clientX, clientY, planeY);
       if (!raw) return null;
       if (!shift && !shiftHeldRef.current) return raw;
       let point = snapPointToGrid(raw, GRID_STEP);
@@ -670,11 +677,34 @@ export default function App() {
     [],
   );
 
+  /** Elevation of the level a selected editable sits on (element / annotation). */
+  const selectedAnchorPlaneElevation = useCallback((): number | null => {
+    const current = sceneRef.current;
+    const levels = current?.levels ?? [];
+    const levelElev = (levelId: string | undefined | null): number | null => {
+      if (!levelId) return null;
+      const hit = levels.find((l) => l.id === levelId);
+      return hit ? hit.elevation : null;
+    };
+    if (selectedGridAxisRef.current) return levelElev(selectedGridAxisRef.current.level_id);
+    if (selectedConstructionLineRef.current)
+      return levelElev(selectedConstructionLineRef.current.level_id);
+    if (selectedSectionCutRef.current) return levelElev(selectedSectionCutRef.current.level_id);
+    if (selectedSpaceRef.current) return levelElev(selectedSpaceRef.current.level_id);
+    if (selectedReferenceRef.current) return levelElev(selectedReferenceRef.current.level_id);
+    const sel = selectedRef.current;
+    if (sel && selectedCountRef.current === 1) {
+      return levelElev(sel.effective_level_id || sel.level_id);
+    }
+    return null;
+  }, []);
+
   /** Fresh services for the active tool; nothing is captured across events. */
   const toolContext = useCallback((): ToolContext => {
     const renderer = rendererRef.current!;
     return {
-      resolvePoint: (x, y, shift, anchor) => resolvePoint(x, y, shift, anchor),
+      resolvePoint: (x, y, shift, anchor, elevation) =>
+        resolvePoint(x, y, shift, anchor, elevation),
 
       joinableSnapTargets: (componentId) => {
         try {
@@ -1024,9 +1054,20 @@ export default function App() {
         return selectedCountRef.current === 1 ? (selectedRef.current?.anchors ?? null) : null;
       },
 
+      selectedAnchorPlaneElevation: () => selectedAnchorPlaneElevation(),
+
       previewAnchors: (anchors) => {
         draggingRef.current = true;
-        renderer.setEditGizmo(anchors);
+        // Seat every handle on the editable's level plane so 3D drag does not
+        // draw a rising gizmo when active elevation ≠ element elevation.
+        // Prefer the element's level; fall back to the existing anchors' Y so a
+        // stale selection ref cannot lift the gizmo to the active storey.
+        const planeY = selectedAnchorPlaneElevation() ?? anchors[0]?.[1] ?? null;
+        const seated =
+          planeY == null
+            ? anchors
+            : anchors.map((p) => [p[0], planeY, p[2]] as Vec3);
+        renderer.setEditGizmo(seated);
         const applyLive = (
           next: SceneDto,
           sync: (scene: SceneDto) => void,
@@ -1046,7 +1087,7 @@ export default function App() {
         const axisSel = selectedGridAxisRef.current;
         if (axisSel) {
           try {
-            applyLive(apexSetGridAxisPlacement(axisSel.id, anchors, 0, false), (next) =>
+            applyLive(apexSetGridAxisPlacement(axisSel.id, seated, 0, false), (next) =>
               syncGridAxisGizmos(next.grid_axes ?? []),
             );
           } catch {
@@ -1057,7 +1098,7 @@ export default function App() {
         const lineSel = selectedConstructionLineRef.current;
         if (lineSel) {
           try {
-            applyLive(apexSetConstructionLinePlacement(lineSel.id, anchors, 0, false), (next) =>
+            applyLive(apexSetConstructionLinePlacement(lineSel.id, seated, 0, false), (next) =>
               syncConstructionLineOverlays(next.construction_lines ?? []),
             );
           } catch {
@@ -1068,7 +1109,7 @@ export default function App() {
         const cutSel = selectedSectionCutRef.current;
         if (cutSel) {
           try {
-            applyLive(apexSetSectionCutPlacement(cutSel.id, anchors, 0, false), (next) =>
+            applyLive(apexSetSectionCutPlacement(cutSel.id, seated, 0, false), (next) =>
               syncSectionCutOverlays(next.section_cuts ?? []),
             );
           } catch {
@@ -1079,7 +1120,7 @@ export default function App() {
         const spaceSel = selectedSpaceRef.current;
         if (spaceSel) {
           try {
-            applyLive(apexSetSpacePlacement(spaceSel.id, anchors, 0, false), (next) =>
+            applyLive(apexSetSpacePlacement(spaceSel.id, seated, 0, false), (next) =>
               syncSpaceOverlays(next.spaces ?? [], next.active_level_id),
             );
           } catch {
@@ -1090,7 +1131,7 @@ export default function App() {
         const refSel = selectedReferenceRef.current;
         if (refSel) {
           try {
-            applyLive(apexSetReferencePlacement(refSel.id, anchors, 0, false), (next) =>
+            applyLive(apexSetReferencePlacement(refSel.id, seated, 0, false), (next) =>
               syncReferenceGizmos(next.references ?? []),
             );
           } catch {
@@ -1103,7 +1144,7 @@ export default function App() {
         // Ghost-only: remesh edited path + stretch peers without mutating the
         // document or dumping a full scene on every pointer move (multi-wall lag).
         try {
-          const preview = apexPreviewPathAnchorEdit(sel.id, anchors);
+          const preview = apexPreviewPathAnchorEdit(sel.id, seated);
           const current = sceneRef.current;
           const hidePicks: number[] = [];
           if (current) {
@@ -1131,10 +1172,15 @@ export default function App() {
         draggingRef.current = false;
         renderer.setGhostMesh(null);
         renderer.setHiddenPickIds([]);
+        const planeY = selectedAnchorPlaneElevation() ?? anchors[0]?.[1] ?? null;
+        const seated =
+          planeY == null
+            ? anchors
+            : anchors.map((p) => [p[0], planeY, p[2]] as Vec3);
         const axisSel = selectedGridAxisRef.current;
         if (axisSel) {
           try {
-            applyScene(apexSetGridAxisPlacement(axisSel.id, anchors, 0, true));
+            applyScene(apexSetGridAxisPlacement(axisSel.id, seated, 0, true));
             setError(null);
           } catch (e) {
             setError(e instanceof Error ? e.message : String(e));
@@ -1145,7 +1191,7 @@ export default function App() {
         const lineSel = selectedConstructionLineRef.current;
         if (lineSel) {
           try {
-            applyScene(apexSetConstructionLinePlacement(lineSel.id, anchors, 0, true));
+            applyScene(apexSetConstructionLinePlacement(lineSel.id, seated, 0, true));
             setError(null);
           } catch (e) {
             setError(e instanceof Error ? e.message : String(e));
@@ -1156,7 +1202,7 @@ export default function App() {
         const cutSel = selectedSectionCutRef.current;
         if (cutSel) {
           try {
-            applyScene(apexSetSectionCutPlacement(cutSel.id, anchors, 0, true));
+            applyScene(apexSetSectionCutPlacement(cutSel.id, seated, 0, true));
             setError(null);
           } catch (e) {
             setError(e instanceof Error ? e.message : String(e));
@@ -1167,7 +1213,7 @@ export default function App() {
         const spaceSel = selectedSpaceRef.current;
         if (spaceSel) {
           try {
-            applyScene(apexSetSpacePlacement(spaceSel.id, anchors, 0, true));
+            applyScene(apexSetSpacePlacement(spaceSel.id, seated, 0, true));
             setError(null);
           } catch (e) {
             setError(e instanceof Error ? e.message : String(e));
@@ -1178,7 +1224,7 @@ export default function App() {
         const refSel = selectedReferenceRef.current;
         if (refSel) {
           try {
-            applyScene(apexSetReferencePlacement(refSel.id, anchors, 0, true));
+            applyScene(apexSetReferencePlacement(refSel.id, seated, 0, true));
             setError(null);
           } catch (e) {
             setError(e instanceof Error ? e.message : String(e));
@@ -1189,7 +1235,7 @@ export default function App() {
         const sel = selectedRef.current;
         if (!sel) return;
         try {
-          applyScene(apexSetElementPlacement(sel.id, anchors, 0, true));
+          applyScene(apexSetElementPlacement(sel.id, seated, 0, true));
           setError(null);
         } catch (e) {
           setError(e instanceof Error ? e.message : String(e));
@@ -1407,6 +1453,7 @@ export default function App() {
     applyScene,
     components,
     resolvePoint,
+    selectedAnchorPlaneElevation,
     syncConstructionLineOverlays,
     syncEditGizmo,
     syncGridAxisGizmos,
@@ -2017,6 +2064,14 @@ export default function App() {
           /** Run a project command the way the UI does (scene + kernel pump). */
           command: (cmd: Record<string, unknown>) => applyScene(apexCommandScene(cmd)),
           worldToClient: (p: Vec3) => rendererRef.current?.worldToClient(p) ?? null,
+          screenToGround: (clientX: number, clientY: number, elevation?: number) =>
+            rendererRef.current?.screenToGround(
+              clientX,
+              clientY,
+              elevation ?? activeElevationRef.current,
+            ) ?? null,
+          /** Live edit-handle world positions (null when no gizmo). */
+          getEditHandles: () => rendererRef.current?.getEditHandles() ?? null,
           getCamera: () => rendererRef.current?.getCamera() ?? null,
           setCamera: (c: Parameters<ViewportRenderer['setCamera']>[0]) => rendererRef.current?.setCamera(c),
           /** Replace the document with the built-in sample house (tests / demos). */

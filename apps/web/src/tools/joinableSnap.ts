@@ -45,8 +45,9 @@ export function resolveJoinablePoint(
   shift: boolean,
   anchor: Vec3 | null,
   componentId: string,
+  elevation?: number,
 ): { point: Vec3; snapped: JoinableSnapTarget | null } | null {
-  const ground = ctx.resolvePoint(clientX, clientY, shift, anchor);
+  const ground = ctx.resolvePoint(clientX, clientY, shift, anchor, elevation);
   if (!ground) return null;
   const targets = ctx.joinableSnapTargets(componentId);
   const snapped = findJoinableSnap(ctx, clientX, clientY, targets);

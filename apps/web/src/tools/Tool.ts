@@ -12,7 +12,18 @@ export type { ToolIcon, ToolIconName } from './icons';
  */
 export interface ToolContext {
   /** Screen point to a world point on the active work plane, with Shift snapping. */
-  resolvePoint(clientX: number, clientY: number, shift: boolean, anchor: Vec3 | null): Vec3 | null;
+  /**
+   * Screen → world on a work plane. When `elevation` is omitted, uses the
+   * active level. Path-anchor drag passes the selected element's level
+   * elevation so the gizmo stays on that plane in 3D (not the wall top).
+   */
+  resolvePoint(
+    clientX: number,
+    clientY: number,
+    shift: boolean,
+    anchor: Vec3 | null,
+    elevation?: number,
+  ): Vec3 | null;
   /**
    * Joinable peer snap targets (ends / mids / T-vertices) for `componentId` on
    * the active level. Empty when the definition is not joinable or no peers.
@@ -81,6 +92,12 @@ export interface ToolContext {
   endShapeDrag?(): void;
   /** Anchors of the selected element, when exactly one is selected. */
   selectedAnchors(): Vec3[] | null;
+  /**
+   * World Y of the plane the selected path/annotation should edit on, or null
+   * when nothing with a level is selected. Used so 3D anchor drag does not
+   * lift off the element's storey when another level is active.
+   */
+  selectedAnchorPlaneElevation(): number | null;
   /** Live-update the selected element's placement while dragging. */
   previewAnchors(anchors: Vec3[]): void;
   commitAnchors(anchors: Vec3[]): void;

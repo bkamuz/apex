@@ -1608,7 +1608,10 @@ impl Project {
                 continue;
             };
             let mut preview = el.clone();
-            preview.placement = update.placement.clone();
+            // Seat every ghost on its own level plane so a mismatched active
+            // level (or unflat stretch peer) cannot tilt the preview in 3D.
+            let elev = self.work_plane(preview.level_id).origin.y;
+            preview.placement = update.placement.with_elevation(elev);
             if let Ok(mut part) = self.registry.build_element_mesh(
                 &preview,
                 self.work_plane(preview.level_id),
