@@ -1399,6 +1399,17 @@ export default function App() {
     rendererRef.current.setHoveredPickIds([]);
   }, [clearPreview, toolContext]);
 
+  const focusViewportCanvas = useCallback(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active !== canvas && active !== document.body) {
+      // Drop toolbar/button focus so Tab cannot walk chrome while Select is live.
+      active.blur();
+    }
+    canvas.focus({ preventScroll: true });
+  }, []);
+
   const activateTool = useCallback(
     (id: string) => {
       cancelGesture();
@@ -1422,6 +1433,9 @@ export default function App() {
           selectedSectionCutRef.current,
           selectedSpaceRef.current,
         );
+        // After clicking the Select button, keep focus on the viewport so Tab
+        // cycles pick candidates instead of the next toolbar control.
+        queueMicrotask(() => focusViewportCanvas());
       }
       else rendererRef.current?.setEditGizmo(null);
       const component = components.find((item) => item.id === next?.componentId);
@@ -1436,7 +1450,7 @@ export default function App() {
         setPlacementDraft({});
       }
     },
-    [applyScene, cancelGesture, components, profiles, syncEditGizmo],
+    [applyScene, cancelGesture, components, focusViewportCanvas, profiles, syncEditGizmo],
   );
 
   const activateDrawMode = useCallback(
@@ -1894,8 +1908,23 @@ export default function App() {
         fitView();
         return;
       }
+      // Select / Boolean claim Tab for pick cycling — never let the browser
+      // walk toolbar/header focus. Still allow Tab inside real text fields.
+      if (!textEntry && (e.key === 'Tab' || e.code === 'Tab')) {
+        const activeTool = toolRef.current;
+        if (
+          activeTool.id === ToolRegistry.selectId ||
+          activeTool.id === 'apex.booleanTool'
+        ) {
+          e.preventDefault();
+          e.stopPropagation();
+          activeTool.onKey?.(e, toolContext());
+          return;
+        }
+      }
       if (!typing && toolRef.current.onKey?.(e, toolContext())) {
         e.preventDefault();
+        e.stopPropagation();
         return;
       }
       if (!typing && !mod && (e.key === 'Enter' || e.code === 'Enter')) {
@@ -2181,6 +2210,7 @@ export default function App() {
 
   const onCanvasPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!ready || !rendererRef.current || e.button !== 0) return;
+    if (toolRef.current.id === ToolRegistry.selectId) focusViewportCanvas();
     const claimed = tool.onPointerDown?.(pointerInfo(e), toolContext()) ?? false;
     if (!claimed) return;
     suppressClickRef.current = true;
@@ -2193,6 +2223,10 @@ export default function App() {
     if (!ready || !rendererRef.current) return;
     lastPointerRef.current = { x: e.clientX, y: e.clientY };
     tool.onPointerMove?.(pointerInfo(e), toolContext());
+  };
+
+  const onCanvasPointerEnter = () => {
+    if (toolRef.current.id === ToolRegistry.selectId) focusViewportCanvas();
   };
 
   const onCanvasPointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -2215,6 +2249,9 @@ export default function App() {
 
   const onCanvasPointerLeave = () => {
     rendererRef.current?.setSnapMarker(null);
+    if (toolRef.current.id === ToolRegistry.selectId) {
+      rendererRef.current?.setHoveredPickIds([]);
+    }
   };
 
   const onCanvasClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
@@ -2978,10 +3015,12 @@ export default function App() {
               <canvas
                 ref={canvasRef}
                 data-testid="viewport-canvas"
+                tabIndex={-1}
                 onClick={onCanvasClick}
                 onDoubleClick={onCanvasDoubleClick}
                 onContextMenu={(e) => e.preventDefault()}
                 onPointerDown={onCanvasPointerDown}
+                onPointerEnter={onCanvasPointerEnter}
                 onPointerMove={onCanvasPointerMove}
                 onPointerUp={onCanvasPointerUp}
                 onPointerCancel={onCanvasPointerUp}

@@ -136,7 +136,7 @@ uniform bool uPickPass;
 uniform float uPickExclude[8];
 uniform int uPickExcludeCount;
 uniform float uOpacity;
-uniform int uSelectionMode; // 0=all, 1=opaque others, 2=selected only
+uniform int uSelectionMode; // 0=all, 1=opaque others, 2=selected only, 3=hover only
 uniform int uPlanMode;
 uniform float uCutY;
 uniform float uCutFade;
@@ -188,10 +188,11 @@ void main(){
   }
   if ((vGlass > 0.5) != (uGlassPass == 1)) discard;
   bool selected = isSelectedPick(vPick);
+  bool hovered = isHoverPick(vPick);
   if (uSelectionMode == 1 && selected) discard;
   if (uSelectionMode == 2 && !selected) discard;
-  // Pre-highlight under the cursor (Select Tab cycle); selection tint wins.
-  bool hovered = !selected && isHoverPick(vPick);
+  // Dedicated olive overlay pass — selection wins, so skip selected geometry.
+  if (uSelectionMode == 3 && (selected || !hovered)) discard;
   bool slab = isSlabPick(vPick);
   if (uPlanMode != 0 && uMeshLayer == 1 && !slab) discard;
   if (uPlanMode != 0 && uMeshLayer == 2 && slab) discard;
@@ -201,12 +202,16 @@ void main(){
   float hemi = abs(n.y) * 0.5 + 0.5;
   vec3 ambient = mix(uGroundColor, uSkyColor, hemi);
   float wrap = ndl * 0.65 + 0.35;
-  // Selection: warm orange. Hover: olive (industrial chrome), readable but distinct.
+  // Selection: warm orange. Hover overlay (mode 3): bright olive.
+  // Inline hover wash (modes 0/1) is a light tint when no overlay yet.
+  bool hoverTint = !selected && hovered && uSelectionMode != 3;
   vec3 base = selected
     ? vec3(0.86, 0.52, 0.22)
-    : hovered
-      ? vec3(0.42, 0.58, 0.28)
-      : vec3(0.72, 0.76, 0.80);
+    : uSelectionMode == 3
+      ? vec3(0.52, 0.72, 0.28)
+      : hoverTint
+        ? vec3(0.48, 0.64, 0.34)
+        : vec3(0.72, 0.76, 0.80);
   float alpha = uOpacity;
   if (uPlanMode != 0) {
     float above = vWorld.y - uCutY;
@@ -222,17 +227,24 @@ void main(){
     }
   }
   vec3 color = base * (ambient * 0.45 + vec3(wrap) * 0.7);
-  if (hovered && !selected) {
-    // Stronger wash so pre-highlight reads against gray walls and green slabs.
-    color = mix(color, vec3(0.58, 0.78, 0.34), 0.45);
+  if (uSelectionMode == 3) {
+    color = mix(color, vec3(0.62, 0.86, 0.32), 0.55);
+  } else if (hoverTint) {
+    color = mix(color, vec3(0.58, 0.78, 0.34), 0.35);
   }
   if (uGlassPass == 1 && vGhost > 0.5) {
     // Ghost: faint warm wash so it reads as a modelling aid, not a solid.
     color = mix(vec3(0.95, 0.72, 0.38), color, selected ? 0.6 : 0.3);
     alpha *= selected ? 0.32 : 0.18;
   } else if (uGlassPass == 1) {
-    color = mix(vec3(0.55, 0.75, 0.86), color, selected ? 0.5 : hovered ? 0.35 : 0.15);
-    alpha *= 0.28;
+    if (hovered && !selected) {
+      // Openings are mostly glass — need a strong olive wash or hover is invisible.
+      color = mix(vec3(0.55, 0.82, 0.28), color, 0.22);
+      alpha = max(alpha, 0.55) * 0.72;
+    } else {
+      color = mix(vec3(0.55, 0.75, 0.86), color, selected ? 0.5 : 0.15);
+      alpha *= 0.28;
+    }
   }
   outColor = vec4(color, alpha);
 }`;
@@ -2528,6 +2540,19 @@ export class ViewportRenderer {
       gl.uniform1i(u.uSelectionMode, 0);
       gl.uniform1f(u.uOpacity, 1.0);
       gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_INT, 0);
+    }
+
+    // Olive pre-highlight overlay (Select hover / Tab cycle). Selection orange wins.
+    if (!pickPass && this.hoveredPickIds.length > 0) {
+      gl.enable(gl.BLEND);
+      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+      gl.depthMask(false);
+      gl.uniform1i(u.uMeshLayer, 0);
+      gl.uniform1i(u.uSelectionMode, 3);
+      gl.uniform1f(u.uOpacity, 0.58);
+      gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_INT, 0);
+      gl.depthMask(true);
+      gl.disable(gl.BLEND);
     }
 
     if (!pickPass) {
