@@ -484,12 +484,17 @@ impl LayeredSolid {
 
         // Horizontal creases (opening sill/head, steps): undirected atomic
         // edges of the up/down caps at each level. Side faces only break here.
+        // Cap rings from band XOR can include collinear "detours" along a
+        // kinked outer face (jamb → corner → tee → jamb); collapse those so
+        // only the true reveal edge between jambs becomes a crease — otherwise
+        // every face strip past the opening keeps a sill/head seam.
         let crease_at: Vec<std::collections::HashSet<([i64; 2], [i64; 2])>> = caps
             .iter()
             .map(|(up, down)| {
                 let mut keys = std::collections::HashSet::new();
                 for region in [up, down] {
                     for ring in region.iter().flat_map(|s| s.iter()) {
+                        let ring = collapse_colinear_ring(ring);
                         let m = ring.len();
                         for i in 0..m {
                             let chain = points_on_segment(&all_pts, ring[i], ring[(i + 1) % m]);
@@ -726,6 +731,9 @@ impl LayeredSolid {
             let mut seen: Vec<([i64; 2], [i64; 2])> = Vec::new();
             for region in [up, down] {
                 for ring in region.iter().flat_map(|s| s.iter()) {
+                    // Match side-panel creases: drop collinear face detours so
+                    // CAD lines stop at the opening reveal, not the corner.
+                    let ring = collapse_colinear_ring(ring);
                     let m = ring.len();
                     for i in 0..m {
                         let (p, q) = (ring[i], ring[(i + 1) % m]);
@@ -777,6 +785,39 @@ impl LayeredSolid {
 
 fn snap_key(v: [f64; 2]) -> [i64; 2] {
     [(v[0] / GRID).round() as i64, (v[1] / GRID).round() as i64]
+}
+
+/// Drop near-collinear intermediate vertices from a closed plan ring.
+///
+/// Band-XOR caps on kinked walls often walk the outer face past an opening
+/// (jamb → far corner → other jamb) as several collinear edges; collapsing
+/// them restores the true reveal chord between the jambs.
+fn collapse_colinear_ring(ring: &[[f64; 2]]) -> Ring {
+    let n = ring.len();
+    if n < 3 {
+        return ring.to_vec();
+    }
+    let keep: Vec<[f64; 2]> = (0..n)
+        .filter(|&i| {
+            let (a, b, c) = (ring[(i + n - 1) % n], ring[i], ring[(i + 1) % n]);
+            let u = [b[0] - a[0], b[1] - a[1]];
+            let v = [c[0] - b[0], c[1] - b[1]];
+            let lu = (u[0] * u[0] + u[1] * u[1]).sqrt();
+            let lv = (v[0] * v[0] + v[1] * v[1]).sqrt();
+            if lu < 1e-12 || lv < 1e-12 {
+                return true;
+            }
+            let cross = (u[0] * v[1] - u[1] * v[0]).abs() / (lu * lv);
+            // ~0.5° — tight enough to keep real mitre corners.
+            cross > 1e-2
+        })
+        .map(|i| ring[i])
+        .collect();
+    if keep.len() >= 3 {
+        keep
+    } else {
+        ring.to_vec()
+    }
 }
 
 fn edge_key(p: [f64; 2], q: [f64; 2]) -> ([i64; 2], [i64; 2]) {
@@ -1328,6 +1369,78 @@ mod side_strip_tests {
             (alone - within).abs() < 1e-3,
             "alone {alone} within {within}"
         );
+    }
+
+    /// Join-stretch leaves a tee vertex on the host centreline; the wall plan
+    /// kinks and band-XOR caps can walk the outer face past a door. Collapsing
+    /// those collinear cap detours must keep the face seamless past the jamb.
+    #[test]
+    fn kinked_wall_with_door_does_not_stripe_past_jamb() {
+        let left = LayeredSolid::polygon_prism(
+            &[[-0.90, -0.95], [5.10, -0.15], [5.05, 0.15], [-0.85, -0.65]],
+            0.0,
+            3.0,
+        );
+        let right = LayeredSolid::polygon_prism(
+            &[[4.95, -0.15], [10.10, -0.15], [10.10, 0.15], [4.95, 0.15]],
+            0.0,
+            3.0,
+        );
+        let wall = left.union(&right);
+        let door = LayeredSolid::polygon_prism(
+            &[[1.55, -0.80], [2.45, -0.80], [2.45, 0.40], [1.55, 0.40]],
+            -0.02,
+            2.12,
+        );
+        let cut = wall.subtract(&door);
+        let mesh = cut.to_mesh();
+        assert!(is_watertight(&mesh));
+        let mut bad = Vec::new();
+        for t in mesh.indices.chunks(3) {
+            let p = |i: u32| {
+                let k = i as usize * 3;
+                [
+                    mesh.positions[k],
+                    mesh.positions[k + 1],
+                    mesh.positions[k + 2],
+                ]
+            };
+            let (a, b, c) = (p(t[0]), p(t[1]), p(t[2]));
+            for (u, v) in [(a, b), (b, c), (c, a)] {
+                let dy = (u[1] - v[1]).abs();
+                let len = ((u[0] - v[0]).hypot(u[2] - v[2])).hypot(dy);
+                if dy > 1e-3 || len < 1.2 {
+                    continue;
+                }
+                let y = 0.5 * (u[1] + v[1]);
+                if (y - 2.12).abs() > 0.05 {
+                    continue;
+                }
+                let (x0, x1) = (u[0].min(v[0]), u[0].max(v[0]));
+                if x0 < 1.5 || x1 > 2.5 {
+                    bad.push((y, x0, x1, len));
+                }
+            }
+        }
+        assert!(
+            bad.is_empty(),
+            "kinked wall striped past door jamb: {bad:?}"
+        );
+        for seg in mesh.edges.chunks(6) {
+            let a = [seg[0], seg[1], seg[2]];
+            let b = [seg[3], seg[4], seg[5]];
+            if (a[1] - 2.12).abs() > 1e-3 || (b[1] - 2.12).abs() > 1e-3 {
+                continue;
+            }
+            let (x0, x1) = (a[0].min(b[0]), a[0].max(b[0]));
+            if x1 - x0 < 1.2 {
+                continue;
+            }
+            assert!(
+                x0 >= 1.5 && x1 <= 2.5,
+                "feature edge past jamb at door head: [{x0},{x1}]"
+            );
+        }
     }
 
     /// Opening sill/head levels must not leave coplanar triangle seams on the
