@@ -132,6 +132,8 @@ uniform float uSelectedPicks[32];
 uniform int uSelectedCount;
 uniform float uHoverPicks[8];
 uniform int uHoverCount;
+uniform float uHiddenPicks[32];
+uniform int uHiddenPickCount;
 uniform bool uPickPass;
 uniform float uPickExclude[8];
 uniform int uPickExcludeCount;
@@ -169,10 +171,20 @@ bool isHoverPick(float pick) {
   return false;
 }
 
+bool isHiddenPick(float pick) {
+  for (int i = 0; i < 32; i++) {
+    if (i >= uHiddenPickCount) break;
+    if (abs(pick - uHiddenPicks[i]) < 0.5) return true;
+  }
+  return false;
+}
+
 void main(){
   // Plan: geometry above the cut is invisible, so it must not be pickable
   // either (a roof would otherwise swallow every click inside the plan).
   if (uPlanMode != 0 && vWorld.y - uCutY > uCutFade) discard;
+  // Ghost path-anchor drag: suppress live solids replaced by the ghost overlay.
+  if (uHiddenPickCount > 0 && isHiddenPick(vPick)) discard;
   if (uPickPass) {
     for (int i = 0; i < 8; i++) {
       if (i >= uPickExcludeCount) break;
@@ -387,6 +399,8 @@ type MeshUniforms = {
   uSelectedCount: WebGLUniformLocation | null;
   uHoverPicks: WebGLUniformLocation | null;
   uHoverCount: WebGLUniformLocation | null;
+  uHiddenPicks: WebGLUniformLocation | null;
+  uHiddenPickCount: WebGLUniformLocation | null;
   uPickPass: WebGLUniformLocation | null;
   uPickExclude: WebGLUniformLocation | null;
   uPickExcludeCount: WebGLUniformLocation | null;
@@ -438,6 +452,8 @@ function meshUniforms(gl: WebGL2RenderingContext, prog: WebGLProgram): MeshUnifo
     uSelectedCount: gl.getUniformLocation(prog, 'uSelectedCount'),
     uHoverPicks: gl.getUniformLocation(prog, 'uHoverPicks'),
     uHoverCount: gl.getUniformLocation(prog, 'uHoverCount'),
+    uHiddenPicks: gl.getUniformLocation(prog, 'uHiddenPicks'),
+    uHiddenPickCount: gl.getUniformLocation(prog, 'uHiddenPickCount'),
     uPickPass: gl.getUniformLocation(prog, 'uPickPass'),
     uPickExclude: gl.getUniformLocation(prog, 'uPickExclude'),
     uPickExcludeCount: gl.getUniformLocation(prog, 'uPickExcludeCount'),
@@ -921,6 +937,12 @@ export class ViewportRenderer {
   /** Pre-selection hover (Select tool / Tab cycle); not committed selection. */
   private hoveredPickIds: number[] = [];
   private scratchHoverPicks = new Float32Array(8);
+  /** Live solids replaced by a path-anchor ghost (source + stretch peers). */
+  private hiddenPickIds: number[] = [];
+  private scratchHiddenPicks = new Float32Array(32);
+  /** CAD edges lack pick ids — suppress all outlines while a hide set is active. */
+  private edgesSuppressedForHide = false;
+  private savedEdgeCount = 0;
   /** Locked for the whole gesture so MMB never falls through into orbit/zoom. */
   private dragMode: 'pan' | 'orbit' | null = null;
   private lastX = 0;
@@ -1313,7 +1335,13 @@ export class ViewportRenderer {
     gl.bindVertexArray(null);
     this.indexCount = indices.length;
 
-    this.edgeCount = this.uploadThickLines(this.edgeBuf, edges);
+    const uploadedEdges = this.uploadThickLines(this.edgeBuf, edges);
+    if (this.edgesSuppressedForHide) {
+      this.savedEdgeCount = uploadedEdges;
+      this.edgeCount = 0;
+    } else {
+      this.edgeCount = uploadedEdges;
+    }
 
     this.selectedPickIds = data.selectedPickIds.slice(0, 32);
 
@@ -1356,6 +1384,25 @@ export class ViewportRenderer {
 
   setSelectedPickIds(ids: number[]): void {
     this.selectedPickIds = ids.slice(0, 32);
+  }
+
+  /**
+   * Hide live solids (and temporarily CAD edges) while a path-anchor ghost
+   * replaces the edited join cluster. Pass `[]` to restore.
+   */
+  setHiddenPickIds(ids: number[]): void {
+    this.hiddenPickIds = ids.slice(0, 32);
+    if (this.hiddenPickIds.length > 0) {
+      if (!this.edgesSuppressedForHide) {
+        this.savedEdgeCount = this.edgeCount;
+        this.edgesSuppressedForHide = true;
+      }
+      this.edgeCount = 0;
+    } else if (this.edgesSuppressedForHide) {
+      this.edgeCount = this.savedEdgeCount;
+      this.edgesSuppressedForHide = false;
+      this.savedEdgeCount = 0;
+    }
   }
 
   /** Olive pre-highlight under the cursor (distinct from selection orange). */
@@ -2473,6 +2520,12 @@ export class ViewportRenderer {
     }
     gl.uniform1fv(u.uHoverPicks, this.scratchHoverPicks);
     gl.uniform1i(u.uHoverCount, pickPass ? 0 : this.hoveredPickIds.length);
+    this.scratchHiddenPicks.fill(0);
+    for (let i = 0; i < this.hiddenPickIds.length && i < 32; i++) {
+      this.scratchHiddenPicks[i] = this.hiddenPickIds[i]!;
+    }
+    gl.uniform1fv(u.uHiddenPicks, this.scratchHiddenPicks);
+    gl.uniform1i(u.uHiddenPickCount, this.hiddenPickIds.length);
     gl.uniform1i(u.uPickPass, pickPass ? 1 : 0);
     gl.uniform1fv(u.uPickExclude, this.pickExclude);
     gl.uniform1i(u.uPickExcludeCount, pickPass ? this.pickExcludeCount : 0);

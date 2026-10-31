@@ -2042,7 +2042,45 @@ pub fn preview_stretch_translate(dx: f32, dy: f32, dz: f32) -> Result<JsValue, J
         if mesh.is_empty() {
             return Ok(JsValue::NULL);
         }
-        mesh_buffers_to_js(&mesh.positions, &mesh.normals, &mesh.indices)
+        Ok(mesh_buffers_to_js(&mesh.positions, &mesh.normals, &mesh.indices).into())
+    })
+}
+
+/// Ghost mesh for dragging path anchors (node / endpoint). Does not mutate the
+/// document — commit via `setElementPlacement`. Returns typed-array mesh plus
+/// `hide_ids` (source + stretch peers + descendants) for the UI to suppress.
+#[wasm_bindgen(js_name = previewPathAnchorEdit)]
+pub fn preview_path_anchor_edit(
+    id: &str,
+    points_json: &str,
+    rotation: f32,
+) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let element = element_id(id)?;
+        let (component_id, kind) = {
+            let existing = project
+                .document()
+                .get_element(element)
+                .ok_or_else(|| err("Element not found"))?;
+            (
+                existing.component_id.clone(),
+                existing.placement.source_kind(),
+            )
+        };
+        let points = points_from_json(points_json)?;
+        let placement = project
+            .placement_from_gesture(&component_id, Some(kind), &points, rotation)
+            .map_err(err)?;
+        let (mesh, hide) = project
+            .preview_path_anchor_edit(element, &placement)
+            .map_err(err)?;
+        let obj = mesh_buffers_to_js(&mesh.positions, &mesh.normals, &mesh.indices);
+        let hide_arr = js_sys::Array::new_with_length(hide.len() as u32);
+        for (i, hid) in hide.iter().enumerate() {
+            hide_arr.set(i as u32, JsValue::from_str(&hid.to_string()));
+        }
+        let _ = js_sys::Reflect::set(&obj, &JsValue::from_str("hide_ids"), &hide_arr);
+        Ok(obj.into())
     })
 }
 
@@ -2051,7 +2089,7 @@ fn mesh_buffers_to_js(
     positions: &[f32],
     normals: &[f32],
     indices: &[u32],
-) -> Result<JsValue, JsValue> {
+) -> js_sys::Object {
     let obj = js_sys::Object::new();
     let pos = js_sys::Float32Array::new_with_length(positions.len() as u32);
     pos.copy_from(positions);
@@ -2062,7 +2100,7 @@ fn mesh_buffers_to_js(
     let _ = js_sys::Reflect::set(&obj, &JsValue::from_str("positions"), &pos);
     let _ = js_sys::Reflect::set(&obj, &JsValue::from_str("normals"), &nrm);
     let _ = js_sys::Reflect::set(&obj, &JsValue::from_str("indices"), &idx);
-    Ok(obj.into())
+    obj
 }
 
 /// Detect enclosed rooms from walls on the active level; refresh auto spaces.

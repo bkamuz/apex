@@ -63,6 +63,7 @@ import {
   apexTranslateSelection,
   apexJoinableSnapTargets,
   apexPreviewStretchTranslate,
+  apexPreviewPathAnchorEdit,
   apexUndo,
   apexCommandScene,
   apexUpdateElement,
@@ -1099,8 +1100,28 @@ export default function App() {
         }
         const sel = selectedRef.current;
         if (!sel) return;
+        // Ghost-only: remesh edited path + stretch peers without mutating the
+        // document or dumping a full scene on every pointer move (multi-wall lag).
         try {
-          applyLive(apexSetElementPlacement(sel.id, anchors, 0, false), () => undefined);
+          const preview = apexPreviewPathAnchorEdit(sel.id, anchors);
+          const current = sceneRef.current;
+          const hidePicks: number[] = [];
+          if (current) {
+            for (const id of preview.hide_ids) {
+              const entry = current.elements.find((el) => el.id === id);
+              if (entry) hidePicks.push(entry.pick_id);
+            }
+          }
+          renderer.setHiddenPickIds(hidePicks);
+          if (preview.indices.length > 0) {
+            renderer.setGhostMesh({
+              positions: toFloatArray(preview.positions),
+              normals: toFloatArray(preview.normals),
+              indices: toUint32Array(preview.indices),
+            });
+          } else {
+            renderer.setGhostMesh(null);
+          }
         } catch {
           /* keep dragging */
         }
@@ -1108,6 +1129,8 @@ export default function App() {
 
       commitAnchors: (anchors) => {
         draggingRef.current = false;
+        renderer.setGhostMesh(null);
+        renderer.setHiddenPickIds([]);
         const axisSel = selectedGridAxisRef.current;
         if (axisSel) {
           try {
@@ -1183,6 +1206,9 @@ export default function App() {
       },
 
       abortUndoGroup: () => {
+        renderer.setGhostMesh(null);
+        renderer.setHiddenPickIds([]);
+        draggingRef.current = false;
         try {
           apexAbortUndoGroup();
         } catch {

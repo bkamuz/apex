@@ -43,6 +43,24 @@ export function createSelectTool(): Tool {
   let tabbed = false;
   let lastPointer: { x: number; y: number } | null = null;
   let lastHintKey = '';
+  /** Coalesce path-anchor ghost updates to one per animation frame. */
+  let previewRaf = 0;
+  let pendingAnchors: Vec3[] | null = null;
+
+  const clearPreviewRaf = () => {
+    if (previewRaf) {
+      cancelAnimationFrame(previewRaf);
+      previewRaf = 0;
+    }
+    pendingAnchors = null;
+  };
+
+  const flushAnchorPreview = (ctx: ToolContext) => {
+    previewRaf = 0;
+    const next = pendingAnchors;
+    pendingAnchors = null;
+    if (next) ctx.previewAnchors(next);
+  };
 
   const current = (): Candidate | null =>
     candidates.length === 0 ? null : (candidates[index % candidates.length] ?? null);
@@ -143,7 +161,10 @@ export function createSelectTool(): Tool {
       ctx.showSnapMarker(point, e.shift || joinSnapped);
       drag.anchors[drag.index] = point;
       drag.moved = true;
-      ctx.previewAnchors(drag.anchors);
+      pendingAnchors = drag.anchors.map((p) => [...p] as Vec3);
+      if (!previewRaf) {
+        previewRaf = requestAnimationFrame(() => flushAnchorPreview(ctx));
+      }
     },
 
     onPointerUp(_e, ctx) {
@@ -156,7 +177,9 @@ export function createSelectTool(): Tool {
       const currentDrag = drag;
       drag = null;
       ctx.setTouchOrbitEnabled(true);
+      clearPreviewRaf();
       if (currentDrag?.moved) ctx.commitAnchors(currentDrag.anchors);
+      else ctx.abortUndoGroup();
     },
 
     onKey(e, ctx) {
@@ -197,6 +220,7 @@ export function createSelectTool(): Tool {
     },
 
     cancel(ctx) {
+      const wasDragging = !!drag;
       drag = null;
       shapeDrag = false;
       candidates = [];
@@ -204,6 +228,8 @@ export function createSelectTool(): Tool {
       tabbed = false;
       lastPointer = null;
       lastHintKey = '';
+      clearPreviewRaf();
+      if (wasDragging) ctx.abortUndoGroup();
       ctx.setHoverPickIds([]);
       ctx.setTouchOrbitEnabled(true);
       ctx.refreshToolUi();

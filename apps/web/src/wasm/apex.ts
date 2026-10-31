@@ -75,6 +75,7 @@ import initWasm, {
   joinPaths,
   joinableSnapTargets,
   previewStretchTranslate,
+  previewPathAnchorEdit,
   selectSpace,
   getSelectedSpace,
   setSpacePlacement,
@@ -620,6 +621,34 @@ export function apexPreviewStretchTranslate(delta: Vec3): {
     positions: Float32Array | number[];
     normals: Float32Array | number[];
     indices: Uint32Array | number[];
+  };
+}
+
+/**
+ * Ghost mesh for path-anchor / node drag (no document mutate). Includes the
+ * edited element plus stretch peers. `hide_ids` are live solids to suppress.
+ */
+export function apexPreviewPathAnchorEdit(
+  id: string,
+  points: Vec3[],
+  rotation = 0,
+): {
+  positions: Float32Array | number[];
+  normals: Float32Array | number[];
+  indices: Uint32Array | number[];
+  hide_ids: string[];
+} {
+  const mesh = previewPathAnchorEdit(id, encodePoints(points), rotation) as {
+    positions: Float32Array | number[];
+    normals: Float32Array | number[];
+    indices: Uint32Array | number[];
+    hide_ids?: string[];
+  };
+  return {
+    positions: mesh.positions,
+    normals: mesh.normals,
+    indices: mesh.indices,
+    hide_ids: mesh.hide_ids ?? [],
   };
 }
 
