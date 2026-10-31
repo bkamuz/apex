@@ -20,7 +20,7 @@ pub use solids::{element_build_ms, element_builds};
 mod space_labels;
 pub use booleans::boolean_params;
 
-use apex_geometry::{Frame, TriangleMesh};
+use apex_geometry::{Curve, Frame, TriangleMesh};
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
 
@@ -1887,6 +1887,43 @@ impl Project {
             });
         }
         Ok(placement)
+    }
+
+    /// Rebuild placement for an existing element from edit-gizmo picks.
+    ///
+    /// Joinable walls/beams often become polylines after T-junction splits.
+    /// The edit gizmo exposes only endpoints; two picks remaps those ends and
+    /// keeps interior T-vertices on the new chord via
+    /// [`crate::remap_curve_endpoints`] instead of wiping the splits.
+    pub fn placement_from_element_anchors(
+        &self,
+        id: ElementId,
+        points: &[Vec3],
+        rotation: f32,
+    ) -> Result<Placement, RegistryError> {
+        let existing = self
+            .document
+            .get_element(id)
+            .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
+        let component_id = existing.component_id.clone();
+        let joinable = self.registry.get(&component_id).is_some_and(|d| d.joinable);
+        if joinable && points.len() == 2 {
+            if let Some(old) = existing.placement.curve() {
+                let interior = match old {
+                    Curve::Polyline { points: pts } => pts.len() > 2,
+                    _ => false,
+                };
+                if interior {
+                    if let Some(curve) =
+                        crate::path_stretch::remap_curve_endpoints(old, points[0], points[1])
+                    {
+                        return Ok(Placement::Curve { curve });
+                    }
+                }
+            }
+        }
+        let kind = existing.placement.source_kind();
+        self.placement_from_gesture(&component_id, Some(kind), points, rotation)
     }
 
     /// Like [`Self::placement_from_gesture`], but uses an in-memory definition (editor preview).
