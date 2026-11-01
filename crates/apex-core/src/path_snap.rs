@@ -84,13 +84,12 @@ pub fn snap_points_on_curve(curve: &Curve, closed: bool) -> Vec<(Vec3, PathSnapK
             let last = points.len() - 1;
             let looped = closed || curve.is_closed();
             for (i, p) in points.iter().enumerate() {
-                let kind = if !looped && (i == 0 || i == last) {
-                    PathSnapKind::End
-                } else if looped && i == last && curve.is_closed() {
+                if looped && i == last && curve.is_closed() {
                     // Duplicate closing vertex — skip (same as start).
                     continue;
-                } else if looped {
-                    PathSnapKind::Vertex
+                }
+                let kind = if !looped && (i == 0 || i == last) {
+                    PathSnapKind::End
                 } else {
                     PathSnapKind::Vertex
                 };
@@ -324,7 +323,7 @@ pub fn nearest_element_snap(
             continue;
         }
         // Endpoints are covered by End/Vertex discrete snaps.
-        if t < EDGE_END_EPS || t > 1.0 - EDGE_END_EPS {
+        if !(EDGE_END_EPS..=1.0 - EDGE_END_EPS).contains(&t) {
             continue;
         }
         let better = match &best_edge {
