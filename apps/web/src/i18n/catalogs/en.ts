@@ -37,6 +37,7 @@ export const en: MessageCatalog = {
   'chrome.language': 'Language',
   'chrome.typedLength': ' — length {length} m (Enter)',
   'chrome.typeLengthHint': ' — type a length, Shift snaps to grid',
+  'chrome.elementSnap': ' · snap: {kind}',
   'chrome.newProjectConfirm':
     'Start a new empty project? Unsaved changes in this document will be cleared.',
   'chrome.sampleLoaded': 'Sample house project loaded',

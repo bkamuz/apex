@@ -2914,8 +2914,9 @@ export class ViewportRenderer {
     gl.useProgram(this.pointProg);
     gl.uniformMatrix4fv(u.uMVP, false, viewProj);
     gl.uniform3fv(u.uEye, this.scratchEye);
-    gl.uniform1f(u.uPointSize, 5 * dpr);
-    gl.uniform4f(u.uColor, 0.98, 0.92, 0.78, 1);
+    // Larger, high-contrast marker so element snaps (end/mid/edge) are obvious.
+    gl.uniform1f(u.uPointSize, 11 * dpr);
+    gl.uniform4f(u.uColor, 0.95, 0.78, 0.18, 1);
     gl.bindVertexArray(this.snapVao);
     gl.drawArrays(gl.POINTS, 0, this.snapCount);
     gl.bindVertexArray(null);

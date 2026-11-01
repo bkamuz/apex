@@ -527,6 +527,25 @@ export function effectiveLevelOf(id) {
 }
 
 /**
+ * Shared element snap geometry on the active level (points + edge segments).
+ *
+ * `exclude_json` is a JSON string array of element ids to skip (e.g. the
+ * element being edited). Includes every component type plus refs / grids /
+ * construction lines — no pair allowlist.
+ * @param {string} exclude_json
+ * @returns {any}
+ */
+export function elementSnapGeometry(exclude_json) {
+    const ptr0 = passStringToWasm0(exclude_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.elementSnapGeometry(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * Run one serialized `Command` (`{"op": ...}`) as a single undo step.
  * Returns the JSON result; errors are readable strings.
  * @param {string} command_json

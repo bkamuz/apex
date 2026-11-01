@@ -83,8 +83,10 @@ pub use path_join::{
     PATH_JOIN_SNAP,
 };
 pub use path_snap::{
-    collect_joinable_snap_targets, curve_control_points, nearest_snap_target, snap_points_on_curve,
-    PathSnapKind, PathSnapTarget, PLACEMENT_SNAP,
+    collect_element_snap_geometry, collect_joinable_snap_targets, curve_control_points,
+    geometry_from_placement, nearest_element_snap, nearest_snap_target, snap_points_on_curve,
+    snap_segments_on_curve, ElementSnapGeometry, PathSnapKind, PathSnapTarget, SnapSegment,
+    PLACEMENT_SNAP,
 };
 pub use path_stretch::{
     apply_endpoint_vertex_moves, apply_vertex_moves, closest_on_curve, placement_vertex_moves,

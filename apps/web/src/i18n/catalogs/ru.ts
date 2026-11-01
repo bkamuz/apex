@@ -36,6 +36,7 @@ export const ru: MessageCatalog = {
   'chrome.language': 'Язык',
   'chrome.typedLength': ' — длина {length} м (Enter)',
   'chrome.typeLengthHint': ' — введите длину, Shift — привязка к сетке',
+  'chrome.elementSnap': ' · привязка: {kind}',
   'chrome.newProjectConfirm':
     'Создать пустой проект? Несохранённые изменения в этом документе будут сброшены.',
   'chrome.sampleLoaded': 'Загружен образец дома',

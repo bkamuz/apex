@@ -112,6 +112,15 @@ export function duplicateView(id: string): any;
 export function effectiveLevelOf(id: string): string | undefined;
 
 /**
+ * Shared element snap geometry on the active level (points + edge segments).
+ *
+ * `exclude_json` is a JSON string array of element ids to skip (e.g. the
+ * element being edited). Includes every component type plus refs / grids /
+ * construction lines — no pair allowlist.
+ */
+export function elementSnapGeometry(exclude_json: string): any;
+
+/**
  * Run one serialized `Command` (`{"op": ...}`) as a single undo step.
  * Returns the JSON result; errors are readable strings.
  */
@@ -451,6 +460,7 @@ export interface InitOutput {
     readonly detectRoomsFromWalls: () => [number, number, number];
     readonly duplicateView: (a: number, b: number) => [number, number, number];
     readonly effectiveLevelOf: (a: number, b: number) => [number, number, number, number];
+    readonly elementSnapGeometry: (a: number, b: number) => [number, number, number];
     readonly executeCommand: (a: number, b: number) => [number, number, number, number];
     readonly exportIfc: (a: number, b: number) => [number, number, number, number];
     readonly exportProject: () => [number, number, number, number];

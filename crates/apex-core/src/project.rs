@@ -36,7 +36,10 @@ use crate::history::History;
 use crate::level::{Level, LevelId};
 use crate::param::{ParamMap, ParamValue};
 use crate::path_join::{joinable_segment, peers_for, plan_joins};
-use crate::path_snap::{collect_joinable_snap_targets, PathSnapTarget};
+use crate::path_snap::{
+    collect_element_snap_geometry, collect_joinable_snap_targets, ElementSnapGeometry,
+    PathSnapTarget,
+};
 use crate::path_stretch::{plan_stretch_from_edit, plan_stretch_translate};
 use crate::placement::{Placement, PlacementKind};
 use crate::reference::{RefId, Reference, ReferenceKind};
@@ -467,6 +470,48 @@ impl Project {
             component_id,
             level_id,
             exclude,
+        )
+    }
+
+    /// Shared element snap geometry on the active level: every element's
+    /// placement (plus refs / grids / construction lines), excluding `exclude`.
+    /// Feeds the ToolContext resolvePoint pipeline — no type allowlists.
+    pub fn element_snap_geometry(&self, exclude: &[ElementId]) -> ElementSnapGeometry {
+        let Some(level_id) = self.document.active_level_id() else {
+            return ElementSnapGeometry::default();
+        };
+        let elements: Vec<Element> = self
+            .document
+            .elements_on_level(level_id)
+            .into_iter()
+            .filter_map(|id| self.document.get_element(id).cloned())
+            .collect();
+        let references = self.document.references().filter_map(|r| {
+            if r.level_id != level_id {
+                return None;
+            }
+            Some((format!("ref:{}", r.id), r.placement.clone()))
+        });
+        let grids = self.document.grid_axes().filter_map(|g| {
+            if g.level_id != level_id {
+                return None;
+            }
+            Some((format!("grid:{}", g.id), g.placement.clone()))
+        });
+        let clines = self.document.construction_lines().filter_map(|c| {
+            if c.level_id != level_id {
+                return None;
+            }
+            Some((format!("cline:{}", c.id), c.placement.clone()))
+        });
+        let linear = grids.chain(clines);
+        collect_element_snap_geometry(
+            &self.registry,
+            elements.into_iter(),
+            level_id,
+            exclude,
+            references,
+            linear,
         )
     }
 
@@ -3939,6 +3984,59 @@ mod tests {
         assert!(targets
             .iter()
             .any(|t| t.kind == crate::PathSnapKind::Mid && (t.point[0] - 2.0).abs() < 1e-4));
+    }
+
+    #[test]
+    fn element_snap_geometry_cross_type_wall_slab_column() {
+        use crate::path_snap::nearest_element_snap;
+        use crate::PathSnapKind;
+
+        let mut project = Project::new();
+        project
+            .create_element(
+                "apex.wall",
+                Placement::line(Vec3::ZERO, Vec3::new(6.0, 0.0, 0.0)),
+                ParamMap::new(),
+            )
+            .expect("wall");
+        let slab = project
+            .create_element(
+                "apex.slab",
+                Placement::Curve {
+                    curve: apex_geometry::Curve::Polyline {
+                        points: vec![
+                            Vec3::new(1.0, 0.0, 1.0),
+                            Vec3::new(4.0, 0.0, 1.0),
+                            Vec3::new(4.0, 0.0, 4.0),
+                            Vec3::new(1.0, 0.0, 4.0),
+                        ],
+                    },
+                },
+                ParamMap::new(),
+            )
+            .expect("slab");
+        project
+            .create_element(
+                "apex.column",
+                Placement::point(Vec3::new(3.0, 0.0, 3.0)),
+                ParamMap::new(),
+            )
+            .expect("column");
+
+        let geom = project.element_snap_geometry(&[slab]);
+        assert!(
+            geom.segments.len() >= 1,
+            "wall edge present when slab excluded"
+        );
+        assert!(geom.points.iter().any(|t| t.kind == PathSnapKind::Point));
+        let mid = nearest_element_snap(Vec3::new(3.0, 0.0, 0.05), &geom, 0.5).expect("snap");
+        assert!(
+            matches!(mid.kind, PathSnapKind::Mid | PathSnapKind::Edge),
+            "cross-type wall snap, got {:?}",
+            mid.kind
+        );
+        let col = nearest_element_snap(Vec3::new(3.02, 0.0, 3.0), &geom, 0.5).expect("col");
+        assert_eq!(col.kind, PathSnapKind::Point);
     }
 
     #[test]

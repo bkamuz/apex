@@ -62,6 +62,7 @@ import {
   apexToggleSelectElement,
   apexTranslateSelection,
   apexJoinableSnapTargets,
+  apexElementSnapGeometry,
   apexPreviewStretchTranslate,
   apexPreviewPathAnchorEdit,
   apexUndo,
@@ -98,6 +99,7 @@ import {
   setKernelSceneSink,
 } from './kernel/geometryKernel';
 import { KernelToggle } from './ui/KernelToggle';
+import { findElementSnap, snapKindLabel } from './tools/elementSnap';
 import {
   GRID_STEP,
   orthoConstrain,
@@ -272,6 +274,9 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [kernelEpoch, setKernelEpoch] = useState(0);
   const [info, setInfo] = useState<string | null>(null);
+  /** Live element-snap kind shown in the status line (end / mid / edge / …). */
+  const [snapStatus, setSnapStatus] = useState<string | null>(null);
+  const lastElementSnapRef = useRef<{ kind: string; point: Vec3 } | null>(null);
   const [showGettingStarted, setShowGettingStarted] = useState(() => {
     try {
       return localStorage.getItem('apex.gettingStarted.dismissed') !== '1';
@@ -684,7 +689,12 @@ export default function App() {
   const applySceneRef = useRef(applyScene);
   applySceneRef.current = applyScene;
 
-  /** Screen point to a world point on a work plane, with Shift snapping. */
+  /**
+   * Screen → work-plane point. Shared snap pipeline: element geometry
+   * (ends / mids / vertices / points / edge closest) for every type on the
+   * active level, then Shift grid/ortho when nothing element-snapped.
+   * Joinable peer ends are one source inside `apexElementSnapGeometry`.
+   */
   const resolvePoint = useCallback(
     (
       clientX: number,
@@ -698,6 +708,39 @@ export default function App() {
       const planeY = elevation ?? activeElevationRef.current;
       const raw = renderer.screenToGround(clientX, clientY, planeY);
       if (!raw) return null;
+
+      const exclude = (() => {
+        try {
+          return apexGetSelectedElements().map((el) => el.id);
+        } catch {
+          return [] as string[];
+        }
+      })();
+      let elementHit: ReturnType<typeof findElementSnap> = null;
+      try {
+        const geometry = apexElementSnapGeometry(exclude);
+        elementHit = findElementSnap(
+          { worldToClient: (p) => renderer.worldToClient(p) },
+          clientX,
+          clientY,
+          geometry,
+          raw,
+        );
+      } catch {
+        elementHit = null;
+      }
+
+      if (elementHit) {
+        const point: Vec3 = [elementHit.point[0], planeY, elementHit.point[2]];
+        lastElementSnapRef.current = { kind: elementHit.kind, point };
+        const label = snapKindLabel(elementHit.kind);
+        setSnapStatus((prev) => (prev === label ? prev : label));
+        return point;
+      }
+
+      lastElementSnapRef.current = null;
+      setSnapStatus((prev) => (prev == null ? prev : null));
+
       if (!shift && !shiftHeldRef.current) return raw;
       let point = snapPointToGrid(raw, GRID_STEP);
       if (anchor) point = snapPointToGrid(orthoConstrain(anchor, point), GRID_STEP);
@@ -893,7 +936,10 @@ export default function App() {
       showPreviewLine: (points) => renderer.setPreviewLine(points),
 
       showSnapMarker: (point, shift) => {
-        renderer.setSnapMarker(shift || shiftHeldRef.current ? point : null);
+        const elementSnapped = !!lastElementSnapRef.current;
+        renderer.setSnapMarker(
+          point && (shift || shiftHeldRef.current || elementSnapped) ? point : null,
+        );
       },
 
       pick: (x, y) => renderer.pick(x, y),
@@ -3025,7 +3071,7 @@ export default function App() {
         ? t('chrome.typedLength', { length: typedLength })
         : t('chrome.typeLengthHint')
       : ''
-  }`;
+  }${snapStatus ? t('chrome.elementSnap', { kind: snapStatus }) : ''}`;
 
   return (
     <div className={`app${onboarding ? ' app--onboarding' : ''}`}>

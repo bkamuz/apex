@@ -11,11 +11,13 @@ export type { ToolIcon, ToolIconName } from './icons';
  * tool never holds a reference to React state.
  */
 export interface ToolContext {
-  /** Screen point to a world point on the active work plane, with Shift snapping. */
   /**
-   * Screen → world on a work plane. When `elevation` is omitted, uses the
-   * active level. Path-anchor drag passes the selected element's level
-   * elevation so the gizmo stays on that plane in 3D (not the wall top).
+   * Screen → world on a work plane. Shared snap pipeline: snaps to other
+   * elements' ends / mids / vertices / points / edge closest points (and
+   * refs / grids / construction lines) on the active level. Shift applies
+   * grid / ortho when no element snap hits. When `elevation` is omitted,
+   * uses the active level. Path-anchor drag passes the selected element's
+   * level elevation so the gizmo stays on that plane in 3D.
    */
   resolvePoint(
     clientX: number,
@@ -26,7 +28,8 @@ export interface ToolContext {
   ): Vec3 | null;
   /**
    * Joinable peer snap targets (ends / mids / T-vertices) for `componentId` on
-   * the active level. Empty when the definition is not joinable or no peers.
+   * the active level — one candidate source also folded into `resolvePoint`.
+   * Empty when the definition is not joinable or no peers.
    */
   joinableSnapTargets(componentId: string): {
     point: Vec3;
