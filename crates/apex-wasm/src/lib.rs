@@ -2013,6 +2013,25 @@ pub fn joinable_snap_targets(component_id: &str) -> Result<JsValue, JsValue> {
     })
 }
 
+/// Shared element snap geometry on the active level (points + edge segments).
+///
+/// `exclude_json` is a JSON string array of element ids to skip (e.g. the
+/// element being edited). Includes every component type plus refs / grids /
+/// construction lines — no pair allowlist.
+#[wasm_bindgen(js_name = elementSnapGeometry)]
+pub fn element_snap_geometry(exclude_json: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let exclude_ids: Vec<String> = if exclude_json.trim().is_empty() {
+            Vec::new()
+        } else {
+            serde_json::from_str(exclude_json).map_err(err)?
+        };
+        let exclude: Vec<_> = exclude_ids.iter().filter_map(|s| s.parse().ok()).collect();
+        let geom = project.element_snap_geometry(&exclude);
+        to_js(&geom)
+    })
+}
+
 /// Ghost mesh of connected-stretch peers for Move preview (movers come from
 /// the live scene in JS). Does not mutate the document.
 ///

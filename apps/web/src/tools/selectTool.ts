@@ -1,7 +1,6 @@
 import { t } from '../i18n';
 import type { Vec3 } from '../viewport/ViewportRenderer';
 import { ApexIcons } from './icons';
-import { resolveJoinablePoint } from './joinableSnap';
 import type { Tool, ToolContext } from './Tool';
 
 export const SELECT_TOOL_ID = 'select';
@@ -164,30 +163,15 @@ export function createSelectTool(): Tool {
       // Always intersect the frozen element plane — never the active level —
       // so 3D drag cannot draw a rising gizmo when storeys differ.
       const planeY = drag.planeY;
-      const joinableId = ctx.selectedJoinableComponentId();
-      let point: Vec3 | null = null;
-      let joinSnapped = false;
-      if (joinableId) {
-        const hit = resolveJoinablePoint(
-          ctx,
-          e.clientX,
-          e.clientY,
-          e.shift,
-          neighbour,
-          joinableId,
-          planeY,
-        );
-        point = hit?.point ?? null;
-        joinSnapped = !!hit?.snapped;
-      } else {
-        point = ctx.resolvePoint(e.clientX, e.clientY, e.shift, neighbour, planeY);
-      }
+      // Element snaps (all types → all types) live inside resolvePoint; the
+      // selected element is excluded so a slab vertex can stick to a wall.
+      let point = ctx.resolvePoint(e.clientX, e.clientY, e.shift, neighbour, planeY);
       if (!point) return;
       // Belt-and-suspenders: keep every handle on the captured plane even if a
       // snap target carried a foreign Y.
       point = [point[0], planeY, point[2]];
 
-      ctx.showSnapMarker(point, e.shift || joinSnapped);
+      ctx.showSnapMarker(point, e.shift);
       drag.anchors[drag.index] = point;
       drag.moved = true;
       pendingAnchors = drag.anchors.map((p) => [...p] as Vec3);

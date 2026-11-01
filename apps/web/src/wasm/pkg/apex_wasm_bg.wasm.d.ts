@@ -35,6 +35,7 @@ export const describeApi: () => [number, number, number, number];
 export const detectRoomsFromWalls: () => [number, number, number];
 export const duplicateView: (a: number, b: number) => [number, number, number];
 export const effectiveLevelOf: (a: number, b: number) => [number, number, number, number];
+export const elementSnapGeometry: (a: number, b: number) => [number, number, number];
 export const executeCommand: (a: number, b: number) => [number, number, number, number];
 export const exportIfc: (a: number, b: number) => [number, number, number, number];
 export const exportProject: () => [number, number, number, number];

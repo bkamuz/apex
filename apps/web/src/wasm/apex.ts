@@ -74,6 +74,7 @@ import initWasm, {
   detectRoomsFromWalls,
   joinPaths,
   joinableSnapTargets,
+  elementSnapGeometry,
   previewStretchTranslate,
   previewPathAnchorEdit,
   selectSpace,
@@ -603,6 +604,35 @@ export type JoinableSnapTargetDto = {
 /** Ends / mids / T-vertices of joinable peers on the active level. */
 export function apexJoinableSnapTargets(componentId: string): JoinableSnapTargetDto[] {
   return (joinableSnapTargets(componentId) as JoinableSnapTargetDto[]) ?? [];
+}
+
+export type ElementSnapKindDto = 'end' | 'mid' | 'vertex' | 'point' | 'edge';
+
+export type ElementSnapTargetDto = {
+  point: [number, number, number];
+  kind: ElementSnapKindDto;
+  element_id: string;
+};
+
+export type ElementSnapSegmentDto = {
+  a: [number, number, number];
+  b: [number, number, number];
+  element_id: string;
+};
+
+export type ElementSnapGeometryDto = {
+  points: ElementSnapTargetDto[];
+  segments: ElementSnapSegmentDto[];
+};
+
+/** Shared snap geometry (all elements + refs/grids/clines) on the active level. */
+export function apexElementSnapGeometry(excludeIds: string[] = []): ElementSnapGeometryDto {
+  const raw = elementSnapGeometry(JSON.stringify(excludeIds)) as ElementSnapGeometryDto | null;
+  if (!raw) return { points: [], segments: [] };
+  return {
+    points: raw.points ?? [],
+    segments: raw.segments ?? [],
+  };
 }
 
 /**
