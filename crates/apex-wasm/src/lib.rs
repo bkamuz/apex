@@ -2026,10 +2026,7 @@ pub fn element_snap_geometry(exclude_json: &str) -> Result<JsValue, JsValue> {
         } else {
             serde_json::from_str(exclude_json).map_err(err)?
         };
-        let exclude: Vec<_> = exclude_ids
-            .iter()
-            .filter_map(|s| s.parse().ok())
-            .collect();
+        let exclude: Vec<_> = exclude_ids.iter().filter_map(|s| s.parse().ok()).collect();
         let geom = project.element_snap_geometry(&exclude);
         to_js(&geom)
     })

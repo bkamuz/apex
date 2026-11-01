@@ -249,9 +249,7 @@ pub fn collect_element_snap_geometry(
             .unwrap_or(false);
         // Prefer joinable centerline when present (same as join snap source).
         let placement = if let Some(seg) = joinable_segment(registry, &element) {
-            Placement::Curve {
-                curve: seg.curve,
-            }
+            Placement::Curve { curve: seg.curve }
         } else {
             element.placement.clone()
         };
@@ -408,8 +406,9 @@ mod tests {
         };
         let pts = snap_points_on_curve(&curve, true);
         assert!(
-            pts.iter()
-                .any(|(p, k)| *k == PathSnapKind::Mid && (p.x - 0.0).abs() < 1e-5 && (p.z - 1.5).abs() < 1e-5),
+            pts.iter().any(|(p, k)| *k == PathSnapKind::Mid
+                && (p.x - 0.0).abs() < 1e-5
+                && (p.z - 1.5).abs() < 1e-5),
             "expected mid on closing edge, got {pts:?}"
         );
         let segs = snap_segments_on_curve(&curve, true);
@@ -546,7 +545,9 @@ mod tests {
             std::iter::empty(),
         );
         assert!(
-            geom.points.iter().any(|t| t.element_id.contains('-') || !t.element_id.is_empty()),
+            geom.points
+                .iter()
+                .any(|t| t.element_id.contains('-') || !t.element_id.is_empty()),
             "expected points from both"
         );
         let wall_ends = geom
@@ -603,10 +604,7 @@ mod tests {
             std::iter::empty(),
             level,
             &[],
-            std::iter::once((
-                "ref:r1".into(),
-                Placement::point(Vec3::new(1.0, 0.0, 1.0)),
-            )),
+            std::iter::once(("ref:r1".into(), Placement::point(Vec3::new(1.0, 0.0, 1.0)))),
             std::iter::once((
                 "grid:g1".into(),
                 Placement::line(Vec3::new(0.0, 0.0, 0.0), Vec3::new(0.0, 0.0, 8.0)),
