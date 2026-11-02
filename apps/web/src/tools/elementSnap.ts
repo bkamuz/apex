@@ -28,10 +28,49 @@ function kindRank(kind: ElementSnapKindDto): number {
   }
 }
 
+/** Element snap kinds plus the client-side crossing of two snappable lines. */
+export type SnapHitKind = ElementSnapKindDto | 'intersection';
+
 export interface ElementSnapHit {
   point: Vec3;
-  kind: ElementSnapKindDto;
+  kind: SnapHitKind;
   element_id: string;
+  /** For `intersection`: the two crossing line owners. */
+  other_element_id?: string;
+}
+
+/** Max nearby lines considered for pairwise crossings (keeps k² tiny). */
+const MAX_INTERSECTION_LINES = 12;
+
+/**
+ * Plan (XZ) crossing of segments a1→b1 and a2→b2. Null when parallel /
+ * degenerate or when the crossing lies outside either segment (with a small
+ * relative slop so crossings at segment ends still count). Y is lerped along
+ * the first segment.
+ */
+export function intersectSegmentsXz(
+  a1: Vec3,
+  b1: Vec3,
+  a2: Vec3,
+  b2: Vec3,
+  slop = 1e-4,
+): Vec3 | null {
+  const d1x = b1[0] - a1[0];
+  const d1z = b1[2] - a1[2];
+  const d2x = b2[0] - a2[0];
+  const d2z = b2[2] - a2[2];
+  const len1 = Math.hypot(d1x, d1z);
+  const len2 = Math.hypot(d2x, d2z);
+  if (len1 < 1e-6 || len2 < 1e-6) return null;
+  const denom = d1x * d2z - d1z * d2x;
+  // sin(angle) below ~0.5° → treat as parallel / collinear: no single crossing.
+  if (Math.abs(denom) < 1e-2 * len1 * len2) return null;
+  const ex = a2[0] - a1[0];
+  const ez = a2[2] - a1[2];
+  const t = (ex * d2z - ez * d2x) / denom;
+  const u = (ex * d1z - ez * d1x) / denom;
+  if (t < -slop || t > 1 + slop || u < -slop || u > 1 + slop) return null;
+  return [a1[0] + d1x * t, a1[1] + (b1[1] - a1[1]) * t, a1[2] + d1z * t];
 }
 
 /**
@@ -88,6 +127,47 @@ export function findElementSnap(
     consider(target);
   }
 
+  // Lines near the cursor (screen distance to their closest point), the only
+  // candidates for crossings — a linear pass, then k² over a capped k.
+  const near: { seg: (typeof geometry.segments)[number]; dist: number }[] = [];
+  for (const seg of geometry.segments) {
+    const closest = closestOnSegmentXz(seg.a, seg.b, cursorWorld);
+    if (!closest) continue;
+    const screen = ctx.worldToClient(closest.point);
+    if (!screen) continue;
+    const dist = Math.hypot(screen[0] - clientX, screen[1] - clientY);
+    if (dist <= tolerancePx) near.push({ seg, dist });
+  }
+  if (near.length >= 2) {
+    near.sort((x, y) => x.dist - y.dist);
+    if (near.length > MAX_INTERSECTION_LINES) near.length = MAX_INTERSECTION_LINES;
+    let bestX: { hit: ElementSnapHit; dist: number } | null = null;
+    for (let i = 0; i < near.length; i++) {
+      for (let j = i + 1; j < near.length; j++) {
+        const s1 = near[i].seg;
+        const s2 = near[j].seg;
+        const point = intersectSegmentsXz(s1.a, s1.b, s2.a, s2.b);
+        if (!point) continue;
+        const screen = ctx.worldToClient(point);
+        if (!screen) continue;
+        const dist = Math.hypot(screen[0] - clientX, screen[1] - clientY);
+        if (dist > tolerancePx) continue;
+        if (bestX && dist >= bestX.dist) continue;
+        bestX = {
+          hit: { point, kind: 'intersection', element_id: s1.element_id, other_element_id: s2.element_id },
+          dist,
+        };
+      }
+    }
+    // A crossing beats any single-line edge snap; a discrete end / vertex /
+    // mid wins only when it is clearly closer (e.g. a wall end at the crossing).
+    if (bestX) {
+      const discrete = best as { hit: ElementSnapHit; score: number } | null;
+      if (discrete && discrete.score < bestX.dist - 2) return discrete.hit;
+      return bestX.hit;
+    }
+  }
+
   for (const seg of geometry.segments) {
     const closest = closestOnSegmentXz(seg.a, seg.b, cursorWorld);
     if (!closest) continue;
@@ -112,8 +192,10 @@ export function findElementSnap(
   return best?.hit ?? null;
 }
 
-export function snapKindLabel(kind: ElementSnapKindDto): string {
+export function snapKindLabel(kind: SnapHitKind): string {
   switch (kind) {
+    case 'intersection':
+      return 'intersection';
     case 'end':
       return 'end';
     case 'mid':

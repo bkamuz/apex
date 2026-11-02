@@ -941,6 +941,7 @@ export default function App() {
         const elementSnapped = !!lastElementSnapRef.current;
         renderer.setSnapMarker(
           point && (shift || shiftHeldRef.current || elementSnapped) ? point : null,
+          lastElementSnapRef.current?.kind === 'intersection' ? 'cross' : 'dot',
         );
       },
 

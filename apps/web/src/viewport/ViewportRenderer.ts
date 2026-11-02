@@ -380,10 +380,15 @@ void main(){
 const POINT_FRAG = `#version 300 es
 precision highp float;
 uniform vec4 uColor;
+uniform int uShape;
 out vec4 outColor;
 void main(){
   vec2 p = gl_PointCoord * 2.0 - 1.0;
-  if (dot(p, p) > 1.0) discard;
+  if (uShape == 1) {
+    // X cross (intersection snap): two diagonal bars.
+    float d = min(abs(p.x - p.y), abs(p.x + p.y));
+    if (d > 0.28) discard;
+  } else if (dot(p, p) > 1.0) discard;
   outColor = uColor;
 }`;
 
@@ -471,6 +476,7 @@ type PointUniforms = {
   uMVP: WebGLUniformLocation | null;
   uEye: WebGLUniformLocation | null;
   uPointSize: WebGLUniformLocation | null;
+  uShape: WebGLUniformLocation | null;
   uColor: WebGLUniformLocation | null;
 };
 
@@ -542,6 +548,7 @@ function pointUniforms(gl: WebGL2RenderingContext, prog: WebGLProgram): PointUni
     uMVP: gl.getUniformLocation(prog, 'uMVP'),
     uEye: gl.getUniformLocation(prog, 'uEye'),
     uPointSize: gl.getUniformLocation(prog, 'uPointSize'),
+    uShape: gl.getUniformLocation(prog, 'uShape'),
     uColor: gl.getUniformLocation(prog, 'uColor'),
   };
 }
@@ -924,6 +931,7 @@ export class ViewportRenderer {
   private snapVao: WebGLVertexArrayObject;
   private snapBuf: WebGLBuffer;
   private snapCount = 0;
+  private snapShape = 0;
   private junctionVao: WebGLVertexArrayObject;
   private junctionBuf: WebGLBuffer;
   private junctionCount = 0;
@@ -1810,7 +1818,8 @@ export class ViewportRenderer {
   }
 
   /** Small dot at the Shift-snap target (or clear with null). */
-  setSnapMarker(point: [number, number, number] | null): void {
+  setSnapMarker(point: [number, number, number] | null, shape: 'dot' | 'cross' = 'dot'): void {
+    this.snapShape = shape === 'cross' ? 1 : 0;
     if (!point) {
       this.snapCount = 0;
       return;
@@ -2974,10 +2983,14 @@ export class ViewportRenderer {
     gl.uniformMatrix4fv(u.uMVP, false, viewProj);
     gl.uniform3fv(u.uEye, this.scratchEye);
     // Larger, high-contrast marker so element snaps (end/mid/edge) are obvious.
-    gl.uniform1f(u.uPointSize, 11 * dpr);
-    gl.uniform4f(u.uColor, 0.95, 0.78, 0.18, 1);
+    const cross = this.snapShape === 1;
+    gl.uniform1f(u.uPointSize, (cross ? 17 : 11) * dpr);
+    gl.uniform1i(u.uShape, this.snapShape);
+    if (cross) gl.uniform4f(u.uColor, 1.0, 0.45, 0.2, 1);
+    else gl.uniform4f(u.uColor, 0.95, 0.78, 0.18, 1);
     gl.bindVertexArray(this.snapVao);
     gl.drawArrays(gl.POINTS, 0, this.snapCount);
+    gl.uniform1i(u.uShape, 0);
     gl.bindVertexArray(null);
     gl.enable(gl.DEPTH_TEST);
   }
