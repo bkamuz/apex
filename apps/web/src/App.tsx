@@ -1246,6 +1246,7 @@ export default function App() {
           } else {
             renderer.setGhostMesh(null);
           }
+          renderer.setJunctionMarkers(preview.junctions);
         } catch {
           /* keep dragging */
         }
@@ -1254,6 +1255,7 @@ export default function App() {
       commitAnchors: (anchors) => {
         draggingRef.current = false;
         renderer.setGhostMesh(null);
+        renderer.setJunctionMarkers(null);
         renderer.setHiddenPickIds([]);
         const planeY = selectedAnchorPlaneElevation() ?? anchors[0]?.[1] ?? null;
         const seated =
@@ -1417,6 +1419,7 @@ export default function App() {
         const expanded = expandTransformOriginals(originals, current.elements);
         const movers = buildTranslatedGhostMesh(current, expanded, delta);
         let stretch: ReturnType<typeof buildTranslatedGhostMesh> = null;
+        let junctions: Vec3[] | null = null;
         const joinableIds = new Set(
           components.filter((c) => c.joinable).map((c) => c.id),
         );
@@ -1428,6 +1431,7 @@ export default function App() {
         if (needsStretch) {
           try {
             const mesh = apexPreviewStretchTranslate(delta);
+            junctions = mesh?.junctions ?? null;
             if (mesh && mesh.indices.length > 0) {
               stretch = {
                 positions: toFloatArray(mesh.positions),
@@ -1440,11 +1444,13 @@ export default function App() {
           }
         }
         renderer.setGhostMesh(mergeGhostMeshes(movers, stretch));
+        renderer.setJunctionMarkers(junctions);
       },
 
       commitTransform: (_originals, delta, mode: TransformMode) => {
         try {
           renderer.setGhostMesh(null);
+          renderer.setJunctionMarkers(null);
           const next =
             mode === 'move' ? apexTranslateSelection(delta, true) : apexCopySelection(delta);
           applyScene(next);
@@ -2162,6 +2168,8 @@ export default function App() {
             ) ?? null,
           /** Live edit-handle world positions (null when no gizmo). */
           getEditHandles: () => rendererRef.current?.getEditHandles() ?? null,
+          /** Live junction marker count while dragging (tests). */
+          junctionMarkerCount: () => rendererRef.current?.getJunctionMarkerCount() ?? 0,
           getCamera: () => rendererRef.current?.getCamera() ?? null,
           setCamera: (c: Parameters<ViewportRenderer['setCamera']>[0]) => rendererRef.current?.setCamera(c),
           /** Replace the document with the built-in sample house (tests / demos). */

@@ -2187,6 +2187,9 @@ function __wbg_get_imports() {
         __wbg_set_b5e6b338281ca6ff: function(arg0, arg1, arg2) {
             arg0.set(getArrayU32FromWasm0(arg1, arg2));
         },
+        __wbg_set_index_f15f4feb1d940b8c: function(arg0, arg1, arg2) {
+            arg0[arg1 >>> 0] = arg2;
+        },
         __wbg_stack_3b0d974bbf31e44f: function(arg0, arg1) {
             const ret = arg1.stack;
             const ptr1 = passStringToWasm0(ret, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);

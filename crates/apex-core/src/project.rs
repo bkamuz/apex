@@ -1689,11 +1689,12 @@ impl Project {
     /// overridden paths against their peers. Returns every element whose
     /// preview geometry differs from the live one (overrides plus abutting
     /// stems whose trims changed) and the junction points touching the
-    /// overridden set — the sliding T / corner points the UI marks while
-    /// dragging. Full SMLib joins still land on commit.
+    /// `primary` set (what the user drags) — the sliding T / corner points
+    /// the UI marks while dragging. Full SMLib joins still land on commit.
     pub(crate) fn preview_join_pass(
         &self,
         overrides: &BTreeMap<ElementId, Placement>,
+        primary: &std::collections::BTreeSet<ElementId>,
     ) -> (BTreeMap<ElementId, Element>, Vec<Vec3>) {
         use apex_geometry::{plan_distance, JOIN_SNAP};
         let mut out: BTreeMap<ElementId, Element> = BTreeMap::new();
@@ -1786,7 +1787,9 @@ impl Project {
                         if host.id == seg.id {
                             continue;
                         }
-                        if !movers.contains(&seg.id) && !movers.contains(&host.id) {
+                        // Only junctions on what the user drags — stretch
+                        // peers' far corners would just be noise.
+                        if !primary.contains(&seg.id) && !primary.contains(&host.id) {
                             continue;
                         }
                         let near_end = plan_distance(tip, host.curve.start()) <= JOIN_SNAP
@@ -1851,7 +1854,7 @@ impl Project {
         for update in stretch {
             overrides.insert(update.id, update.placement);
         }
-        let (previews, junctions) = self.preview_join_pass(&overrides);
+        let (previews, junctions) = self.preview_join_pass(&overrides, &moving);
         let mut mesh = TriangleMesh::empty();
         // Recipe mesh only (no host-cut / boolean) — preview must stay cheap.
         // Skip edges: ghost overlay does not draw them.
@@ -1939,7 +1942,8 @@ impl Project {
         }
         // Cheap join pass: re-trims T stems / miters on the small override
         // set and reports sliding junction points (no kernel call).
-        let (previews, junctions) = self.preview_join_pass(&overrides);
+        let primary = std::collections::BTreeSet::from([id]);
+        let (previews, junctions) = self.preview_join_pass(&overrides, &primary);
 
         let mut hide: std::collections::BTreeSet<ElementId> = std::collections::BTreeSet::new();
         let mut mesh = TriangleMesh::empty();

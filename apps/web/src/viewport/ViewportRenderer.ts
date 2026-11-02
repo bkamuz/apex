@@ -924,6 +924,9 @@ export class ViewportRenderer {
   private snapVao: WebGLVertexArrayObject;
   private snapBuf: WebGLBuffer;
   private snapCount = 0;
+  private junctionVao: WebGLVertexArrayObject;
+  private junctionBuf: WebGLBuffer;
+  private junctionCount = 0;
   private editLineVao: WebGLVertexArrayObject;
   private editLineBuf: WebGLBuffer;
   private editLineCount = 0;
@@ -1123,6 +1126,14 @@ export class ViewportRenderer {
     this.snapBuf = gl.createBuffer()!;
     gl.bindVertexArray(this.snapVao);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.snapBuf);
+    gl.enableVertexAttribArray(0);
+    gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
+    gl.bindVertexArray(null);
+
+    this.junctionVao = gl.createVertexArray()!;
+    this.junctionBuf = gl.createBuffer()!;
+    gl.bindVertexArray(this.junctionVao);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.junctionBuf);
     gl.enableVertexAttribArray(0);
     gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 0, 0);
     gl.bindVertexArray(null);
@@ -1597,6 +1608,10 @@ export class ViewportRenderer {
     mesh: { positions: Float32Array; normals: Float32Array; indices: Uint32Array } | null,
   ): void {
     const gl = this.gl;
+    if (!mesh) {
+      // Ghost cleared (commit / cancel): junction markers go with it.
+      this.junctionCount = 0;
+    }
     if (!mesh || mesh.indices.length === 0) {
       this.ghostIndexCount = 0;
       return;
@@ -1771,6 +1786,27 @@ export class ViewportRenderer {
     gl.bufferData(gl.ARRAY_BUFFER, flatten(anchors), gl.DYNAMIC_DRAW);
     this.handleCount = anchors.length;
     this.editHandles = anchors.map((p) => [...p] as Vec3);
+  }
+
+  /**
+   * Live join markers while dragging (T-junction tips sliding on hosts,
+   * shared corners). Empty / null clears.
+   */
+  setJunctionMarkers(points: readonly [number, number, number][] | null): void {
+    if (!points || points.length === 0) {
+      this.junctionCount = 0;
+      return;
+    }
+    const data = new Float32Array(points.length * 3);
+    points.forEach((p, i) => data.set(p, i * 3));
+    this.gl.bindBuffer(this.gl.ARRAY_BUFFER, this.junctionBuf);
+    this.gl.bufferData(this.gl.ARRAY_BUFFER, data, this.gl.DYNAMIC_DRAW);
+    this.junctionCount = points.length;
+  }
+
+  /** Current junction marker count (tests). */
+  getJunctionMarkerCount(): number {
+    return this.junctionCount;
   }
 
   /** Small dot at the Shift-snap target (or clear with null). */
@@ -2901,6 +2937,28 @@ export class ViewportRenderer {
     gl.enable(gl.DEPTH_TEST);
   }
 
+  private drawJunctionMarkers(): void {
+    if (this.junctionCount === 0) return;
+    const gl = this.gl;
+    const { viewProj, eye } = this.cameraMatrices();
+    const u = this.pointUniforms;
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    this.scratchEye[0] = eye[0];
+    this.scratchEye[1] = eye[1];
+    this.scratchEye[2] = eye[2];
+    gl.disable(gl.BLEND);
+    gl.disable(gl.DEPTH_TEST);
+    gl.useProgram(this.pointProg);
+    gl.uniformMatrix4fv(u.uMVP, false, viewProj);
+    gl.uniform3fv(u.uEye, this.scratchEye);
+    gl.uniform1f(u.uPointSize, 10 * dpr);
+    gl.uniform4f(u.uColor, 0.3, 0.85, 1.0, 1);
+    gl.bindVertexArray(this.junctionVao);
+    gl.drawArrays(gl.POINTS, 0, this.junctionCount);
+    gl.bindVertexArray(null);
+    gl.enable(gl.DEPTH_TEST);
+  }
+
   private drawSnapMarker(): void {
     if (this.snapCount === 0) return;
     const gl = this.gl;
@@ -3075,6 +3133,7 @@ export class ViewportRenderer {
     // Hover/selection x-ray outline on top of scene geometry + CAD edges.
     this.drawHighlightOutline();
     this.drawHandles();
+    this.drawJunctionMarkers();
     this.drawSnapMarker();
     this.frameMats = null;
   }

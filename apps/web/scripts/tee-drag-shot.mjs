@@ -36,6 +36,7 @@ for (let i = 1; i <= 12; i++) {
 }
 await page.waitForTimeout(300);
 await page.screenshot({ path: `${OUT}/${NAME}-during-drag.png` });
+const junctionMarkers = await page.evaluate(() => window.__apexTest.junctionMarkerCount?.() ?? null);
 await page.mouse.up();
 await page.waitForTimeout(1500);
 await page.screenshot({ path: `${OUT}/${NAME}-after.png` });
@@ -43,5 +44,5 @@ const after = await page.evaluate(async () => {
   const m = await import('/src/wasm/apex.ts');
   return m.apexListElements().filter((e) => e.category === 'wall').map((e) => { m.apexSelectElement(e.id); return [e.name, m.apexGetSelected()?.anchors]; });
 });
-console.log(JSON.stringify({ anchors, end, times, after }));
+console.log(JSON.stringify({ times, junctionMarkers }));
 await browser.close();
