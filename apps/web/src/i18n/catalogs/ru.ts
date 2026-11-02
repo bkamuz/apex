@@ -73,6 +73,9 @@ export const ru: MessageCatalog = {
   'toolbar.axonTitle': 'Параллельная аксонометрия',
   'toolbar.persp': 'Персп',
   'toolbar.perspTitle': 'Перспектива',
+  'toolbar.lines': 'Линии',
+  'toolbar.thinLines': 'Тонкие',
+  'toolbar.thinLinesTitle': 'Тонкие линии — все линии толщиной в один пиксель (TL)',
 
   'tab.apex.basics': 'Основы',
   'tab.apex.building': 'Строительные конструкции',

@@ -17,3 +17,11 @@ test('every snap kind has an EN and RU label', () => {
     assert.ok(ru[key] && ru[key] !== en[key], `ru ${key}`);
   }
 });
+
+test('thin-lines toolbar strings exist in EN and RU', () => {
+  for (const k of ['toolbar.lines', 'toolbar.thinLines', 'toolbar.thinLinesTitle'] as const) {
+    assert.ok((en as Record<string, string>)[k]);
+    assert.ok((ru as Record<string, string>)[k]);
+    assert.notEqual((en as Record<string, string>)[k], (ru as Record<string, string>)[k]);
+  }
+});

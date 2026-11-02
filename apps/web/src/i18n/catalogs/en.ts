@@ -76,6 +76,9 @@ export const en: MessageCatalog = {
   'toolbar.axonTitle': 'Parallel axonometric projection',
   'toolbar.persp': 'Persp',
   'toolbar.perspTitle': 'Perspective projection',
+  'toolbar.lines': 'Lines',
+  'toolbar.thinLines': 'Thin',
+  'toolbar.thinLinesTitle': 'Thin lines — draw every line one pixel wide (TL)',
 
   // —— Tabs (catalog ids) ——
   'tab.apex.basics': 'Basics',

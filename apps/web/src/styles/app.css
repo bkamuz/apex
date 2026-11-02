@@ -1,4 +1,6 @@
 :root {
+  /* Plan cut poche (walls/columns sliced by the plan cut). Hatches will replace this later. */
+  --plan-cut-fill: #000000;
   /* Industrial flat chrome (Option C) — shared shell tokens. */
   --chrome-bg: #232323;
   --chrome-bg-doc: #2b2b2b;
@@ -1216,6 +1218,19 @@ input[type="radio"] {
   line-height: 22px;
   text-align: center;
   white-space: nowrap;
+}
+
+.grid-axis-labels.is-paper {
+  /* Plan paper (see viewport/planStyle.ts): white heads, dark ring and text. */
+  --grid-axis-fill: #f7f7f5;
+  --grid-axis-stroke: #4a4c50;
+  --grid-axis-text: #111;
+}
+
+.grid-axis-labels.is-paper .space-label {
+  background: rgba(247, 247, 245, 0.9);
+  border-color: #6b7175;
+  color: #111;
 }
 
 .grid-axis-label.is-selected {
