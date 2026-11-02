@@ -181,7 +181,7 @@ impl PlanarSolids {
     /// Smallest x, y, z over all points (zero when empty).
     pub fn min_corner(&self) -> [f64; 3] {
         let mut mn = [f64::INFINITY; 3];
-        for c in self.points.chunks_exact(3) {
+        for c in self.points.as_chunks::<3>().0 {
             for i in 0..3 {
                 mn[i] = mn[i].min(c[i]);
             }
@@ -196,7 +196,7 @@ impl PlanarSolids {
     /// The same solids moved by `d`.
     pub fn translated(&self, d: [f64; 3]) -> Self {
         let mut out = self.clone();
-        for c in out.points.chunks_exact_mut(3) {
+        for c in out.points.as_chunks_mut::<3>().0 {
             for i in 0..3 {
                 c[i] += d[i];
             }
@@ -216,7 +216,7 @@ impl PlanarSolids {
                 h = h.wrapping_mul(0x100_0000_01b3);
             }
         };
-        for c in self.points.chunks_exact(3) {
+        for c in self.points.as_chunks::<3>().0 {
             for i in 0..3 {
                 eat(((c[i] - mn[i]) * 1e6).round() as i64 as u64);
             }

@@ -44,7 +44,7 @@ type QueuedJob = (PlanarSolids, Vec<(usize, u64)>);
 pub fn to_shape_frame(solids: &PlanarSolids, r: Indexed) -> Indexed {
     let m = solids.min_corner();
     let (mut p, t) = r;
-    for c in p.chunks_exact_mut(3) {
+    for c in p.as_chunks_mut::<3>().0 {
         for i in 0..3 {
             c[i] -= m[i];
         }
@@ -112,7 +112,7 @@ impl GeometryKernel for ExternalKernel {
         match self.cache.lock().unwrap().get(&key) {
             Some(Some((p, t))) => {
                 let p: Vec<f64> = p
-                    .chunks_exact(3)
+                    .as_chunks::<3>().0.iter()
                     .flat_map(|c| [c[0] + offset[0], c[1] + offset[1], c[2] + offset[2]])
                     .collect();
                 let mesh = mesh_from_indexed(&p, t);
