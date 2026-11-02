@@ -19,12 +19,15 @@ await page.evaluate(() => {
   window.__apexTest.setCamera({ ...cam, pitch: -Math.PI / 2 + 0.02, yaw: 0, distance: 22, target: [5, 0, 4] });
 });
 await page.waitForTimeout(300);
-await page.evaluate(() => window.__apexTest.selectNear('wall', [5, 1.5, 4]));
+const STEM = process.env.MODE === 'stem';
+// stem: Wall 6 (B axis, x 5..10 at z=4) abuts the mid partition at a T —
+// drag its start along the host.
+await page.evaluate((stem) => window.__apexTest.selectNear('wall', stem ? [7.5, 0, 4] : [5, 1.5, 4]), STEM);
 await page.waitForTimeout(300);
 const anchors = await page.evaluate(async () => (await import('/src/wasm/apex.ts')).apexGetSelected()?.anchors);
-const end = anchors[anchors.length - 1];
+const end = STEM ? anchors[0] : anchors[anchors.length - 1];
 const h = await page.evaluate((p) => window.__apexTest.worldToClient(p), end);
-const t = await page.evaluate((p) => window.__apexTest.worldToClient(p), [end[0] + 1.5, end[1], end[2]]);
+const t = await page.evaluate((p) => window.__apexTest.worldToClient(p), STEM ? [end[0], end[1], end[2] + 1.5] : [end[0] + 1.5, end[1], end[2]]);
 await page.mouse.move(h[0], h[1]);
 await page.mouse.down();
 const times = [];
