@@ -38,6 +38,12 @@ export const en: MessageCatalog = {
   'chrome.typedLength': ' — length {length} m (Enter)',
   'chrome.typeLengthHint': ' — type a length, Shift snaps to grid',
   'chrome.elementSnap': ' · snap: {kind}',
+  'snap.kind.end': 'endpoint',
+  'snap.kind.mid': 'midpoint',
+  'snap.kind.vertex': 'vertex',
+  'snap.kind.point': 'point',
+  'snap.kind.edge': 'on line',
+  'snap.kind.intersection': 'intersection',
   'chrome.newProjectConfirm':
     'Start a new empty project? Unsaved changes in this document will be cleared.',
   'chrome.sampleLoaded': 'Sample house project loaded',
