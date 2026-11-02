@@ -589,7 +589,7 @@ const labels = await page
 console.log('  fields:', labels.join(' | '));
 check('height field rendered from the schema', labels.some((l) => l.startsWith('Height')));
 check('thickness field rendered from the schema', labels.some((l) => l.startsWith('Thickness')));
-check('wall profile control is present', labels.some((l) => l.startsWith('Profile')));
+check('wall profile control is present', labels.some((l) => l.startsWith('Species')));
 check('instance block is present', (await page.locator('[data-section="instance"]').count()) === 1);
 check('type block is present', (await page.locator('[data-section="type"]').count()) === 1);
 check(
@@ -772,7 +772,7 @@ await useTool('Select');
 const wallItems = page.locator('[data-kind="instance"]').filter({ hasText: /^Wall \d+/ });
 await wallItems.first().click();
 await page.waitForTimeout(200);
-await page.getByRole('button', { name: 'Edit profile', exact: true }).click();
+await page.getByTestId('edit-type').click();
 await page.waitForSelector('[data-testid="profile-editor"]');
 check(
   'sketch canvas is the editor',
@@ -811,7 +811,7 @@ check(
 // --- 8. Draw a new profile with the mouse ---------------------------------
 console.log('\n[9] mouse-drawn profile');
 await useTool('Wall');
-await page.getByRole('button', { name: 'Draw new profile', exact: true }).click();
+await page.getByTestId('new-profile').click();
 await page.waitForSelector('[data-testid="profile-sketch"]');
 const sketch = page.locator('[data-testid="profile-sketch"]');
 const sketchBox = await sketch.boundingBox();

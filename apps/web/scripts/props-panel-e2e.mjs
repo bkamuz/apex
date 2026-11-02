@@ -1,0 +1,30 @@
+// Props panel e2e: multi-select common edit, numeric validation, override reset.
+// Usage: APEX_SMOKE_URL=http://localhost:5173/ node scripts/props-panel-e2e.mjs
+import { chromium } from 'playwright';
+const b = await chromium.launch(); const page = await b.newPage({ viewport: { width: 1440, height: 1200 } });
+await page.addInitScript(() => localStorage.setItem('apex.gettingStarted.dismissed', '1'));
+await page.goto(`${process.env.APEX_SMOKE_URL ?? 'http://localhost:5173/'}?kernel=mesh`, { waitUntil: 'networkidle' });
+await page.waitForFunction(() => !!window.__apexTest?.loadSampleProject, null, { timeout: 60000 });
+await page.evaluate(() => window.__apexTest.loadSampleProject()); await page.waitForTimeout(1000);
+const els = await page.evaluate(() => window.__apexTest.api.listElements());
+const walls = els.filter((e) => e.category === 'wall').slice(0, 2).map((e) => e.id);
+await page.evaluate((ids) => { window.__apexTest.clearSelection(); window.__apexTest.selectElements(ids); }, walls);
+await page.waitForTimeout(300);
+const h = page.locator('[data-section="common"] [data-param="height"] input');
+console.log('height fields', await h.count(), 'value', await h.inputValue());
+await h.fill('-1'); console.log('invalid shown', await page.locator('.field-error').count());
+await h.fill('4.2'); await h.press('Enter'); await page.waitForTimeout(400);
+const hs = await page.evaluate((ids) => window.__apexTest.api.listElements().filter((e) => ids.includes(e.id)).map((e) => e.params?.height), walls);
+if (!hs.every((v) => v === 4.2)) process.exitCode = 1;
+console.log('heights after', JSON.stringify(hs), 'still selected', await page.locator('[data-testid="inspector-multi"]').count());
+const win = els.find((e) => e.component_id === 'apex.window').id;
+await page.evaluate((i) => { window.__apexTest.command({ op: 'update_element', id: i, params: { sill: 1.05 } }); window.__apexTest.clearSelection(); window.__apexTest.selectElements([i]); }, win);
+await page.waitForTimeout(300);
+console.log('sill badge', await page.locator('[data-param="sill"] .prov-badge').getAttribute('data-prov'));
+await page.getByTestId('reset-sill').click(); await page.waitForTimeout(400);
+const after = await page.locator('[data-param="sill"] .prov-badge').getAttribute('data-prov');
+if (after === 'instance') process.exitCode = 1;
+console.log('after reset badge', await page.locator('[data-param="sill"] .prov-badge').getAttribute('data-prov'), 'value', await page.locator('[data-param="sill"] input').inputValue());
+await b.close();
+const ok = process.exitCode !== 1;
+console.log(ok ? 'props panel e2e passed' : 'props panel e2e FAILED');

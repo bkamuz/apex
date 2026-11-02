@@ -3,7 +3,7 @@
 **/*.rs.bk
 
 # Node / web
-node_modules/
+node_modules
 apps/web/dist/
 apps/web/node_modules/
 apps/web/tsconfig.tsbuildinfo

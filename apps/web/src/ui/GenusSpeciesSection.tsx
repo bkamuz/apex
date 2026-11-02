@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useI18n } from '../i18n';
+import { Section } from './inspector/Section';
 import type { ComponentDto, ElementDto, SpeciesDto, ParamValue, SceneDto } from '../types';
 import { apexExecuteCommand, apexRunQuery, apexSelectElement } from '../wasm/apex';
 import { extensions } from '../extensions/sdk';
@@ -6,7 +8,9 @@ import { ParamField } from './PropertiesPanel';
 import { isTypeBound } from './profileModel';
 
 /**
- * Genus & species block for genera (doors, windows, plugin
+ * `part="picker"` renders the genus / species selectors and species actions
+ * (header); `part="params"` the shared species values with the
+ * "affects all N instances" note. Genus & species block for genera (doors, windows, plugin
  * openings): swap genus or species, edit the shared species (every instance
  * follows), duplicate, rename or delete it. Fields come from the genus's
  * species-bound specs. Hierarchy: genus -> species -> instance.
@@ -17,13 +21,16 @@ export function GenusSpeciesSection({
   components,
   onScene,
   onError,
+  part = 'picker',
 }: {
+  part?: 'picker' | 'params';
   element: ElementDto;
   component: ComponentDto;
   components: ComponentDto[];
   onScene: (scene: SceneDto) => void;
   onError?: (message: string) => void;
 }) {
+  const { t } = useI18n();
   const [revision, setRevision] = useState(0);
   const speciesRows = useMemo(
     () => apexRunQuery({ op: 'list_genus_species' }) as SpeciesDto[],
@@ -57,7 +64,10 @@ export function GenusSpeciesSection({
     run({ op: 'update_species', id: current.id, params: patch });
   };
   const duplicate = () => {
-    const name = window.prompt('New species name', `${current?.name ?? component.display_name} copy`);
+    const name = window.prompt(
+      t('inspector.promptNewSpecies'),
+      t('inspector.copyName', { name: current?.name ?? component.display_name }),
+    );
     if (!name) return;
     try {
       const out = apexExecuteCommand({
@@ -75,14 +85,14 @@ export function GenusSpeciesSection({
 
   const rename = () => {
     if (!current) return;
-    const name = window.prompt('Rename species', current.name);
+    const name = window.prompt(t('inspector.promptRenameSpecies'), current.name);
     if (!name || name === current.name) return;
     run({ op: 'update_species', id: current.id, name });
     extensions.notifyCatalogChanged();
   };
   const remove = () => {
     if (!current || !component.default_species) return;
-    if (!window.confirm(`Delete species "${current.name}"? This instance moves to the genus default.`)) return;
+    if (!window.confirm(t('inspector.confirmDeleteSpecies', { name: current.name }))) return;
     const doomed = current.id;
     try {
       apexExecuteCommand({ op: 'set_element_species', id: element.id, species: component.default_species });
@@ -95,11 +105,45 @@ export function GenusSpeciesSection({
     }
   };
 
+  if (part === 'params') {
+    if (!current) return null;
+    const shared = current.instances > 1;
+    return (
+      <Section id="species" title={t('inspector.group.species')} dataSection="species-values">
+        <div className={`species-note${shared ? ' is-shared' : ''}`} data-testid="species-usage">
+          {shared
+            ? t('inspector.speciesAffects', { n: current.instances })
+            : t('inspector.speciesAffectsOne')}
+        </div>
+        {specs.length === 0 ? <div className="empty">{t('inspector.speciesValuesEmpty')}</div> : null}
+        {specs.map((spec) => (
+          <ParamField
+            key={spec.id}
+            spec={spec}
+            profiles={[]}
+            references={[]}
+            provenance={{
+              id: spec.id,
+              value: draft[spec.id] ?? spec.default,
+              source: spec.id in current.values ? 'species' : 'genus',
+              from: spec.id in current.values ? current.name : component.id,
+            }}
+            value={draft[spec.id] ?? spec.default}
+            onChange={(value) => setDraft((prev) => ({ ...prev, [spec.id]: value }))}
+            onCommit={(value) =>
+              editSpecies({ [spec.id]: value === undefined ? draft[spec.id] : value })
+            }
+          />
+        ))}
+      </Section>
+    );
+  }
+
+  const deletable = current && current.instances <= 1 && current.id !== component.default_species;
   return (
-    <div className="inspector-section" data-section="genus-species">
-      <div className="section-title">Genus &amp; species</div>
+    <div className="genus-picker" data-section="genus-species">
       <div className="field">
-        <label>Genus</label>
+        <label>{t('inspector.genus')}</label>
         <select
           data-testid="genus-select"
           value={component.id}
@@ -116,50 +160,42 @@ export function GenusSpeciesSection({
         </select>
       </div>
       <div className="field">
-        <label>Species</label>
+        <label>{t('inspector.species')}</label>
         <select data-testid="genus-species-select" value={speciesId} onChange={(e) => swap(e.target.value)}>
-          {ownSpecies.map((t) => (
-            <option key={t.id} value={t.id}>
-              {t.name}
+          {ownSpecies.map((row) => (
+            <option key={row.id} value={row.id}>
+              {row.name}
+              {row.instances > 0 ? ` · ${row.instances}` : ''}
             </option>
           ))}
         </select>
       </div>
-      {current ? (
-        <>
-          <div className="empty" style={{ padding: 0, marginBottom: 4 }}>
-            Species values — shared by {current.instances} instance{current.instances === 1 ? '' : 's'}
-          </div>
-          {specs.map((spec) => (
-            <ParamField
-              key={spec.id}
-              spec={spec}
-              profiles={[]}
-              references={[]}
-              value={draft[spec.id] ?? spec.default}
-              onChange={(value) => setDraft((prev) => ({ ...prev, [spec.id]: value }))}
-              onCommit={(value) =>
-                editSpecies({ [spec.id]: value === undefined ? draft[spec.id] : value })
-              }
-            />
-          ))}
-        </>
-      ) : null}
-      <div className="button-row" style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-        <button type="button" data-testid="duplicate-species" onClick={duplicate}>
-          Duplicate…
+      <div className="button-row">
+        <button
+          type="button"
+          data-testid="duplicate-species"
+          title={t('inspector.duplicateSpeciesTitle')}
+          onClick={duplicate}
+        >
+          {t('inspector.duplicateSpecies')}
         </button>
-        <button type="button" data-testid="rename-species" onClick={rename} disabled={!current}>
-          Rename…
+        <button
+          type="button"
+          data-testid="rename-species"
+          title={t('inspector.renameSpeciesTitle')}
+          onClick={rename}
+          disabled={!current}
+        >
+          {t('inspector.renameSpecies')}
         </button>
         <button
           type="button"
           data-testid="delete-species"
           onClick={remove}
-          disabled={!current || current.instances > 1 || current.id === component.default_species}
-          title="Delete an unused species: the instance moves to the genus default first"
+          disabled={!deletable}
+          title={t('inspector.deleteSpeciesTitle')}
         >
-          Delete
+          {t('inspector.deleteSpecies')}
         </button>
       </div>
     </div>
