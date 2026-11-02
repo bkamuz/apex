@@ -86,6 +86,10 @@ pub struct ComponentRegistry {
     authored: BTreeMap<ComponentId, ComponentDefinition>,
     /// Genus id that declared / last overrode each param default.
     param_origin: BTreeMap<ComponentId, BTreeMap<String, String>>,
+    /// Genus builds by their full input (see [`Self::build_genus`]); an
+    /// unchanged opening is not rebuilt on every host rebuild. Cleared by
+    /// every registry change.
+    genus_cache: std::sync::Mutex<std::collections::HashMap<u64, GenusBuild>>,
 }
 
 impl ComponentRegistry {
@@ -156,6 +160,7 @@ impl ComponentRegistry {
     /// Add or replace a type. Values are resolved against the genus's
     /// type-bound specs (missing keys take spec defaults, unknown keys fail).
     pub fn upsert_species(&mut self, mut species: Species) -> Result<(), RegistryError> {
+        self.genus_cache.get_mut().map(|c| c.clear()).ok();
         if species.id.trim().is_empty() {
             return Err(RegistryError::Unknown("species id is empty".into()));
         }
@@ -192,6 +197,7 @@ impl ComponentRegistry {
     }
 
     pub fn remove_species(&mut self, id: &str) -> Option<Species> {
+        self.genus_cache.get_mut().map(|c| c.clear()).ok();
         self.species.remove(id)
     }
 
@@ -317,6 +323,7 @@ impl ComponentRegistry {
                 DefinitionError::MissingDescriptor { component: id },
             ));
         }
+        self.genus_cache.get_mut().map(|c| c.clear()).ok();
         self.opening_generators.insert(id, (descriptor, generator));
         Ok(())
     }
@@ -349,6 +356,7 @@ impl ComponentRegistry {
     /// Add a component. Validation happens here so an authoring mistake is
     /// reported when the component is installed, not when someone places it.
     pub fn register(&mut self, definition: ComponentDefinition) -> Result<(), RegistryError> {
+        self.genus_cache.get_mut().map(|c| c.clear()).ok();
         if self.components.contains_key(&definition.id) {
             return Err(RegistryError::Duplicate(definition.id));
         }
@@ -358,6 +366,7 @@ impl ComponentRegistry {
     /// Flatten inheritance, adapt legacy opening-only genera, validate,
     /// insert, and check nesting. Rolls back on failure.
     fn install(&mut self, authored: ComponentDefinition) -> Result<(), RegistryError> {
+        self.genus_cache.get_mut().map(|c| c.clear()).ok();
         let id = authored.id.clone();
         let (flat, origins) = self.flatten(&authored)?;
         flat.validate()?;
@@ -569,8 +578,25 @@ impl ComponentRegistry {
         host_depth: f64,
         length: f64,
     ) -> Result<GenusBuild, RegistryError> {
+        use std::hash::{Hash, Hasher};
         let params = self.eval_params(component_id, raw)?;
-        Ok(build_genus(
+        let key = {
+            let mut h = std::collections::hash_map::DefaultHasher::new();
+            component_id.hash(&mut h);
+            format!("{params:?}|{frame:?}").hash(&mut h);
+            host_depth.to_bits().hash(&mut h);
+            length.to_bits().hash(&mut h);
+            h.finish()
+        };
+        if let Some(hit) = self
+            .genus_cache
+            .lock()
+            .ok()
+            .and_then(|c| c.get(&key).cloned())
+        {
+            return Ok(hit);
+        }
+        let built = build_genus(
             self,
             &BuildInput {
                 genus_id: component_id,
@@ -579,7 +605,14 @@ impl ComponentRegistry {
                 host_depth,
                 length,
             },
-        )?)
+        )?;
+        if let Ok(mut cache) = self.genus_cache.lock() {
+            if cache.len() > 2048 {
+                cache.clear();
+            }
+            cache.insert(key, built.clone());
+        }
+        Ok(built)
     }
 
     /// Whether any element of this genus can cut neighbours.
@@ -597,6 +630,7 @@ impl ComponentRegistry {
 
     /// Add or replace a component, for reloading a module during development.
     pub fn upsert(&mut self, mut definition: ComponentDefinition) -> Result<(), RegistryError> {
+        self.genus_cache.get_mut().map(|c| c.clear()).ok();
         let id = definition.id.clone();
         // Validate the flattened form up front (the authored one may rely
         // on inherited params).
@@ -630,6 +664,7 @@ impl ComponentRegistry {
     }
 
     pub fn upsert_profile(&mut self, mut profile: ProfileType) -> Result<(), RegistryError> {
+        self.genus_cache.get_mut().map(|c| c.clear()).ok();
         profile.compile_sketch()?;
         profile.validate()?;
         self.profiles.insert(profile.id.clone(), profile);
@@ -637,6 +672,7 @@ impl ComponentRegistry {
     }
 
     pub fn register_builder(&mut self, id: impl Into<String>, builder: Box<dyn MeshBuilder>) {
+        self.genus_cache.get_mut().map(|c| c.clear()).ok();
         self.builders.insert(id.into(), builder);
     }
 
