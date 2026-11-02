@@ -178,6 +178,55 @@ impl PlanarSolids {
         self.splice(idx, &mesh_from_indexed(points, tris))
     }
 
+    /// Smallest x, y, z over all points (zero when empty).
+    pub fn min_corner(&self) -> [f64; 3] {
+        let mut mn = [f64::INFINITY; 3];
+        for c in self.points.chunks_exact(3) {
+            for i in 0..3 {
+                mn[i] = mn[i].min(c[i]);
+            }
+        }
+        if mn[0].is_finite() {
+            mn
+        } else {
+            [0.0; 3]
+        }
+    }
+
+    /// The same solids moved by `d`.
+    pub fn translated(&self, d: [f64; 3]) -> Self {
+        let mut out = self.clone();
+        for c in out.points.chunks_exact_mut(3) {
+            for i in 0..3 {
+                c[i] += d[i];
+            }
+        }
+        out
+    }
+
+    /// Key of the shape up to placement: points relative to the min corner,
+    /// quantized to 1 µm, plus topology and ops. Identical instances (the same
+    /// window in another wall bay) share it, so one kernel run serves all.
+    pub fn shape_key(&self) -> u64 {
+        let mn = self.min_corner();
+        let mut h: u64 = 0x84222325_cbf29ce4;
+        let mut eat = |x: u64| {
+            for b in x.to_le_bytes() {
+                h ^= b as u64;
+                h = h.wrapping_mul(0x100_0000_01b3);
+            }
+        };
+        for c in self.points.chunks_exact(3) {
+            for i in 0..3 {
+                eat(((c[i] - mn[i]) * 1e6).round() as i64 as u64);
+            }
+        }
+        for i in self.ints.iter().chain(&self.ops) {
+            eat(*i as u64);
+        }
+        h
+    }
+
     /// Stable key of the encoded input (FNV-1a over the exact bits).
     pub fn key(&self) -> u64 {
         let mut h: u64 = 0xcbf2_9ce4_8422_2325;

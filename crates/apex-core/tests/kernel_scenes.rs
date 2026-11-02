@@ -447,14 +447,10 @@ fn external_kernel_settles_on_the_house() {
                     ids
                 );
             }
-            let results = jobs
-                .iter()
-                .map(|j| {
-                    let r = apex_smlib::run(&j.solids, 1e-3).ok();
-                    (j.key, r.map(|r| (r.points, r.tris)))
-                })
-                .collect();
-            p.apply_kernel_results(results);
+            let (results, stale) = apex_core::run_job_chain(jobs.clone(), |s| {
+                apex_smlib::run(s, 1e-3).ok().map(|r| (r.points, r.tris))
+            });
+            p.apply_kernel_results_chained(results, stale);
         }
         eprintln!("{name}: settled in {rounds} rounds");
     }
@@ -470,14 +466,10 @@ fn external_kernel_edits_settle() {
             if jobs.is_empty() {
                 return;
             }
-            let results = jobs
-                .iter()
-                .map(|j| {
-                    let r = apex_smlib::run(&j.solids, 1e-3).ok();
-                    (j.key, r.map(|r| (r.points, r.tris)))
-                })
-                .collect();
-            p.apply_kernel_results(results);
+            let (results, stale) = apex_core::run_job_chain(jobs.clone(), |s| {
+                apex_smlib::run(s, 1e-3).ok().map(|r| (r.points, r.tris))
+            });
+            p.apply_kernel_results_chained(results, stale);
         }
         panic!("kernel did not settle");
     }
@@ -621,3 +613,4 @@ fn bench_house_edits() {
         eprintln!("BENCH {kernel}: {}", out.join("; "));
     }
 }
+

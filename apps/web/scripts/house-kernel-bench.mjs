@@ -99,7 +99,6 @@ for (const kernel of KERNELS) {
         ms: Object.fromEntries(Object.entries(out).map(([n, a]) => [n, Math.round(med(a))])),
         detail,
         cores: navigator.hardwareConcurrency,
-        klog: globalThis.__klog,
       };
     },
     { k: kernel, house: HOUSE, runs: RUNS },

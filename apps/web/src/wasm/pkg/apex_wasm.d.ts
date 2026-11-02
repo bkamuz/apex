@@ -382,7 +382,7 @@ export function slabShapeInfo(id: string): any;
 
 /**
  * A chained job with dependency `idx` replaced by `points`/`tris`; the
- * result has a fresh key and no deps left at `idx`.
+ * result has a fresh (shape) key and no deps left at `idx`.
  */
 export function spliceKernelJob(job: any, idx: number, points: Float64Array, tris: Int32Array): any;
 

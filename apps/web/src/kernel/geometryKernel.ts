@@ -156,19 +156,34 @@ async function runChain(jobs: KernelJobDto[]): Promise<{ results: KernelResultDt
       stale.push(...wait.map((j) => j.key));
       break;
     }
-    const tl = performance.now();
     const level = await runLevel(ready.map((r) => r.job));
-    ((globalThis as any).__klog ??= []).push(`n=${ready.length} wall=${Math.round(performance.now()-tl)} ms=${Math.round(level.ms)} pts=${ready.reduce((a,r)=>a+r.job.points.length,0)}`);
     ms += level.ms;
-    results.push(...level.results);
     const byKey = new Map(level.results.map((r) => [r.key, r]));
     for (const r of ready) {
       const res = byKey.get(r.job.key) ?? { key: r.job.key };
       done.set(r.orig ?? r.job.key, res);
+      results.push(toShapeFrame(r.job, res));
     }
     todo = wait;
   }
   return { results, stale, ms };
+}
+
+/**
+ * Results are cached per shape (see the core's `to_shape_frame`): move a
+ * model-space result by minus its input's min corner.
+ */
+function toShapeFrame(job: KernelJobDto, r: KernelResultDto): KernelResultDto {
+  if (!r.points) return r;
+  const m = [Infinity, Infinity, Infinity];
+  const p = job.points;
+  for (let i = 0; i < p.length; i += 3) {
+    for (let a = 0; a < 3; a++) if (p[i + a] < m[a]) m[a] = p[i + a];
+  }
+  if (!Number.isFinite(m[0])) return r;
+  const out = Float64Array.from(r.points as ArrayLike<number>);
+  for (let i = 0; i < out.length; i += 3) for (let a = 0; a < 3; a++) out[i + a] -= m[a];
+  return { ...r, points: Array.from(out) };
 }
 
 /** Send queued jobs to the workers. Call after every scene update. */

@@ -2878,7 +2878,7 @@ impl KernelJobDto {
 }
 
 /// A chained job with dependency `idx` replaced by `points`/`tris`; the
-/// result has a fresh key and no deps left at `idx`.
+/// result has a fresh (shape) key and no deps left at `idx`.
 #[wasm_bindgen(js_name = spliceKernelJob)]
 pub fn splice_kernel_job(job: JsValue, idx: usize, points: Vec<f64>, tris: Vec<i32>) -> Result<JsValue, JsValue> {
     let job: KernelJobDto = serde_wasm_bindgen::from_value(job).map_err(|e| err(e.to_string()))?;
@@ -2896,7 +2896,7 @@ pub fn splice_kernel_job(job: JsValue, idx: usize, points: Vec<f64>, tris: Vec<i
         .filter(|(i, _)| *i != idx)
         .filter_map(|(i, k)| Some((i, u64::from_str_radix(&k, 16).ok()?)))
         .collect();
-    to_js(&KernelJobDto::from_solids(out.key(), out, deps))
+    to_js(&KernelJobDto::from_solids(out.shape_key(), out, deps))
 }
 
 /// Queued kernel jobs (removed from the queue).

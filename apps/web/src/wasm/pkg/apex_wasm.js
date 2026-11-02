@@ -1676,7 +1676,7 @@ export function slabShapeInfo(id) {
 
 /**
  * A chained job with dependency `idx` replaced by `points`/`tris`; the
- * result has a fresh key and no deps left at `idx`.
+ * result has a fresh (shape) key and no deps left at `idx`.
  * @param {any} job
  * @param {number} idx
  * @param {Float64Array} points
