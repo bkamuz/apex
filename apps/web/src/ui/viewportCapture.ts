@@ -51,6 +51,8 @@ export function captureViewImage(
     applyViewToRenderer(view, renderer);
     renderer.fitViewExtents();
     requestAnimationFrame(() => {
+      // Render on demand: force a draw in the frame we read back.
+      renderer.invalidate();
       requestAnimationFrame(() => {
         const url = canvas.toDataURL('image/png');
         renderer.dispose();

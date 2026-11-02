@@ -1168,6 +1168,7 @@ export class ViewportRenderer {
     gl.clearColor(28 / 255, 28 / 255, 28 / 255, 1);
 
     this.bindEvents();
+    this.trackChanges();
     // Harness / debug access (Playwright camera checks).
     (this.canvas as HTMLCanvasElement & { __apexRenderer?: ViewportRenderer }).__apexRenderer =
       this;
@@ -2923,8 +2924,60 @@ export class ViewportRenderer {
     gl.enable(gl.DEPTH_TEST);
   }
 
+  /**
+   * Render on demand: a frame is drawn only when something may have
+   * changed: any state-changing method call (every public setter, upload,
+   * camera tween step), input on the canvas, a resize, or a camera matrix
+   * that differs from the last drawn frame (orbit, inertia, animations).
+   * A slow heartbeat redraw covers anything else.
+   */
+  private needsDraw = true;
+  private lastDrawSig = '';
+  private lastDrawAt = 0;
+
+  /** Mark the viewport for a redraw on the next animation frame. */
+  invalidate(): void {
+    this.needsDraw = true;
+  }
+
+  private trackChanges(): void {
+    const readOnly =
+      /^(constructor|draw|get|is|has|pick|project|unproject|screen|world|build|camera|resize|refresh|bind|to[A-Z]|invalidate|trackChanges|query|measure|hit|find|compute)/;
+    const proto = Object.getPrototypeOf(this) as Record<string, unknown>;
+    for (const name of Object.getOwnPropertyNames(proto)) {
+      if (readOnly.test(name)) continue;
+      const desc = Object.getOwnPropertyDescriptor(proto, name);
+      if (!desc || typeof desc.value !== 'function') continue;
+      const fn = desc.value as (...a: unknown[]) => unknown;
+      (this as unknown as Record<string, unknown>)[name] = (...args: unknown[]) => {
+        this.needsDraw = true;
+        return fn.apply(this, args);
+      };
+    }
+    const mark = () => {
+      this.needsDraw = true;
+    };
+    for (const ev of ['pointerdown', 'pointermove', 'pointerup', 'wheel', 'keydown', 'keyup']) {
+      this.canvas.addEventListener(ev, mark, { passive: true });
+    }
+    window.addEventListener('resize', mark);
+  }
+
   private loop = (): void => {
     this.raf = requestAnimationFrame(this.loop);
+    const t = performance.now();
+    const m = this.buildCameraMatrices();
+    const sig = `${this.canvas.width}x${this.canvas.height}|${Array.prototype.join.call(m.viewProj, ',')}`;
+    if (!this.needsDraw && sig === this.lastDrawSig && t - this.lastDrawAt < 1000) {
+      return;
+    }
+    this.needsDraw = false;
+    this.lastDrawSig = sig;
+    this.lastDrawAt = t;
+    this.drawFrame();
+  };
+
+  private drawFrame(): void {
     const now = performance.now();
     if (this.fpsWindowStart === 0) this.fpsWindowStart = now;
     this.fpsFrames += 1;
@@ -3024,7 +3077,7 @@ export class ViewportRenderer {
     this.drawHandles();
     this.drawSnapMarker();
     this.frameMats = null;
-  };
+  }
 }
 
 /** Scale each grid bubble circle (24 segments) to a target world radius. */
