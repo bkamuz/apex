@@ -8,16 +8,18 @@ interface LabelPos {
   left: number;
   top: number;
   kind: 'grid' | 'space';
+  selected?: boolean;
 }
 
 interface Props {
   axes: GridAxisDto[];
   spaces?: SpaceDto[];
   renderer: ViewportRenderer | null;
+  selectedIds?: string[];
 }
 
 /** Screen-space labels for grid bubbles and space centroids. */
-export function GridAxisLabels({ axes, spaces = [], renderer }: Props) {
+export function GridAxisLabels({ axes, spaces = [], renderer, selectedIds = [] }: Props) {
   const [labels, setLabels] = useState<LabelPos[]>([]);
 
   useEffect(() => {
@@ -38,6 +40,7 @@ export function GridAxisLabels({ axes, spaces = [], renderer }: Props) {
             left: screen[0],
             top: screen[1],
             kind: 'grid',
+            selected: selectedIds.includes(axis.id),
           });
         }
       }
@@ -59,7 +62,7 @@ export function GridAxisLabels({ axes, spaces = [], renderer }: Props) {
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [axes, spaces, renderer]);
+  }, [axes, spaces, renderer, selectedIds]);
 
   if (labels.length === 0) return null;
 
@@ -68,7 +71,11 @@ export function GridAxisLabels({ axes, spaces = [], renderer }: Props) {
       {labels.map((label) => (
         <div
           key={label.key}
-          className={label.kind === 'space' ? 'space-label' : 'grid-axis-label'}
+          className={
+            label.kind === 'space'
+              ? 'space-label'
+              : `grid-axis-label${label.selected ? ' is-selected' : ''}`
+          }
           style={{ left: label.left, top: label.top }}
         >
           {label.text}
