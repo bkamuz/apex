@@ -269,7 +269,10 @@ fn tee_junction_preview_slides_along_host() {
         .chunks(3)
         .map(|v| v[2])
         .fold(f32::INFINITY, f32::min);
-    assert!(min_z > 0.05, "stem ghost trimmed at host face, min z {min_z}");
+    assert!(
+        min_z > 0.05,
+        "stem ghost trimmed at host face, min z {min_z}"
+    );
 
     // Move tool: rigid stem translate along the host.
     let (_, junctions) = p
@@ -305,5 +308,8 @@ fn tee_junction_preview_slides_along_host() {
         )
         .unwrap();
     }
-    eprintln!("tee preview: {:.3} ms/move", t0.elapsed().as_secs_f64() * 1000.0 / 200.0);
+    eprintln!(
+        "tee preview: {:.3} ms/move",
+        t0.elapsed().as_secs_f64() * 1000.0 / 200.0
+    );
 }

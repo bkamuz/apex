@@ -1740,11 +1740,7 @@ impl Project {
                 let Some(seg) = pool.get(mover).cloned() else {
                     continue;
                 };
-                let peers: Vec<_> = pool
-                    .values()
-                    .filter(|p| p.id != *mover)
-                    .cloned()
-                    .collect();
+                let peers: Vec<_> = pool.values().filter(|p| p.id != *mover).cloned().collect();
                 for update in plan_joins(&seg, &peers) {
                     let Some(entry) = pool.get_mut(&update.id) else {
                         continue;
@@ -1782,7 +1778,11 @@ impl Project {
             };
             for seg in pool.values() {
                 for at_start in [true, false] {
-                    let tip = if at_start { seg.curve.start() } else { seg.curve.end() };
+                    let tip = if at_start {
+                        seg.curve.start()
+                    } else {
+                        seg.curve.end()
+                    };
                     for host in pool.values() {
                         if host.id == seg.id {
                             continue;
@@ -6031,7 +6031,6 @@ fn tag_normals(mesh: &mut TriangleMesh, tag: f32) {
         n.copy_from_slice(&v.to_array());
     }
 }
-
 
 /// Result of [`Project::preview_path_anchor_edit`].
 #[derive(Debug, Clone)]
