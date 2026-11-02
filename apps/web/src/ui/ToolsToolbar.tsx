@@ -24,6 +24,8 @@ export interface ToolsToolbarProps {
   onActivateTool: (id: string) => void;
   onActivateDrawMode: (id: string) => void;
   onSetProjection: (mode: ProjectionMode) => void;
+  hairline: boolean;
+  onToggleHairline: () => void;
   onSetViewNavigation: (mode: ViewNavigationMode) => void;
   onFitView: () => void;
   /** Extra command group (e.g. Attach Top/Base) shown after Transform. */
@@ -87,6 +89,8 @@ export function ToolsToolbar({
   onActivateTool,
   onActivateDrawMode,
   onSetProjection,
+  hairline,
+  onToggleHairline,
   onSetViewNavigation,
   onFitView,
   extra,
@@ -298,6 +302,19 @@ export function ToolsToolbar({
               title={t('toolbar.perspTitle')}
             >
               {t('toolbar.persp')}
+            </button>
+          </ToolGroup>
+
+          <ToolGroup label={t('toolbar.lines')}>
+            <button
+              type="button"
+              data-testid="toggle-thin-lines"
+              className={hairline ? 'active' : ''}
+              aria-pressed={hairline}
+              onClick={onToggleHairline}
+              title={t('toolbar.thinLinesTitle')}
+            >
+              {t('toolbar.thinLines')}
             </button>
           </ToolGroup>
         </div>

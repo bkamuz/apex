@@ -7,6 +7,7 @@ import {
   sanitizeAabb,
   type Aabb,
 } from './fitView';
+import { PLAN_STYLE, effectiveLineWidthPx, parseHexColor, type Rgba } from './planStyle';
 
 export type Vec3 = [number, number, number];
 
@@ -165,6 +166,7 @@ uniform int uSelectionMode; // 0=all, 1=opaque others, 2=selected only, 3=hover 
 uniform int uPlanMode;
 uniform float uCutY;
 uniform float uCutFade;
+uniform vec4 uCutFill;
 uniform int uMeshLayer;
 uniform int uSlabPickCount;
 uniform float uSlabPicks[32];
@@ -280,6 +282,13 @@ void main(){
     if (abs(vWorld.y - uCutY) < 0.12) {
       base = mix(base, vec3(0.12, 0.13, 0.15), 0.55);
     }
+  }
+  // Plan poche: from above, a solid sliced by the cut plane shows its back
+  // faces through the open cut — fill those with the cut colour.
+  if (uPlanMode != 0 && uGlassPass == 0 && !gl_FrontFacing && !slab
+      && !selected && uSelectionMode != 3 && vWorld.y <= uCutY + 1e-3) {
+    outColor = uCutFill;
+    return;
   }
   vec3 color = base * (ambient * 0.45 + vec3(wrap) * 0.7);
   if (uSelectionMode == 3) {
@@ -462,6 +471,7 @@ type MeshUniforms = {
   uOpacity: WebGLUniformLocation | null;
   uSelectionMode: WebGLUniformLocation | null;
   uPlanMode: WebGLUniformLocation | null;
+  uCutFill: WebGLUniformLocation | null;
   uCutY: WebGLUniformLocation | null;
   uCutFade: WebGLUniformLocation | null;
   uMeshLayer: WebGLUniformLocation | null;
@@ -522,6 +532,7 @@ function meshUniforms(gl: WebGL2RenderingContext, prog: WebGLProgram): MeshUnifo
     uOpacity: gl.getUniformLocation(prog, 'uOpacity'),
     uSelectionMode: gl.getUniformLocation(prog, 'uSelectionMode'),
     uPlanMode: gl.getUniformLocation(prog, 'uPlanMode'),
+    uCutFill: gl.getUniformLocation(prog, 'uCutFill'),
     uCutY: gl.getUniformLocation(prog, 'uCutY'),
     uCutFade: gl.getUniformLocation(prog, 'uCutFade'),
     uMeshLayer: gl.getUniformLocation(prog, 'uMeshLayer'),
@@ -988,6 +999,15 @@ export class ViewportRenderer {
   /** Horizontal plan cut height (world Y); defaults with active level elevation. */
   private planCutY = 0;
   private planCutFade = 0.35;
+  /** Cut poche colour; `--plan-cut-fill` on :root overrides PLAN_STYLE.cutFill. */
+  private planCutFill = new Float32Array(
+    parseHexColor(
+      typeof document !== 'undefined'
+        ? getComputedStyle(document.documentElement).getPropertyValue('--plan-cut-fill')
+        : null,
+    ) ?? PLAN_STYLE.cutFill,
+  );
+  private hairline = false;
   private sceneAabb: Aabb | null = null;
   private slabPickIds: number[] = [];
   private scratchSlabPicks = new Float32Array(32);
@@ -1644,6 +1664,15 @@ export class ViewportRenderer {
     }
     this.includePoints(segments);
     this.refLineCount = this.uploadThickLines(this.refLineBuf, flatten(segments));
+  }
+
+  /** Revit-style Thin Lines: every line renders as one device pixel. */
+  setHairline(on: boolean): void {
+    this.hairline = on;
+  }
+
+  isHairline(): boolean {
+    return this.hairline;
   }
 
   /** Always-visible plan grid axes: extended segment plus end bubbles. */
@@ -2598,6 +2627,7 @@ export class ViewportRenderer {
     gl.uniform1i(u.uPlanMode, this.viewNavigation === 'plan' ? 1 : 0);
     gl.uniform1f(u.uCutY, this.planCutY);
     gl.uniform1f(u.uCutFade, this.planCutFade);
+    gl.uniform4fv(u.uCutFill, this.planCutFill);
     this.uploadSlabPickUniforms(u);
 
     gl.bindVertexArray(this.vao);
@@ -2743,6 +2773,7 @@ export class ViewportRenderer {
     gl.uniform1i(u.uPlanMode, plan ? 1 : 0);
     gl.uniform1f(u.uCutY, this.planCutY);
     gl.uniform1f(u.uCutFade, this.planCutFade);
+    gl.uniform4fv(u.uCutFill, this.planCutFill);
     gl.uniform1i(u.uMeshLayer, 0);
     gl.uniform2f(u.uResolution, this.canvas.width, this.canvas.height);
     gl.uniform1f(u.uOutlinePx, outlinePx);
@@ -2805,6 +2836,7 @@ export class ViewportRenderer {
     gl.uniform1i(u.uPlanMode, this.viewNavigation === 'plan' ? 1 : 0);
     gl.uniform1f(u.uCutY, this.planCutY);
     gl.uniform1f(u.uCutFade, this.planCutFade);
+    gl.uniform4fv(u.uCutFill, this.planCutFill);
     gl.uniform1i(u.uMeshLayer, 0);
     this.uploadSlabPickUniforms(u);
 
@@ -2851,7 +2883,7 @@ export class ViewportRenderer {
     gl.useProgram(this.lineProg);
     gl.uniformMatrix4fv(u.uMVP, false, viewProj);
     gl.uniform2f(u.uResolution, this.canvas.width, this.canvas.height);
-    gl.uniform1f(u.uLineWidthPx, widthPx * dpr);
+    gl.uniform1f(u.uLineWidthPx, effectiveLineWidthPx(widthPx, dpr, this.hairline));
     gl.uniform4f(u.uColor, color[0], color[1], color[2], color[3]);
     gl.uniform1f(u.uDashPeriodPx, dashPeriodPx * dpr);
     gl.uniform1f(u.uDashDot, opts.dashDot ? 1 : 0);
@@ -2876,7 +2908,8 @@ export class ViewportRenderer {
   private drawGridAxes(): void {
     if (this.gridAxisLineCount === 0) return;
     const gl = this.gl;
-    const color: [number, number, number, number] = [0.62, 0.63, 0.65, 0.95];
+    const color: Rgba =
+      this.viewNavigation === 'plan' ? PLAN_STYLE.gridAxis : [0.62, 0.63, 0.65, 0.95];
     this.drawLines(this.gridAxisLineVao, this.gridAxisLineCount, color, 1.25, {
       depthFunc: gl.LEQUAL,
       dashPeriodPx: GRID_AXIS_DASH_PERIOD_PX,
@@ -3066,27 +3099,41 @@ export class ViewportRenderer {
       return;
     }
 
-    // Match --chrome-viewport (#1c1c1c) so the canvas sits in the industrial shell.
-    gl.clearColor(28 / 255, 28 / 255, 28 / 255, 1);
+    const plan = this.viewNavigation === 'plan';
+    if (plan) {
+      // Plan reads as a drawing: paper background (see planStyle.ts).
+      const p = PLAN_STYLE.paper;
+      gl.clearColor(p[0], p[1], p[2], 1);
+    } else {
+      // Match --chrome-viewport (#1c1c1c) so the canvas sits in the industrial shell.
+      gl.clearColor(28 / 255, 28 / 255, 28 / 255, 1);
+    }
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     // Active level grid (semi-transparent) — no separate Y=0 ground grid.
-    // Warm/neutral charcoal on #1c1c1c clear (not cool blue).
-    this.drawLines(this.gridVao, this.gridCount, [0.44, 0.43, 0.40, 0.38], 0.8);
+    this.drawLines(
+      this.gridVao,
+      this.gridCount,
+      plan ? PLAN_STYLE.gridLine : [0.44, 0.43, 0.40, 0.38],
+      0.8,
+    );
     this.drawMeshes(false);
     // Outlines at true depth; solids were polygon-offset back.
-    const plan = this.viewNavigation === 'plan';
-    const edgeWidth = plan ? 3.2 : 2.0;
-    const edgeColor: [number, number, number, number] = plan
-      ? [0.04, 0.05, 0.06, 1]
-      : [0.08, 0.09, 0.1, 1];
+    const edgeWidth = plan ? 2.0 : 2.0;
+    const edgeColor: Rgba = plan ? PLAN_STYLE.edge : [0.08, 0.09, 0.1, 1];
     this.drawLines(this.edgeVao, this.edgeCount, edgeColor, edgeWidth);
     this.drawGhost();
     // Level contours (inactive dim, active brighter) — double-click to activate.
-    this.drawLines(this.contourVao, this.contourCount, [0.5, 0.56, 0.64, 0.45], 2.0, true);
+    this.drawLines(
+      this.contourVao,
+      this.contourCount,
+      plan ? PLAN_STYLE.contour : [0.5, 0.56, 0.64, 0.45],
+      2.0,
+      true,
+    );
     this.drawLines(
       this.activeContourVao,
       this.activeContourCount,
-      [0.72, 0.84, 0.98, 0.8],
+      plan ? PLAN_STYLE.activeContour : [0.72, 0.84, 0.98, 0.8],
       2.4,
       true,
     );
@@ -3105,7 +3152,7 @@ export class ViewportRenderer {
     if (plan) {
       // Plan symbols are 2D drafting on top of the cut: never dash them where
       // they sit "behind" the wall tops (that read as dashed walls).
-      this.drawLines(this.planSymbolVao, this.planSymbolCount, [0.88, 0.9, 0.94, 0.95], 1.8, {
+      this.drawLines(this.planSymbolVao, this.planSymbolCount, PLAN_STYLE.symbol, 1.4, {
         overlay: true,
       });
     }
@@ -3114,7 +3161,7 @@ export class ViewportRenderer {
     this.drawOccludedAxis(this.sectionCutFillVao, this.sectionCutFillCount, [0.95, 0.58, 0.28, 0.45], 1.6);
     // Spaces: teal closed boundary — a plan concept, so not drawn in 3D.
     if (plan) {
-      this.drawLines(this.spaceLineVao, this.spaceLineCount, [0.35, 0.78, 0.88, 0.95], 2.8, {
+      this.drawLines(this.spaceLineVao, this.spaceLineCount, PLAN_STYLE.space, 1.0, {
         overlay: true,
       });
       this.drawLines(this.viewAnnotationLineVao, this.viewAnnotationLineCount, [0.98, 0.82, 0.35, 0.98], 2.6, {

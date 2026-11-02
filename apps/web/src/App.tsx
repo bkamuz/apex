@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createKeySequence, loadHairline, saveHairline } from './viewport/planStyle';
 import {
   apexAbortUndoGroup,
   apexBeginUndoGroup,
@@ -304,6 +305,14 @@ export default function App() {
   const placementToolIdRef = useRef(toolId);
   const [drawMode, setDrawMode] = useState<string | null>(null);
   const [projection, setProjection] = useState<ProjectionMode>('orthographic');
+  const [hairline, setHairline] = useState<boolean>(() =>
+    loadHairline(typeof localStorage !== 'undefined' ? localStorage : undefined),
+  );
+  const thinLinesSeqRef = useRef(createKeySequence('tl'));
+  useEffect(() => {
+    rendererRef.current?.setHairline(hairline);
+    saveHairline(typeof localStorage !== 'undefined' ? localStorage : undefined, hairline);
+  });
   const [viewNavigation, setViewNavigation] = useState<ViewNavigationMode>('3d');
   const viewNavigationRef = useRef<ViewNavigationMode>('3d');
   viewNavigationRef.current = viewNavigation;
@@ -1916,6 +1925,14 @@ export default function App() {
       const typing =
         active instanceof HTMLElement &&
         (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT');
+      // Revit "TL": Thin Lines toggle.
+      if (!typing && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        if (thinLinesSeqRef.current.feed(e.key, performance.now())) {
+          e.preventDefault();
+          setHairline((v) => !v);
+          return;
+        }
+      }
       // A focused dropdown or checkbox (e.g. after editing a property) must not
       // swallow Delete; only real text entry keeps the key for itself.
       const textEntry =
@@ -3260,6 +3277,8 @@ export default function App() {
           onActivateTool={activateTool}
           onActivateDrawMode={activateDrawMode}
           onSetProjection={setProjectionMode}
+          hairline={hairline}
+          onToggleHairline={() => setHairline((v) => !v)}
           onSetViewNavigation={setViewNavigationMode}
           onFitView={fitView}
           extra={attachToolbar}
@@ -3372,6 +3391,7 @@ export default function App() {
                 spaces={activeLevelSpaces}
                 renderer={ready ? rendererRef.current : null}
                 selectedIds={scene?.selected_ids}
+                paper={viewNavigation === 'plan'}
               />
               {/* Main WebGL canvas first so harnesses using querySelector('canvas') stay valid. */}
               <canvas
