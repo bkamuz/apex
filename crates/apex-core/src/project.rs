@@ -2702,6 +2702,20 @@ impl Project {
                 .unwrap_or(0);
             (max + 1).to_string()
         } else {
+            // GOST 21.101: if the project already letters its axes in
+            // Cyrillic, continue in Cyrillic (skipping Ё З Й О Х Ц Ч Щ Ъ Ы Ь).
+            let cyrillic = labels
+                .iter()
+                .any(|l| cyrillic_letter_index(l.trim()).is_some());
+            if cyrillic {
+                let max = labels
+                    .iter()
+                    .filter_map(|l| cyrillic_letter_index(l.trim()))
+                    .max()
+                    .map(|i| i + 1)
+                    .unwrap_or(0);
+                return cyrillic_letter_label(max);
+            }
             let max = labels
                 .iter()
                 .filter_map(|l| letter_index(l.trim()))
@@ -6030,9 +6044,58 @@ fn letter_label(index: u32) -> String {
     out.iter().rev().collect()
 }
 
+/// GOST 21.101 grid-axis alphabet: Cyrillic capitals without
+/// Ё, З, Й, О, Х, Ц, Ч, Щ, Ъ, Ы, Ь.
+const GOST_CYRILLIC: [char; 22] = [
+    'А', 'Б', 'В', 'Г', 'Д', 'Е', 'Ж', 'И', 'К', 'Л', 'М', 'Н', 'П', 'Р', 'С', 'Т', 'У', 'Ф', 'Ш',
+    'Э', 'Ю', 'Я',
+];
+
+/// `А`→0 … `Я`→21, `АА`→22 …; `None` unless every char is in [`GOST_CYRILLIC`].
+fn cyrillic_letter_index(label: &str) -> Option<u32> {
+    if label.is_empty() {
+        return None;
+    }
+    let base = GOST_CYRILLIC.len() as u32;
+    let mut n: u32 = 0;
+    for c in label.chars() {
+        let upper = c.to_uppercase().next()?;
+        let d = GOST_CYRILLIC.iter().position(|&g| g == upper)? as u32;
+        n = n.checked_mul(base)?.checked_add(d + 1)?;
+    }
+    Some(n - 1)
+}
+
+fn cyrillic_letter_label(index: u32) -> String {
+    let base = GOST_CYRILLIC.len() as u32;
+    let mut n = index + 1;
+    let mut out = Vec::new();
+    while n > 0 {
+        out.push(GOST_CYRILLIC[((n - 1) % base) as usize]);
+        n = (n - 1) / base;
+    }
+    out.iter().rev().collect()
+}
+
 #[cfg(test)]
 mod grid_label_tests {
-    use super::{letter_index, letter_label};
+    use super::{cyrillic_letter_index, cyrillic_letter_label, letter_index, letter_label};
+
+    #[test]
+    fn cyrillic_labels_follow_gost() {
+        assert_eq!(cyrillic_letter_label(0), "А");
+        assert_eq!(cyrillic_letter_label(6), "Ж");
+        assert_eq!(cyrillic_letter_label(7), "И");
+        assert_eq!(cyrillic_letter_label(21), "Я");
+        assert_eq!(cyrillic_letter_label(22), "АА");
+        assert_eq!(cyrillic_letter_index("З"), None);
+        assert_eq!(cyrillic_letter_index("A"), None);
+        for i in 0..200 {
+            let l = cyrillic_letter_label(i);
+            assert!(!l.chars().any(|c| "ЁЗЙОХЦЧЩЪЫЬ".contains(c)));
+            assert_eq!(cyrillic_letter_index(&l), Some(i));
+        }
+    }
 
     #[test]
     fn letter_labels_round_trip() {

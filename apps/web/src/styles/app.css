@@ -1199,19 +1199,29 @@ input[type="radio"] {
 }
 
 .grid-axis-label {
+  /* GOST 21.101 / Revit grid head: thin grey ring, background fill, upright label. */
   position: fixed;
   transform: translate(-50%, -50%);
-  min-width: 1.4rem;
-  min-height: 1.4rem;
-  padding: 0.1rem 0.35rem;
-  border-radius: 999px;
-  border: 1.5px solid rgba(235, 140, 200, 0.95);
-  background: rgba(18, 20, 26, 0.82);
-  color: #f4d9ef;
-  font-size: 0.72rem;
-  font-weight: 600;
+  box-sizing: border-box;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 5px;
+  border-radius: 12px;
+  border: 1px solid var(--grid-axis-stroke, #9ea1a6);
+  background: var(--grid-axis-fill, var(--chrome-viewport));
+  color: var(--grid-axis-text, var(--chrome-text));
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 22px;
   text-align: center;
-  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.grid-axis-label.is-selected {
+  border-color: var(--chrome-active-border);
+  box-shadow: 0 0 0 2px var(--chrome-active-soft);
+  color: var(--chrome-active-text);
 }
 
 .space-label {

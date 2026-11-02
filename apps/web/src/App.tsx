@@ -3162,7 +3162,7 @@ export default function App() {
         ? t('chrome.typedLength', { length: typedLength })
         : t('chrome.typeLengthHint')
       : ''
-  }${snapStatus ? t('chrome.elementSnap', { kind: snapStatus }) : ''}`;
+  }${snapStatus ? t('chrome.elementSnap', { kind: t(`snap.kind.${snapStatus}`, undefined, snapStatus) }) : ''}`;
 
   return (
     <div className={`app${onboarding ? ' app--onboarding' : ''}`}>
@@ -3371,6 +3371,7 @@ export default function App() {
                 axes={scene?.grid_axes ?? []}
                 spaces={activeLevelSpaces}
                 renderer={ready ? rendererRef.current : null}
+                selectedIds={scene?.selected_ids}
               />
               {/* Main WebGL canvas first so harnesses using querySelector('canvas') stay valid. */}
               <canvas
