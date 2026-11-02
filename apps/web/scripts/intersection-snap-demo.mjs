@@ -12,10 +12,11 @@ mkdirSync(OUT, { recursive: true });
 
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
-await page.addInitScript(() => {
+await page.addInitScript((LOCALE) => {
   localStorage.clear();
   localStorage.setItem('apex.gettingStarted.dismissed', '1');
-});
+  if (LOCALE) localStorage.setItem('apex.locale', LOCALE);
+}, process.env.LOCALE ?? '');
 await page.goto(BASE, { waitUntil: 'networkidle' });
 await page.waitForFunction(() => window.__apexTest?.loadSampleProject);
 await page.evaluate(() => window.__apexTest.loadSampleProject());
@@ -57,7 +58,7 @@ for (const view of ['plan', '3d']) {
     );
     await page.waitForTimeout(400);
   }
-  await useTool('Wall');
+  await useTool(process.env.WALL_TOOL ?? 'Wall');
   const c = await page.evaluate((p) => window.__apexTest.worldToClient(p), X.p);
   // Cursor 6 px right, 7 px down of the crossing: near both axes.
   await page.mouse.move(c[0] + 6, c[1] + 7);
