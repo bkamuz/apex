@@ -232,6 +232,9 @@ function pointerInfo(e: React.PointerEvent | React.MouseEvent): PointerInfo {
   };
 }
 
+/** Shared-snap timing, read by benches through `__apexTest.snapStats`. */
+const snapStats = { calls: 0, ms: 0, maxMs: 0 };
+
 export default function App() {
   const { t } = useI18n();
   const projectRestoreDoneRef = useRef(false);
@@ -719,6 +722,7 @@ export default function App() {
         }
       })();
       let elementHit: ReturnType<typeof findElementSnap> = null;
+      const snapT0 = performance.now();
       try {
         const geometry = apexElementSnapGeometry(exclude);
         elementHit = findElementSnap(
@@ -731,6 +735,10 @@ export default function App() {
       } catch {
         elementHit = null;
       }
+      const snapMs = performance.now() - snapT0;
+      snapStats.calls += 1;
+      snapStats.ms += snapMs;
+      if (snapMs > snapStats.maxMs) snapStats.maxMs = snapMs;
 
       if (elementHit) {
         const point: Vec3 = [elementHit.point[0], planeY, elementHit.point[2]];
@@ -2151,12 +2159,20 @@ export default function App() {
             setKernelEpoch((n) => n + 1);
           },
           kernelStats: () => ({ ...kernelStats, kernel: currentKernel() }),
+          /** Cumulative shared-snap cost (resolvePoint element snap) for benches. */
+          snapStats: () => ({ ...snapStats }),
+          resetSnapStats: () => {
+            snapStats.calls = 0;
+            snapStats.ms = 0;
+            snapStats.maxMs = 0;
+          },
           /** Core calls for scripts that run against a production build. */
           api: {
             importProject: apexImportProject,
             listElements: apexListElements,
             runQuery: apexRunQuery,
             kernelStatus: apexKernelStatus,
+            elementSnapGeometry: apexElementSnapGeometry,
           },
           /** Run a project command the way the UI does (scene + kernel pump). */
           command: (cmd: Record<string, unknown>) => applyScene(apexCommandScene(cmd)),
