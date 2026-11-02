@@ -2,10 +2,14 @@
 
 export const VIEW_CUBE_PITCH_LIMIT = Math.PI / 2 - 0.01;
 
-export type ViewCubeFace = 'front' | 'back' | 'left' | 'right' | 'top' | 'bottom';
+export type ViewCubeFace =
+  "front" | "back" | "left" | "right" | "top" | "bottom";
 
 /** Unit direction from look-at toward the eye for each labeled face. */
-export const FACE_EYE_DIR: Record<ViewCubeFace, readonly [number, number, number]> = {
+export const FACE_EYE_DIR: Record<
+  ViewCubeFace,
+  readonly [number, number, number]
+> = {
   front: [0, 0, 1],
   back: [0, 0, -1],
   right: [1, 0, 0],
@@ -20,28 +24,31 @@ export const FACE_EYE_DIR: Record<ViewCubeFace, readonly [number, number, number
  * (catalog not wired here until i18n lands on main).
  */
 export const FACE_LABEL: Record<ViewCubeFace, string> = {
-  front: 'FRONT',
-  back: 'BACK',
-  right: 'RIGHT',
-  left: 'LEFT',
-  top: 'TOP',
-  bottom: 'BOTTOM',
+  front: "FRONT",
+  back: "BACK",
+  right: "RIGHT",
+  left: "LEFT",
+  top: "TOP",
+  bottom: "BOTTOM",
 };
 
 /** Stable message keys for future `t('viewCube.*')` wiring. */
 export const FACE_LABEL_KEY: Record<ViewCubeFace, string> = {
-  front: 'viewCube.front',
-  back: 'viewCube.back',
-  right: 'viewCube.right',
-  left: 'viewCube.left',
-  top: 'viewCube.top',
-  bottom: 'viewCube.bottom',
+  front: "viewCube.front",
+  back: "viewCube.back",
+  right: "viewCube.right",
+  left: "viewCube.left",
+  top: "viewCube.top",
+  bottom: "viewCube.bottom",
 };
 
 export type ViewCubeHit =
-  | { kind: 'face'; face: ViewCubeFace }
-  | { kind: 'edge'; faces: readonly [ViewCubeFace, ViewCubeFace] }
-  | { kind: 'corner'; faces: readonly [ViewCubeFace, ViewCubeFace, ViewCubeFace] };
+  | { kind: "face"; face: ViewCubeFace }
+  | { kind: "edge"; faces: readonly [ViewCubeFace, ViewCubeFace] }
+  | {
+      kind: "corner";
+      faces: readonly [ViewCubeFace, ViewCubeFace, ViewCubeFace];
+    };
 
 export interface YawPitch {
   yaw: number;
@@ -49,12 +56,19 @@ export interface YawPitch {
 }
 
 /** Eye offset direction matching ViewportRenderer.eyePosition. */
-export function eyeDirFromYawPitch(yaw: number, pitch: number): [number, number, number] {
+export function eyeDirFromYawPitch(
+  yaw: number,
+  pitch: number,
+): [number, number, number] {
   const cp = Math.cos(pitch);
   return [Math.sin(yaw) * cp, Math.sin(pitch), Math.cos(yaw) * cp];
 }
 
-export function yawPitchFromEyeDir(dx: number, dy: number, dz: number): YawPitch {
+export function yawPitchFromEyeDir(
+  dx: number,
+  dy: number,
+  dz: number,
+): YawPitch {
   const len = Math.hypot(dx, dy, dz) || 1;
   const x = dx / len;
   const y = dy / len;
@@ -67,9 +81,7 @@ export function yawPitchFromEyeDir(dx: number, dy: number, dz: number): YawPitch
   return { yaw, pitch };
 }
 
-function addDirs(
-  faces: readonly ViewCubeFace[],
-): [number, number, number] {
+function addDirs(faces: readonly ViewCubeFace[]): [number, number, number] {
   let x = 0;
   let y = 0;
   let z = 0;
@@ -83,12 +95,15 @@ function addDirs(
 }
 
 /** Target yaw/pitch for a cube hit. Top/bottom faces keep the current yaw. */
-export function orientationForHit(hit: ViewCubeHit, currentYaw: number): YawPitch {
-  if (hit.kind === 'face') {
-    if (hit.face === 'top') {
+export function orientationForHit(
+  hit: ViewCubeHit,
+  currentYaw: number,
+): YawPitch {
+  if (hit.kind === "face") {
+    if (hit.face === "top") {
       return { yaw: currentYaw, pitch: VIEW_CUBE_PITCH_LIMIT };
     }
-    if (hit.face === 'bottom') {
+    if (hit.face === "bottom") {
       return { yaw: currentYaw, pitch: -VIEW_CUBE_PITCH_LIMIT };
     }
     return yawPitchFromEyeDir(...FACE_EYE_DIR[hit.face]);
@@ -128,7 +143,10 @@ const VERTICES: readonly (readonly [number, number, number])[] = [
 ];
 
 /** Face → vertex indices (CCW when viewed from outside). */
-const FACE_VERTS: Record<ViewCubeFace, readonly [number, number, number, number]> = {
+const FACE_VERTS: Record<
+  ViewCubeFace,
+  readonly [number, number, number, number]
+> = {
   front: [4, 5, 6, 7], // +Z
   back: [1, 0, 3, 2], // -Z
   right: [5, 1, 2, 6], // +X
@@ -138,12 +156,12 @@ const FACE_VERTS: Record<ViewCubeFace, readonly [number, number, number, number]
 };
 
 const ALL_FACES: readonly ViewCubeFace[] = [
-  'front',
-  'back',
-  'left',
-  'right',
-  'top',
-  'bottom',
+  "front",
+  "back",
+  "left",
+  "right",
+  "top",
+  "bottom",
 ];
 
 export interface ProjectedCube {
@@ -159,6 +177,18 @@ export interface ProjectedCube {
 }
 
 /**
+ * Ortho half-extent of the cube camera (world units). The unit cube's bounding
+ * sphere has radius √3 ≈ 1.73; 1.95 leaves ~12% margin so no orientation
+ * (corner-on, edge-on, hover) clips. Shared by GL drawing and picking.
+ */
+export const VIEW_CUBE_ORTHO_HALF = 1.95;
+
+/** Pixels per world unit for a square cube widget of `size` CSS px. */
+export function viewCubePixelScale(size: number): number {
+  return (size * 0.5) / VIEW_CUBE_ORTHO_HALF;
+}
+
+/**
  * Project the unit cube for the current camera yaw/pitch into a square canvas.
  * Matches `rotateX(+pitch) rotateY(-yaw)` then perspective so a positive
  * camera pitch (eye above target) shows the TOP face toward the viewer.
@@ -167,10 +197,11 @@ export function projectViewCube(
   yaw: number,
   pitch: number,
   size: number,
-  perspective = 4.5,
+  perspective = Infinity,
 ): ProjectedCube {
   const half = size * 0.5;
-  const scale = size * 0.28;
+  // Same ortho scale as ViewCubeGl so hit areas match the drawn cube.
+  const scale = viewCubePixelScale(size);
   const cy = Math.cos(-yaw);
   const sy = Math.sin(-yaw);
   const cp = Math.cos(pitch);
@@ -186,7 +217,9 @@ export function projectViewCube(
     const y2 = y1 * cp - z1 * sp;
     const z2 = y1 * sp + z1 * cp;
     // perspective along +Z toward viewer (camera at +Z looking −Z in this local space)
-    const w = perspective / (perspective - z2);
+    const w = Number.isFinite(perspective)
+      ? perspective / (perspective - z2)
+      : 1;
     return {
       x: half + x2 * scale * w,
       y: half - y2 * scale * w,
@@ -197,7 +230,10 @@ export function projectViewCube(
   const faces = ALL_FACES.map((face) => {
     const indices = FACE_VERTS[face];
     const depth =
-      (verts[indices[0]].z + verts[indices[1]].z + verts[indices[2]].z + verts[indices[3]].z) /
+      (verts[indices[0]].z +
+        verts[indices[1]].z +
+        verts[indices[2]].z +
+        verts[indices[3]].z) /
       4;
     // Facing: outward normal · view (+Z after rotation ≈ camera looks −Z at cube)
     const n = FACE_EYE_DIR[face];
@@ -247,7 +283,7 @@ function pointInTri(
 function pointInQuad(
   px: number,
   py: number,
-  verts: ProjectedCube['verts'],
+  verts: ProjectedCube["verts"],
   indices: readonly [number, number, number, number],
 ): boolean {
   const a = verts[indices[0]];
@@ -279,14 +315,14 @@ function distToSegment2(
 }
 
 const CORNER_FACE_SETS: readonly (readonly ViewCubeFace[])[] = [
-  ['left', 'bottom', 'back'], // 0
-  ['right', 'bottom', 'back'], // 1
-  ['right', 'top', 'back'], // 2
-  ['left', 'top', 'back'], // 3
-  ['left', 'bottom', 'front'], // 4
-  ['right', 'bottom', 'front'], // 5
-  ['right', 'top', 'front'], // 6
-  ['left', 'top', 'front'], // 7
+  ["left", "bottom", "back"], // 0
+  ["right", "bottom", "back"], // 1
+  ["right", "top", "back"], // 2
+  ["left", "top", "back"], // 3
+  ["left", "bottom", "front"], // 4
+  ["right", "bottom", "front"], // 5
+  ["right", "top", "front"], // 6
+  ["left", "top", "front"], // 7
 ];
 
 const EDGE_DEFS: readonly {
@@ -294,18 +330,18 @@ const EDGE_DEFS: readonly {
   b: number;
   faces: readonly [ViewCubeFace, ViewCubeFace];
 }[] = [
-  { a: 0, b: 1, faces: ['bottom', 'back'] },
-  { a: 1, b: 2, faces: ['right', 'back'] },
-  { a: 2, b: 3, faces: ['top', 'back'] },
-  { a: 3, b: 0, faces: ['left', 'back'] },
-  { a: 4, b: 5, faces: ['bottom', 'front'] },
-  { a: 5, b: 6, faces: ['right', 'front'] },
-  { a: 6, b: 7, faces: ['top', 'front'] },
-  { a: 7, b: 4, faces: ['left', 'front'] },
-  { a: 0, b: 4, faces: ['left', 'bottom'] },
-  { a: 1, b: 5, faces: ['right', 'bottom'] },
-  { a: 2, b: 6, faces: ['right', 'top'] },
-  { a: 3, b: 7, faces: ['left', 'top'] },
+  { a: 0, b: 1, faces: ["bottom", "back"] },
+  { a: 1, b: 2, faces: ["right", "back"] },
+  { a: 2, b: 3, faces: ["top", "back"] },
+  { a: 3, b: 0, faces: ["left", "back"] },
+  { a: 4, b: 5, faces: ["bottom", "front"] },
+  { a: 5, b: 6, faces: ["right", "front"] },
+  { a: 6, b: 7, faces: ["top", "front"] },
+  { a: 7, b: 4, faces: ["left", "front"] },
+  { a: 0, b: 4, faces: ["left", "bottom"] },
+  { a: 1, b: 5, faces: ["right", "bottom"] },
+  { a: 2, b: 6, faces: ["right", "top"] },
+  { a: 3, b: 7, faces: ["left", "top"] },
 ];
 
 /**
@@ -332,7 +368,7 @@ export function pickViewCube(
   }
   if (bestCorner >= 0) {
     const set = CORNER_FACE_SETS[bestCorner];
-    return { kind: 'corner', faces: [set[0], set[1], set[2]] };
+    return { kind: "corner", faces: [set[0], set[1], set[2]] };
   }
 
   const er2 = edgeRadius * edgeRadius;
@@ -351,7 +387,7 @@ export function pickViewCube(
     }
   }
   if (bestEdge >= 0) {
-    return { kind: 'edge', faces: EDGE_DEFS[bestEdge].faces };
+    return { kind: "edge", faces: EDGE_DEFS[bestEdge].faces };
   }
 
   // Front-most face under cursor (iterate painter order reversed)
@@ -359,7 +395,7 @@ export function pickViewCube(
     const f = faces[i];
     if (f.facing <= 0.02) continue;
     if (pointInQuad(x, y, verts, f.indices)) {
-      return { kind: 'face', face: f.face };
+      return { kind: "face", face: f.face };
     }
   }
   return null;

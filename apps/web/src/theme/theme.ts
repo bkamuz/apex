@@ -89,6 +89,61 @@ export const VIEWPORT_THEMES: Record<ResolvedTheme, ViewportTheme> = {
 
 type Listener = (resolved: ResolvedTheme, pref: ThemePreference) => void;
 
+/** View cube palette (faces, edges, labels, accent hover). */
+export interface ViewCubeTheme {
+  faces: {
+    front: string;
+    back: string;
+    right: string;
+    left: string;
+    top: string;
+    bottom: string;
+  };
+  edge: string;
+  label: string;
+  labelHalo: string;
+  hoverFill: string;
+  hoverEdge: string;
+  hoverLabel: string;
+}
+
+const CUBE_ACCENT = "#5a7d4e";
+
+export const VIEW_CUBE_THEMES: Record<ResolvedTheme, ViewCubeTheme> = {
+  dark: {
+    faces: {
+      front: "#5e5e5b",
+      back: "#4b4b49",
+      right: "#545452",
+      left: "#545452",
+      top: "#666662",
+      bottom: "#424240",
+    },
+    edge: "#1a1a1a",
+    label: "#f2f2f2",
+    labelHalo: "rgba(12,12,12,0.9)",
+    hoverFill: CUBE_ACCENT,
+    hoverEdge: "#6f9460",
+    hoverLabel: "#f4f8f2",
+  },
+  light: {
+    faces: {
+      front: "#f4f4f2",
+      back: "#e2e2df",
+      right: "#ebebe8",
+      left: "#ebebe8",
+      top: "#fbfbfa",
+      bottom: "#d9d9d6",
+    },
+    edge: "#8e8e89",
+    label: "#2b2b29",
+    labelHalo: "rgba(255,255,255,0.85)",
+    hoverFill: CUBE_ACCENT,
+    hoverEdge: "#46653c",
+    hoverLabel: "#ffffff",
+  },
+};
+
 export interface ThemeEnv {
   storage?: Pick<Storage, "getItem" | "setItem">;
   /** Optional media query for `(prefers-color-scheme: dark)`. */

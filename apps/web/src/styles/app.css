@@ -1790,26 +1790,26 @@ input[type="radio"] {
 /* CAD view cube — WebGL textured faces; chrome plate behind the canvas. */
 .view-cube {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: 10px;
+  right: 14px;
   z-index: 6;
-  width: 112px;
-  height: 112px;
-  border-radius: var(--chrome-radius);
+  width: 128px;
+  height: 128px;
   box-shadow: none;
   pointer-events: auto;
   touch-action: none;
   user-select: none;
   -webkit-user-select: none;
   cursor: pointer;
-  background: var(--chrome-overlay-strong);
-  border: 1px solid var(--chrome-border);
+  /* Floats directly over the viewport (Revit/Fusion style) — no panel chrome. */
+  background: transparent;
+  border: 0;
 }
 
 .view-cube canvas {
   display: block;
-  width: 112px;
-  height: 112px;
+  width: 128px;
+  height: 128px;
   touch-action: none;
 }
 
@@ -2013,15 +2013,15 @@ input[type="radio"] {
   }
 
   .view-cube {
-    top: 8px;
+    top: 6px;
     right: 8px;
-    width: 84px;
-    height: 84px;
+    width: 96px;
+    height: 96px;
   }
 
   .view-cube canvas {
-    width: 84px;
-    height: 84px;
+    width: 96px;
+    height: 96px;
   }
 
   .mobile-menu-fab {
