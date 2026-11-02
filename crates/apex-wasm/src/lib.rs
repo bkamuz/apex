@@ -947,8 +947,23 @@ fn parse_paper_orientation(name: &str) -> Result<PaperOrientation, JsValue> {
     }
 }
 
+/// The scene as a JS object; the big buffers go across as typed arrays
+/// (one memcpy each) instead of serde building JS arrays number by number.
 fn scene(project: &Project) -> Result<JsValue, JsValue> {
-    to_js(&scene_dto(project))
+    let mut dto = scene_dto(project);
+    let positions = std::mem::take(&mut dto.positions);
+    let normals = std::mem::take(&mut dto.normals);
+    let indices = std::mem::take(&mut dto.indices);
+    let pick_ids = std::mem::take(&mut dto.pick_ids);
+    let edges = std::mem::take(&mut dto.edge_positions);
+    let obj = to_js(&dto)?;
+    let set = |k: &str, v: JsValue| js_sys::Reflect::set(&obj, &JsValue::from_str(k), &v).map(|_| ());
+    set("positions", js_sys::Float32Array::from(&positions[..]).into())?;
+    set("normals", js_sys::Float32Array::from(&normals[..]).into())?;
+    set("indices", js_sys::Uint32Array::from(&indices[..]).into())?;
+    set("pick_ids", js_sys::Float64Array::from(&pick_ids[..]).into())?;
+    set("edge_positions", js_sys::Float32Array::from(&edges[..]).into())?;
+    Ok(obj)
 }
 
 fn points_from_json(json: &str) -> Result<Vec<Vec3>, JsValue> {
@@ -2830,7 +2845,7 @@ pub fn set_geometry_kernel(name: &str) -> Result<JsValue, JsValue> {
     })
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct KernelJobDto {
     /// Hex, since u64 does not fit a JS number.
@@ -2839,6 +2854,49 @@ struct KernelJobDto {
     ints: Vec<i32>,
     ops: Vec<i32>,
     solids: usize,
+    /// Points per solid (for splicing).
+    #[serde(default)]
+    counts: Vec<usize>,
+    /// `[solid index, job key]`: that operand stands in for another job of
+    /// the batch; splice its result in ([`splice_kernel_job`]) before running.
+    #[serde(default)]
+    deps: Vec<(usize, String)>,
+}
+
+impl KernelJobDto {
+    fn from_solids(key: u64, s: apex_geometry::PlanarSolids, deps: Vec<(usize, u64)>) -> Self {
+        KernelJobDto {
+            key: format!("{key:016x}"),
+            points: s.points,
+            ints: s.ints,
+            ops: s.ops,
+            solids: s.solids,
+            counts: s.counts,
+            deps: deps.into_iter().map(|(i, k)| (i, format!("{k:016x}"))).collect(),
+        }
+    }
+}
+
+/// A chained job with dependency `idx` replaced by `points`/`tris`; the
+/// result has a fresh key and no deps left at `idx`.
+#[wasm_bindgen(js_name = spliceKernelJob)]
+pub fn splice_kernel_job(job: JsValue, idx: usize, points: Vec<f64>, tris: Vec<i32>) -> Result<JsValue, JsValue> {
+    let job: KernelJobDto = serde_wasm_bindgen::from_value(job).map_err(|e| err(e.to_string()))?;
+    let s = apex_geometry::PlanarSolids {
+        points: job.points,
+        ints: job.ints,
+        ops: job.ops,
+        solids: job.solids,
+        counts: job.counts,
+    };
+    let out = s.splice_indexed(idx, &points, &tris).map_err(|e| err(e.to_string()))?;
+    let deps = job
+        .deps
+        .into_iter()
+        .filter(|(i, _)| *i != idx)
+        .filter_map(|(i, k)| Some((i, u64::from_str_radix(&k, 16).ok()?)))
+        .collect();
+    to_js(&KernelJobDto::from_solids(out.key(), out, deps))
 }
 
 /// Queued kernel jobs (removed from the queue).
@@ -2848,13 +2906,7 @@ pub fn take_kernel_jobs() -> Result<JsValue, JsValue> {
         let jobs: Vec<KernelJobDto> = project
             .take_kernel_jobs()
             .into_iter()
-            .map(|j| KernelJobDto {
-                key: format!("{:016x}", j.key),
-                points: j.solids.points,
-                ints: j.solids.ints,
-                ops: j.solids.ops,
-                solids: j.solids.solids,
-            })
+            .map(|j| KernelJobDto::from_solids(j.key, j.solids, j.deps))
             .collect();
         to_js(&jobs)
     })
@@ -2872,7 +2924,12 @@ struct KernelResultDto {
 /// Results from the worker: `[{ key, points?, tris? }]` (no points = failed).
 /// Returns the updated scene.
 #[wasm_bindgen(js_name = applyKernelResults)]
-pub fn apply_kernel_results(results: JsValue) -> Result<JsValue, JsValue> {
+pub fn apply_kernel_results(results: JsValue, stale: Option<Vec<String>>) -> Result<JsValue, JsValue> {
+    let stale: Vec<u64> = stale
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|k| u64::from_str_radix(k, 16).ok())
+        .collect();
     let results: Vec<KernelResultDto> =
         serde_wasm_bindgen::from_value(results).map_err(|e| err(e.to_string()))?;
     let parsed = results
@@ -2883,7 +2940,7 @@ pub fn apply_kernel_results(results: JsValue) -> Result<JsValue, JsValue> {
         })
         .collect();
     with_project(|project| {
-        project.apply_kernel_results(parsed);
+        project.apply_kernel_results_chained(parsed, stale);
         scene(project)
     })
 }

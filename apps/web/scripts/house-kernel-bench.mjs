@@ -16,6 +16,14 @@ for (const kernel of KERNELS) {
   const page = await browser.newPage();
   page.on('console', (m) => m.type() === 'error' && console.log(`[${kernel}] console:`, m.text()));
   await page.addInitScript(() => localStorage.clear());
+  // SLOWRAF=1: draw at most every 500 ms. Headless Chromium renders with
+  // SwiftShader (~100 ms a frame for the house), which would otherwise hold
+  // up every worker reply; a real GPU draws the frame in a few ms.
+  if (process.env.SLOWRAF) {
+    await page.addInitScript(() => {
+      window.requestAnimationFrame = (f) => setTimeout(() => f(performance.now()), 500);
+    });
+  }
   await page.goto(`${BASE}?kernel=mesh`, { waitUntil: 'networkidle' });
   await page.waitForFunction(() => window.__apexTest?.setKernel);
   // PROFILE=out.cpuprofile records a main-thread CPU profile of the run.
@@ -57,6 +65,7 @@ for (const kernel of KERNELS) {
           takeMs: Math.round(s1.takeMs - s0.takeMs),
           workerMs: Math.round(s1.workerMs - s0.workerMs),
           sinkMs: Math.round(s1.sinkMs - s0.sinkMs),
+          wallMs: Math.round((s1.wallMs ?? 0) - (s0.wallMs ?? 0)),
         };
         return ms;
       };
@@ -90,6 +99,7 @@ for (const kernel of KERNELS) {
         ms: Object.fromEntries(Object.entries(out).map(([n, a]) => [n, Math.round(med(a))])),
         detail,
         cores: navigator.hardwareConcurrency,
+        klog: globalThis.__klog,
       };
     },
     { k: kernel, house: HOUSE, runs: RUNS },

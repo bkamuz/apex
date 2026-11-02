@@ -10,7 +10,7 @@ export function abortUndoGroup(): void;
  * Results from the worker: `[{ key, points?, tris? }]` (no points = failed).
  * Returns the updated scene.
  */
-export function applyKernelResults(results: any): any;
+export function applyKernelResults(results: any, stale?: string[] | null): any;
 
 /**
  * Open a coalesced undo group (e.g. at the start of an anchor drag).
@@ -381,6 +381,12 @@ export function setSpacePlacement(id: string, points_json: string, rotation: num
 export function slabShapeInfo(id: string): any;
 
 /**
+ * A chained job with dependency `idx` replaced by `points`/`tris`; the
+ * result has a fresh key and no deps left at `idx`.
+ */
+export function spliceKernelJob(job: any, idx: number, points: Float64Array, tris: Int32Array): any;
+
+/**
  * Queued kernel jobs (removed from the queue).
  */
 export function takeKernelJobs(): any;
@@ -427,7 +433,7 @@ export type InitInput = RequestInfo | URL | Response | BufferSource | WebAssembl
 export interface InitOutput {
     readonly memory: WebAssembly.Memory;
     readonly abortUndoGroup: () => [number, number];
-    readonly applyKernelResults: (a: any) => [number, number, number];
+    readonly applyKernelResults: (a: any, b: number, c: number) => [number, number, number];
     readonly beginUndoGroup: () => [number, number];
     readonly canRedo: () => [number, number, number];
     readonly canUndo: () => [number, number, number];
@@ -526,6 +532,7 @@ export interface InitOutput {
     readonly setSlabShape: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly setSpacePlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly slabShapeInfo: (a: number, b: number) => [number, number, number];
+    readonly spliceKernelJob: (a: any, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly takeKernelJobs: () => [number, number, number];
     readonly togglePickById: (a: number) => [number, number, number];
     readonly toggleSelectElement: (a: number, b: number) => [number, number, number];
