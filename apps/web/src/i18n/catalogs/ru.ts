@@ -37,6 +37,12 @@ export const ru: MessageCatalog = {
   'chrome.typedLength': ' — длина {length} м (Enter)',
   'chrome.typeLengthHint': ' — введите длину, Shift — привязка к сетке',
   'chrome.elementSnap': ' · привязка: {kind}',
+  'snap.kind.end': 'конечная точка',
+  'snap.kind.mid': 'середина',
+  'snap.kind.vertex': 'вершина',
+  'snap.kind.point': 'точка',
+  'snap.kind.edge': 'на линии',
+  'snap.kind.intersection': 'пересечение',
   'chrome.newProjectConfirm':
     'Создать пустой проект? Несохранённые изменения в этом документе будут сброшены.',
   'chrome.sampleLoaded': 'Загружен образец дома',
