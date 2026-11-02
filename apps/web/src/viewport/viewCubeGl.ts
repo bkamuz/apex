@@ -3,22 +3,23 @@
  * Labels are baked axis-aligned into face textures (true face UV) so baselines
  * stay parallel to each face's width edges under any camera.
  */
-import { FACE_LABEL, type ViewCubeFace } from './viewCube';
+import { VIEW_CUBE_THEMES, type ViewCubeTheme } from "../theme/theme";
+import {
+  FACE_LABEL,
+  VIEW_CUBE_ORTHO_HALF,
+  type ViewCubeFace,
+} from "./viewCube";
 
 const FACE_TEX = 256;
 
-const FACE_FILL: Record<ViewCubeFace, string> = {
-  front: '#636360',
-  back: '#4e4e4c',
-  right: '#585856',
-  left: '#585856',
-  top: '#6a6a66',
-  bottom: '#454543',
-};
-
-const FACE_FILL_HOVER = '#5a7d4e';
-
-const FACES: readonly ViewCubeFace[] = ['front', 'back', 'right', 'left', 'top', 'bottom'];
+const FACES: readonly ViewCubeFace[] = [
+  "front",
+  "back",
+  "right",
+  "left",
+  "top",
+  "bottom",
+];
 
 /** Two triangles from BL,BR,TR,TL (each corner [x,y,z]). UV: (0,0)=BL … (1,1)=TR. */
 function quad(
@@ -29,8 +30,36 @@ function quad(
 ): Float32Array {
   // v=0 at face bottom; canvas upload uses UNPACK_FLIP_Y so glyph tops → high V.
   return new Float32Array([
-    bl[0], bl[1], bl[2], 0, 0, br[0], br[1], br[2], 1, 0, tr[0], tr[1], tr[2], 1, 1,
-    bl[0], bl[1], bl[2], 0, 0, tr[0], tr[1], tr[2], 1, 1, tl[0], tl[1], tl[2], 0, 1,
+    bl[0],
+    bl[1],
+    bl[2],
+    0,
+    0,
+    br[0],
+    br[1],
+    br[2],
+    1,
+    0,
+    tr[0],
+    tr[1],
+    tr[2],
+    1,
+    1,
+    bl[0],
+    bl[1],
+    bl[2],
+    0,
+    0,
+    tr[0],
+    tr[1],
+    tr[2],
+    1,
+    1,
+    tl[0],
+    tl[1],
+    tl[2],
+    0,
+    1,
   ]);
 }
 
@@ -40,17 +69,17 @@ function quad(
  */
 function faceMesh(face: ViewCubeFace): Float32Array {
   switch (face) {
-    case 'front': // +Z — width +X, height +Y
+    case "front": // +Z — width +X, height +Y
       return quad([-1, -1, 1], [1, -1, 1], [1, 1, 1], [-1, 1, 1]);
-    case 'back': // -Z — width −X (outside left→right), height +Y
+    case "back": // -Z — width −X (outside left→right), height +Y
       return quad([1, -1, -1], [-1, -1, -1], [-1, 1, -1], [1, 1, -1]);
-    case 'right': // +X — width −Z, height +Y
+    case "right": // +X — width −Z, height +Y
       return quad([1, -1, 1], [1, -1, -1], [1, 1, -1], [1, 1, 1]);
-    case 'left': // -X — width +Z, height +Y
+    case "left": // -X — width +Z, height +Y
       return quad([-1, -1, -1], [-1, -1, 1], [-1, 1, 1], [-1, 1, -1]);
-    case 'top': // +Y — width +X, "up" toward −Z (back) so readable from front
+    case "top": // +Y — width +X, "up" toward −Z (back) so readable from front
       return quad([-1, 1, 1], [1, 1, 1], [1, 1, -1], [-1, 1, -1]);
-    case 'bottom': // -Y — width +X, "up" toward +Z (front) so readable from front
+    case "bottom": // -Y — width +X, "up" toward +Z (front) so readable from front
       return quad([-1, -1, -1], [1, -1, -1], [1, -1, 1], [-1, -1, 1]);
     default: {
       const _exhaustive: never = face;
@@ -60,14 +89,18 @@ function faceMesh(face: ViewCubeFace): Float32Array {
 }
 
 /** Bake an axis-aligned label into a square canvas (face UV space). */
-function bakeFaceCanvas(face: ViewCubeFace, hover: boolean): HTMLCanvasElement {
-  const canvas = document.createElement('canvas');
+function bakeFaceCanvas(
+  face: ViewCubeFace,
+  hover: boolean,
+  pal: ViewCubeTheme,
+): HTMLCanvasElement {
+  const canvas = document.createElement("canvas");
   canvas.width = FACE_TEX;
   canvas.height = FACE_TEX;
-  const ctx = canvas.getContext('2d')!;
-  ctx.fillStyle = hover ? FACE_FILL_HOVER : FACE_FILL[face];
+  const ctx = canvas.getContext("2d")!;
+  ctx.fillStyle = hover ? pal.hoverFill : pal.faces[face];
   ctx.fillRect(0, 0, FACE_TEX, FACE_TEX);
-  ctx.strokeStyle = hover ? '#6f9460' : '#111111';
+  ctx.strokeStyle = hover ? pal.hoverEdge : pal.edge;
   ctx.lineWidth = 8;
   ctx.strokeRect(4, 4, FACE_TEX - 8, FACE_TEX - 8);
 
@@ -78,13 +111,13 @@ function bakeFaceCanvas(face: ViewCubeFace, hover: boolean): HTMLCanvasElement {
     fontPx -= 1;
     ctx.font = `700 ${fontPx}px "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif`;
   }
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.lineJoin = 'round';
-  ctx.strokeStyle = 'rgba(12,12,12,0.95)';
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = hover ? "rgba(20,32,16,0.55)" : pal.labelHalo;
   ctx.lineWidth = Math.max(4, fontPx * 0.2);
   ctx.strokeText(label, FACE_TEX / 2, FACE_TEX / 2);
-  ctx.fillStyle = hover ? '#e8f0e4' : '#f2f2f2';
+  ctx.fillStyle = hover ? pal.hoverLabel : pal.label;
   ctx.fillText(label, FACE_TEX / 2, FACE_TEX / 2);
   return canvas;
 }
@@ -109,19 +142,27 @@ void main(){
   outColor = texture(uTex, vUv);
 }`;
 
-function compile(gl: WebGL2RenderingContext, type: number, src: string): WebGLShader {
+function compile(
+  gl: WebGL2RenderingContext,
+  type: number,
+  src: string,
+): WebGLShader {
   const sh = gl.createShader(type)!;
   gl.shaderSource(sh, src);
   gl.compileShader(sh);
   if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) {
     const info = gl.getShaderInfoLog(sh);
     gl.deleteShader(sh);
-    throw new Error(info ?? 'shader compile failed');
+    throw new Error(info ?? "shader compile failed");
   }
   return sh;
 }
 
-function link(gl: WebGL2RenderingContext, vs: string, fs: string): WebGLProgram {
+function link(
+  gl: WebGL2RenderingContext,
+  vs: string,
+  fs: string,
+): WebGLProgram {
   const p = gl.createProgram()!;
   gl.attachShader(p, compile(gl, gl.VERTEX_SHADER, vs));
   gl.attachShader(p, compile(gl, gl.FRAGMENT_SHADER, fs));
@@ -129,13 +170,18 @@ function link(gl: WebGL2RenderingContext, vs: string, fs: string): WebGLProgram 
   if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
     const info = gl.getProgramInfoLog(p);
     gl.deleteProgram(p);
-    throw new Error(info ?? 'program link failed');
+    throw new Error(info ?? "program link failed");
   }
   return p;
 }
 
 /** Symmetric ortho frustum (CAD view cubes avoid strong perspective warp). */
-function mat4Ortho(half: number, aspect: number, near: number, far: number): Float32Array {
+function mat4Ortho(
+  half: number,
+  aspect: number,
+  near: number,
+  far: number,
+): Float32Array {
   const r = half * aspect;
   const t = half;
   const out = new Float32Array(16);
@@ -195,7 +241,10 @@ function mat4Multiply(a: Float32Array, b: Float32Array): Float32Array {
   for (let c = 0; c < 4; c++) {
     for (let r = 0; r < 4; r++) {
       out[c * 4 + r] =
-        a[r] * b[c * 4] + a[4 + r] * b[c * 4 + 1] + a[8 + r] * b[c * 4 + 2] + a[12 + r] * b[c * 4 + 3];
+        a[r] * b[c * 4] +
+        a[4 + r] * b[c * 4 + 1] +
+        a[8 + r] * b[c * 4 + 2] +
+        a[12 + r] * b[c * 4 + 3];
     }
   }
   return out;
@@ -213,18 +262,21 @@ export class ViewCubeGl {
   private hoverFaces = new Set<ViewCubeFace>();
   private disposed = false;
 
-  constructor(canvas: HTMLCanvasElement) {
-    const gl = canvas.getContext('webgl2', {
+  constructor(
+    canvas: HTMLCanvasElement,
+    palette: ViewCubeTheme = VIEW_CUBE_THEMES.dark,
+  ) {
+    const gl = canvas.getContext("webgl2", {
       alpha: true,
       antialias: true,
       premultipliedAlpha: true,
       preserveDrawingBuffer: true,
     });
-    if (!gl) throw new Error('WebGL2 not available for view cube');
+    if (!gl) throw new Error("WebGL2 not available for view cube");
     this.gl = gl;
     this.prog = link(gl, VERT, FRAG);
-    this.uMVP = gl.getUniformLocation(this.prog, 'uMVP')!;
-    this.uTex = gl.getUniformLocation(this.prog, 'uTex')!;
+    this.uMVP = gl.getUniformLocation(this.prog, "uMVP")!;
+    this.uTex = gl.getUniformLocation(this.prog, "uTex")!;
 
     this.vao = gl.createVertexArray()!;
     this.buf = gl.createBuffer()!;
@@ -244,10 +296,7 @@ export class ViewCubeGl {
     gl.vertexAttribPointer(1, 2, gl.FLOAT, false, 20, 12);
     gl.bindVertexArray(null);
 
-    for (const face of FACES) {
-      this.texNormal.set(face, this.uploadCanvas(bakeFaceCanvas(face, false)));
-      this.texHover.set(face, this.uploadCanvas(bakeFaceCanvas(face, true)));
-    }
+    this.setPalette(palette);
 
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LEQUAL);
@@ -267,6 +316,23 @@ export class ViewCubeGl {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     return tex;
+  }
+
+  /** Re-bake face textures for a new theme palette (live theme switch). */
+  setPalette(palette: ViewCubeTheme): void {
+    if (this.disposed) return;
+    for (const t of this.texNormal.values()) this.gl.deleteTexture(t);
+    for (const t of this.texHover.values()) this.gl.deleteTexture(t);
+    for (const face of FACES) {
+      this.texNormal.set(
+        face,
+        this.uploadCanvas(bakeFaceCanvas(face, false, palette)),
+      );
+      this.texHover.set(
+        face,
+        this.uploadCanvas(bakeFaceCanvas(face, true, palette)),
+      );
+    }
   }
 
   setHoverFaces(faces: readonly ViewCubeFace[]): void {
@@ -303,8 +369,13 @@ export class ViewCubeGl {
           : [Math.sin(yaw), 0, Math.cos(yaw)]
         : [0, 1, 0];
     const view = mat4LookAt(eye, [0, 0, 0], up);
-    // Tight frustum so the unit cube fills most of the widget.
-    const proj = mat4Ortho(1.35, cssW / Math.max(1, cssH), 0.1, 20);
+    // Frustum fits the cube's bounding sphere (√3) + margin → never clipped.
+    const proj = mat4Ortho(
+      VIEW_CUBE_ORTHO_HALF,
+      cssW / Math.max(1, cssH),
+      0.1,
+      20,
+    );
     const mvp = mat4Multiply(proj, view);
 
     gl.useProgram(this.prog);
@@ -315,7 +386,9 @@ export class ViewCubeGl {
 
     let base = 0;
     for (const face of FACES) {
-      const tex = this.hoverFaces.has(face) ? this.texHover.get(face)! : this.texNormal.get(face)!;
+      const tex = this.hoverFaces.has(face)
+        ? this.texHover.get(face)!
+        : this.texNormal.get(face)!;
       gl.bindTexture(gl.TEXTURE_2D, tex);
       gl.drawArrays(gl.TRIANGLES, base, 6);
       base += 6;

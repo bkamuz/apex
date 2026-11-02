@@ -1,5 +1,9 @@
-import { useEffect, useRef, type PointerEvent as ReactPointerEvent } from 'react';
-import type { ViewportRenderer } from '../viewport/ViewportRenderer';
+import {
+  useEffect,
+  useRef,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
+import type { ViewportRenderer } from "../viewport/ViewportRenderer";
 import {
   easeOutCubic,
   lerp,
@@ -9,10 +13,11 @@ import {
   projectViewCube,
   type ViewCubeFace,
   type ViewCubeHit,
-} from '../viewport/viewCube';
-import { ViewCubeGl } from '../viewport/viewCubeGl';
+} from "../viewport/viewCube";
+import { ViewCubeGl } from "../viewport/viewCubeGl";
+import { VIEW_CUBE_THEMES, themeStore } from "../theme/theme";
 
-const SIZE = 112;
+const SIZE = 128;
 const DRAG_THRESHOLD_PX = 4;
 const ANIM_MS = 240;
 
@@ -48,12 +53,16 @@ export function ViewCube({ renderer, visible }: ViewCubeProps) {
     if (!canvas) return;
     let cube: ViewCubeGl;
     try {
-      cube = new ViewCubeGl(canvas);
+      cube = new ViewCubeGl(canvas, VIEW_CUBE_THEMES[themeStore().resolved()]);
     } catch {
       return;
     }
     glRef.current = cube;
+    const unsubscribe = themeStore().subscribe((resolved) =>
+      cube.setPalette(VIEW_CUBE_THEMES[resolved]),
+    );
     return () => {
+      unsubscribe();
       cube.dispose();
       glRef.current = null;
     };
@@ -69,9 +78,9 @@ export function ViewCube({ renderer, visible }: ViewCubeProps) {
       if (cube && canvas) {
         const hit = hitRef.current;
         const hover: ViewCubeFace[] =
-          hit?.kind === 'face'
+          hit?.kind === "face"
             ? [hit.face]
-            : hit?.kind === 'edge' || hit?.kind === 'corner'
+            : hit?.kind === "edge" || hit?.kind === "corner"
               ? [...hit.faces]
               : [];
         cube.setHoverFaces(hover);
@@ -135,7 +144,15 @@ export function ViewCube({ renderer, visible }: ViewCubeProps) {
     cancelAnim();
     const { x, y } = localPoint(e);
     const cam = renderer.getCamera();
-    const hit = pickViewCube(projectViewCube(cam.yaw, cam.pitch, SIZE), x, y);
+    const hit = pickViewCube(
+      projectViewCube(
+        cam.yaw,
+        cam.pitch,
+        canvasRef.current?.clientWidth || SIZE,
+      ),
+      x,
+      y,
+    );
     hitRef.current = hit;
     dragRef.current = {
       pointerId: e.pointerId,
@@ -154,7 +171,15 @@ export function ViewCube({ renderer, visible }: ViewCubeProps) {
     if (!drag || drag.pointerId !== e.pointerId) {
       const { x, y } = localPoint(e);
       const cam = renderer.getCamera();
-      hitRef.current = pickViewCube(projectViewCube(cam.yaw, cam.pitch, SIZE), x, y);
+      hitRef.current = pickViewCube(
+        projectViewCube(
+          cam.yaw,
+          cam.pitch,
+          canvasRef.current?.clientWidth || SIZE,
+        ),
+        x,
+        y,
+      );
       return;
     }
     e.preventDefault();
@@ -165,7 +190,8 @@ export function ViewCube({ renderer, visible }: ViewCubeProps) {
     drag.lastY = e.clientY;
     if (
       !drag.moved &&
-      Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) >= DRAG_THRESHOLD_PX
+      Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) >=
+        DRAG_THRESHOLD_PX
     ) {
       drag.moved = true;
       hitRef.current = null;
@@ -193,7 +219,15 @@ export function ViewCube({ renderer, visible }: ViewCubeProps) {
     }
     const { x, y } = localPoint(e);
     const cam = renderer.getCamera();
-    hitRef.current = pickViewCube(projectViewCube(cam.yaw, cam.pitch, SIZE), x, y);
+    hitRef.current = pickViewCube(
+      projectViewCube(
+        cam.yaw,
+        cam.pitch,
+        canvasRef.current?.clientWidth || SIZE,
+      ),
+      x,
+      y,
+    );
   };
 
   const onPointerLeave = () => {
