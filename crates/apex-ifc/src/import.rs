@@ -11,8 +11,8 @@
 use std::collections::{HashMap, HashSet};
 
 use apex_core::{
-    encode_ifc_mesh_param, Element, LevelId, ParamMap, ParamValue, Placement, Project,
-    TriangleMesh, IFC_MESH_COMPONENT,
+    encode_ifc_mesh_param, ifc_mesh_from_params, Element, LevelId, ParamMap, ParamValue, Placement,
+    Project, TriangleMesh, IFC_MESH_COMPONENT,
 };
 use glam::{Mat4, Vec3, Vec4};
 

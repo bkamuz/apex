@@ -3,7 +3,7 @@
 //! Geometry lives in the `_mesh` text param as JSON
 //! `{ "p": [...], "i": [...], "e"?: [...] }` in the element's local frame
 //! (placement origin). When `e` (feature edges) is absent — older snapshots —
-//! edges are rebuilt from dihedral creases so Open does not draw every
+//! edges are derived from welded dihedral creases so Open does not draw every
 //! triangulation diagonal. The inspector hides params whose id starts with `_`.
 
 use apex_geometry::TriangleMesh;
@@ -20,9 +20,6 @@ use crate::placement::PlacementKind;
 
 /// Built-in component id for imported IFC tessellations.
 pub const IFC_MESH_COMPONENT: &str = "apex.ifc.mesh";
-
-/// Dihedral angle (radians) used when rebuilding CAD edges for IFC meshes.
-pub const IFC_FEATURE_EDGE_RADIANS: f32 = 0.70;
 
 #[derive(Debug, Deserialize, Serialize)]
 struct MeshJson {
