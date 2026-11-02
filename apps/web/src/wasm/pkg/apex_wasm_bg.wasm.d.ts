@@ -2,7 +2,7 @@
 /* eslint-disable */
 export const memory: WebAssembly.Memory;
 export const abortUndoGroup: () => [number, number];
-export const applyKernelResults: (a: any) => [number, number, number];
+export const applyKernelResults: (a: any, b: number, c: number) => [number, number, number];
 export const beginUndoGroup: () => [number, number];
 export const canRedo: () => [number, number, number];
 export const canUndo: () => [number, number, number];
@@ -101,6 +101,7 @@ export const setSheetViewportScale: (a: number, b: number, c: number, d: number,
 export const setSlabShape: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const setSpacePlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
 export const slabShapeInfo: (a: number, b: number) => [number, number, number];
+export const spliceKernelJob: (a: any, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
 export const takeKernelJobs: () => [number, number, number];
 export const togglePickById: (a: number) => [number, number, number];
 export const toggleSelectElement: (a: number, b: number) => [number, number, number];

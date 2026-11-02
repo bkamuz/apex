@@ -79,6 +79,8 @@ pub struct PlanarSolids {
     pub ints: Vec<i32>,
     pub ops: Vec<i32>,
     pub solids: usize,
+    /// Points per solid (not part of the key); lets [`Self::splice`] swap one.
+    pub counts: Vec<usize>,
 }
 
 impl PlanarSolids {
@@ -115,7 +117,114 @@ impl PlanarSolids {
         }
         self.ops.push(op);
         self.solids += 1;
+        self.counts.push(self.points.len() / 3 - base as usize);
         Ok(())
+    }
+
+    /// The same input with solid `idx` replaced by `mesh` (a dependent job
+    /// whose operand was a stand-in for another job's result).
+    pub fn splice(&self, idx: usize, mesh: &TriangleMesh) -> Result<Self, KernelError> {
+        if idx >= self.solids || self.counts.len() != self.solids {
+            return Err(KernelError::Unsupported("bad splice".into()));
+        }
+        let bad = || KernelError::Unsupported("bad encoding".into());
+        let mut out = Self::default();
+        let (mut pi, mut ii) = (0usize, 0usize);
+        for s in 0..self.solids {
+            let np = self.counts[s];
+            let shift = (out.points.len() / 3) as i32 - pi as i32;
+            let keep = s != idx;
+            let mut ints = Vec::new();
+            let take = |ii: &mut usize| -> Result<i32, KernelError> {
+                let v = *self.ints.get(*ii).ok_or_else(bad)?;
+                *ii += 1;
+                Ok(v)
+            };
+            let nf = take(&mut ii)?;
+            ints.push(nf);
+            for _ in 0..nf {
+                let nl = take(&mut ii)?;
+                ints.push(nl);
+                for _ in 0..nl {
+                    let nv = take(&mut ii)?;
+                    ints.push(nv);
+                    for _ in 0..nv {
+                        ints.push(take(&mut ii)? + shift);
+                    }
+                }
+            }
+            if keep {
+                out.points
+                    .extend_from_slice(self.points.get(pi * 3..(pi + np) * 3).ok_or_else(bad)?);
+                out.ints.extend(ints);
+                out.ops.push(self.ops[s]);
+                out.solids += 1;
+                out.counts.push(np);
+            } else {
+                out.push(mesh, self.ops[s])?;
+            }
+            pi += np;
+        }
+        Ok(out)
+    }
+
+    /// [`Self::splice`] with an indexed kernel result.
+    pub fn splice_indexed(
+        &self,
+        idx: usize,
+        points: &[f64],
+        tris: &[i32],
+    ) -> Result<Self, KernelError> {
+        self.splice(idx, &mesh_from_indexed(points, tris))
+    }
+
+    /// Smallest x, y, z over all points (zero when empty).
+    pub fn min_corner(&self) -> [f64; 3] {
+        let mut mn = [f64::INFINITY; 3];
+        for c in self.points.as_chunks::<3>().0 {
+            for i in 0..3 {
+                mn[i] = mn[i].min(c[i]);
+            }
+        }
+        if mn[0].is_finite() {
+            mn
+        } else {
+            [0.0; 3]
+        }
+    }
+
+    /// The same solids moved by `d`.
+    pub fn translated(&self, d: [f64; 3]) -> Self {
+        let mut out = self.clone();
+        for c in out.points.as_chunks_mut::<3>().0 {
+            for i in 0..3 {
+                c[i] += d[i];
+            }
+        }
+        out
+    }
+
+    /// Key of the shape up to placement: points relative to the min corner,
+    /// quantized to 1 µm, plus topology and ops. Identical instances (the same
+    /// window in another wall bay) share it, so one kernel run serves all.
+    pub fn shape_key(&self) -> u64 {
+        let mn = self.min_corner();
+        let mut h: u64 = 0x84222325_cbf29ce4;
+        let mut eat = |x: u64| {
+            for b in x.to_le_bytes() {
+                h ^= b as u64;
+                h = h.wrapping_mul(0x100_0000_01b3);
+            }
+        };
+        for c in self.points.as_chunks::<3>().0 {
+            for i in 0..3 {
+                eat(((c[i] - mn[i]) * 1e6).round() as i64 as u64);
+            }
+        }
+        for i in self.ints.iter().chain(&self.ops) {
+            eat(*i as u64);
+        }
+        h
     }
 
     /// Stable key of the encoded input (FNV-1a over the exact bits).

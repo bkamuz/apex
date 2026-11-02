@@ -114,14 +114,10 @@ fn external_kernel_round_trip_matches_native() {
         if jobs.is_empty() {
             break;
         }
-        let results = jobs
-            .iter()
-            .map(|j| {
-                let r = apex_smlib::run(&j.solids, 1e-3).ok();
-                (j.key, r.map(|r| (r.points, r.tris)))
-            })
-            .collect();
-        rebuilt.extend(p.apply_kernel_results(results));
+        let (results, stale) = apex_core::run_job_chain(jobs.clone(), |s| {
+            apex_smlib::run(s, 1e-3).ok().map(|r| (r.points, r.tris))
+        });
+        rebuilt.extend(p.apply_kernel_results_chained(results, stale));
         jobs = p.take_kernel_jobs();
     }
     assert!(rebuilt.contains(&wall));

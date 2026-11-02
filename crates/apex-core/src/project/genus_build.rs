@@ -133,12 +133,11 @@ impl Project {
 
     /// Elements whose genus can cut neighbours, in stable order.
     fn neighbour_cutters(&self) -> Vec<&Element> {
-        let mut out: Vec<&Element> = self
+        let out: Vec<&Element> = self
             .document
             .elements()
             .filter(|e| self.registry.cuts_neighbours(&e.component_id))
             .collect();
-        out.sort_by_cached_key(|e| e.order_key());
         out
     }
 

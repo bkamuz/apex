@@ -11,15 +11,37 @@ const RUNS = Number(process.env.RUNS ?? 3);
 
 const browser = await chromium.launch();
 const results = {};
-for (const kernel of ['mesh', 'smlib']) {
+const KERNELS = (process.env.KERNELS ?? 'mesh,smlib').split(',');
+for (const kernel of KERNELS) {
   const page = await browser.newPage();
   page.on('console', (m) => m.type() === 'error' && console.log(`[${kernel}] console:`, m.text()));
   await page.addInitScript(() => localStorage.clear());
+  // SLOWRAF=1: draw at most every 500 ms. Headless Chromium renders with
+  // SwiftShader (~100 ms a frame for the house), which would otherwise hold
+  // up every worker reply; a real GPU draws the frame in a few ms.
+  if (process.env.SLOWRAF) {
+    await page.addInitScript(() => {
+      window.requestAnimationFrame = (f) => setTimeout(() => f(performance.now()), 500);
+    });
+  }
   await page.goto(`${BASE}?kernel=mesh`, { waitUntil: 'networkidle' });
   await page.waitForFunction(() => window.__apexTest?.setKernel);
+  // PROFILE=out.cpuprofile records a main-thread CPU profile of the run.
+  const cdp = process.env.PROFILE ? await page.context().newCDPSession(page) : null;
+  if (cdp) {
+    await cdp.send('Profiler.enable');
+    await cdp.send('Profiler.setSamplingInterval', { interval: 200 });
+    await cdp.send('Profiler.start');
+  }
   results[kernel] = await page.evaluate(
     async ({ k, house, runs }) => {
-      const mod = await import('/src/wasm/apex.ts');
+      const api = window.__apexTest.api;
+      const mod = {
+        apexImportProject: api.importProject,
+        apexListElements: api.listElements,
+        apexRunQuery: api.runQuery,
+        apexKernelStatus: api.kernelStatus,
+      };
       const settle = async () => {
         const end = performance.now() + 20000;
         while (performance.now() < end && mod.apexKernelStatus().pending > 0) {
@@ -30,6 +52,7 @@ for (const kernel of ['mesh', 'smlib']) {
         const s0 = window.__apexTest.kernelStats();
         const t0 = performance.now();
         f();
+        const cmdMs = performance.now() - t0;
         await settle();
         const ms = performance.now() - t0;
         if (mod.apexKernelStatus().pending) throw new Error(`kernel did not settle: ${f}`);
@@ -37,7 +60,12 @@ for (const kernel of ['mesh', 'smlib']) {
         detail[String(f).includes('setKernel') ? 'full' : String(f).match(/op: '(\w+)'/)[1]] = {
           rounds: s1.rounds - s0.rounds,
           jobs: s1.jobs - s0.jobs,
+          cmdMs: Math.round(cmdMs),
           applyMs: Math.round(s1.applyMs - s0.applyMs),
+          takeMs: Math.round(s1.takeMs - s0.takeMs),
+          workerMs: Math.round(s1.workerMs - s0.workerMs),
+          sinkMs: Math.round(s1.sinkMs - s0.sinkMs),
+          wallMs: Math.round((s1.wallMs ?? 0) - (s0.wallMs ?? 0)),
         };
         return ms;
       };
@@ -75,6 +103,10 @@ for (const kernel of ['mesh', 'smlib']) {
     },
     { k: kernel, house: HOUSE, runs: RUNS },
   );
+  if (cdp) {
+    const { profile } = await cdp.send('Profiler.stop');
+    (await import('node:fs')).writeFileSync(`${process.env.PROFILE}.${kernel}.cpuprofile`, JSON.stringify(profile));
+  }
   await page.close();
 }
 console.log(JSON.stringify(results));

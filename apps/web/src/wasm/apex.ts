@@ -2,6 +2,7 @@ import initWasm, {
   setGeometryKernel,
   takeKernelJobs,
   applyKernelResults,
+  spliceKernelJob,
   kernelStatus,
   createElement,
   createElementWithParent,
@@ -911,6 +912,9 @@ export interface KernelJobDto {
   ints: number[];
   ops: number[];
   solids: number;
+  counts?: number[];
+  /** `[solid index, job key]` stand-ins to splice before running. */
+  deps?: [number, string][];
 }
 
 export interface KernelResultDto {
@@ -928,8 +932,12 @@ export function apexTakeKernelJobs(): KernelJobDto[] {
   return takeKernelJobs() as KernelJobDto[];
 }
 
-export function apexApplyKernelResults(results: KernelResultDto[]): SceneDto {
-  return applyKernelResults(results) as SceneDto;
+export function apexApplyKernelResults(results: KernelResultDto[], stale: string[] = []): SceneDto {
+  return applyKernelResults(results, stale) as SceneDto;
+}
+
+export function apexSpliceKernelJob(job: KernelJobDto, idx: number, points: number[], tris: number[]): KernelJobDto {
+  return spliceKernelJob(job, idx, new Float64Array(points), new Int32Array(tris)) as KernelJobDto;
 }
 
 export function apexKernelStatus(): { kernel: string; pending: number } {
