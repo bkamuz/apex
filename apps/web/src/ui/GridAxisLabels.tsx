@@ -16,12 +16,10 @@ interface Props {
   spaces?: SpaceDto[];
   renderer: ViewportRenderer | null;
   selectedIds?: string[];
-  /** Plan drawn on paper: dark-on-light heads and tags. */
-  paper?: boolean;
 }
 
 /** Screen-space labels for grid bubbles and space centroids. */
-export function GridAxisLabels({ axes, spaces = [], renderer, selectedIds = [], paper = false }: Props) {
+export function GridAxisLabels({ axes, spaces = [], renderer, selectedIds = [] }: Props) {
   const [labels, setLabels] = useState<LabelPos[]>([]);
 
   useEffect(() => {
@@ -69,7 +67,7 @@ export function GridAxisLabels({ axes, spaces = [], renderer, selectedIds = [], 
   if (labels.length === 0) return null;
 
   return (
-    <div className={`grid-axis-labels${paper ? ' is-paper' : ''}`} aria-hidden="true">
+    <div className="grid-axis-labels" aria-hidden="true">
       {labels.map((label) => (
         <div
           key={label.key}

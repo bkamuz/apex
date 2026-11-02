@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useTheme } from '../theme/useTheme';
 import type { ProjectionMode, ViewNavigationMode } from '../viewport/ViewportRenderer';
 import type { Tool } from '../tools/Tool';
 import {
@@ -96,6 +97,7 @@ export function ToolsToolbar({
   extra,
 }: ToolsToolbarProps) {
   const { t, locale } = useI18n();
+  const { resolved: resolvedTheme, toggle: toggleTheme } = useTheme();
   const activeTool = useMemo(
     () => tools.find((tool) => tool.id === activeToolId),
     [tools, activeToolId],
@@ -315,6 +317,17 @@ export function ToolsToolbar({
               title={t('toolbar.thinLinesTitle')}
             >
               {t('toolbar.thinLines')}
+            </button>
+          </ToolGroup>
+
+          <ToolGroup label={t('toolbar.theme')}>
+            <button
+              type="button"
+              data-testid="toggle-theme"
+              onClick={toggleTheme}
+              title={t('toolbar.themeTitle')}
+            >
+              {resolvedTheme === 'dark' ? t('toolbar.themeToLight') : t('toolbar.themeToDark')}
             </button>
           </ToolGroup>
         </div>

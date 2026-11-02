@@ -6,29 +6,41 @@
  * - Renderers read `VIEWPORT_THEMES[resolved]` and `PLAN_STYLES[resolved]`
  *   (viewport/planStyle.ts); `applyTheme` flips both at once, no reload.
  */
-export type ThemePreference = 'system' | 'light' | 'dark';
-export type ResolvedTheme = 'light' | 'dark';
+export type ThemePreference = "system" | "light" | "dark";
+export type ResolvedTheme = "light" | "dark";
 export type Rgba = [number, number, number, number];
 export type Rgb = [number, number, number];
 
-export const THEME_PREFERENCES: readonly ThemePreference[] = ['system', 'light', 'dark'];
-export const THEME_STORAGE_KEY = 'apex.theme';
+export const THEME_PREFERENCES: readonly ThemePreference[] = [
+  "system",
+  "light",
+  "dark",
+];
+export const THEME_STORAGE_KEY = "apex.theme";
 
-export function resolveTheme(pref: ThemePreference, systemDark: boolean): ResolvedTheme {
-  if (pref === 'light' || pref === 'dark') return pref;
-  return systemDark ? 'dark' : 'light';
+export function resolveTheme(
+  pref: ThemePreference,
+  systemDark: boolean,
+): ResolvedTheme {
+  if (pref === "light" || pref === "dark") return pref;
+  return systemDark ? "dark" : "light";
 }
 
-export function loadThemePreference(storage: Pick<Storage, 'getItem'> | undefined): ThemePreference {
+export function loadThemePreference(
+  storage: Pick<Storage, "getItem"> | undefined,
+): ThemePreference {
   try {
     const v = storage?.getItem(THEME_STORAGE_KEY);
-    return v === 'light' || v === 'dark' || v === 'system' ? v : 'system';
+    return v === "light" || v === "dark" || v === "system" ? v : "system";
   } catch {
-    return 'system';
+    return "system";
   }
 }
 
-export function saveThemePreference(storage: Pick<Storage, 'setItem'> | undefined, pref: ThemePreference): void {
+export function saveThemePreference(
+  storage: Pick<Storage, "setItem"> | undefined,
+  pref: ThemePreference,
+): void {
   try {
     storage?.setItem(THEME_STORAGE_KEY, pref);
   } catch {
@@ -78,11 +90,14 @@ export const VIEWPORT_THEMES: Record<ResolvedTheme, ViewportTheme> = {
 type Listener = (resolved: ResolvedTheme, pref: ThemePreference) => void;
 
 export interface ThemeEnv {
-  storage?: Pick<Storage, 'getItem' | 'setItem'>;
+  storage?: Pick<Storage, "getItem" | "setItem">;
   /** Optional media query for `(prefers-color-scheme: dark)`. */
   media?: {
     matches: boolean;
-    addEventListener?: (t: 'change', cb: (e: { matches: boolean }) => void) => void;
+    addEventListener?: (
+      t: "change",
+      cb: (e: { matches: boolean }) => void,
+    ) => void;
   };
 }
 
@@ -96,7 +111,7 @@ export function createThemeStore(env: ThemeEnv = {}) {
     const r = resolved();
     listeners.forEach((l) => l(r, pref));
   };
-  env.media?.addEventListener?.('change', (e) => {
+  env.media?.addEventListener?.("change", (e) => {
     const before = resolved();
     systemDark = e.matches;
     if (resolved() !== before) emit();
@@ -111,7 +126,7 @@ export function createThemeStore(env: ThemeEnv = {}) {
     },
     /** Quick toggle: flip the currently shown theme to an explicit choice. */
     toggle() {
-      this.setPreference(resolved() === 'dark' ? 'light' : 'dark');
+      this.setPreference(resolved() === "dark" ? "light" : "dark");
     },
     subscribe(l: Listener): () => void {
       listeners.add(l);
@@ -127,13 +142,16 @@ let shared: ThemeStore | null = null;
 /** App-wide store bound to localStorage + prefers-color-scheme. */
 export function themeStore(): ThemeStore {
   if (!shared) {
-    const hasWindow = typeof window !== 'undefined';
+    const hasWindow = typeof window !== "undefined";
     shared = createThemeStore({
       storage: hasWindow ? window.localStorage : undefined,
-      media: hasWindow && window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : undefined,
+      media:
+        hasWindow && window.matchMedia
+          ? window.matchMedia("(prefers-color-scheme: dark)")
+          : undefined,
     });
     const apply = (r: ResolvedTheme) => {
-      if (typeof document !== 'undefined') {
+      if (typeof document !== "undefined") {
         document.documentElement.dataset.theme = r;
         document.documentElement.style.colorScheme = r;
       }

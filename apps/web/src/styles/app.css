@@ -1,6 +1,6 @@
 :root {
-  /* Plan cut poche (walls/columns sliced by the plan cut). Hatches will replace this later. */
-  --plan-cut-fill: #000000;
+  /* Theme tokens. Dark is the default; Light overrides below. Viewport/plan
+     colours mirror these in src/theme/theme.ts + src/viewport/planStyle.ts. */
   /* Industrial flat chrome (Option C) — shared shell tokens. */
   --chrome-bg: #232323;
   --chrome-bg-doc: #2b2b2b;
@@ -24,6 +24,30 @@
   --chrome-field: var(--chrome-bg-hint);
   --chrome-field-text: var(--chrome-text);
   --chrome-placeholder: #7a7a7a;
+  --chrome-scrollbar: #444;
+  --chrome-scrollbar-hover: #555;
+  --chrome-overlay: rgba(28, 28, 28, 0.78);
+  --chrome-overlay-strong: rgba(28, 28, 28, 0.92);
+  --chrome-sunken: #141414;
+  --chrome-code: #0e1016;
+  --chrome-error-bg: #3a1e1e;
+  --chrome-error-border: #5a3030;
+  --chrome-error-text: #e8b4b4;
+  --chrome-shadow: rgba(0, 0, 0, 0.45);
+  --chrome-brand-bg: #1f1f1f;
+  --chrome-brand-text: #ddd;
+  --chrome-dirty: #c9b26a;
+  --grid-axis-fill: var(--chrome-viewport);
+  --grid-axis-stroke: #9ea1a6;
+  --grid-axis-text: var(--chrome-text);
+  --space-label-bg: rgba(18, 24, 28, 0.82);
+  --space-label-border: rgba(90, 180, 210, 0.95);
+  --space-label-text: #c8e8f4;
+  --prov-instance: #e0a14a;
+  --prov-species: #7fb3e6;
+  --prov-genus: #8e8e8e;
+  --prov-inherited: #a88ad6;
+  --prov-formula: #6fc29a;
 
   /* Semantic aliases map the shell to the same industrial language. */
   --bg: var(--chrome-bg-hint);
@@ -40,6 +64,54 @@
   --radius: var(--chrome-radius);
 
   color-scheme: dark;
+}
+
+/* Light theme — same accent green, light chrome; AA contrast for text. */
+:root[data-theme='light'] {
+  --chrome-bg: #ececea;
+  --chrome-bg-doc: #f4f4f2;
+  --chrome-bg-tabs: #e6e6e4;
+  --chrome-bg-tools: #f0f0ee;
+  --chrome-bg-hint: #fafaf9;
+  --chrome-viewport: #ededeb;
+  --chrome-line: #c9c9c6;
+  --chrome-border: #c4c4c0;
+  --chrome-hover: #dededa;
+  --chrome-muted: #5c5f63;
+  --chrome-text: #1d1f22;
+  --chrome-active: #5a7d4e;
+  --chrome-active-border: #4d6c42;
+  --chrome-active-text: #ffffff;
+  --chrome-info: #8a6508;
+  --chrome-active-soft: #dfe8da;
+  --chrome-field: #ffffff;
+  --chrome-placeholder: #75787c;
+  --chrome-scrollbar: #b8b8b4;
+  --chrome-scrollbar-hover: #9d9d99;
+  --chrome-overlay: rgba(250, 250, 249, 0.85);
+  --chrome-overlay-strong: rgba(250, 250, 249, 0.95);
+  --chrome-sunken: #ffffff;
+  --chrome-code: #ffffff;
+  --chrome-error-bg: #fbe9e9;
+  --chrome-error-border: #d9a3a3;
+  --chrome-error-text: #8a2020;
+  --chrome-shadow: rgba(0, 0, 0, 0.18);
+  --chrome-brand-bg: #e2e2df;
+  --chrome-brand-text: #1d1f22;
+  --chrome-dirty: #8a6508;
+  --danger: #b03a3a;
+  --grid-axis-fill: #f7f7f5;
+  --grid-axis-stroke: #4a4c50;
+  --grid-axis-text: #111;
+  --space-label-bg: rgba(247, 247, 245, 0.9);
+  --space-label-border: #6b7175;
+  --space-label-text: #111;
+  --prov-instance: #9a5b00;
+  --prov-species: #1f5f99;
+  --prov-genus: #5c5c5c;
+  --prov-inherited: #6a4aa0;
+  --prov-formula: #1e7a50;
+  color-scheme: light;
 }
 
 *,
@@ -81,7 +153,7 @@ button {
 }
 
 button:hover {
-  border-color: #444;
+  border-color: var(--chrome-scrollbar);
   background: var(--chrome-hover);
 }
 
@@ -127,7 +199,7 @@ textarea::placeholder {
 
 select {
   /* Keep native chevron readable on dark fields. */
-  color-scheme: dark;
+  color-scheme: inherit;
 }
 
 select option,
@@ -157,14 +229,14 @@ input[type="checkbox"],
 input[type="radio"] {
   width: auto;
   accent-color: var(--chrome-active);
-  color-scheme: dark;
+  color-scheme: inherit;
   -webkit-text-fill-color: unset;
 }
 
 /* Themed scrollbars for panel scroll areas (browser, inspector, levels). */
 .shell-scroll {
   scrollbar-width: thin;
-  scrollbar-color: #444 transparent;
+  scrollbar-color: var(--chrome-scrollbar) transparent;
 }
 
 .shell-scroll::-webkit-scrollbar {
@@ -177,12 +249,12 @@ input[type="radio"] {
 }
 
 .shell-scroll::-webkit-scrollbar-thumb {
-  background: #444;
+  background: var(--chrome-scrollbar);
   border-radius: 0;
 }
 
 .shell-scroll::-webkit-scrollbar-thumb:hover {
-  background: #555;
+  background: var(--chrome-scrollbar-hover);
 }
 
 .app {
@@ -239,8 +311,8 @@ input[type="radio"] {
   font-weight: 700;
   letter-spacing: 0.16em;
   font-size: 11px;
-  color: #ddd;
-  background: #1f1f1f;
+  color: var(--chrome-brand-text);
+  background: var(--chrome-brand-bg);
   border-right: 1px solid var(--chrome-line);
 }
 
@@ -336,7 +408,7 @@ input[type="radio"] {
 }
 
 .file-menu-dirty {
-  color: #c9b26a;
+  color: var(--chrome-dirty);
   font-weight: 700;
 }
 
@@ -354,7 +426,7 @@ input[type="radio"] {
   min-width: 168px;
   background: var(--chrome-bg-doc);
   border: 1px solid var(--chrome-border);
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 8px 18px var(--chrome-shadow);
 }
 
 .file-menu-panel button {
@@ -516,7 +588,7 @@ input[type="radio"] {
   background: var(--chrome-bg-tools);
   overflow-x: auto;
   scrollbar-width: thin;
-  scrollbar-color: #444 transparent;
+  scrollbar-color: var(--chrome-scrollbar) transparent;
 }
 
 .tools-grp {
@@ -570,7 +642,7 @@ input[type="radio"] {
 
 .tools button:hover:not(:disabled) {
   background: var(--chrome-hover);
-  border-color: #444;
+  border-color: var(--chrome-scrollbar);
 }
 
 .tools button.active {
@@ -760,7 +832,7 @@ input[type="radio"] {
   font-size: 10px;
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  color: #b0b0b0;
+  color: var(--chrome-muted);
   background: var(--chrome-bg-doc);
   border-bottom: 1px solid var(--chrome-line);
 }
@@ -1209,28 +1281,15 @@ input[type="radio"] {
   height: 24px;
   padding: 0 5px;
   border-radius: 12px;
-  border: 1px solid var(--grid-axis-stroke, #9ea1a6);
-  background: var(--grid-axis-fill, var(--chrome-viewport));
-  color: var(--grid-axis-text, var(--chrome-text));
+  border: 1px solid var(--grid-axis-stroke);
+  background: var(--grid-axis-fill);
+  color: var(--grid-axis-text);
   font-family: var(--font);
   font-size: 12px;
   font-weight: 500;
   line-height: 22px;
   text-align: center;
   white-space: nowrap;
-}
-
-.grid-axis-labels.is-paper {
-  /* Plan paper (see viewport/planStyle.ts): white heads, dark ring and text. */
-  --grid-axis-fill: #f7f7f5;
-  --grid-axis-stroke: #4a4c50;
-  --grid-axis-text: #111;
-}
-
-.grid-axis-labels.is-paper .space-label {
-  background: rgba(247, 247, 245, 0.9);
-  border-color: #6b7175;
-  color: #111;
 }
 
 .grid-axis-label.is-selected {
@@ -1246,9 +1305,9 @@ input[type="radio"] {
   min-height: 1.4rem;
   padding: 0.15rem 0.45rem;
   border-radius: 4px;
-  border: 1.5px solid rgba(90, 180, 210, 0.95);
-  background: rgba(18, 24, 28, 0.82);
-  color: #c8e8f4;
+  border: 1.5px solid var(--space-label-border);
+  background: var(--space-label-bg);
+  color: var(--space-label-text);
   font-size: 0.72rem;
   font-weight: 600;
   text-align: center;
@@ -1460,7 +1519,7 @@ input[type="radio"] {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  background: #2a2a2a;
+  background: var(--chrome-bg-tools);
 }
 
 .sheet-toolbar {
@@ -1708,7 +1767,7 @@ input[type="radio"] {
   align-items: baseline;
   gap: 8px;
   padding: 3px 8px;
-  background: rgba(28, 28, 28, 0.78);
+  background: var(--chrome-overlay);
   border: 1px solid transparent;
   border-radius: var(--chrome-radius);
   font-family: var(--mono);
@@ -1743,7 +1802,7 @@ input[type="radio"] {
   user-select: none;
   -webkit-user-select: none;
   cursor: pointer;
-  background: rgba(28, 28, 28, 0.92);
+  background: var(--chrome-overlay-strong);
   border: 1px solid var(--chrome-border);
 }
 
@@ -1833,8 +1892,8 @@ input[type="radio"] {
 }
 
 .danger {
-  border-color: #5a3030;
-  color: #e8b4b4;
+  border-color: var(--chrome-error-border);
+  color: var(--chrome-error-text);
   border-radius: var(--chrome-radius);
 }
 
@@ -1852,9 +1911,9 @@ input[type="radio"] {
   top: 8px;
   left: 50%;
   transform: translateX(-50%);
-  background: #3a1e1e;
+  background: var(--chrome-error-bg);
   border: 1px solid var(--danger);
-  color: #f0c4c4;
+  color: var(--chrome-error-text);
   padding: 6px 12px;
   border-radius: var(--chrome-radius);
   z-index: 10;
@@ -1973,7 +2032,7 @@ input[type="radio"] {
     z-index: 15;
     padding: 8px 14px;
     font-weight: 600;
-    background: rgba(35, 35, 35, 0.95);
+    background: var(--chrome-overlay-strong);
     border-color: var(--chrome-active-border);
     border-radius: var(--chrome-radius);
     color: var(--chrome-active-text);
@@ -2267,7 +2326,7 @@ input[type="radio"] {
 .profile-editor-preview svg {
   width: 100%;
   height: 240px;
-  background: #141414;
+  background: var(--chrome-sunken);
   border-radius: 0;
 }
 
@@ -2277,7 +2336,7 @@ input[type="radio"] {
 
 .profile-preview-error,
 .profile-editor-error {
-  color: #e8b4b4;
+  color: var(--chrome-error-text);
   font-size: 12px;
 }
 
@@ -2289,7 +2348,7 @@ input[type="radio"] {
   flex: 1;
   min-height: 280px;
   width: 100%;
-  background: #0e1016;
+  background: var(--chrome-code);
   border: 1px solid var(--chrome-line);
   border-radius: var(--chrome-radius);
 }
@@ -2306,7 +2365,7 @@ input[type="radio"] {
   font-family: var(--mono);
   font-size: 12px;
   resize: none;
-  background: #0e1016;
+  background: var(--chrome-code);
   color: var(--text);
   border: 1px solid var(--chrome-line);
   border-radius: var(--chrome-radius);
@@ -2363,7 +2422,7 @@ input[type="radio"] {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  background: #1f1f1f;
+  background: var(--chrome-bg-tools);
   border: 1px solid var(--chrome-line);
   border-radius: var(--chrome-radius);
   font-size: 12px;
@@ -2381,7 +2440,7 @@ input[type="radio"] {
 .agent-bridge-panel input {
   font: inherit;
   padding: 4px 6px;
-  background: #151515;
+  background: var(--chrome-field);
   color: var(--text);
   border: 1px solid var(--chrome-line);
   border-radius: var(--chrome-radius);
@@ -2505,29 +2564,29 @@ input[type="radio"] {
   border: 1px solid currentColor;
   cursor: help;
 }
-.prov-instance { color: #e0a14a; }
-.prov-species { color: #7fb3e6; }
-.prov-genus { color: #8e8e8e; }
-.prov-inherited { color: #a88ad6; }
-.prov-formula { color: #6fc29a; font-style: italic; }
+.prov-instance { color: var(--prov-instance); }
+.prov-species { color: var(--prov-species); }
+.prov-genus { color: var(--prov-genus); }
+.prov-inherited { color: var(--prov-inherited); }
+.prov-formula { color: var(--prov-formula); font-style: italic; }
 .field-reset {
   all: unset;
   cursor: pointer;
   font-size: 12px;
   line-height: 1;
-  color: #e0a14a;
+  color: var(--prov-instance);
   padding: 0 2px;
   text-transform: none;
 }
 .field-reset:hover { color: var(--chrome-text); }
-.field-formula { font: 11px/1.3 ui-monospace, monospace; color: #6fc29a; margin-top: 3px; overflow-wrap: anywhere; }
+.field-formula { font: 11px/1.3 ui-monospace, monospace; color: var(--prov-formula); margin-top: 3px; overflow-wrap: anywhere; }
 .field-error { font-size: 11px; color: var(--danger); margin-top: 3px; }
 .field-hint { font-size: 11px; color: var(--chrome-muted); margin-top: 4px; line-height: 1.35; }
 input.is-invalid { border-color: var(--danger) !important; outline: 1px solid var(--danger); }
 .species-note { font-size: 11px; color: var(--chrome-muted); line-height: 1.35; }
 .species-note.is-shared {
-  color: #e0a14a;
-  border-left: 2px solid #e0a14a;
+  color: var(--prov-instance);
+  border-left: 2px solid var(--prov-instance);
   padding-left: 6px;
 }
 .mono { font-family: ui-monospace, monospace; font-size: 11px; overflow-wrap: anywhere; }
