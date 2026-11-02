@@ -1,32 +1,63 @@
 /**
- * Plan (2D) drawing style — the one place to change how plans read.
+ * Plan (2D) drawing style per theme — the one place to change how plans read.
  *
- * Decision: plan views render like a drawing on paper (light background,
- * black cut poche, dark lines). The shell stays dark; only the plan canvas
- * turns into "paper". Hatches will later plug in through `cutFillFor`.
+ * Light: drawing on paper (#f7f7f5), black cut poche, dark lines.
+ * Dark: Revit/ArchiCAD-dark convention — dark background with light-grey
+ * poche and light lines, so plan and the dark UI/3D stay one theme.
+ * Hatches will later plug in through `cutFillFor`.
  */
-export type Rgba = [number, number, number, number];
+import type { ResolvedTheme, Rgba } from '../theme/theme';
+export type { Rgba } from '../theme/theme';
 
-export const PLAN_STYLE = {
-  paper: [0.97, 0.97, 0.96, 1] as Rgba,
+export interface PlanStyle {
+  paper: Rgba;
   /** Default cut poche (walls, columns, anything sliced by the cut plane). */
-  cutFill: [0, 0, 0, 1] as Rgba,
-  /** Per-category overrides — empty for now (everything solid black). */
-  cutFillByCategory: {} as Record<string, Rgba>,
-  gridLine: [0.55, 0.55, 0.53, 0.35] as Rgba,
-  edge: [0.05, 0.05, 0.05, 1] as Rgba,
-  symbol: [0.1, 0.1, 0.1, 1] as Rgba,
-  space: [0.45, 0.5, 0.52, 0.7] as Rgba,
-  contour: [0.45, 0.45, 0.45, 0.5] as Rgba,
-  activeContour: [0.3, 0.3, 0.3, 0.7] as Rgba,
-  gridAxis: [0.38, 0.39, 0.41, 0.95] as Rgba,
+  cutFill: Rgba;
+  /** Per-category overrides — empty for now (everything solid). */
+  cutFillByCategory: Record<string, Rgba>;
+  gridLine: Rgba;
+  edge: Rgba;
+  symbol: Rgba;
+  space: Rgba;
+  contour: Rgba;
+  activeContour: Rgba;
+  gridAxis: Rgba;
+}
+
+export const PLAN_STYLES: Record<ResolvedTheme, PlanStyle> = {
+  light: {
+    paper: [0.97, 0.97, 0.96, 1],
+    cutFill: [0, 0, 0, 1],
+    cutFillByCategory: {},
+    gridLine: [0.55, 0.55, 0.53, 0.35],
+    edge: [0.05, 0.05, 0.05, 1],
+    symbol: [0.1, 0.1, 0.1, 1],
+    space: [0.45, 0.5, 0.52, 0.7],
+    contour: [0.45, 0.45, 0.45, 0.5],
+    activeContour: [0.3, 0.3, 0.3, 0.7],
+    gridAxis: [0.38, 0.39, 0.41, 0.95],
+  },
+  dark: {
+    paper: [28 / 255, 28 / 255, 28 / 255, 1],
+    cutFill: [0.82, 0.82, 0.8, 1],
+    cutFillByCategory: {},
+    gridLine: [0.44, 0.43, 0.4, 0.38],
+    edge: [0.86, 0.86, 0.84, 1],
+    symbol: [0.86, 0.87, 0.9, 1],
+    space: [0.5, 0.58, 0.62, 0.7],
+    contour: [0.55, 0.55, 0.55, 0.5],
+    activeContour: [0.7, 0.7, 0.7, 0.7],
+    gridAxis: [0.62, 0.63, 0.65, 0.95],
+  },
 };
 
+/** Back-compat alias: the light (paper) plan style. */
+export const PLAN_STYLE = PLAN_STYLES.light;
+
 /** Cut fill for an element category (seam for future hatches/materials). */
-export function cutFillFor(category?: string): Rgba {
-  return (
-    (category && PLAN_STYLE.cutFillByCategory[category]) || PLAN_STYLE.cutFill
-  );
+export function cutFillFor(category?: string, theme: ResolvedTheme = 'light'): Rgba {
+  const st = PLAN_STYLES[theme];
+  return (category && st.cutFillByCategory[category]) || st.cutFill;
 }
 
 /** Parse `#rgb`/`#rrggbb` (e.g. from `--plan-cut-fill`) into linear-ish 0..1 RGBA. */
