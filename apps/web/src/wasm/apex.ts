@@ -645,14 +645,25 @@ export function apexPreviewStretchTranslate(delta: Vec3): {
   positions: Float32Array | number[];
   normals: Float32Array | number[];
   indices: Uint32Array | number[];
+  /** Junction points touching the moved set (sliding T / corner marker). */
+  junctions: Vec3[];
 } | null {
   const mesh = previewStretchTranslate(delta[0], delta[1], delta[2]);
   if (mesh == null) return null;
-  return mesh as {
+  const m = mesh as {
     positions: Float32Array | number[];
     normals: Float32Array | number[];
     indices: Uint32Array | number[];
+    junctions?: Float32Array;
   };
+  return { ...m, junctions: decodeJunctions(m.junctions) };
+}
+
+function decodeJunctions(flat: Float32Array | undefined): Vec3[] {
+  const out: Vec3[] = [];
+  if (!flat) return out;
+  for (let i = 0; i + 2 < flat.length; i += 3) out.push([flat[i], flat[i + 1], flat[i + 2]]);
+  return out;
 }
 
 /**
@@ -668,18 +679,21 @@ export function apexPreviewPathAnchorEdit(
   normals: Float32Array | number[];
   indices: Uint32Array | number[];
   hide_ids: string[];
+  junctions: Vec3[];
 } {
   const mesh = previewPathAnchorEdit(id, encodePoints(points), rotation) as {
     positions: Float32Array | number[];
     normals: Float32Array | number[];
     indices: Uint32Array | number[];
     hide_ids?: string[];
+    junctions?: Float32Array;
   };
   return {
     positions: mesh.positions,
     normals: mesh.normals,
     indices: mesh.indices,
     hide_ids: mesh.hide_ids ?? [],
+    junctions: decodeJunctions(mesh.junctions),
   };
 }
 

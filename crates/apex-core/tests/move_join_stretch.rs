@@ -233,3 +233,83 @@ fn endpoint_edit_on_t_split_host_remaps_interior() {
         "whole chord at z=-2: {after:?}"
     );
 }
+
+/// Live T-junction preview: dragging / moving an abutting stem along its host
+/// reports the sliding junction point and keeps the stem trimmed at the host
+/// face — cheap join pass, no kernel, document untouched.
+#[test]
+fn tee_junction_preview_slides_along_host() {
+    let mut p = Project::new();
+    let host = wall(&mut p, Vec3::ZERO, Vec3::new(10.0, 0.0, 0.0));
+    let stem = wall(&mut p, Vec3::new(5.0, 0.0, 0.0), Vec3::new(5.0, 0.0, 5.0));
+    let stem_join = p.document().get_element(stem).unwrap().join_start;
+    assert!(stem_join < 0.0, "stem trimmed at host after create");
+
+    // Endpoint drag: tip slides from x=5 to x=7 along the host.
+    let preview = p
+        .preview_path_anchor_edit(
+            stem,
+            &Placement::line(Vec3::new(7.0, 0.0, 0.0), Vec3::new(7.0, 0.0, 5.0)),
+        )
+        .expect("preview");
+    assert!(preview.hide_ids.contains(&stem));
+    assert!(
+        preview
+            .junctions
+            .iter()
+            .any(|j| (j.x - 7.0).abs() < 1e-3 && j.z.abs() < 1e-3),
+        "junction marker at sliding tip: {:?}",
+        preview.junctions
+    );
+    // Ghost stem stays trimmed at the host face (z ≥ half thickness), never
+    // pokes through the host centreline.
+    let min_z = preview
+        .mesh
+        .positions
+        .chunks(3)
+        .map(|v| v[2])
+        .fold(f32::INFINITY, f32::min);
+    assert!(
+        min_z > 0.05,
+        "stem ghost trimmed at host face, min z {min_z}"
+    );
+
+    // Move tool: rigid stem translate along the host.
+    let (_, junctions) = p
+        .preview_translate_joins(&[stem], Vec3::new(-2.0, 0.0, 0.0))
+        .expect("move preview");
+    assert!(
+        junctions
+            .iter()
+            .any(|j| (j.x - 3.0).abs() < 1e-3 && j.z.abs() < 1e-3),
+        "move junction at x=3: {junctions:?}"
+    );
+
+    // Moving the host drags the stem's T junction with it.
+    let (_, junctions) = p
+        .preview_translate_joins(&[host], Vec3::new(0.0, 0.0, -1.0))
+        .expect("host move preview");
+    assert!(
+        junctions.iter().any(|j| (j.z + 1.0).abs() < 1e-3),
+        "junction follows moved host: {junctions:?}"
+    );
+
+    // Document untouched.
+    let pts = curve_pts(&p, stem);
+    assert!((pts[0].x - 5.0).abs() < 1e-4);
+
+    // Preview stays cheap (no kernel): report per-move cost.
+    let t0 = std::time::Instant::now();
+    for i in 0..200 {
+        let x = 4.0 + (i as f32) * 0.01;
+        p.preview_path_anchor_edit(
+            stem,
+            &Placement::line(Vec3::new(x, 0.0, 0.0), Vec3::new(5.0, 0.0, 5.0)),
+        )
+        .unwrap();
+    }
+    eprintln!(
+        "tee preview: {:.3} ms/move",
+        t0.elapsed().as_secs_f64() * 1000.0 / 200.0
+    );
+}
