@@ -112,7 +112,9 @@ impl GeometryKernel for ExternalKernel {
         match self.cache.lock().unwrap().get(&key) {
             Some(Some((p, t))) => {
                 let p: Vec<f64> = p
-                    .as_chunks::<3>().0.iter()
+                    .as_chunks::<3>()
+                    .0
+                    .iter()
                     .flat_map(|c| [c[0] + offset[0], c[1] + offset[1], c[2] + offset[2]])
                     .collect();
                 let mesh = mesh_from_indexed(&p, t);
@@ -198,7 +200,11 @@ pub fn run_job_chain(
                 done.insert(j.key, None);
                 continue;
             };
-            let key = if j.deps.is_empty() { j.key } else { solids.shape_key() };
+            let key = if j.deps.is_empty() {
+                j.key
+            } else {
+                solids.shape_key()
+            };
             let r = run(&solids);
             done.insert(j.key, r.clone());
             results.push((key, r.map(|r| to_shape_frame(&solids, r))));

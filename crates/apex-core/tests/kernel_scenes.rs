@@ -613,4 +613,3 @@ fn bench_house_edits() {
         eprintln!("BENCH {kernel}: {}", out.join("; "));
     }
 }
-

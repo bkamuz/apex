@@ -957,12 +957,19 @@ fn scene(project: &Project) -> Result<JsValue, JsValue> {
     let pick_ids = std::mem::take(&mut dto.pick_ids);
     let edges = std::mem::take(&mut dto.edge_positions);
     let obj = to_js(&dto)?;
-    let set = |k: &str, v: JsValue| js_sys::Reflect::set(&obj, &JsValue::from_str(k), &v).map(|_| ());
-    set("positions", js_sys::Float32Array::from(&positions[..]).into())?;
+    let set =
+        |k: &str, v: JsValue| js_sys::Reflect::set(&obj, &JsValue::from_str(k), &v).map(|_| ());
+    set(
+        "positions",
+        js_sys::Float32Array::from(&positions[..]).into(),
+    )?;
     set("normals", js_sys::Float32Array::from(&normals[..]).into())?;
     set("indices", js_sys::Uint32Array::from(&indices[..]).into())?;
     set("pick_ids", js_sys::Float64Array::from(&pick_ids[..]).into())?;
-    set("edge_positions", js_sys::Float32Array::from(&edges[..]).into())?;
+    set(
+        "edge_positions",
+        js_sys::Float32Array::from(&edges[..]).into(),
+    )?;
     Ok(obj)
 }
 
@@ -2872,7 +2879,10 @@ impl KernelJobDto {
             ops: s.ops,
             solids: s.solids,
             counts: s.counts,
-            deps: deps.into_iter().map(|(i, k)| (i, format!("{k:016x}"))).collect(),
+            deps: deps
+                .into_iter()
+                .map(|(i, k)| (i, format!("{k:016x}")))
+                .collect(),
         }
     }
 }
@@ -2880,7 +2890,12 @@ impl KernelJobDto {
 /// A chained job with dependency `idx` replaced by `points`/`tris`; the
 /// result has a fresh (shape) key and no deps left at `idx`.
 #[wasm_bindgen(js_name = spliceKernelJob)]
-pub fn splice_kernel_job(job: JsValue, idx: usize, points: Vec<f64>, tris: Vec<i32>) -> Result<JsValue, JsValue> {
+pub fn splice_kernel_job(
+    job: JsValue,
+    idx: usize,
+    points: Vec<f64>,
+    tris: Vec<i32>,
+) -> Result<JsValue, JsValue> {
     let job: KernelJobDto = serde_wasm_bindgen::from_value(job).map_err(|e| err(e.to_string()))?;
     let s = apex_geometry::PlanarSolids {
         points: job.points,
@@ -2889,7 +2904,9 @@ pub fn splice_kernel_job(job: JsValue, idx: usize, points: Vec<f64>, tris: Vec<i
         solids: job.solids,
         counts: job.counts,
     };
-    let out = s.splice_indexed(idx, &points, &tris).map_err(|e| err(e.to_string()))?;
+    let out = s
+        .splice_indexed(idx, &points, &tris)
+        .map_err(|e| err(e.to_string()))?;
     let deps = job
         .deps
         .into_iter()
@@ -2924,7 +2941,10 @@ struct KernelResultDto {
 /// Results from the worker: `[{ key, points?, tris? }]` (no points = failed).
 /// Returns the updated scene.
 #[wasm_bindgen(js_name = applyKernelResults)]
-pub fn apply_kernel_results(results: JsValue, stale: Option<Vec<String>>) -> Result<JsValue, JsValue> {
+pub fn apply_kernel_results(
+    results: JsValue,
+    stale: Option<Vec<String>>,
+) -> Result<JsValue, JsValue> {
     let stale: Vec<u64> = stale
         .unwrap_or_default()
         .iter()
