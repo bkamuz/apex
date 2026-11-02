@@ -256,8 +256,6 @@ export default function App() {
   const selectedSectionCutRef = useRef<SectionCutDto | null>(null);
   const selectedSpaceRef = useRef<SpaceDto | null>(null);
   const selectedCountRef = useRef(0);
-  /** Joinable component ids for edit-handle filtering (ref avoids setState loops). */
-  const joinableComponentIdsRef = useRef<Set<string>>(new Set());
   /** Attach Top/Base pick mode: the next clicked roof/slab becomes the target. */
   const attachPickRef = useRef<{ end: 'top' | 'base'; ids: string[] } | null>(null);
   const [attachPick, setAttachPickState] = useState<{ end: 'top' | 'base'; ids: string[] } | null>(null);
@@ -361,11 +359,6 @@ export default function App() {
   selectedSpaceRef.current = selectedSpace;
   selectedCountRef.current = scene?.selected_ids?.length ?? 0;
   sceneRef.current = scene;
-  // Keep joinable ids off syncEditGizmo's deps — applyScene calls setComponents
-  // every time, and a components→syncEditGizmo→applyScene cycle re-rendered forever.
-  joinableComponentIdsRef.current = new Set(
-    components.filter((c) => c.joinable).map((c) => c.id),
-  );
 
   const [shapeEditing, setShapeEditing] = useState(false);
   const [shapeHandle, setShapeHandle] = useState<number | null>(null);
@@ -516,16 +509,12 @@ export default function App() {
         return;
       }
       // A boolean has no geometry of its own to drag; its origin is noise.
-      // Joinable paths expose only endpoints — T-junction mid vertices are
-      // join topology, and dragging them kinked hosts into acute spikes.
-      const joinable =
-        !!el && joinableComponentIdsRef.current.has(el.component_id);
+      // Joinable paths expose every vertex, including T-junction inserts:
+      // grabbing the junction bends the host into a corner and the abutting
+      // wall's tip follows (path stretch). Move/translate still never kinks
+      // a host — that guard lives in plan_stretch_translate (#142).
       const elementAnchors =
-        el?.anchors?.length && el.component_id !== 'apex.boolean'
-          ? joinable && el.anchors.length > 2
-            ? [el.anchors[0], el.anchors[el.anchors.length - 1]]
-            : el.anchors
-          : null;
+        el?.anchors?.length && el.component_id !== 'apex.boolean' ? el.anchors : null;
       const anchors = elementAnchors?.length
         ? elementAnchors
         : ref?.anchors?.length
@@ -1129,12 +1118,7 @@ export default function App() {
         if (selectedSpaceRef.current) return selectedSpaceRef.current.anchors;
         if (selectedReferenceRef.current) return selectedReferenceRef.current.anchors;
         if (selectedCountRef.current !== 1 || !selectedRef.current) return null;
-        const el = selectedRef.current;
-        const joinable = joinableComponentIdsRef.current.has(el.component_id);
-        if (joinable && el.anchors.length > 2) {
-          return [el.anchors[0], el.anchors[el.anchors.length - 1]];
-        }
-        return el.anchors;
+        return selectedRef.current.anchors;
       },
 
       selectedAnchorPlaneElevation: () => selectedAnchorPlaneElevation(),
