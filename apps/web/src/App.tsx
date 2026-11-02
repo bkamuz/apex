@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ThemeSwitcher } from './theme/ThemeSwitcher';
 import { createKeySequence, loadHairline, saveHairline } from './viewport/planStyle';
 import {
   apexAbortUndoGroup,
@@ -3248,6 +3249,7 @@ export default function App() {
                 }}
               />
               <KernelToggle key={kernelEpoch} onScene={(next) => applyScene(next)} />
+              <ThemeSwitcher />
               <LanguageSwitcher />
             </div>
             <input
@@ -3391,7 +3393,6 @@ export default function App() {
                 spaces={activeLevelSpaces}
                 renderer={ready ? rendererRef.current : null}
                 selectedIds={scene?.selected_ids}
-                paper={viewNavigation === 'plan'}
               />
               {/* Main WebGL canvas first so harnesses using querySelector('canvas') stay valid. */}
               <canvas

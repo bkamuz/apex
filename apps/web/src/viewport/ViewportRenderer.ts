@@ -7,7 +7,8 @@ import {
   sanitizeAabb,
   type Aabb,
 } from './fitView';
-import { PLAN_STYLE, effectiveLineWidthPx, parseHexColor, type Rgba } from './planStyle';
+import { PLAN_STYLES, effectiveLineWidthPx, type PlanStyle, type Rgba } from './planStyle';
+import { VIEWPORT_THEMES, themeStore, type ResolvedTheme, type ViewportTheme } from '../theme/theme';
 
 export type Vec3 = [number, number, number];
 
@@ -999,15 +1000,14 @@ export class ViewportRenderer {
   /** Horizontal plan cut height (world Y); defaults with active level elevation. */
   private planCutY = 0;
   private planCutFade = 0.35;
-  /** Cut poche colour; `--plan-cut-fill` on :root overrides PLAN_STYLE.cutFill. */
-  private planCutFill = new Float32Array(
-    parseHexColor(
-      typeof document !== 'undefined'
-        ? getComputedStyle(document.documentElement).getPropertyValue('--plan-cut-fill')
-        : null,
-    ) ?? PLAN_STYLE.cutFill,
-  );
+  /** Active theme palettes (theme/theme.ts, viewport/planStyle.ts). */
+  private theme: ResolvedTheme = 'dark';
+  private vt: ViewportTheme = VIEWPORT_THEMES.dark;
+  private ps: PlanStyle = PLAN_STYLES.dark;
+  /** Cut poche colour for the active theme. */
+  private planCutFill = new Float32Array(PLAN_STYLES.dark.cutFill);
   private hairline = false;
+  private unsubscribeTheme: (() => void) | null = null;
   private sceneAabb: Aabb | null = null;
   private slabPickIds: number[] = [];
   private scratchSlabPicks = new Float32Array(32);
@@ -1049,8 +1049,8 @@ export class ViewportRenderer {
   /** Valid only inside `loop()` so pick/ground rays still recompute after camera edits. */
   private frameMats: CameraMatrices | null = null;
   private readonly scratchLight = new Float32Array([0.45, 0.85, 0.35]);
-  private readonly scratchSky = new Float32Array([0.92, 0.94, 0.98]);
-  private readonly scratchGround = new Float32Array([0.28, 0.3, 0.34]);
+  private readonly scratchSky = new Float32Array(VIEWPORT_THEMES.dark.sky);
+  private readonly scratchGround = new Float32Array(VIEWPORT_THEMES.dark.ground);
   private readonly scratchGhostSky = new Float32Array([0.95, 0.9, 0.75]);
   private readonly scratchGhostGround = new Float32Array([0.45, 0.35, 0.2]);
   private readonly scratchNormalMat = new Float32Array([1, 0, 0, 0, 1, 0, 0, 0, 1]);
@@ -1201,9 +1201,11 @@ export class ViewportRenderer {
     gl.disable(gl.BLEND);
     // Two-sided solids: avoid empty/see-through walls if winding disagrees with the view.
     gl.disable(gl.CULL_FACE);
-    // Match --chrome-viewport (#1c1c1c) so the canvas sits in the industrial shell.
-    gl.clearColor(28 / 255, 28 / 255, 28 / 255, 1);
 
+    // Follow the app-wide Light/Dark theme (UI and viewport switch together).
+    const store = themeStore();
+    this.setTheme(store.resolved());
+    this.unsubscribeTheme = store.subscribe((t) => this.setTheme(t));
     this.bindEvents();
     this.trackChanges();
     // Harness / debug access (Playwright camera checks).
@@ -1666,6 +1668,20 @@ export class ViewportRenderer {
     this.refLineCount = this.uploadThickLines(this.refLineBuf, flatten(segments));
   }
 
+  /** Switch Light/Dark palettes (no reload); the continuous loop redraws next frame. */
+  setTheme(theme: ResolvedTheme): void {
+    this.theme = theme;
+    this.vt = VIEWPORT_THEMES[theme];
+    this.ps = PLAN_STYLES[theme];
+    this.planCutFill.set(this.ps.cutFill);
+    this.scratchSky.set(this.vt.sky);
+    this.scratchGround.set(this.vt.ground);
+  }
+
+  getTheme(): ResolvedTheme {
+    return this.theme;
+  }
+
   /** Revit-style Thin Lines: every line renders as one device pixel. */
   setHairline(on: boolean): void {
     this.hairline = on;
@@ -2041,6 +2057,8 @@ export class ViewportRenderer {
   }
 
   dispose(): void {
+    this.unsubscribeTheme?.();
+    this.unsubscribeTheme = null;
     cancelAnimationFrame(this.raf);
     this.eventAbort.abort();
     const c = this.canvas as HTMLCanvasElement & { __apexRenderer?: ViewportRenderer };
@@ -2909,13 +2927,13 @@ export class ViewportRenderer {
     if (this.gridAxisLineCount === 0) return;
     const gl = this.gl;
     const color: Rgba =
-      this.viewNavigation === 'plan' ? PLAN_STYLE.gridAxis : [0.62, 0.63, 0.65, 0.95];
+      this.viewNavigation === 'plan' ? this.ps.gridAxis : this.vt.gridAxis;
     this.drawLines(this.gridAxisLineVao, this.gridAxisLineCount, color, 1.25, {
       depthFunc: gl.LEQUAL,
       dashPeriodPx: GRID_AXIS_DASH_PERIOD_PX,
       dashDot: true,
     });
-    this.drawLines(this.gridAxisLineVao, this.gridAxisLineCount, [0.62, 0.63, 0.65, 0.4], 1.25, {
+    this.drawLines(this.gridAxisLineVao, this.gridAxisLineCount, this.vt.gridAxisFaint, 1.25, {
       depthFunc: gl.GREATER,
       dashPeriodPx: GRID_AXIS_DASH_PERIOD_PX,
       dashDot: true,
@@ -3100,40 +3118,35 @@ export class ViewportRenderer {
     }
 
     const plan = this.viewNavigation === 'plan';
-    if (plan) {
-      // Plan reads as a drawing: paper background (see planStyle.ts).
-      const p = PLAN_STYLE.paper;
-      gl.clearColor(p[0], p[1], p[2], 1);
-    } else {
-      // Match --chrome-viewport (#1c1c1c) so the canvas sits in the industrial shell.
-      gl.clearColor(28 / 255, 28 / 255, 28 / 255, 1);
-    }
+    // Theme-driven background: plan "paper" or 3D clear (matches --chrome-viewport).
+    const bg = plan ? this.ps.paper : this.vt.clear;
+    gl.clearColor(bg[0], bg[1], bg[2], 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
     // Active level grid (semi-transparent) — no separate Y=0 ground grid.
     this.drawLines(
       this.gridVao,
       this.gridCount,
-      plan ? PLAN_STYLE.gridLine : [0.44, 0.43, 0.40, 0.38],
+      plan ? this.ps.gridLine : this.vt.grid,
       0.8,
     );
     this.drawMeshes(false);
     // Outlines at true depth; solids were polygon-offset back.
     const edgeWidth = plan ? 2.0 : 2.0;
-    const edgeColor: Rgba = plan ? PLAN_STYLE.edge : [0.08, 0.09, 0.1, 1];
+    const edgeColor: Rgba = plan ? this.ps.edge : this.vt.edge;
     this.drawLines(this.edgeVao, this.edgeCount, edgeColor, edgeWidth);
     this.drawGhost();
     // Level contours (inactive dim, active brighter) — double-click to activate.
     this.drawLines(
       this.contourVao,
       this.contourCount,
-      plan ? PLAN_STYLE.contour : [0.5, 0.56, 0.64, 0.45],
+      plan ? this.ps.contour : this.vt.contour,
       2.0,
       true,
     );
     this.drawLines(
       this.activeContourVao,
       this.activeContourCount,
-      plan ? PLAN_STYLE.activeContour : [0.72, 0.84, 0.98, 0.8],
+      plan ? this.ps.activeContour : this.vt.activeContour,
       2.4,
       true,
     );
@@ -3152,7 +3165,7 @@ export class ViewportRenderer {
     if (plan) {
       // Plan symbols are 2D drafting on top of the cut: never dash them where
       // they sit "behind" the wall tops (that read as dashed walls).
-      this.drawLines(this.planSymbolVao, this.planSymbolCount, PLAN_STYLE.symbol, 1.4, {
+      this.drawLines(this.planSymbolVao, this.planSymbolCount, this.ps.symbol, 1.4, {
         overlay: true,
       });
     }
@@ -3161,7 +3174,7 @@ export class ViewportRenderer {
     this.drawOccludedAxis(this.sectionCutFillVao, this.sectionCutFillCount, [0.95, 0.58, 0.28, 0.45], 1.6);
     // Spaces: teal closed boundary — a plan concept, so not drawn in 3D.
     if (plan) {
-      this.drawLines(this.spaceLineVao, this.spaceLineCount, PLAN_STYLE.space, 1.0, {
+      this.drawLines(this.spaceLineVao, this.spaceLineCount, this.ps.space, 1.0, {
         overlay: true,
       });
       this.drawLines(this.viewAnnotationLineVao, this.viewAnnotationLineCount, [0.98, 0.82, 0.35, 0.98], 2.6, {

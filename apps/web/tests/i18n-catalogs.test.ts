@@ -25,3 +25,20 @@ test('thin-lines toolbar strings exist in EN and RU', () => {
     assert.notEqual((en as Record<string, string>)[k], (ru as Record<string, string>)[k]);
   }
 });
+
+test('theme strings exist in EN and RU', () => {
+  for (const k of [
+    'chrome.theme',
+    'chrome.theme.system',
+    'chrome.theme.light',
+    'chrome.theme.dark',
+    'toolbar.theme',
+    'toolbar.themeToLight',
+    'toolbar.themeToDark',
+    'toolbar.themeTitle',
+  ]) {
+    assert.ok((en as Record<string, string>)[k], k);
+    assert.ok((ru as Record<string, string>)[k], k);
+    assert.notEqual((en as Record<string, string>)[k], (ru as Record<string, string>)[k]);
+  }
+});
