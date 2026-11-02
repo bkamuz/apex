@@ -19,6 +19,52 @@ thread_local! {
     static ACTIVE: RefCell<Option<Arc<dyn GeometryKernel>>> = const { RefCell::new(None) };
     static PENDING: RefCell<Vec<u64>> = const { RefCell::new(Vec::new()) };
     static MISSES: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
+    /// Mesh-fallback results standing in for a pending job: mesh hash -> key.
+    static STANDINS: RefCell<std::collections::HashMap<u64, u64>> = RefCell::new(std::collections::HashMap::new());
+}
+
+/// Hash of a mesh's positions and indices (stand-in lookup).
+pub(crate) fn mesh_hash(m: &TriangleMesh) -> u64 {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut eat = |x: u64| {
+        h ^= x;
+        h = h.wrapping_mul(0x100_0000_01b3);
+    };
+    for p in &m.positions {
+        eat(p.to_bits() as u64);
+    }
+    for i in &m.indices {
+        eat(*i as u64);
+    }
+    h
+}
+
+/// The pending job a mesh is standing in for, if any.
+pub(crate) fn standin_for(m: &TriangleMesh) -> Option<u64> {
+    STANDINS.with(|s| {
+        let s = s.borrow();
+        if s.is_empty() {
+            None
+        } else {
+            s.get(&mesh_hash(m)).copied()
+        }
+    })
+}
+
+/// Forget stand-ins (their jobs were taken).
+pub(crate) fn clear_standins() {
+    STANDINS.with(|s| s.borrow_mut().clear());
+}
+
+/// Record `m` as the provisional stand-in for pending job `key`.
+pub(crate) fn record_standin(m: &TriangleMesh, key: u64) {
+    STANDINS.with(|s| {
+        let mut s = s.borrow_mut();
+        if s.len() > 4096 {
+            s.clear();
+        }
+        s.insert(mesh_hash(m), key);
+    });
 }
 
 /// Pending results met on this thread so far. A value built while it moved
@@ -79,9 +125,16 @@ pub(crate) fn kbool(
     op: BooleanOp,
 ) -> Result<TriangleMesh, CsgError> {
     if active() && !a.is_empty() && !b.is_empty() {
+        let before = PENDING.with(|p| p.borrow().len());
         if let Some(m) = kcombine(a, &[(op, b)]) {
             return Ok(m);
         }
+        let key = PENDING.with(|p| p.borrow().get(before).copied());
+        let out = mesh_boolean(a, b, op);
+        if let (Some(key), Ok(m)) = (key, &out) {
+            record_standin(m, key);
+        }
+        return out;
     }
     mesh_boolean(a, b, op)
 }

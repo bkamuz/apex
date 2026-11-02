@@ -26,7 +26,7 @@ const CACHE_LIMIT: usize = 1024;
 #[derive(Default)]
 pub struct ExternalKernel {
     cache: Mutex<HashMap<u64, Option<TriangleMesh>>>,
-    jobs: Mutex<BTreeMap<u64, PlanarSolids>>,
+    jobs: Mutex<BTreeMap<u64, (PlanarSolids, Vec<(usize, u64)>)>>,
 }
 
 /// A finished job: its key and `(points, triangles)`, or `None` on failure.
@@ -37,6 +37,12 @@ pub type KernelResult = (u64, Option<(Vec<f64>, Vec<i32>)>);
 pub struct KernelJob {
     pub key: u64,
     pub solids: PlanarSolids,
+    /// `(solid index, job key)`: that solid is a provisional stand-in for
+    /// another job of the same batch. Splice that job's result in
+    /// ([`PlanarSolids::splice_indexed`]) and run the spliced input; report
+    /// it under the spliced key and this key as stale (see
+    /// [`Project::apply_kernel_results_chained`]).
+    pub deps: Vec<(usize, u64)>,
 }
 
 impl ExternalKernel {
@@ -48,7 +54,7 @@ impl ExternalKernel {
     pub fn take_jobs(&self) -> Vec<KernelJob> {
         std::mem::take(&mut *self.jobs.lock().unwrap())
             .into_iter()
-            .map(|(key, solids)| KernelJob { key, solids })
+            .map(|(key, (solids, deps))| KernelJob { key, solids, deps })
             .collect()
     }
 
@@ -79,7 +85,13 @@ impl GeometryKernel for ExternalKernel {
             Some(None) => return Err(KernelError::Failed("rejected earlier".into())),
             None => {}
         }
-        self.jobs.lock().unwrap().insert(key, solids);
+        let deps: Vec<(usize, u64)> = std::iter::once(base)
+            .chain(tools.iter().map(|(_, m)| *m))
+            .enumerate()
+            .filter_map(|(i, m)| crate::kroute::standin_for(m).map(|k| (i, k)))
+            .filter(|&(_, k)| k != key)
+            .collect();
+        self.jobs.lock().unwrap().insert(key, (solids, deps));
         Err(KernelError::Pending(key))
     }
 }
@@ -107,6 +119,59 @@ impl Default for KernelSlot {
 pub struct KernelStatus {
     pub kernel: String,
     pub pending: usize,
+}
+
+/// Run a batch of jobs, resolving chains in the batch: a job whose deps all
+/// succeeded runs with their results spliced in. Returns results (under the
+/// spliced keys) and the stale keys of chained jobs, for
+/// [`Project::apply_kernel_results_chained`].
+pub fn run_job_chain(
+    jobs: Vec<KernelJob>,
+    mut run: impl FnMut(&PlanarSolids) -> Option<(Vec<f64>, Vec<i32>)>,
+) -> (Vec<KernelResult>, Vec<u64>) {
+    let mut done: HashMap<u64, Option<(Vec<f64>, Vec<i32>)>> = HashMap::new();
+    let mut results = Vec::new();
+    let mut stale = Vec::new();
+    let mut todo = jobs;
+    while !todo.is_empty() {
+        let (ready, wait): (Vec<_>, Vec<_>) = todo.into_iter().partition(|j| {
+            j.deps.iter().all(|(_, k)| done.contains_key(k))
+        });
+        if ready.is_empty() {
+            // Dependencies outside the batch (or a cycle): retry later.
+            stale.extend(wait.iter().map(|j| j.key));
+            break;
+        }
+        for j in ready {
+            let mut solids = j.solids.clone();
+            let mut ok = true;
+            for &(i, k) in &j.deps {
+                match done.get(&k).and_then(|r| r.as_ref()) {
+                    Some((p, t)) => match solids.splice_indexed(i, p, t) {
+                        Ok(s) => solids = s,
+                        Err(_) => ok = false,
+                    },
+                    None => ok = false,
+                }
+            }
+            if j.deps.is_empty() {
+                let r = run(&solids);
+                done.insert(j.key, r.clone());
+                results.push((j.key, r));
+            } else if ok {
+                let key = solids.key();
+                let r = run(&solids);
+                done.insert(j.key, r.clone());
+                results.push((key, r));
+                stale.push(j.key);
+            } else {
+                done.insert(j.key, None);
+                stale.push(j.key);
+            }
+        }
+        todo = wait;
+    }
+    (results, stale)
 }
 
 impl Project {
@@ -150,6 +215,7 @@ impl Project {
 
     /// Jobs queued for the external kernel.
     pub fn take_kernel_jobs(&self) -> Vec<KernelJob> {
+        crate::kroute::clear_standins();
         self.kernel
             .external
             .as_ref()
@@ -160,19 +226,39 @@ impl Project {
     /// Results from the external kernel: `(key, Some((points, tris)))`, or
     /// `None` when it failed. Rebuilds the waiting elements; returns them.
     pub fn apply_kernel_results(&mut self, results: Vec<KernelResult>) -> Vec<ElementId> {
+        self.apply_kernel_results_chained(results, Vec::new())
+    }
+
+    /// [`Self::apply_kernel_results`] plus `stale` job keys: chained jobs
+    /// whose input was a stand-in. Their elements rebuild (now finding the
+    /// spliced results cached) without caching anything under those keys.
+    pub fn apply_kernel_results_chained(
+        &mut self,
+        results: Vec<KernelResult>,
+        stale: Vec<u64>,
+    ) -> Vec<ElementId> {
         self.memo.enter();
-        let out = self.apply_kernel_results_unscoped(results);
+        let out = self.apply_kernel_results_unscoped(results, stale);
         self.memo.leave();
         out
     }
 
-    fn apply_kernel_results_unscoped(&mut self, results: Vec<KernelResult>) -> Vec<ElementId> {
+    fn apply_kernel_results_unscoped(
+        &mut self,
+        results: Vec<KernelResult>,
+        stale: Vec<u64>,
+    ) -> Vec<ElementId> {
         let Some(ext) = self.kernel.external.clone() else {
             return Vec::new();
         };
         let mut ids = Vec::new();
         for (key, r) in results {
             ext.fulfil(key, r.map(|(p, t)| mesh_from_indexed(&p, &t)));
+            if let Some(w) = self.kernel.waiting.lock().unwrap().remove(&key) {
+                ids.extend(w);
+            }
+        }
+        for key in stale {
             if let Some(w) = self.kernel.waiting.lock().unwrap().remove(&key) {
                 ids.extend(w);
             }

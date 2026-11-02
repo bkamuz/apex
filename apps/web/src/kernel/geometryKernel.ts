@@ -122,9 +122,12 @@ export function pumpKernelJobs() {
     const t1 = performance.now();
     const scene = apexApplyKernelResults(results);
     kernelStats.applyMs += performance.now() - t1;
+    // Dependent jobs (roof -> attached walls -> joins) start right away;
+    // the view shows the scene once the chain is done, not every link.
+    pumpKernelJobs();
+    if (inFlight) return;
     const t2 = performance.now();
     onScene?.(scene);
     kernelStats.sinkMs += performance.now() - t2;
-    pumpKernelJobs();
   });
 }

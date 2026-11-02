@@ -17,6 +17,7 @@ pub use roof_attach::AttachEnd;
 pub use slab_shape::{ShapeHandle, ShapeInfo, SlabShape};
 mod solids;
 pub use solids::{element_build_ms, element_builds};
+pub use kernel::run_job_chain;
 mod space_labels;
 pub use booleans::boolean_params;
 

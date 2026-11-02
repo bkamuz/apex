@@ -89,6 +89,8 @@ import {
   initApex,
   apexSetSlabShape,
   apexSlabShapeInfo,
+  apexKernelStatus,
+  apexRunQuery,
 } from './wasm/apex';
 import {
   currentKernel,
@@ -2142,6 +2144,13 @@ export default function App() {
             setKernelEpoch((n) => n + 1);
           },
           kernelStats: () => ({ ...kernelStats, kernel: currentKernel() }),
+          /** Core calls for scripts that run against a production build. */
+          api: {
+            importProject: apexImportProject,
+            listElements: apexListElements,
+            runQuery: apexRunQuery,
+            kernelStatus: apexKernelStatus,
+          },
           /** Run a project command the way the UI does (scene + kernel pump). */
           command: (cmd: Record<string, unknown>) => applyScene(apexCommandScene(cmd)),
           worldToClient: (p: Vec3) => rendererRef.current?.worldToClient(p) ?? null,

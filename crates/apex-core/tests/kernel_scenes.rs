@@ -532,16 +532,12 @@ fn bench_house_edits() {
             rounds += 1;
             jobs_n += jobs.len();
             let t = Instant::now();
-            let results = jobs
-                .iter()
-                .map(|j| {
-                    let r = apex_smlib::run(&j.solids, 1e-3).ok();
-                    (j.key, r.map(|r| (r.points, r.tris)))
-                })
-                .collect();
+            let (results, stale) = apex_core::run_job_chain(jobs, |s| {
+                apex_smlib::run(s, 1e-3).ok().map(|r| (r.points, r.tris))
+            });
             kms += t.elapsed().as_secs_f64() * 1e3;
             let t = Instant::now();
-            p.apply_kernel_results(results);
+            p.apply_kernel_results_chained(results, stale);
             ams += t.elapsed().as_secs_f64() * 1e3;
         }
         format!(" [{rounds} rounds, {jobs_n} jobs, kernel {kms:.0} ms, apply {ams:.0} ms]")
