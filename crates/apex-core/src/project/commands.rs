@@ -180,6 +180,11 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         placement_kind: Option<String>,
     },
+    /// Reset instance overrides back to the species / genus value.
+    ResetElementParams {
+        id: String,
+        params: Vec<String>,
+    },
     DeleteElement {
         id: String,
     },
@@ -403,6 +408,7 @@ impl Command {
         match self {
             Self::CreateElement { .. } => "create_element",
             Self::UpdateElement { .. } => "update_element",
+            Self::ResetElementParams { .. } => "reset_element_params",
             Self::DeleteElement { .. } => "delete_element",
             Self::SetParent { .. } => "set_parent",
             Self::MoveElements { .. } => "move_elements",
@@ -1154,6 +1160,11 @@ impl Project {
                 self.check_params(&component, &params)?;
                 self.update_element(id, Some(params), placement, true)
                     .map_err(e)?;
+                Ok(json!({ "id": id.to_string() }))
+            }
+            Command::ResetElementParams { id, params } => {
+                let id = self.resolve_element(&id)?;
+                self.reset_element_params(id, &params).map_err(e)?;
                 Ok(json!({ "id": id.to_string() }))
             }
             Command::DeleteElement { id } => {
@@ -1948,6 +1959,10 @@ pub fn command_descriptors() -> Vec<PublishedDescriptor> {
          Descriptor::new("Change params and/or replace placement points of an element. Params not listed keep their value.")
             .example("Taller wall", json!({"op": "update_element", "id": "<id>", "params": {"height": 3.5}})),
          obj("update_element", json!({"id": id_schema(), "params": params(), "points": points_schema(), "placement_kind": {"type": "string"}}), &["id"])),
+        ("reset_element_params", "Reset element params",
+         Descriptor::new("Drop instance overrides: each listed param returns to its species value (species-bound params) or to the genus / profile default. See param_provenance.")
+            .example("Window width back to its species", json!({"op": "reset_element_params", "id": "<id>", "params": ["width"]})),
+         obj("reset_element_params", json!({"id": id_schema(), "params": {"type": "array", "items": {"type": "string"}}}), &["id", "params"])),
         ("create_wall_type", "Create wall type",
          Descriptor::new("Create or update a named wall type with its own thickness (a copy of `base`, default apex.wall.rect). Use it by passing params {\"profile\": <returned id>} to place_wall / update_element. Updating an existing type rebuilds every wall that uses it. For a one-off wall you can also pass `thickness` directly in place_wall params.")
             .units("metres")
@@ -2092,7 +2107,7 @@ pub fn query_descriptors() -> Vec<PublishedDescriptor> {
         ("validate", "Validate model", "Check every element: known type, geometry present, watertight, parent exists. `ok` is false on any error.", simple("validate", json!({}), &[])),
         ("list_components", "List element types", "Every installed element type (plugins included) with descriptor and params JSON Schema.", simple("list_components", json!({}), &[])),
         ("get_genus", "Get genus", "One genus: authored and resolved (extends flattened) body, every param with its origin (genus or inherited from which ancestor), and a trial build with default params listing solids, cuts and warnings.", simple("get_genus", json!({"id": {"type": "string"}}), &["id"])),
-        ("param_provenance", "Param provenance", "For one element, where each param value comes from: instance, species, genus or inherited (with the ancestor genus id).", simple("param_provenance", json!({"id": id_schema()}), &["id"])),
+        ("param_provenance", "Param provenance", "For one element, where each param value comes from: instance, species, genus, inherited (with the ancestor genus id) or formula (with its text; read-only).", simple("param_provenance", json!({"id": id_schema()}), &["id"])),
         ("list_genus_species", "List species", "Species of window/door (and plugin opening) genera: id, genus, name, species values, whether it is the genus default and how many instances use it. Alias: list_family_types.", simple("list_genus_species", json!({"genus": {"type": "string", "description": "component id, e.g. apex.window"}}), &[])),
         ("list_grid_axes", "List grid axes", "Grid axes with labels and end points.", simple("list_grid_axes", json!({}), &[])),
         ("list_spaces", "List spaces", "Rooms/spaces with names, levels and outline (world points, m).", simple("list_spaces", json!({}), &[])),
@@ -2265,6 +2280,7 @@ mod tests {
             json!({"op": "attach_top", "ids": ["x"]}),
             json!({"op": "attach_base", "ids": ["x"], "targets": ["y"]}),
             json!({"op": "detach", "ids": ["x"]}),
+            json!({"op": "reset_element_params", "id": "x", "params": ["width"]}),
         ];
         assert_eq!(samples.len(), described.len());
         for s in samples {

@@ -735,7 +735,17 @@ impl Project {
         placement: Option<Placement>,
         record: bool,
     ) -> Result<(), RegistryError> {
-        self.edit_scope(|p| p.update_element_unscoped(id, params, placement, record))
+        self.edit_scope(|p| p.update_element_unscoped(id, params, placement, &[], record))
+    }
+
+    /// Drop instance overrides: each listed param goes back to its species
+    /// value (species-bound genus params) or to the genus / profile default.
+    pub fn reset_element_params(
+        &mut self,
+        id: ElementId,
+        params: &[String],
+    ) -> Result<(), RegistryError> {
+        self.edit_scope(|p| p.update_element_unscoped(id, None, None, params, true))
     }
 
     /// Apply a parameter patch and/or a new placement, then rebuild the mesh.
@@ -751,6 +761,7 @@ impl Project {
         id: ElementId,
         params: Option<ParamMap>,
         placement: Option<Placement>,
+        clear: &[String],
         record: bool,
     ) -> Result<(), RegistryError> {
         let before = if record && !self.history.has_pending() {
@@ -774,6 +785,20 @@ impl Project {
             .normalize_species_key(&element.component_id, &mut patch);
         let current_type = element.params.text(SPECIES_PARAM).map(str::to_string);
         element.params = element.params.merged(&patch);
+        if !clear.is_empty() {
+            let species = current_type
+                .as_deref()
+                .and_then(|t| self.registry.species(t))
+                .filter(|t| t.genus == element.component_id);
+            for key in clear {
+                match species.and_then(|t| t.values.get(key)) {
+                    Some(v) => element.params.set(key.clone(), v.clone()),
+                    None => {
+                        element.params.remove(key);
+                    }
+                }
+            }
+        }
         if let Some(type_id) = self.registry.resolve_instance_type(
             &element.component_id,
             current_type.as_deref(),

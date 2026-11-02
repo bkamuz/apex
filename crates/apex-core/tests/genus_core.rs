@@ -398,3 +398,48 @@ fn window_frame_is_one_seamless_closed_solid() {
         "window cuts its host"
     );
 }
+
+#[test]
+fn reset_element_params_returns_an_override_to_its_species() {
+    let mut p = Project::new();
+    let wall = id(&exec(
+        &mut p,
+        json!({"op": "create_element", "component": "apex.wall", "points": [[0, 0, 0], [6, 0, 0]]}),
+    ));
+    let win = id(&exec(
+        &mut p,
+        json!({"op": "create_element", "component": "apex.window", "points": [[3, 0, 0]], "parent": wall}),
+    ));
+    let source = |p: &Project, k: &str| {
+        let prov = q(p, json!({"op": "param_provenance", "id": win}));
+        let hit = prov
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|x| x["id"] == k)
+            .unwrap()
+            .clone();
+        (
+            hit["source"].as_str().unwrap().to_string(),
+            hit["value"].clone(),
+        )
+    };
+    let (src, species_width) = source(&p, "width");
+    assert_eq!(src, "species");
+    exec(
+        &mut p,
+        json!({"op": "update_element", "id": win, "params": {"sill": 1.1}}),
+    );
+    assert_eq!(source(&p, "sill").0, "instance");
+    exec(
+        &mut p,
+        json!({"op": "reset_element_params", "id": win, "params": ["sill"]}),
+    );
+    let (src, sill) = source(&p, "sill");
+    assert_eq!(src, "genus");
+    assert_ne!(sill, json!(1.1));
+    assert_eq!(source(&p, "width").1, species_width);
+    // One undo step brings the override back.
+    exec(&mut p, json!({"op": "undo"}));
+    assert_eq!(source(&p, "sill"), ("instance".to_string(), json!(1.1)));
+}

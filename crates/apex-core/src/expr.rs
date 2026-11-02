@@ -37,6 +37,27 @@ pub enum Expr {
 }
 
 impl Expr {
+    /// Human-readable formula, e.g. `thickness * 0.5` (shown in the UI).
+    pub fn to_formula(&self) -> String {
+        fn wrap(e: &Expr) -> String {
+            match e {
+                Expr::Add { .. } | Expr::Sub { .. } => format!("({})", e.to_formula()),
+                _ => e.to_formula(),
+            }
+        }
+        match self {
+            Self::Const { value } => format!("{value}"),
+            Self::Param { id } => id.to_string(),
+            Self::Add { lhs, rhs } => format!("{} + {}", lhs.to_formula(), rhs.to_formula()),
+            Self::Sub { lhs, rhs } => format!("{} - {}", lhs.to_formula(), wrap(rhs)),
+            Self::Mul { lhs, rhs } => format!("{} * {}", wrap(lhs), wrap(rhs)),
+            Self::Div { lhs, rhs } => format!("{} / {}", wrap(lhs), wrap(rhs)),
+            Self::Neg { value } => format!("-{}", wrap(value)),
+            Self::Min { lhs, rhs } => format!("min({}, {})", lhs.to_formula(), rhs.to_formula()),
+            Self::Max { lhs, rhs } => format!("max({}, {})", lhs.to_formula(), rhs.to_formula()),
+        }
+    }
+
     pub fn constant(value: f64) -> Self {
         Self::Const { value }
     }

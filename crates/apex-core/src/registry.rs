@@ -67,11 +67,14 @@ pub enum RegistryError {
 pub struct ParamProvenance {
     pub id: String,
     pub value: ParamValue,
-    /// `instance`, `species`, `genus` or `inherited`.
+    /// `instance`, `species`, `genus`, `inherited` or `formula`.
     pub source: &'static str,
     /// Species id, or the genus id that declared / last overrode the default.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub from: Option<String>,
+    /// Formula text for `formula` params (read-only in the UI).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub formula: Option<String>,
 }
 
 /// Everything the document needs to turn elements into geometry.
@@ -564,9 +567,57 @@ impl ComponentRegistry {
                 value,
                 source,
                 from,
+                formula: None,
             });
         }
+        self.profile_provenance(def, &resolved, raw, &mut out)?;
         Ok(out)
+    }
+
+    /// Params of the bound profile (the wall / slab / roof species): formulas,
+    /// type values and per-instance overrides.
+    fn profile_provenance(
+        &self,
+        def: &ComponentDefinition,
+        resolved: &ParamMap,
+        raw: &ParamMap,
+        out: &mut Vec<ParamProvenance>,
+    ) -> Result<(), RegistryError> {
+        let Some(profile) = def
+            .profile_param_id()
+            .and_then(|p| resolved.text(p))
+            .and_then(|id| self.profiles.get(id))
+        else {
+            return Ok(());
+        };
+        let merged = profile.merge_eval_params(raw)?;
+        for spec in &profile.params {
+            if out.iter().any(|p| p.id == spec.id) {
+                continue;
+            }
+            let Some(value) = merged.get(&spec.id).cloned() else {
+                continue;
+            };
+            let formula = profile.formulas.get(&spec.id).map(Expr::to_formula);
+            let source = if formula.is_some() {
+                "formula"
+            } else if !spec.binding.is_type()
+                && raw.get(&spec.id).is_some()
+                && !value_eq(Some(&spec.default), Some(&value))
+            {
+                "instance"
+            } else {
+                "species"
+            };
+            out.push(ParamProvenance {
+                id: spec.id.clone(),
+                value,
+                source,
+                from: (source != "instance").then(|| profile.id.clone()),
+                formula,
+            });
+        }
+        Ok(())
     }
 
     /// Build a genus's geometry in `frame` (no host / neighbour context).
@@ -2659,5 +2710,59 @@ mod tests {
             .expect("upsert");
         let stored = registry.profile("user.l").expect("stored");
         assert!(matches!(stored.spec, ProfileSpec::Polygon { .. }));
+    }
+
+    #[test]
+    fn provenance_reports_profile_formulas_and_species_values() {
+        let mut registry = ComponentRegistry::with_builtins();
+        let mut formulas = BTreeMap::new();
+        formulas.insert(
+            "core".into(),
+            Expr::param("thickness") * Expr::constant(0.5),
+        );
+        registry
+            .upsert_profile(ProfileType {
+                id: "user.cored".into(),
+                display_name: "Cored".into(),
+                category: "wall".into(),
+                params: vec![
+                    ParamSpec::length("thickness", "Thickness", 0.3).as_type(),
+                    ParamSpec::length("core", "Core", 0.15).as_type(),
+                ],
+                spec: ProfileSpec::Rectangle {
+                    width: Expr::param("thickness"),
+                    height: Expr::constant(1.0),
+                },
+                type_values: ParamMap::new(),
+                formulas,
+                sketch: None,
+            })
+            .expect("upsert");
+        let mut raw = ParamMap::new();
+        raw.set("profile", ParamValue::Text("user.cored".into()));
+        let prov = registry.param_provenance("apex.wall", &raw).expect("prov");
+        let get = |k: &str| {
+            prov.iter()
+                .find(|p| p.id == k)
+                .unwrap_or_else(|| panic!("{k}: {prov:?}"))
+                .clone()
+        };
+        assert_eq!(get("allow_join_start").source, "genus");
+        assert_eq!(get("thickness").source, "species");
+        assert_eq!(get("thickness").from.as_deref(), Some("user.cored"));
+        let core = get("core");
+        assert_eq!(core.source, "formula");
+        assert_eq!(core.formula.as_deref(), Some("thickness * 0.5"));
+        assert_eq!(core.value, ParamValue::Length(0.15));
+    }
+
+    #[test]
+    fn formula_text_parenthesises_sums() {
+        let e = (Expr::param("a") + Expr::constant(1.0)) * Expr::param("b");
+        assert_eq!(e.to_formula(), "(a + 1) * b");
+        assert_eq!(
+            Expr::param("w").max(Expr::constant(0.1)).to_formula(),
+            "max(w, 0.1)"
+        );
     }
 }
