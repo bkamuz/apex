@@ -2213,6 +2213,22 @@ export default function App() {
                   : { id: null, name: `pick:${pickId}`, category: '?', pickId };
               });
           },
+          /** Select a datum by kind and id (tests / screenshots). */
+          selectDatum: (kind: string, id: string | null) => {
+            const fn = {
+              reference: apexSelectReference,
+              grid: apexSelectGridAxis,
+              construction: apexSelectConstructionLine,
+              section: apexSelectSectionCut,
+              space: apexSelectSpace,
+            }[kind];
+            if (fn) applyScene(fn(id));
+          },
+          /** Select several elements at once (tests / screenshots). */
+          selectElements: (ids: string[]) => {
+            applyScene(apexSelectElement(ids[0] ?? null));
+            for (const id of ids.slice(1)) applyScene(apexToggleSelectElement(id));
+          },
           clearSelection: () => {
             applyScene(apexSelectElement(null));
             applyScene(apexSelectReference(null));
