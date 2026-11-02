@@ -613,3 +613,74 @@ fn bench_house_edits() {
         eprintln!("BENCH {kernel}: {}", out.join("; "));
     }
 }
+
+/// Profiling loop for the edit command path (ext kernel, mesh stand-ins):
+/// `PROF_EDIT=move|species|roof cargo test --release -- --ignored profile_edit`.
+#[test]
+#[ignore]
+fn profile_edit() {
+    let mut p = scenes::e2e_house();
+    fn pump(p: &mut Project) -> f64 {
+        let mut cmd_free = 0.0;
+        loop {
+            let jobs = p.take_kernel_jobs();
+            if jobs.is_empty() {
+                return cmd_free;
+            }
+            let t = Instant::now();
+            let (r, s) = apex_core::run_job_chain(jobs, |s| {
+                apex_smlib::run(s, 1e-3).ok().map(|r| (r.points, r.tris))
+            });
+            cmd_free += t.elapsed().as_secs_f64() * 1e3;
+            p.apply_kernel_results_chained(r, s);
+        }
+    }
+    p.set_external_kernel();
+    pump(&mut p);
+    let wall = p
+        .document()
+        .elements()
+        .filter(|e| e.component_id == "apex.wall")
+        .find(|e| {
+            p.document().get_mesh(e.id).is_some_and(|m| {
+                m.aabb()
+                    .is_some_and(|(a, b)| b[0] - a[0] < 0.5 && a[0] > 4.0 && a[1] < 1.0)
+            })
+        })
+        .map(|e| e.id.to_string())
+        .unwrap();
+    let pick = |c: &str| {
+        p.document()
+            .elements()
+            .find(|e| e.component_id == c)
+            .map(|e| e.id.to_string())
+            .unwrap()
+    };
+    let window = pick("apex.window");
+    let roof = pick("apex.roof.pitched");
+    let kind = std::env::var("PROF_EDIT").unwrap_or_else(|_| "move".into());
+    let n = 30;
+    let t = Instant::now();
+    let mut kms = 0.0;
+    for i in 0..n {
+        let e = match kind.as_str() {
+            "species" => {
+                json!({"op":"set_element_species","id":window,"species": if i % 2 == 0 {"apex.window.double-1500x1400"} else {"apex.window.single-1200x1400"}})
+            }
+            "roof" => {
+                json!({"op":"update_element","id":roof,"params":{"overhang": if i % 2 == 0 {0.7} else {0.5}}})
+            }
+            _ => {
+                json!({"op":"move_elements","ids":[wall],"delta":[if i % 2 == 0 {0.3} else {-0.3},0,0]})
+            }
+        };
+        ex(&mut p, e);
+        kms += pump(&mut p);
+    }
+    let all = t.elapsed().as_secs_f64() * 1e3;
+    eprintln!(
+        "PROF {kind}: {:.1} ms/edit, kernel {:.1}",
+        all / n as f64,
+        kms / n as f64
+    );
+}

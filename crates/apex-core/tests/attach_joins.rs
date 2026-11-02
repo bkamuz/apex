@@ -177,3 +177,67 @@ fn closed_rectangle_under_hip_roof_is_one_ring_pair() {
     // Outer ring + two room holes.
     check(&p, &ids, 3, 1.2);
 }
+
+/// Attached clips are reused when a roof edit cannot reach the walls (a
+/// longer overhang) and redone when it can (a steeper pitch).
+#[test]
+fn roof_edit_reuses_or_redoes_attached_clips() {
+    let mut p = Project::new();
+    let a = wall(&mut p, json!([[0, 0, 0], [8, 0, 0]]), json!({}));
+    let b = wall(&mut p, json!([[8, 0, 0], [8, 0, 5]]), json!({}));
+    hip(&mut p, [0.0, 2.5], [8.0, 2.5], 5.0);
+    let roof = p
+        .document()
+        .elements()
+        .find(|e| e.component_id == "apex.roof.pitched")
+        .unwrap()
+        .id
+        .to_string();
+    ex(&mut p, json!({"op":"attach_top","ids":[a,b]}));
+    let before = combined(&p, &[a.clone(), b.clone()]);
+    ex(
+        &mut p,
+        json!({"op":"update_element","id":roof,"params":{"overhang":0.9}}),
+    );
+    let longer = combined(&p, &[a.clone(), b.clone()]);
+    // Ground truth: the same scene built fresh with the longer overhang.
+    let mut q = Project::new();
+    let qa = wall(&mut q, json!([[0, 0, 0], [8, 0, 0]]), json!({}));
+    let qb = wall(&mut q, json!([[8, 0, 0], [8, 0, 5]]), json!({}));
+    ex(
+        &mut q,
+        json!({"op":"create_element","component":"apex.roof.pitched","points":[[0.0,0,2.5],[8.0,0,2.5]],"params":{"roof_type":"hip","width":5.0,"overhang":0.9,"slope_by":"angle","pitch":0.5}}),
+    );
+    ex(&mut q, json!({"op":"attach_top","ids":[qa,qb]}));
+    let fresh = combined(&q, &[qa, qb]);
+    assert!(
+        (mesh_volume(&fresh) - mesh_volume(&longer)).abs() < 1e-4,
+        "edited {} vs fresh {} (before {})",
+        mesh_volume(&longer),
+        mesh_volume(&fresh),
+        mesh_volume(&before)
+    );
+    check(&p, &[a.clone(), b.clone()], 1, 1.2);
+    ex(
+        &mut p,
+        json!({"op":"update_element","id":roof,"params":{"pitch":0.8}}),
+    );
+    let steeper = combined(&p, &[a.clone(), b.clone()]);
+    let mut q = Project::new();
+    let qa = wall(&mut q, json!([[0, 0, 0], [8, 0, 0]]), json!({}));
+    let qb = wall(&mut q, json!([[8, 0, 0], [8, 0, 5]]), json!({}));
+    ex(
+        &mut q,
+        json!({"op":"create_element","component":"apex.roof.pitched","points":[[0.0,0,2.5],[8.0,0,2.5]],"params":{"roof_type":"hip","width":5.0,"overhang":0.9,"slope_by":"angle","pitch":0.8}}),
+    );
+    ex(&mut q, json!({"op":"attach_top","ids":[qa,qb]}));
+    let fresh = combined(&q, &[qa, qb]);
+    assert!(
+        (mesh_volume(&fresh) - mesh_volume(&steeper)).abs() < 1e-4,
+        "edited {} vs fresh {}",
+        mesh_volume(&steeper),
+        mesh_volume(&fresh)
+    );
+    assert!((mesh_volume(&steeper) - mesh_volume(&longer)).abs() > 1e-4);
+    check(&p, &[a, b], 1, 1.2);
+}
