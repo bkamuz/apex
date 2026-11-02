@@ -24,12 +24,14 @@ export const PLAN_STYLE = {
 
 /** Cut fill for an element category (seam for future hatches/materials). */
 export function cutFillFor(category?: string): Rgba {
-  return (category && PLAN_STYLE.cutFillByCategory[category]) || PLAN_STYLE.cutFill;
+  return (
+    (category && PLAN_STYLE.cutFillByCategory[category]) || PLAN_STYLE.cutFill
+  );
 }
 
 /** Parse `#rgb`/`#rrggbb` (e.g. from `--plan-cut-fill`) into linear-ish 0..1 RGBA. */
 export function parseHexColor(value: string | null | undefined): Rgba | null {
-  const v = (value ?? '').trim();
+  const v = (value ?? "").trim();
   const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(v);
   if (!m) return null;
   const hex = m[1].length === 3 ? m[1].replace(/./g, (c) => c + c) : m[1];
@@ -38,23 +40,32 @@ export function parseHexColor(value: string | null | undefined): Rgba | null {
 }
 
 /** Revit-style "Thin Lines": every line is one device pixel. */
-export function effectiveLineWidthPx(widthCssPx: number, dpr: number, hairline: boolean): number {
+export function effectiveLineWidthPx(
+  widthCssPx: number,
+  dpr: number,
+  hairline: boolean,
+): number {
   return hairline ? 1 : widthCssPx * dpr;
 }
 
-const HAIRLINE_KEY = 'apex.hairline';
+const HAIRLINE_KEY = "apex.hairline";
 
-export function loadHairline(storage: Pick<Storage, 'getItem'> | undefined): boolean {
+export function loadHairline(
+  storage: Pick<Storage, "getItem"> | undefined,
+): boolean {
   try {
-    return storage?.getItem(HAIRLINE_KEY) === '1';
+    return storage?.getItem(HAIRLINE_KEY) === "1";
   } catch {
     return false;
   }
 }
 
-export function saveHairline(storage: Pick<Storage, 'setItem'> | undefined, on: boolean): void {
+export function saveHairline(
+  storage: Pick<Storage, "setItem"> | undefined,
+  on: boolean,
+): void {
   try {
-    storage?.setItem(HAIRLINE_KEY, on ? '1' : '0');
+    storage?.setItem(HAIRLINE_KEY, on ? "1" : "0");
   } catch {
     /* storage unavailable */
   }
@@ -66,21 +77,21 @@ export function saveHairline(storage: Pick<Storage, 'setItem'> | undefined, on: 
  */
 export function createKeySequence(sequence: string, windowMs = 900) {
   const seq = sequence.toLowerCase();
-  let typed = '';
+  let typed = "";
   let last = -Infinity;
   return {
     feed(key: string, timeMs: number): boolean {
       const k = key.toLowerCase();
       if (k.length !== 1) {
-        typed = '';
+        typed = "";
         return false;
       }
-      if (timeMs - last > windowMs) typed = '';
+      if (timeMs - last > windowMs) typed = "";
       last = timeMs;
       typed += k;
-      if (!seq.startsWith(typed)) typed = seq.startsWith(k) ? k : '';
+      if (!seq.startsWith(typed)) typed = seq.startsWith(k) ? k : "";
       if (typed === seq) {
-        typed = '';
+        typed = "";
         return true;
       }
       return false;
