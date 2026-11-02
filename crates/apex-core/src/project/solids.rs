@@ -851,12 +851,16 @@ impl Project {
 
     /// Rebuild meshes of `ids` in place (no history, no cascade).
     pub(crate) fn refresh_meshes(&mut self, ids: impl IntoIterator<Item = ElementId>) {
+        if let Some(stale) = self.deferred.as_mut() {
+            stale.extend(ids);
+            return;
+        }
         self.memo.enter();
         self.refresh_meshes_unscoped(ids);
         self.memo.leave();
     }
 
-    fn refresh_meshes_unscoped(&mut self, ids: impl IntoIterator<Item = ElementId>) {
+    pub(super) fn refresh_meshes_unscoped(&mut self, ids: impl IntoIterator<Item = ElementId>) {
         let mut seen = std::collections::BTreeSet::new();
         for id in ids {
             if !seen.insert(id) {

@@ -200,6 +200,10 @@ pub struct Project {
     /// When >0, placement edits skip connected-joinable stretch (batch translate
     /// plans stretch itself so multi-select movers are not double-pulled).
     suppress_join_stretch: u32,
+    /// Inside an edit scope ([`Self::edit_scope`]): ids whose meshes are
+    /// stale. Data changes land at once; meshes are rebuilt once, together,
+    /// when the outermost scope ends ([`Self::flush_meshes`]).
+    deferred: Option<std::collections::BTreeSet<ElementId>>,
 }
 
 impl Default for Project {
@@ -230,6 +234,7 @@ impl Project {
             kernel: Default::default(),
             memo: Default::default(),
             suppress_join_stretch: 0,
+            deferred: None,
         };
         project.ensure_default_views();
         project
@@ -582,12 +587,92 @@ impl Project {
         element.join_start = update.join_start;
         element.join_end = update.join_end;
 
-        let mesh = self.build_element_mesh_with_cuts(&element)?;
-        self.document.update_element(element, mesh);
+        self.put_element(element)?;
         if let Some(snap) = before {
             self.history.record_before(snap);
         }
         Ok(())
+    }
+
+    /// Run an edit with mesh rebuilds deferred to its end (see
+    /// [`Self::deferred`]); nested scopes join the outer one.
+    pub(crate) fn edit_scope<R>(&mut self, f: impl FnOnce(&mut Self) -> R) -> R {
+        let outer = self.deferred.is_none();
+        if outer {
+            self.deferred = Some(Default::default());
+        }
+        self.memo.enter();
+        let out = f(self);
+        if outer {
+            self.flush_meshes();
+            self.deferred = None;
+        }
+        self.memo.leave();
+        out
+    }
+
+    /// Write `element`; its mesh is rebuilt now, or at the end of the edit
+    /// scope (keeping the old mesh meanwhile).
+    fn put_element(&mut self, element: Element) -> Result<(), RegistryError> {
+        if let Some(stale) = self.deferred.as_mut() {
+            stale.insert(element.id);
+            let mesh = self
+                .document
+                .get_mesh(element.id)
+                .cloned()
+                .unwrap_or_default();
+            self.document.update_element(element, mesh);
+            return Ok(());
+        }
+        let mesh = self.build_element_mesh_with_cuts(&element)?;
+        let deps = self.solid_dependents(&element);
+        let id = element.id;
+        self.document.update_element(element, mesh);
+        let cluster = self
+            .document
+            .get_element(id)
+            .filter(|e| self.in_attached_cluster(e))
+            .map(|e| self.join_cluster(e))
+            .unwrap_or_default();
+        self.refresh_meshes(deps.into_iter().chain(cluster));
+        Ok(())
+    }
+
+    /// Mark meshes stale (in an edit scope) or rebuild them now.
+    pub(crate) fn mark_stale(&mut self, ids: impl IntoIterator<Item = ElementId>) {
+        match self.deferred.as_mut() {
+            Some(stale) => stale.extend(ids),
+            None => self.refresh_meshes(ids),
+        }
+    }
+
+    /// Rebuild every stale mesh once, with its solid dependents (and any
+    /// roof-attached cluster) in the final state. Element data is final,
+    /// so the solid memo stays warm across the whole pass. Hosts go before
+    /// their openings, which read the host mesh.
+    fn flush_meshes(&mut self) {
+        let Some(stale) = self.deferred.take() else {
+            return;
+        };
+        let mut all = stale.clone();
+        for id in &stale {
+            let Some(e) = self.document.get_element(*id) else {
+                continue;
+            };
+            all.extend(self.solid_dependents(e));
+            if self.in_attached_cluster(e) {
+                all.extend(self.join_cluster(e));
+            }
+        }
+        let is_opening = |p: &Self, id: &ElementId| {
+            p.document
+                .get_element(*id)
+                .and_then(|e| p.registry.get(&e.component_id))
+                .is_some_and(|d| d.host_cut.is_some())
+        };
+        let (openings, hosts): (Vec<_>, Vec<_>) =
+            all.into_iter().partition(|id| is_opening(self, id));
+        self.refresh_meshes_unscoped(hosts.into_iter().chain(openings));
     }
 
     pub fn update_element(
@@ -597,10 +682,7 @@ impl Project {
         placement: Option<Placement>,
         record: bool,
     ) -> Result<(), RegistryError> {
-        self.memo.enter();
-        let out = self.update_element_unscoped(id, params, placement, record);
-        self.memo.leave();
-        out
+        self.edit_scope(|p| p.update_element_unscoped(id, params, placement, record))
     }
 
     /// Apply a parameter patch and/or a new placement, then rebuild the mesh.
@@ -680,24 +762,11 @@ impl Project {
             .registry
             .get(&element.component_id)
             .is_some_and(|d| d.joinable);
-        let mesh = self.build_element_mesh_with_cuts(&element)?;
-        let new_dependents = self.solid_dependents(&element);
-        self.document.update_element(element, mesh);
-        // A wall in a roof-attached join cluster renders a share of the
-        // whole cluster, which only reads right once this edit is in the
-        // document: rebuild the cluster (itself included) now.
-        let cluster = self
-            .document
-            .get_element(id)
-            .filter(|e| self.in_attached_cluster(e))
-            .map(|e| self.join_cluster(e))
-            .unwrap_or_default();
-        self.refresh_meshes(
-            old_dependents
-                .into_iter()
-                .chain(new_dependents)
-                .chain(cluster),
-        );
+        // Dependents of the new state (and an attached cluster, which only
+        // reads right once the edit is in the document) follow when the
+        // scope flushes; the old state's dependents are marked now.
+        self.put_element(element)?;
+        self.mark_stale(old_dependents);
         if is_opening {
             if let Some(parent_id) = parent_id {
                 let _ = self.rebuild_element(parent_id);
@@ -728,9 +797,7 @@ impl Project {
                         }
                     }
                 }
-                if let Ok(mesh) = self.build_element_mesh_with_cuts(&child) {
-                    self.document.update_element(child, mesh);
-                }
+                let _ = self.put_element(child);
             }
         }
 
@@ -1440,10 +1507,7 @@ impl Project {
         delta: Vec3,
         record: bool,
     ) -> Result<(), RegistryError> {
-        self.memo.enter();
-        let out = self.translate_elements_unscoped(ids, delta, record);
-        self.memo.leave();
-        out
+        self.edit_scope(|p| p.translate_elements_unscoped(ids, delta, record))
     }
 
     /// Move one or more elements by a plan-space offset.
@@ -2560,10 +2624,7 @@ impl Project {
         id: ElementId,
         type_id: &str,
     ) -> Result<(), RegistryError> {
-        self.memo.enter();
-        let out = self.set_element_species_unscoped(id, type_id);
-        self.memo.leave();
-        out
+        self.edit_scope(|p| p.set_element_species_unscoped(id, type_id))
     }
 
     /// Swap an element to another type, possibly of another genus (window
