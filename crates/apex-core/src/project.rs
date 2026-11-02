@@ -2679,7 +2679,9 @@ impl Project {
         } else {
             // GOST 21.101: if the project already letters its axes in
             // Cyrillic, continue in Cyrillic (skipping Ё З Й О Х Ц Ч Щ Ъ Ы Ь).
-            let cyrillic = labels.iter().any(|l| cyrillic_letter_index(l.trim()).is_some());
+            let cyrillic = labels
+                .iter()
+                .any(|l| cyrillic_letter_index(l.trim()).is_some());
             if cyrillic {
                 let max = labels
                     .iter()
@@ -6020,8 +6022,8 @@ fn letter_label(index: u32) -> String {
 /// GOST 21.101 grid-axis alphabet: Cyrillic capitals without
 /// Ё, З, Й, О, Х, Ц, Ч, Щ, Ъ, Ы, Ь.
 const GOST_CYRILLIC: [char; 22] = [
-    'А', 'Б', 'В', 'Г', 'Д', 'Е', 'Ж', 'И', 'К', 'Л', 'М', 'Н', 'П', 'Р', 'С', 'Т', 'У', 'Ф',
-    'Ш', 'Э', 'Ю', 'Я',
+    'А', 'Б', 'В', 'Г', 'Д', 'Е', 'Ж', 'И', 'К', 'Л', 'М', 'Н', 'П', 'Р', 'С', 'Т', 'У', 'Ф', 'Ш',
+    'Э', 'Ю', 'Я',
 ];
 
 /// `А`→0 … `Я`→21, `АА`→22 …; `None` unless every char is in [`GOST_CYRILLIC`].
