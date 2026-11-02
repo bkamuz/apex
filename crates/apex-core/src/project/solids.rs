@@ -217,7 +217,7 @@ impl Project {
 
     /// `extend`: walls attached to a roof are built up to the roof ridge
     /// (clipped later in [`Self::solid_mesh`]).
-    fn own_solid_at(&self, element: &Element, extend: bool) -> Option<LayeredSolid> {
+    pub(super) fn own_solid_at(&self, element: &Element, extend: bool) -> Option<LayeredSolid> {
         let def = self.registry.get(&element.component_id)?;
         if def.host_cut.is_some() {
             return None;
@@ -568,6 +568,10 @@ impl Project {
             let (piece, _, _) = self.solid_piece_full(e)?;
             pieces.push((*id, piece));
         }
+        let key = self.cluster_clip_key(&pieces);
+        if let Some(hit) = key.and_then(|k| self.attach_clips.lock().ok()?.get(&k).cloned()) {
+            return Some((hit, pieces));
+        }
         // The joined cluster, exact: pieces tile it.
         let mut whole = LayeredSolid::union_all(pieces.iter().map(|(_, s)| s));
         // Each attached wall's share of the cut: its own plan column, so a
@@ -601,6 +605,12 @@ impl Project {
         let union = crate::kroute::kbool(&base, &cutter, BooleanOp::Subtract).ok()?;
         if !apex_geometry::is_closed(&union) {
             return None;
+        }
+        if let (Some(k), Ok(mut clips)) = (key, self.attach_clips.lock()) {
+            if clips.len() > 4096 {
+                clips.clear();
+            }
+            clips.insert(k, union.clone());
         }
         Some((union, pieces))
     }

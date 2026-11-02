@@ -197,6 +197,10 @@ pub struct Project {
     history: History,
     pub(crate) kernel: kernel::KernelSlot,
     pub(crate) memo: memo::SolidMemo,
+    /// Roof/slab-attached clip results keyed by the inputs that reach the
+    /// element's plan bounds (see `roof_attach::clip_key`): a roof edit
+    /// that only changes the roof away from a wall (overhang) reuses it.
+    pub(crate) attach_clips: std::sync::Mutex<std::collections::HashMap<u64, TriangleMesh>>,
     /// When >0, placement edits skip connected-joinable stretch (batch translate
     /// plans stretch itself so multi-select movers are not double-pulled).
     suppress_join_stretch: u32,
@@ -236,6 +240,7 @@ impl Project {
             history: History::default(),
             kernel: Default::default(),
             memo: Default::default(),
+            attach_clips: Default::default(),
             suppress_join_stretch: 0,
             deferred: None,
             edited: Default::default(),

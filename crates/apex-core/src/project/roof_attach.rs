@@ -340,6 +340,10 @@ impl Project {
             [bb[2] + 5.0, bb[3] + 5.0],
             [bb[0] - 5.0, bb[3] + 5.0],
         ];
+        let key = clip_key(piece, own, &tops, &bases, bb);
+        if let Some(hit) = key.and_then(|k| self.attach_clips.lock().ok()?.get(&k).cloned()) {
+            return Some(hit);
+        }
         // Exact prism part first: outside the target footprints the
         // element keeps its own top and base.
         let mut keep = piece.clone();
@@ -421,12 +425,21 @@ impl Project {
         };
         // A kernel failure must never leave the build-time extension
         // standing: fall back to the element's own unattached extent.
-        Some(cut().unwrap_or_else(|| {
+        if let Some(mesh) = cut() {
+            if let (Some(k), Ok(mut clips)) = (key, self.attach_clips.lock()) {
+                if clips.len() > 4096 {
+                    clips.clear();
+                }
+                clips.insert(k, mesh.clone());
+            }
+            return Some(mesh);
+        }
+        Some({
             keep_own
                 .subtract(&LayeredSolid::polygon_prism(&big, own.1, hi))
                 .subtract(&LayeredSolid::polygon_prism(&big, lo, own.0))
                 .to_mesh()
-        }))
+        })
     }
 
     /// Attach (`targets: Some`) or detach (`None`) the `end` of every
@@ -959,4 +972,193 @@ mod tests {
         assert!((top_at(&p, w1, 4.0) - 3.0).abs() < 1e-3);
         assert!(top_at(&p, w2, 4.0) > 3.5);
     }
+}
+
+impl Project {
+    /// [`clip_key`] for an attached join cluster: each member's piece and,
+    /// for attached members, their targets clipped to that piece's bounds.
+    pub(crate) fn cluster_clip_key(&self, pieces: &[(ElementId, LayeredSolid)]) -> Option<u64> {
+        let mut h: u64 = 0x9e37_79b9_7f4a_7c15;
+        for (id, piece) in pieces {
+            let e = self.document.get_element(*id)?;
+            let (tops, bases, own) = if self.wall_attaches_top(e) {
+                (
+                    self.attach_surfaces(e, piece, AttachEnd::Top),
+                    self.attach_surfaces(e, piece, AttachEnd::Base),
+                    self.own_solid_at(e, false)?.y_range()?,
+                )
+            } else {
+                (Vec::new(), Vec::new(), (0.0, 0.0))
+            };
+            let k = clip_key(piece, own, &tops, &bases, plan_bounds(piece))?;
+            h = (h ^ k).wrapping_mul(0x100_0000_01b3).rotate_left(17);
+        }
+        Some(h)
+    }
+}
+
+fn plan_bounds(piece: &LayeredSolid) -> [f64; 4] {
+    let mut bb = [f64::MAX, f64::MAX, f64::MIN, f64::MIN];
+    for q in piece.footprint().iter().flatten().flatten() {
+        bb = [
+            bb[0].min(q[0]),
+            bb[1].min(q[1]),
+            bb[2].max(q[0]),
+            bb[3].max(q[1]),
+        ];
+    }
+    bb
+}
+
+/// Hash of everything an attach clip reads, restricted to the piece's plan
+/// bounds `bb` (padded): the piece itself, its own range, and each target's
+/// surface and footprint clipped to that box. Parts of a roof beyond the
+/// box (a longer overhang) cannot touch the piece, so they do not count.
+fn clip_key(
+    piece: &LayeredSolid,
+    own: (f64, f64),
+    tops: &[AttachSurface],
+    bases: &[AttachSurface],
+    bb: [f64; 4],
+) -> Option<u64> {
+    const PAD: f64 = 0.05;
+    let rect = [bb[0] - PAD, bb[1] - PAD, bb[2] + PAD, bb[3] + PAD];
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let mut eat = |x: f64| {
+        for b in ((x * 1e6).round() as i64).to_le_bytes() {
+            h ^= b as u64;
+            h = h.wrapping_mul(0x100_0000_01b3);
+        }
+    };
+    let m = piece.to_mesh();
+    for p in &m.positions {
+        eat(*p as f64);
+    }
+    eat(m.indices.len() as f64);
+    eat(own.0);
+    eat(own.1);
+    for (tag, list) in [(1.0, tops), (2.0, bases)] {
+        for s in list {
+            eat(tag);
+            for q in clip_rect(
+                &s.footprint
+                    .iter()
+                    .map(|p| [p[0], 0.0, p[1]])
+                    .collect::<Vec<_>>(),
+                rect,
+            ) {
+                eat(q[0]);
+                eat(q[2]);
+            }
+            // The surface by its edges (boundary and creases) clipped to
+            // the box, as an unordered set, plus heights at the box
+            // corners and centre: independent of how it is triangulated.
+            let pts: Vec<[f64; 3]> = s
+                .surface
+                .boundary
+                .iter()
+                .chain(s.surface.interior.iter())
+                .copied()
+                .collect();
+            let nb = s.surface.boundary.len();
+            let mut segs: Vec<[i64; 6]> = (0..nb)
+                .map(|i| [i, (i + 1) % nb])
+                .chain(s.surface.creases.iter().copied().map(|[a, b]| [a, b]))
+                .filter_map(|[a, b]| clip_segment(*pts.get(a)?, *pts.get(b)?, rect))
+                .map(|(p, q)| {
+                    let r = |v: f64| (v * 1e6).round() as i64;
+                    let (p, q) = if (r(p[0]), r(p[2])) <= (r(q[0]), r(q[2])) {
+                        (p, q)
+                    } else {
+                        (q, p)
+                    };
+                    [r(p[0]), r(p[1]), r(p[2]), r(q[0]), r(q[1]), r(q[2])]
+                })
+                .collect();
+            segs.sort_unstable();
+            segs.dedup();
+            for sg in segs {
+                for v in sg {
+                    eat(v as f64 * 1e-6);
+                }
+            }
+            let (cx, cz) = ((rect[0] + rect[2]) / 2.0, (rect[1] + rect[3]) / 2.0);
+            for (x, z) in [
+                (rect[0], rect[1]),
+                (rect[2], rect[1]),
+                (rect[2], rect[3]),
+                (rect[0], rect[3]),
+                (cx, cz),
+            ] {
+                eat(s.surface.height_at(x, z).unwrap_or(f64::NAN));
+            }
+        }
+    }
+    Some(h)
+}
+
+/// Liang–Barsky clip of a segment to the plan rectangle (x/z).
+fn clip_segment(p: [f64; 3], q: [f64; 3], r: [f64; 4]) -> Option<([f64; 3], [f64; 3])> {
+    let d = [q[0] - p[0], q[1] - p[1], q[2] - p[2]];
+    let (mut t0, mut t1) = (0.0f64, 1.0f64);
+    for (dp, lim) in [
+        (-d[0], p[0] - r[0]),
+        (d[0], r[2] - p[0]),
+        (-d[2], p[2] - r[1]),
+        (d[2], r[3] - p[2]),
+    ] {
+        if dp == 0.0 {
+            if lim < 0.0 {
+                return None;
+            }
+        } else {
+            let t = lim / dp;
+            if dp < 0.0 {
+                t0 = t0.max(t);
+            } else {
+                t1 = t1.min(t);
+            }
+        }
+    }
+    if t0 > t1 {
+        return None;
+    }
+    let at = |t: f64| [p[0] + d[0] * t, p[1] + d[1] * t, p[2] + d[2] * t];
+    Some((at(t0), at(t1)))
+}
+
+/// Sutherland–Hodgman clip of a planar polygon (`[x, y, z]`, plan = x/z)
+/// to the plan rectangle `[x0, z0, x1, z1]`; `y` is interpolated.
+fn clip_rect(poly: &[[f64; 3]], r: [f64; 4]) -> Vec<[f64; 3]> {
+    let mut out = poly.to_vec();
+    let edges: [(usize, f64, bool); 4] = [
+        (0, r[0], true),
+        (2, r[1], true),
+        (0, r[2], false),
+        (2, r[3], false),
+    ];
+    for (axis, v, keep_ge) in edges {
+        let inside = |p: &[f64; 3]| if keep_ge { p[axis] >= v } else { p[axis] <= v };
+        let src = std::mem::take(&mut out);
+        for i in 0..src.len() {
+            let a = src[i];
+            let b = src[(i + 1) % src.len()];
+            let (ia, ib) = (inside(&a), inside(&b));
+            if ia {
+                out.push(a);
+            }
+            if ia != ib {
+                let t = (v - a[axis]) / (b[axis] - a[axis]);
+                out.push([
+                    a[0] + (b[0] - a[0]) * t,
+                    a[1] + (b[1] - a[1]) * t,
+                    a[2] + (b[2] - a[2]) * t,
+                ]);
+            }
+        }
+        if out.is_empty() {
+            break;
+        }
+    }
+    out
 }
