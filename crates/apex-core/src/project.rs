@@ -1682,6 +1682,133 @@ impl Project {
         updates
     }
 
+    /// Cheap join pass for drag previews (no kernel, no document mutation).
+    ///
+    /// Applies `overrides` (new placements) to a clone of each affected
+    /// joinable group, then re-plans corner miters / T-junction trims for the
+    /// overridden paths against their peers. Returns every element whose
+    /// preview geometry differs from the live one (overrides plus abutting
+    /// stems whose trims changed) and the junction points touching the
+    /// overridden set — the sliding T / corner points the UI marks while
+    /// dragging. Full SMLib joins still land on commit.
+    pub(crate) fn preview_join_pass(
+        &self,
+        overrides: &BTreeMap<ElementId, Placement>,
+    ) -> (BTreeMap<ElementId, Element>, Vec<Vec3>) {
+        use apex_geometry::{plan_distance, JOIN_SNAP};
+        let mut out: BTreeMap<ElementId, Element> = BTreeMap::new();
+        let mut junctions: Vec<Vec3> = Vec::new();
+        for (id, placement) in overrides {
+            if let Some(el) = self.document.get_element(*id) {
+                let mut el = el.clone();
+                el.placement = placement.clone();
+                out.insert(*id, el);
+            }
+        }
+        // Group overridden joinables by (component, level).
+        let mut groups: Vec<((String, LevelId), Vec<ElementId>)> = Vec::new();
+        for el in out.values() {
+            if self
+                .registry
+                .get(&el.component_id)
+                .is_some_and(|d| d.joinable)
+            {
+                let key = (el.component_id.clone(), el.level_id);
+                match groups.iter_mut().find(|(k, _)| *k == key) {
+                    Some((_, ids)) => ids.push(el.id),
+                    None => groups.push((key, vec![el.id])),
+                }
+            }
+        }
+        for ((component_id, level_id), movers) in groups {
+            // Pool of segments with overrides applied.
+            let mut pool: BTreeMap<ElementId, crate::path_join::JoinableSegment> = BTreeMap::new();
+            for other in self.document.elements() {
+                if other.component_id != component_id || other.level_id != level_id {
+                    continue;
+                }
+                let seg = match out.get(&other.id) {
+                    Some(over) => joinable_segment(&self.registry, over),
+                    None => joinable_segment(&self.registry, other),
+                };
+                if let Some(seg) = seg {
+                    pool.insert(other.id, seg);
+                }
+            }
+            for mover in &movers {
+                let Some(seg) = pool.get(mover).cloned() else {
+                    continue;
+                };
+                let peers: Vec<_> = pool
+                    .values()
+                    .filter(|p| p.id != *mover)
+                    .cloned()
+                    .collect();
+                for update in plan_joins(&seg, &peers) {
+                    let Some(entry) = pool.get_mut(&update.id) else {
+                        continue;
+                    };
+                    let offsets_changed = (entry.join_start - update.join_start).abs() > 1e-5
+                        || (entry.join_end - update.join_end).abs() > 1e-5;
+                    if let Some(Placement::Curve { curve }) = &update.placement {
+                        entry.curve = curve.clone();
+                    }
+                    entry.join_start = update.join_start;
+                    entry.join_end = update.join_end;
+                    // Host splits alone don't change the mesh; skip them so a
+                    // host with openings keeps its live (cut) solid.
+                    if !out.contains_key(&update.id) && !offsets_changed {
+                        continue;
+                    }
+                    let el = out.entry(update.id).or_insert_with(|| {
+                        self.document
+                            .get_element(update.id)
+                            .cloned()
+                            .expect("pool element")
+                    });
+                    if let Some(p) = &update.placement {
+                        el.placement = p.clone();
+                    }
+                    el.join_start = update.join_start;
+                    el.join_end = update.join_end;
+                }
+            }
+            // Junction points touching the movers: T tips and shared corners.
+            let push = |junctions: &mut Vec<Vec3>, p: Vec3| {
+                if !junctions.iter().any(|q| plan_distance(*q, p) <= JOIN_SNAP) {
+                    junctions.push(p);
+                }
+            };
+            for seg in pool.values() {
+                for at_start in [true, false] {
+                    let tip = if at_start { seg.curve.start() } else { seg.curve.end() };
+                    for host in pool.values() {
+                        if host.id == seg.id {
+                            continue;
+                        }
+                        if !movers.contains(&seg.id) && !movers.contains(&host.id) {
+                            continue;
+                        }
+                        let near_end = plan_distance(tip, host.curve.start()) <= JOIN_SNAP
+                            || plan_distance(tip, host.curve.end()) <= JOIN_SNAP;
+                        if near_end {
+                            push(&mut junctions, tip);
+                            continue;
+                        }
+                        if let Some((hit, t, dist)) =
+                            crate::path_join::closest_on_host(&host.curve, tip)
+                        {
+                            if dist <= JOIN_SNAP && (0.05..=0.95).contains(&t) {
+                                push(&mut junctions, hit);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        (out, junctions)
+    }
+
     /// Ghost mesh of **connected-stretch peers only** for a Move translate.
     ///
     /// Does not mutate the document. Movers themselves are rigid translates —
@@ -1692,6 +1819,18 @@ impl Project {
         ids: &[ElementId],
         delta: Vec3,
     ) -> Result<TriangleMesh, RegistryError> {
+        Ok(self.preview_translate_joins(ids, delta)?.0)
+    }
+
+    /// Move preview with live joins: ghost of stretch peers plus abutting
+    /// stems re-trimmed by a cheap join pass (movers excluded — the UI
+    /// translates those from the live scene), and junction points touching
+    /// the moved set for the sliding marker. No kernel call.
+    pub fn preview_translate_joins(
+        &self,
+        ids: &[ElementId],
+        delta: Vec3,
+    ) -> Result<(TriangleMesh, Vec<Vec3>), RegistryError> {
         let mut moving: std::collections::BTreeSet<ElementId> = std::collections::BTreeSet::new();
         for id in ids {
             if self.document.get_element(*id).is_none() {
@@ -1701,17 +1840,27 @@ impl Project {
             moving.extend(self.document.descendants_of(*id));
         }
         let stretch = self.plan_connected_stretch_translate(&moving, delta);
+        let mut overrides: BTreeMap<ElementId, Placement> = BTreeMap::new();
+        for id in &moving {
+            if let Some(el) = self.document.get_element(*id) {
+                if el.placement.curve().is_some() {
+                    overrides.insert(*id, el.placement.translated(delta));
+                }
+            }
+        }
+        for update in stretch {
+            overrides.insert(update.id, update.placement);
+        }
+        let (previews, junctions) = self.preview_join_pass(&overrides);
         let mut mesh = TriangleMesh::empty();
         // Recipe mesh only (no host-cut / boolean) — preview must stay cheap.
         // Skip edges: ghost overlay does not draw them.
-        for update in stretch {
-            let Some(el) = self.document.get_element(update.id) else {
+        for preview in previews.values() {
+            if moving.contains(&preview.id) {
                 continue;
-            };
-            let mut preview = el.clone();
-            preview.placement = update.placement;
+            }
             if let Ok(mut part) = self.registry.build_element_mesh(
-                &preview,
+                preview,
                 self.work_plane(preview.level_id),
                 self.document.references(),
             ) {
@@ -1719,7 +1868,7 @@ impl Project {
                 mesh.append(&part);
             }
         }
-        Ok(mesh)
+        Ok((mesh, junctions))
     }
 
     /// Ghost mesh for dragging a path element's anchors (node / endpoint edit).
@@ -1735,7 +1884,7 @@ impl Project {
         &self,
         id: ElementId,
         new_placement: &Placement,
-    ) -> Result<(TriangleMesh, Vec<ElementId>), RegistryError> {
+    ) -> Result<PathAnchorPreview, RegistryError> {
         let source = self
             .document
             .get_element(id)
@@ -1778,21 +1927,27 @@ impl Project {
             },
         );
 
-        let mut hide: std::collections::BTreeSet<ElementId> = std::collections::BTreeSet::new();
-        let mut mesh = TriangleMesh::empty();
+        // Seat every ghost on its own level plane so a mismatched active
+        // level (or unflat stretch peer) cannot tilt the preview in 3D.
+        let mut overrides: BTreeMap<ElementId, Placement> = BTreeMap::new();
         for update in &updates {
-            hide.insert(update.id);
-            hide.extend(self.document.descendants_of(update.id));
             let Some(el) = self.document.get_element(update.id) else {
                 continue;
             };
-            let mut preview = el.clone();
-            // Seat every ghost on its own level plane so a mismatched active
-            // level (or unflat stretch peer) cannot tilt the preview in 3D.
-            let elev = self.work_plane(preview.level_id).origin.y;
-            preview.placement = update.placement.with_elevation(elev);
+            let elev = self.work_plane(el.level_id).origin.y;
+            overrides.insert(update.id, update.placement.with_elevation(elev));
+        }
+        // Cheap join pass: re-trims T stems / miters on the small override
+        // set and reports sliding junction points (no kernel call).
+        let (previews, junctions) = self.preview_join_pass(&overrides);
+
+        let mut hide: std::collections::BTreeSet<ElementId> = std::collections::BTreeSet::new();
+        let mut mesh = TriangleMesh::empty();
+        for preview in previews.values() {
+            hide.insert(preview.id);
+            hide.extend(self.document.descendants_of(preview.id));
             if let Ok(mut part) = self.registry.build_element_mesh(
-                &preview,
+                preview,
                 self.work_plane(preview.level_id),
                 self.document.references(),
             ) {
@@ -1800,7 +1955,11 @@ impl Project {
                 mesh.append(&part);
             }
         }
-        Ok((mesh, hide.into_iter().collect()))
+        Ok(PathAnchorPreview {
+            mesh,
+            hide_ids: hide.into_iter().collect(),
+            junctions,
+        })
     }
 
     /// Duplicate elements, optionally offsetting the copies. One undo step.
@@ -4248,9 +4407,10 @@ mod tests {
                 ParamMap::new(),
             )
             .expect("b");
-        let (mesh, hide) = project
+        let preview = project
             .preview_path_anchor_edit(a, &Placement::line(Vec3::ZERO, Vec3::new(6.0, 0.0, 1.0)))
             .expect("preview");
+        let (mesh, hide) = (preview.mesh, preview.hide_ids);
         assert!(!mesh.is_empty(), "source + peer must remesh for ghost");
         assert!(mesh.edges.is_empty(), "ghost skips edge polylines");
         assert!(hide.contains(&a), "hide edited wall");
@@ -5866,4 +6026,16 @@ fn tag_normals(mesh: &mut TriangleMesh, tag: f32) {
         let v = Vec3::new(n[0], n[1], n[2]).normalize_or_zero() * tag;
         n.copy_from_slice(&v.to_array());
     }
+}
+
+
+/// Result of [`Project::preview_path_anchor_edit`].
+#[derive(Debug, Clone)]
+pub struct PathAnchorPreview {
+    /// Recipe ghost of the edited path, stretch peers and re-trimmed T stems.
+    pub mesh: TriangleMesh,
+    /// Live solids (and descendants) the UI hides while the ghost shows.
+    pub hide_ids: Vec<ElementId>,
+    /// Junction points (T tips on hosts, shared corners) for the UI marker.
+    pub junctions: Vec<Vec3>,
 }

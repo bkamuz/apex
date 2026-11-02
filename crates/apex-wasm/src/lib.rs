@@ -2066,13 +2066,15 @@ pub fn preview_stretch_translate(dx: f32, dy: f32, dz: f32) -> Result<JsValue, J
         if ids.is_empty() {
             return Err(err("Nothing selected to preview"));
         }
-        let mesh = project
-            .preview_stretch_translate(&ids, Vec3::new(dx, dy, dz))
+        let (mesh, junctions) = project
+            .preview_translate_joins(&ids, Vec3::new(dx, dy, dz))
             .map_err(err)?;
-        if mesh.is_empty() {
+        if mesh.is_empty() && junctions.is_empty() {
             return Ok(JsValue::NULL);
         }
-        Ok(mesh_buffers_to_js(&mesh.positions, &mesh.normals, &mesh.indices).into())
+        let obj = mesh_buffers_to_js(&mesh.positions, &mesh.normals, &mesh.indices);
+        set_junctions(&obj, &junctions);
+        Ok(obj.into())
     })
 }
 
@@ -2091,10 +2093,12 @@ pub fn preview_path_anchor_edit(
         let placement = project
             .placement_from_element_anchors(element, &points, rotation)
             .map_err(err)?;
-        let (mesh, hide) = project
+        let preview = project
             .preview_path_anchor_edit(element, &placement)
             .map_err(err)?;
+        let (mesh, hide) = (preview.mesh, preview.hide_ids);
         let obj = mesh_buffers_to_js(&mesh.positions, &mesh.normals, &mesh.indices);
+        set_junctions(&obj, &preview.junctions);
         let hide_arr = js_sys::Array::new_with_length(hide.len() as u32);
         for (i, hid) in hide.iter().enumerate() {
             hide_arr.set(i as u32, JsValue::from_str(&hid.to_string()));
@@ -2102,6 +2106,17 @@ pub fn preview_path_anchor_edit(
         let _ = js_sys::Reflect::set(&obj, &JsValue::from_str("hide_ids"), &hide_arr);
         Ok(obj.into())
     })
+}
+
+/// Attach junction points (flat xyz `Float32Array`) for the sliding marker.
+fn set_junctions(obj: &js_sys::Object, points: &[Vec3]) {
+    let arr = js_sys::Float32Array::new_with_length((points.len() * 3) as u32);
+    for (i, p) in points.iter().enumerate() {
+        arr.set_index((i * 3) as u32, p.x);
+        arr.set_index((i * 3 + 1) as u32, p.y);
+        arr.set_index((i * 3 + 2) as u32, p.z);
+    }
+    let _ = js_sys::Reflect::set(obj, &JsValue::from_str("junctions"), &arr);
 }
 
 /// Copy mesh buffers into JS typed arrays (no per-element serde).

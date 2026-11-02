@@ -330,7 +330,7 @@ fn set_join_offset(
     s.touched = true;
 }
 
-fn closest_on_host(curve: &Curve, tip: Vec3) -> Option<(Vec3, f32, f32)> {
+pub(crate) fn closest_on_host(curve: &Curve, tip: Vec3) -> Option<(Vec3, f32, f32)> {
     match curve {
         Curve::Line { a, b } => closest_on_segment_xz(*a, *b, tip),
         Curve::Polyline { points } => {
