@@ -2986,7 +2986,8 @@ export class ViewportRenderer {
     const cross = this.snapShape === 1;
     gl.uniform1f(u.uPointSize, (cross ? 17 : 11) * dpr);
     gl.uniform1i(u.uShape, this.snapShape);
-    if (cross) gl.uniform4f(u.uColor, 1.0, 0.45, 0.2, 1);
+    // #ff8c00 (dark orange); blending is off, so it renders as-is.
+    if (cross) gl.uniform4f(u.uColor, 1.0, 140 / 255, 0.0, 1);
     else gl.uniform4f(u.uColor, 0.95, 0.78, 0.18, 1);
     gl.bindVertexArray(this.snapVao);
     gl.drawArrays(gl.POINTS, 0, this.snapCount);
