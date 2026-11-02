@@ -30,6 +30,9 @@ await page.evaluate(() => {
 await page.waitForTimeout(500);
 const els = await page.evaluate(() => window.__apexTest.api.listElements().map((e) => ({ id: e.id, c: e.category, comp: e.component_id })));
 const pick = (pred) => els.find(pred)?.id;
+// An instance override on the first window, so the badge + reset show.
+const win = pick((e) => e.comp === 'apex.window');
+if (win) await page.evaluate((i) => window.__apexTest.command({ op: 'update_element', id: i, params: { sill: 1.05 } }), win);
 const shots = [
   ['wall', pick((e) => e.c === 'wall')],
   ['slab', pick((e) => e.c === 'slab')],
@@ -54,6 +57,9 @@ for (const [name, id] of shots) {
 const walls = els.filter((e) => e.c === 'wall').slice(0, 3).map((e) => e.id);
 await page.evaluate((ids) => { window.__apexTest.clearSelection(); window.__apexTest.selectElements(ids); }, walls);
 await shoot('multi-walls');
+const mixed = [walls[0], pick((e) => e.comp === 'apex.window')].filter(Boolean);
+await page.evaluate((ids) => { window.__apexTest.clearSelection(); window.__apexTest.selectElements(ids); }, mixed);
+await shoot('multi-mixed');
 const scene = await page.evaluate(async () => (await import('/src/wasm/apex.ts')).apexGetScene());
 for (const [kind, list, name] of [
   ['grid', scene.grid_axes, 'grid'],

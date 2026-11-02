@@ -2922,6 +2922,18 @@ export default function App() {
   };
 
   const selectedIds = scene?.selected_ids ?? [];
+  const selectedElementsList = useMemo(
+    () => (selectedIds.length > 1 ? apexGetSelectedElements() : []),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [scene],
+  );
+  const profileUsage = useMemo(() => {
+    const out: Record<string, number> = {};
+    for (const element of scene?.elements ?? []) {
+      if (element.profile_id) out[element.profile_id] = (out[element.profile_id] ?? 0) + 1;
+    }
+    return out;
+  }, [scene]);
   const tools = useMemo(() => registryRef.current.list(), [components]);
   const placementComponent = tool.componentId
     ? (components.find((item) => item.id === tool.componentId) ?? null)
@@ -3044,6 +3056,51 @@ export default function App() {
           />
         ) : null
       }
+      speciesSection={
+        selected && selectedComponent?.default_species ? (
+          <GenusSpeciesSection
+            part="params"
+            element={selected}
+            component={selectedComponent}
+            components={components}
+            onScene={applyScene}
+            onError={setError}
+          />
+        ) : null
+      }
+      selectedElements={selectedElementsList}
+      components={components}
+      profileUsage={profileUsage}
+      onUpdateMany={(patch) => {
+        const ids = selectedElementsList.map((element) => element.id);
+        if (ids.length === 0) return;
+        try {
+          applyScene(
+            apexCommandScene({
+              op: 'batch',
+              commands: ids.map((id) => ({ op: 'update_element', id, params: patch })),
+            }),
+          );
+          // Keep the whole selection after the edit.
+          if (apexGetSelectedElements().length !== ids.length) {
+            applyScene(apexSelectElement(ids[0]));
+            for (const id of ids.slice(1)) applyScene(apexToggleSelectElement(id));
+          }
+          setError(null);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+        }
+      }}
+      onResetParams={(params) => {
+        if (!selected) return;
+        try {
+          applyScene(apexCommandScene({ op: 'reset_element_params', id: selected.id, params }));
+          if (apexGetSelectedElements()[0]?.id !== selected.id) applyScene(apexSelectElement(selected.id));
+          setError(null);
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+        }
+      }}
       shapeSection={
         shapeTarget && shapeInfo ? (
           <SlabShapePanel
