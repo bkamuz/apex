@@ -313,3 +313,55 @@ fn tee_junction_preview_slides_along_host() {
         t0.elapsed().as_secs_f64() * 1000.0 / 200.0
     );
 }
+
+/// Grabbing the T-junction vertex on the host and dragging it bends the host
+/// into a corner at that point; the abutting wall's tip follows. Preview
+/// (cheap, no kernel) and commit agree.
+#[test]
+fn grab_tee_junction_bends_host_and_stem_follows() {
+    let mut p = Project::new();
+    let host = wall(&mut p, Vec3::ZERO, Vec3::new(10.0, 0.0, 0.0));
+    let stem = wall(&mut p, Vec3::new(5.0, 0.0, 0.0), Vec3::new(5.0, 0.0, 5.0));
+    let pts = curve_pts(&p, host);
+    assert_eq!(pts.len(), 3, "host split at the T: {pts:?}");
+    assert!((pts[1] - Vec3::new(5.0, 0.0, 0.0)).length() < 1e-4);
+
+    let bent = [
+        Vec3::ZERO,
+        Vec3::new(6.0, 0.0, 1.5),
+        Vec3::new(10.0, 0.0, 0.0),
+    ];
+    let placement = p
+        .placement_from_element_anchors(host, &bent, 0.0)
+        .expect("junction edit");
+
+    let t0 = std::time::Instant::now();
+    let preview = p
+        .preview_path_anchor_edit(host, &placement)
+        .expect("preview");
+    eprintln!("bend preview {:.3} ms", t0.elapsed().as_secs_f64() * 1e3);
+    assert!(preview.hide_ids.contains(&host) && preview.hide_ids.contains(&stem));
+    assert!(
+        preview
+            .junctions
+            .iter()
+            .any(|j| (*j - bent[1]).length() < 1e-3),
+        "junction at the dragged corner: {:?}",
+        preview.junctions
+    );
+
+    p.update_element(host, None, Some(placement), true)
+        .expect("commit");
+    let after = curve_pts(&p, host);
+    assert_eq!(after.len(), 3);
+    assert!(
+        (after[1] - bent[1]).length() < 1e-3,
+        "host bent at grip: {after:?}"
+    );
+    let s = curve_pts(&p, stem);
+    assert!((s[0] - bent[1]).length() < 1e-3, "stem tip follows: {s:?}");
+    assert!(
+        (s[1] - Vec3::new(5.0, 0.0, 5.0)).length() < 1e-3,
+        "stem far end fixed"
+    );
+}

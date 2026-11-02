@@ -20,12 +20,15 @@ await page.evaluate(() => {
 });
 await page.waitForTimeout(300);
 const STEM = process.env.MODE === 'stem';
+const MID = process.env.MODE === 'mid';
 // stem: Wall 6 (B axis, x 5..10 at z=4) abuts the mid partition at a T —
 // drag its start along the host.
 await page.evaluate((stem) => window.__apexTest.selectNear('wall', stem ? [7.5, 0, 4] : [5, 1.5, 4]), STEM);
 await page.waitForTimeout(300);
 const anchors = await page.evaluate(async () => (await import('/src/wasm/apex.ts')).apexGetSelected()?.anchors);
-const end = STEM ? anchors[0] : anchors[anchors.length - 1];
+const handles = await page.evaluate(() => window.__apexTest.selectedAnchors?.() ?? null);
+// mid: grab the T-junction vertex (5,0,4) on host Wall 5 itself.
+const end = MID ? [5, 0, 4] : STEM ? anchors[0] : anchors[anchors.length - 1];
 const h = await page.evaluate((p) => window.__apexTest.worldToClient(p), end);
 const t = await page.evaluate((p) => window.__apexTest.worldToClient(p), STEM ? [end[0], end[1], end[2] + 1.5] : [end[0] + 1.5, end[1], end[2]]);
 await page.mouse.move(h[0], h[1]);
@@ -47,5 +50,5 @@ const after = await page.evaluate(async () => {
   const m = await import('/src/wasm/apex.ts');
   return m.apexListElements().filter((e) => e.category === 'wall').map((e) => { m.apexSelectElement(e.id); return [e.name, m.apexGetSelected()?.anchors]; });
 });
-console.log(JSON.stringify({ times, junctionMarkers }));
+console.log(JSON.stringify({ times, junctionMarkers, handles: handles?.length ?? null, after }));
 await browser.close();
