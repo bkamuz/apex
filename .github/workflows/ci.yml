@@ -56,6 +56,10 @@ jobs:
         working-directory: apps/web
         run: npm run build
 
+      - name: Web unit tests
+        working-directory: apps/web
+        run: npm run test:unit
+
       - name: MCP tests
         working-directory: packages/apex-mcp
         run: |
