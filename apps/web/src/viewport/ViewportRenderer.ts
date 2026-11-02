@@ -71,6 +71,8 @@ export const GRID_MARGIN_CELLS = 4;
 const GRID_DEFAULT_HALF = 20;
 /** World-space chunk length for thick lines (avoids screen-space width blow-ups). */
 const MAX_THICK_SEGMENT_LEN = 48;
+/** Grid-axis dash-dot period in CSS px (dash ≈ 22, gap, dot, gap). */
+const GRID_AXIS_DASH_PERIOD_PX = 36;
 /**
  * Orbit pitch clamp (radians). Just shy of ±π/2 so lookAt with Y-up never
  * gimbal-flips; turntable can still go nearly top-down / under the model.
@@ -350,12 +352,18 @@ precision highp float;
 in float vDashCoord;
 uniform vec4 uColor;
 uniform float uDashPeriodPx;
+uniform float uDashDot;
 out vec4 outColor;
 void main(){
   if (uDashPeriodPx > 0.5) {
-    float t = mod(vDashCoord, uDashPeriodPx);
-    // ~50% duty: dash then gap.
-    if (t > uDashPeriodPx * 0.5) discard;
+    float t = mod(vDashCoord, uDashPeriodPx) / uDashPeriodPx;
+    if (uDashDot > 0.5) {
+      // GOST/Revit dash-dot: long dash, gap, dot, gap.
+      if ((t > 0.62 && t < 0.76) || t > 0.86) discard;
+    } else if (t > 0.5) {
+      // ~50% duty: dash then gap.
+      discard;
+    }
   }
   outColor = uColor;
 }`;
@@ -470,6 +478,7 @@ type LineUniforms = {
   uLineWidthPx: WebGLUniformLocation | null;
   uColor: WebGLUniformLocation | null;
   uDashPeriodPx: WebGLUniformLocation | null;
+  uDashDot: WebGLUniformLocation | null;
 };
 
 type PointUniforms = {
@@ -487,6 +496,8 @@ type LineDrawOpts = {
   depthFunc?: number;
   /** Screen-space dash period in CSS pixels; 0 = solid. */
   dashPeriodPx?: number;
+  /** Dash-dot (штрихпунктир) instead of plain dashes. */
+  dashDot?: boolean;
 };
 
 function meshUniforms(gl: WebGL2RenderingContext, prog: WebGLProgram): MeshUniforms {
@@ -522,12 +533,6 @@ function meshUniforms(gl: WebGL2RenderingContext, prog: WebGLProgram): MeshUnifo
   };
 }
 
-/** Grid bubble circles are 24 segments × 2 endpoints. */
-const GRID_BUBBLE_SEGMENTS = 24;
-const GRID_BUBBLE_FLOATS = GRID_BUBBLE_SEGMENTS * 2 * 3;
-/** Target on-screen bubble radius in CSS pixels (plan view rescale). */
-const PLAN_BUBBLE_RADIUS_PX = 14;
-
 type Saved3DView = {
   camera: CameraState;
   projection: ProjectionMode;
@@ -540,6 +545,7 @@ function lineUniforms(gl: WebGL2RenderingContext, prog: WebGLProgram): LineUnifo
     uLineWidthPx: gl.getUniformLocation(prog, 'uLineWidthPx'),
     uColor: gl.getUniformLocation(prog, 'uColor'),
     uDashPeriodPx: gl.getUniformLocation(prog, 'uDashPeriodPx'),
+    uDashDot: gl.getUniformLocation(prog, 'uDashDot'),
   };
 }
 
@@ -944,9 +950,6 @@ export class ViewportRenderer {
   private gridAxisLineVao: WebGLVertexArrayObject;
   private gridAxisLineBuf: WebGLBuffer;
   private gridAxisLineCount = 0;
-  private gridAxisBubbleVao: WebGLVertexArrayObject;
-  private gridAxisBubbleBuf: WebGLBuffer;
-  private gridAxisBubbleCount = 0;
   private constructionLineVao: WebGLVertexArrayObject;
   private constructionLineBuf: WebGLBuffer;
   private constructionLineCount = 0;
@@ -988,8 +991,6 @@ export class ViewportRenderer {
   private sceneAabb: Aabb | null = null;
   private slabPickIds: number[] = [];
   private scratchSlabPicks = new Float32Array(32);
-  private gridAxisBubbleRaw: Float32Array | null = null;
-  private lastPlanBubbleDistance = -1;
   private sceneExtent = 10;
   private selectedPickIds: number[] = [];
   /** Pre-selection hover (Select tool / Tab cycle); not committed selection. */
@@ -1155,9 +1156,6 @@ export class ViewportRenderer {
     this.gridAxisLineVao = gl.createVertexArray()!;
     this.gridAxisLineBuf = gl.createBuffer()!;
     this.bindThickLineVao(this.gridAxisLineVao, this.gridAxisLineBuf);
-    this.gridAxisBubbleVao = gl.createVertexArray()!;
-    this.gridAxisBubbleBuf = gl.createBuffer()!;
-    this.bindThickLineVao(this.gridAxisBubbleVao, this.gridAxisBubbleBuf);
     this.constructionLineVao = gl.createVertexArray()!;
     this.constructionLineBuf = gl.createBuffer()!;
     this.bindThickLineVao(this.constructionLineVao, this.constructionLineBuf);
@@ -1301,7 +1299,6 @@ export class ViewportRenderer {
       this.camera.pitch = PLAN_PITCH;
       this.camera.target[1] = this.planCutY;
       this.touchOrbitEnabled = false;
-      this.refreshPlanBubbleGeometry(true);
       this.frameMats = null;
       return;
     }
@@ -1318,7 +1315,6 @@ export class ViewportRenderer {
       };
       this.projection = saved.projection;
     }
-    this.uploadGridAxisBubbles(this.gridAxisBubbleRaw);
     this.frameMats = null;
   }
 
@@ -1344,7 +1340,6 @@ export class ViewportRenderer {
       const aspect = this.canvas.clientWidth / Math.max(1, this.canvas.clientHeight);
       this.camera.distance = planFitDistance(aabb, aspect, CAMERA_FOVY);
       this.frameMats = null;
-      this.refreshPlanBubbleGeometry(true);
       return;
     }
     this.fitToAabb(aabb.min, aabb.max);
@@ -1666,43 +1661,12 @@ export class ViewportRenderer {
         flatten(lines),
       );
     }
-    if (!bubbles || bubbles.length < 2) {
-      this.gridAxisBubbleRaw = null;
-      this.gridAxisBubbleCount = 0;
-      return;
-    }
-    this.includePoints(bubbles);
-    this.gridAxisBubbleRaw = flatten(bubbles);
-    this.uploadGridAxisBubbles(this.gridAxisBubbleRaw);
+    // Bubble heads are drawn as screen-space HTML circles (GridAxisLabels);
+    // their world footprint still counts towards the scene bounds.
+    if (bubbles && bubbles.length >= 2) this.includePoints(bubbles);
   }
 
-  private uploadGridAxisBubbles(data: Float32Array | null): void {
-    if (!data || data.length < 6) {
-      this.gridAxisBubbleCount = 0;
-      return;
-    }
-    this.gridAxisBubbleCount = this.uploadThickLines(this.gridAxisBubbleBuf, data);
-  }
-
-  /** Rescale grid bubble circles to a constant screen size in plan view. */
-  private refreshPlanBubbleGeometry(force = false): void {
-    if (this.viewNavigation !== 'plan' || !this.gridAxisBubbleRaw) return;
-    if (
-      !force &&
-      Math.abs(this.lastPlanBubbleDistance - this.camera.distance) <
-        this.camera.distance * 0.002
-    ) {
-      return;
-    }
-    this.lastPlanBubbleDistance = this.camera.distance;
-    const halfH = this.camera.distance * Math.tan(CAMERA_FOVY / 2);
-    const worldR =
-      (PLAN_BUBBLE_RADIUS_PX / Math.max(this.canvas.clientHeight, 1)) * 2 * halfH;
-    const scaled = rescaleGridBubbleSegments(this.gridAxisBubbleRaw, worldR);
-    this.uploadGridAxisBubbles(scaled);
-  }
-
-  /** Construction lines — olive, distinct from pink grids and cyan refs. */
+  /** Construction lines — olive, distinct from grey grids and cyan refs. */
   setConstructionLineOverlays(lines: Vec3[] | null): void {
     if (!lines || lines.length < 2) {
       this.constructionLineCount = 0;
@@ -2484,7 +2448,6 @@ export class ViewportRenderer {
     if (plan) {
       this.camera.yaw = 0;
       this.camera.pitch = PLAN_PITCH;
-      this.refreshPlanBubbleGeometry();
     }
     const aspect = this.canvas.clientWidth / Math.max(1, this.canvas.clientHeight);
     // Depth range follows the view (and a soft scene cap), never the raw grid
@@ -2891,6 +2854,7 @@ export class ViewportRenderer {
     gl.uniform1f(u.uLineWidthPx, widthPx * dpr);
     gl.uniform4f(u.uColor, color[0], color[1], color[2], color[3]);
     gl.uniform1f(u.uDashPeriodPx, dashPeriodPx * dpr);
+    gl.uniform1f(u.uDashDot, opts.dashDot ? 1 : 0);
     gl.bindVertexArray(vao);
     gl.drawArrays(gl.TRIANGLES, 0, count);
     gl.bindVertexArray(null);
@@ -2904,6 +2868,27 @@ export class ViewportRenderer {
    * Construction axis: solid where in front of scene depth, dashed where
    * occluded by opaque walls (classic CAD hidden-line treatment).
    */
+  /**
+   * Grid axes, GOST 21.101 / Revit style: thin neutral-grey dash-dot line with
+   * a screen-stable pattern; dimmer where hidden behind geometry. The bubble
+   * heads are screen-space HTML circles (GridAxisLabels), always upright.
+   */
+  private drawGridAxes(): void {
+    if (this.gridAxisLineCount === 0) return;
+    const gl = this.gl;
+    const color: [number, number, number, number] = [0.62, 0.63, 0.65, 0.95];
+    this.drawLines(this.gridAxisLineVao, this.gridAxisLineCount, color, 1.25, {
+      depthFunc: gl.LEQUAL,
+      dashPeriodPx: GRID_AXIS_DASH_PERIOD_PX,
+      dashDot: true,
+    });
+    this.drawLines(this.gridAxisLineVao, this.gridAxisLineCount, [0.62, 0.63, 0.65, 0.4], 1.25, {
+      depthFunc: gl.GREATER,
+      dashPeriodPx: GRID_AXIS_DASH_PERIOD_PX,
+      dashDot: true,
+    });
+  }
+
   private drawOccludedAxis(
     vao: WebGLVertexArrayObject,
     count: number,
@@ -3109,9 +3094,8 @@ export class ViewportRenderer {
     this.drawOccludedAxis(this.previewVao, this.previewCount, [0.95, 0.7, 0.3, 1], 3.0);
     this.drawOccludedAxis(this.editLineVao, this.editLineCount, [0.95, 0.72, 0.28, 1], 3.0);
     this.drawOccludedAxis(this.refLineVao, this.refLineCount, [0.35, 0.82, 0.95, 0.95], 2.5);
-    this.drawOccludedAxis(this.gridAxisLineVao, this.gridAxisLineCount, [0.92, 0.55, 0.78, 0.98], 3.2);
-    this.drawOccludedAxis(this.gridAxisBubbleVao, this.gridAxisBubbleCount, [0.92, 0.55, 0.78, 0.98], 2.4);
-    // Construction lines: olive (distinct from pink grid / cyan refs).
+    this.drawGridAxes();
+    // Construction lines: olive (distinct from grey grid / cyan refs).
     this.drawOccludedAxis(
       this.constructionLineVao,
       this.constructionLineCount,
@@ -3153,44 +3137,6 @@ export class ViewportRenderer {
   }
 }
 
-/** Scale each grid bubble circle (24 segments) to a target world radius. */
-function rescaleGridBubbleSegments(raw: Float32Array, targetRadius: number): Float32Array {
-  const out = new Float32Array(raw.length);
-  const r = Math.max(targetRadius, 0.05);
-  if (raw.length < GRID_BUBBLE_FLOATS) {
-    return raw.slice();
-  }
-  for (let offset = 0; offset + GRID_BUBBLE_FLOATS <= raw.length; offset += GRID_BUBBLE_FLOATS) {
-    let cx = 0;
-    let cy = 0;
-    let cz = 0;
-    let count = 0;
-    for (let i = offset; i < offset + GRID_BUBBLE_FLOATS; i += 3) {
-      cx += raw[i];
-      cy += raw[i + 1];
-      cz += raw[i + 2];
-      count += 1;
-    }
-    if (count === 0) continue;
-    cx /= count;
-    cy /= count;
-    cz /= count;
-    let avgR = 0;
-    for (let i = offset; i < offset + GRID_BUBBLE_FLOATS; i += 3) {
-      const dx = raw[i] - cx;
-      const dz = raw[i + 2] - cz;
-      avgR += Math.hypot(dx, dz);
-    }
-    avgR /= count;
-    const scale = avgR > 1e-6 ? r / avgR : 1;
-    for (let i = offset; i < offset + GRID_BUBBLE_FLOATS; i += 3) {
-      out[i] = cx + (raw[i] - cx) * scale;
-      out[i + 1] = cy + (raw[i + 1] - cy) * scale;
-      out[i + 2] = cz + (raw[i + 2] - cz) * scale;
-    }
-  }
-  return out;
-}
 
 function invertMat4(m: Float32Array): Float32Array | null {
   const out = new Float32Array(16);
