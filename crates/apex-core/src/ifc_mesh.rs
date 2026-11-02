@@ -1,12 +1,14 @@
 //! Tessellated mesh component used by IFC import.
 //!
-//! Geometry lives in the `_mesh` text param as JSON `{ "p": [...], "i": [...] }`
-//! in the element's local frame (placement origin). The inspector hides params
-//! whose id starts with `_`.
+//! Geometry lives in the `_mesh` text param as JSON
+//! `{ "p": [...], "i": [...], "e"?: [...] }` in the element's local frame
+//! (placement origin). When `e` (feature edges) is absent — older snapshots —
+//! edges are rebuilt from dihedral creases so Open does not draw every
+//! triangulation diagonal. The inspector hides params whose id starts with `_`.
 
 use apex_geometry::TriangleMesh;
 use glam::Vec3;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::component::{
     ComponentDefinition, ComponentSource, GeometryRecipe, MeshBuilder, PlacementOptions,
@@ -19,10 +21,16 @@ use crate::placement::PlacementKind;
 /// Built-in component id for imported IFC tessellations.
 pub const IFC_MESH_COMPONENT: &str = "apex.ifc.mesh";
 
-#[derive(Debug, Deserialize)]
+/// Dihedral angle (radians) used when rebuilding CAD edges for IFC meshes.
+pub const IFC_FEATURE_EDGE_RADIANS: f32 = 0.70;
+
+#[derive(Debug, Deserialize, Serialize)]
 struct MeshJson {
     p: Vec<f32>,
     i: Vec<u32>,
+    /// Optional feature-edge point pairs (xyz,xyz,…). Older imports omit this.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    e: Vec<f32>,
 }
 
 /// Decode the compact tessellation JSON stored on IFC mesh instances.
@@ -31,7 +39,12 @@ pub fn decode_ifc_mesh_json(text: &str) -> Option<TriangleMesh> {
     if parsed.p.len() < 9 || parsed.i.len() < 3 {
         return None;
     }
-    Some(mesh_from_indexed(&parsed.p, &parsed.i))
+    // Welds flat-shaded verts and derives crease / boundary edges (capped).
+    let mut mesh = mesh_from_indexed(&parsed.p, &parsed.i);
+    if parsed.e.len() >= 6 && parsed.e.len() % 6 == 0 {
+        mesh.edges = parsed.e;
+    }
+    Some(mesh)
 }
 
 /// Build the world-space mesh for an IFC instance from its params + placement origin.
@@ -82,9 +95,9 @@ pub fn ifc_mesh_builder() -> Box<dyn MeshBuilder> {
     })
 }
 
-/// Encode a local-space mesh for the `_mesh` param.
+/// Encode a local-space mesh for the `_mesh` param (positions, indices, edges).
 pub fn encode_ifc_mesh_json(mesh: &TriangleMesh) -> String {
-    serde_json::json!({ "p": mesh.positions, "i": mesh.indices }).to_string()
+    serde_json::json!({ "p": mesh.positions, "i": mesh.indices, "e": mesh.edges }).to_string()
 }
 
 pub fn encode_ifc_mesh_param(mesh: &TriangleMesh) -> ParamValue {
