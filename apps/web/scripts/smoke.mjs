@@ -74,7 +74,15 @@ async function useTool(name) {
       if ((await btn.count()) > 0 && (await btn.first().isVisible())) break;
     }
   }
-  await btn.click();
+  if ((await btn.count()) > 0 && (await btn.first().isVisible())) {
+    await btn.first().click();
+  } else {
+    // Selection-dependent commands live in the palette when nothing is selected.
+    await page.keyboard.press('Control+k');
+    await page.getByTestId('palette-input').fill(name);
+    await page.waitForTimeout(60);
+    await page.keyboard.press('Enter');
+  }
   await page.waitForTimeout(120);
 }
 
@@ -89,7 +97,7 @@ async function isNamedItemSelected(kind, name) {
 
 const elementCount = () => page.locator('[data-kind="instance"]').count();
 const toolbarNames = () =>
-  page.locator('.tools button').evaluateAll((els) => els.map((e) => e.textContent.trim()));
+  page.locator('.tools button, .context-bar button').evaluateAll((els) => els.map((e) => e.textContent.trim()));
 
 async function toolbarHasTool(name) {
   for (const tab of await page.locator('.tools-tab').all()) {
@@ -100,97 +108,87 @@ async function toolbarHasTool(name) {
   return false;
 }
 
-// --- 1. Each first-party tool is a plugin; wall and column are one tool -----
-console.log('\n[1] toolbar from plugins, one tool per type');
-const basicsTab = page.getByTestId('tools-tab-apex.basics');
-const buildingTab = page.getByTestId('tools-tab-apex.building');
+// --- 1. Ribbon grouped by task; selection commands only with a selection ---
+console.log('\n[1] ribbon by task, one tool per type');
+const archTab = page.getByTestId('tools-tab-apex.architecture');
 const engineeringTab = page.getByTestId('tools-tab-apex.engineering');
-check('Basics tab exists', (await basicsTab.count()) === 1);
-check('Basics tab label', ((await basicsTab.textContent()) ?? '').trim() === 'Basics');
-check('Building constructions tab exists', (await buildingTab.count()) === 1);
-check(
-  'Building constructions tab label',
-  ((await buildingTab.textContent()) ?? '').trim() === 'Building constructions',
-);
-check('Engineering tab exists', (await engineeringTab.count()) === 1);
-check('Engineering tab label', ((await engineeringTab.textContent()) ?? '').trim() === 'Engineering');
-const spacesTab = page.getByTestId('tools-tab-apex.spaces');
-check('Spaces tab exists', (await spacesTab.count()) === 1);
-check('Spaces tab label', ((await spacesTab.textContent()) ?? '').trim() === 'Spaces');
+const annotateTab = page.getByTestId('tools-tab-apex.annotate');
+const viewTab = page.getByTestId('tools-tab-apex.view');
+const spacesTab = archTab;
+for (const [tab, label] of [
+  [archTab, 'Architecture'],
+  [engineeringTab, 'Engineering'],
+  [annotateTab, 'Annotate'],
+  [viewTab, 'View'],
+]) {
+  check(`${label} tab exists`, (await tab.count()) === 1);
+  check(`${label} tab label`, ((await tab.textContent()) ?? '').trim() === label);
+}
+for (const gone of ['basics', 'building', 'spaces']) {
+  check(`old ${gone} tab is gone`, (await page.getByTestId(`tools-tab-apex.${gone}`).count()) === 0);
+}
 
-await buildingTab.click();
+await archTab.click();
 await page.waitForTimeout(80);
 const buildingTools = await toolbarNames();
-console.log('  building toolbar:', buildingTools.join(' | '));
-check('tab label is not a tool button', !buildingTools.includes('Building constructions'));
+console.log('  architecture ribbon:', buildingTools.join(' | '));
+check('tab label is not a tool button', !buildingTools.includes('Architecture'));
 for (const expected of [
-  'Select',
-  'Move',
-  'Copy',
-  'Parent',
-  'Detach',
-  'Wall',
-  'Column',
-  'Beam',
-  'Slab',
-  'Door',
-  'Window',
-  'Slab opening',
-  'Stair',
-  'Roof',
-  'Pitched roof',
+  'Select', 'Wall', 'Column', 'Beam', 'Slab', 'Door', 'Window', 'Slab opening', 'Stair', 'Roof',
+  'Pitched roof', 'Space', 'Detect rooms', 'Level', 'Ref point', 'Ref plane', 'Construction line', 'Grid axis',
 ]) {
-  check(`"${expected}" on Building tab`, buildingTools.includes(expected));
+  check(`"${expected}" on Architecture tab`, buildingTools.includes(expected));
 }
-check('Ref point is not on Building tab', !buildingTools.includes('Ref point'));
-check('Grid axis is not on Building tab', !buildingTools.includes('Grid axis'));
-check('Pipe is not on Building tab', !buildingTools.includes('Pipe'));
-check('Duct is not on Building tab', !buildingTools.includes('Duct'));
-check('Cable tray is not on Building tab', !buildingTools.includes('Cable tray'));
+for (const id of ['select', 'build', 'rooms', 'datums']) {
+  check(`ribbon group ${id} is labelled`, ((await page.getByTestId(`ribbon-group-${id}`).textContent()) ?? '').length > 0);
+}
+for (const absent of ['Move', 'Copy', 'Parent', 'Detach', 'Boolean']) {
+  check(`"${absent}" hidden without a selection`, !buildingTools.includes(absent));
+}
+check('Pipe is not on Architecture tab', !buildingTools.includes('Pipe'));
+check('Section cut is not on Architecture tab', !buildingTools.includes('Section cut'));
 
 await engineeringTab.click();
 await page.waitForTimeout(80);
 const engineeringTools = await toolbarNames();
-console.log('  engineering toolbar:', engineeringTools.join(' | '));
-for (const expected of ['Select', 'Move', 'Copy', 'Parent', 'Detach', 'Pipe', 'Duct', 'Cable tray']) {
+console.log('  engineering ribbon:', engineeringTools.join(' | '));
+for (const expected of ['Pipe', 'Duct', 'Cable tray']) {
   check(`"${expected}" on Engineering tab`, engineeringTools.includes(expected));
 }
+check('Select is not repeated on Engineering', !engineeringTools.includes('Select'));
 check('Wall is not on Engineering tab', !engineeringTools.includes('Wall'));
-check('Ref point is not on Engineering tab', !engineeringTools.includes('Ref point'));
 
-await basicsTab.click();
+await viewTab.click();
 await page.waitForTimeout(80);
-const basicsTools = await toolbarNames();
-console.log('  basics toolbar:', basicsTools.join(' | '));
-for (const expected of [
-  'Select',
-  'Move',
-  'Copy',
-  'Parent',
-  'Detach',
-  'Level',
-  'Ref point',
-  'Ref plane',
-  'Construction line',
-  'Grid axis',
-  'Section cut',
-]) {
-  check(`"${expected}" on Basics tab`, basicsTools.includes(expected));
-}
-check('Wall is not on Basics tab', !basicsTools.includes('Wall'));
-check('Pipe is not on Basics tab', !basicsTools.includes('Pipe'));
-check(
-  'commons stay pinned across tabs',
-  buildingTools.includes('Select') &&
-    basicsTools.includes('Select') &&
-    engineeringTools.includes('Select'),
-);
-check('no second point tool on Basics', !basicsTools.includes('Point'));
+const viewTools = await toolbarNames();
+console.log('  view ribbon:', viewTools.join(' | '));
+check('"Section cut" on View tab', viewTools.includes('Section cut'));
+check('Thin lines on View tab', (await page.getByTestId('ribbon-thin-lines').count()) === 1);
+check('no second point tool', !buildingTools.includes('Point'));
 
 check('IFC export button exists', (await page.getByTestId('export-apex.ifc').count()) === 1);
 check('arc wall is not a second tool', !buildingTools.includes('Arc wall'));
 check('round is not a second column tool', !buildingTools.includes('Round column'));
 check('draw modes hide until Wall is active', !buildingTools.includes('Line') && !buildingTools.includes('Arc'));
+
+console.log('\n[1b] command palette and two-letter shortcuts');
+await page.keyboard.press('Control+k');
+await page.waitForTimeout(120);
+check('Ctrl K opens the palette', (await page.getByTestId('command-palette').count()) === 1);
+await page.getByTestId('palette-input').fill('стена');
+await page.waitForTimeout(80);
+check('palette finds Wall by Russian name', (await page.getByTestId('palette-cmd-tool:place:apex.wall').count()) === 1);
+await page.keyboard.press('Escape');
+await page.waitForTimeout(80);
+check('Esc closes the palette', (await page.getByTestId('command-palette').count()) === 0);
+await canvas.hover({ position: { x: box.width * 0.1, y: box.height * 0.1 } });
+await page.keyboard.press('w');
+await page.keyboard.press('a');
+await page.waitForTimeout(150);
+check('WA activates Wall', (await page.getByTestId('ctx-genus-species').count()) === 1);
+check('context bar shows chain for walls', (await page.getByTestId('ctx-chain').count()) === 1);
+await page.keyboard.press('Escape');
+await useTool('Select');
 
 // Light MEP placement from the Engineering tab, then undo so later counts stay stable.
 const beforePipe = await elementCount();
@@ -358,7 +356,7 @@ check(
 );
 await page.screenshot({ path: `${OUT}/apex-inspector-clears-on-tool-change.png`, fullPage: true });
 
-await page.getByTestId('tools-tab-apex.basics').click();
+await page.getByTestId('tools-tab-apex.architecture').click();
 await page.waitForTimeout(80);
 await page.getByTestId('browser-filter-annotations').click({ force: true });
 check('annotations filter lists lines/cuts', (await clineCount()) + (await cutCount()) >= 2);
@@ -372,7 +370,6 @@ const spacesTools = await toolbarNames();
 console.log('  spaces toolbar:', spacesTools.join(' | '));
 check('"Space" on Spaces tab', spacesTools.includes('Space'));
 check('"Detect rooms" on Spaces tab', spacesTools.includes('Detect rooms'));
-check('Wall is not on Spaces tab', !spacesTools.includes('Wall'));
 const spaceCount = () => page.locator('[data-kind="space"]').count();
 await useTool('Space');
 await clickCanvas(0.30, 0.40);

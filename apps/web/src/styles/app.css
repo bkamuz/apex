@@ -633,24 +633,6 @@ input[type="radio"] {
   align-content: center;
 }
 
-@media (max-width: 1399px) {
-  .tools button:has(.tool-icon) .tool-label {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
-    border: 0;
-  }
-
-  .tools button:has(.tool-icon) {
-    padding: 4px 7px;
-  }
-}
-
 .topbar-hint {
   display: flex;
   align-items: center;
@@ -1941,10 +1923,6 @@ input[type="radio"] {
     flex-shrink: 0;
   }
 
-  .topbar-hint {
-    display: none;
-  }
-
   .hint {
     display: none;
   }
@@ -2704,4 +2682,382 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
   height: 16px;
   background: var(--chrome-line);
   margin: 0 2px;
+}
+
+/* ---- Ribbon (variant A): labelled panels, big icon-over-label buttons ---- */
+.tools {
+  align-items: stretch;
+  padding: 2px 4px 0;
+}
+
+.tools-grp.rb-panel {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  padding: 0 4px;
+  flex-shrink: 0;
+}
+
+.rb-panel-body {
+  display: flex;
+  align-items: flex-start;
+  gap: 1px;
+  flex: 1 1 auto;
+}
+
+.rb-panel-body--stack {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(3, auto);
+  gap: 1px 2px;
+  align-content: start;
+}
+
+.rb-panel-caption {
+  text-align: center;
+  font-size: 10px;
+  line-height: 14px;
+  letter-spacing: 0.04em;
+  color: var(--chrome-muted);
+  white-space: nowrap;
+  border-top: 1px solid var(--chrome-line);
+  margin-top: 2px;
+}
+
+.tools button.rb-btn--big {
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 3px;
+  min-width: 52px;
+  max-width: 76px;
+  min-height: 50px;
+  padding: 5px 4px 3px;
+  white-space: normal;
+}
+
+.tools button.rb-btn--big .tool-icon,
+.tools button.rb-btn--big .tool-icon svg {
+  width: 20px;
+  height: 20px;
+}
+
+.tools button.rb-btn--big .tool-label {
+  font-size: 11px;
+  line-height: 1.15;
+  text-align: center;
+  overflow-wrap: normal;
+  word-break: normal;
+  hyphens: none;
+}
+
+.tools .rb-glyph {
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 700;
+  align-items: center;
+  justify-content: center;
+}
+
+.tools button.rb-btn--small {
+  min-height: 15px;
+  padding: 1px 6px;
+  font-size: 11px;
+  gap: 4px;
+}
+
+.rb-panel--context {
+  background: color-mix(in srgb, var(--chrome-context) 10%, transparent);
+  box-shadow: inset 0 2px 0 var(--chrome-context);
+}
+
+.rb-panel--context .rb-panel-caption {
+  color: var(--chrome-context);
+}
+
+.rb-attach {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-left: 2px;
+  padding-left: 4px;
+  border-left: 1px solid var(--chrome-line);
+}
+
+.tools .rb-attach button {
+  min-height: 15px;
+  padding: 1px 6px;
+  font-size: 11px;
+}
+
+.tools-tabs .tools-tab--context {
+  display: inline-flex;
+  align-items: center;
+  color: var(--chrome-context);
+  box-shadow: inset 0 -2px 0 var(--chrome-context);
+  cursor: default;
+}
+
+.tools-palette-btn {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 0;
+  border-left: 1px solid var(--chrome-line);
+  background: transparent;
+  color: var(--chrome-muted);
+  padding: 0 10px;
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.tools-palette-btn:hover {
+  color: var(--text);
+  background: var(--chrome-hover);
+}
+
+.tools-palette-btn kbd,
+.context-bar kbd,
+.palette kbd {
+  font-family: var(--mono);
+  font-size: 10px;
+  padding: 0 4px;
+  border: 1px solid var(--chrome-line);
+  border-radius: 3px;
+  color: var(--chrome-muted);
+  background: var(--chrome-bg-tools);
+}
+
+/* ---- Context bar for the active tool (replaces the INFO line) ---- */
+.context-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 24px;
+  padding: 2px 10px;
+  background: var(--chrome-bg-hint);
+  border-top: 1px solid var(--chrome-line);
+  font-size: 11px;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.context-bar .ctx-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.context-bar .ctx-tool .tool-icon,
+.context-bar .ctx-tool .tool-icon svg {
+  width: 14px;
+  height: 14px;
+  display: inline-flex;
+}
+
+.context-bar .ctx-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 10px;
+  border-left: 1px solid var(--chrome-line);
+}
+
+.context-bar .ctx-k {
+  color: var(--chrome-muted);
+  font-size: 10px;
+  letter-spacing: 0.03em;
+}
+
+.context-bar .ctx-num {
+  font-family: var(--mono);
+}
+
+.context-bar .ctx-on {
+  color: var(--chrome-context);
+  font-weight: 600;
+}
+
+.context-bar button.mode {
+  border: 1px solid var(--chrome-line);
+  border-radius: var(--chrome-radius);
+  background: transparent;
+  color: var(--chrome-muted);
+  font-size: 11px;
+  padding: 1px 8px;
+  min-height: 20px;
+}
+
+.context-bar button.mode:hover {
+  color: var(--text);
+  background: var(--chrome-hover);
+}
+
+.context-bar button.mode.active {
+  background: var(--chrome-active);
+  border-color: var(--chrome-active-border);
+  color: var(--chrome-active-text);
+}
+
+.context-bar .ctx-hint {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 0 0 0 10px;
+  min-height: 0;
+  border: 0;
+  border-left: 1px solid var(--chrome-line);
+  background: transparent;
+}
+
+.context-bar .ctx-hint span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.context-bar--notice .ctx-hint {
+  color: var(--chrome-info);
+}
+
+.context-bar .ctx-keys {
+  display: inline-flex;
+  gap: 8px;
+  color: var(--chrome-muted);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+/* ---- Ctrl+K command palette ---- */
+.palette-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: color-mix(in srgb, #000 35%, transparent);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 12vh;
+}
+
+.palette {
+  width: min(560px, calc(100vw - 24px));
+  max-height: 60vh;
+  display: flex;
+  flex-direction: column;
+  background: var(--chrome-bg-tools);
+  color: var(--text);
+  border: 1px solid var(--chrome-line);
+  border-radius: 6px;
+  box-shadow: 0 16px 48px rgb(0 0 0 / 35%);
+  overflow: hidden;
+}
+
+.palette-input {
+  border: 0;
+  border-bottom: 1px solid var(--chrome-line);
+  background: transparent;
+  color: var(--text);
+  font-size: 14px;
+  padding: 10px 12px;
+  outline: none;
+}
+
+.palette-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0;
+  overflow-y: auto;
+}
+
+.palette-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.palette-item.active {
+  background: var(--chrome-active);
+  color: var(--chrome-active-text);
+}
+
+.palette-item.disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.palette-group {
+  width: 84px;
+  flex-shrink: 0;
+  font-size: 10px;
+  color: var(--chrome-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.palette-item.active .palette-group {
+  color: inherit;
+}
+
+.palette-label {
+  flex: 1 1 auto;
+}
+
+.palette-empty,
+.palette-hint {
+  padding: 6px 12px;
+  font-size: 11px;
+  color: var(--chrome-muted);
+}
+
+.palette-hint {
+  border-top: 1px solid var(--chrome-line);
+}
+
+/* 820: keep panel captions, drop button labels, scroll horizontally. */
+@media (max-width: 900px) {
+  .tools button.rb-btn--big {
+    min-width: 34px;
+    min-height: 32px;
+    padding: 5px 6px;
+  }
+
+  .tools button.rb-btn--big .tool-label,
+  .tools button.rb-btn--small .tool-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+  }
+
+  .tools button.rb-btn--small {
+    min-height: 32px;
+    padding: 5px 6px;
+  }
+
+  .rb-panel-body--stack {
+    display: flex;
+  }
+
+  .tools-palette-btn kbd {
+    display: none;
+  }
+}
+
+/* Context bar at narrow widths: keep values, drop captions and key hints. */
+@media (max-width: 900px) {
+  .context-bar .ctx-keys,
+  .context-bar .ctx-item:not([data-testid='ctx-chain']) .ctx-k,
+  .context-bar .ctx-item[data-ctx='align'] {
+    display: none;
+  }
+  .context-bar {
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
 }

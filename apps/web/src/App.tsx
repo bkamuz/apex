@@ -1,5 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { createKeySequence, loadHairline, saveHairline } from './viewport/planStyle';
+import { loadHairline, saveHairline } from './viewport/planStyle';
+import { createShortcutMatcher, shortcutForCommand } from './ui/shortcuts';
+import { ContextBar } from './ui/ContextBar';
+import { CommandPalette, bilingual } from './ui/CommandPalette';
+import type { PaletteCommand } from './ui/commands';
+import { useTheme } from './theme/useTheme';
 import {
   apexAbortUndoGroup,
   apexBeginUndoGroup,
@@ -161,7 +166,7 @@ import {
 import { viewAnnotationSegments } from './ui/viewAnnotationSegments';
 import { pickAnnotationAnchor } from './annotations/pickAnchor';
 import { downloadBlob, downloadTextFile, drawingToPdf, drawingToSvg } from './ui/vectorExport';
-import type { VectorDrawing2d } from './types';
+import type { SpeciesDto, VectorDrawing2d } from './types';
 import type { DocumentTab } from './ui/ViewTabBar';
 import { PropertiesPanel } from './ui/PropertiesPanel';
 import { GenusSpeciesSection } from './ui/GenusSpeciesSection';
@@ -193,6 +198,7 @@ import { extensions, installGlobalSdk } from './extensions/sdk';
 import {
   exporterDisplayLabel,
   exporterDisplayTitle,
+  toolDisplayLabel,
   useI18n,
 } from './i18n';
 import { exporterRegistry, importerRegistry, installPlugins } from './plugins';
@@ -246,7 +252,11 @@ function pointerInfo(e: React.PointerEvent | React.MouseEvent): PointerInfo {
 const snapStats = { calls: 0, ms: 0, maxMs: 0 };
 
 export default function App() {
-  const { t } = useI18n();
+  const { t, locale, setLocale } = useI18n();
+  const { setPreference: setThemePreference } = useTheme();
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  /** Runs a two-letter shortcut command; refreshed every render. */
+  const shortcutRunRef = useRef<(command: string) => boolean>(() => false);
   const projectRestoreDoneRef = useRef(false);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const canvasSplitRef = useRef<HTMLCanvasElement>(null);
@@ -341,7 +351,8 @@ export default function App() {
   const [hairline, setHairline] = useState<boolean>(() =>
     loadHairline(typeof localStorage !== 'undefined' ? localStorage : undefined),
   );
-  const thinLinesSeqRef = useRef(createKeySequence('tl'));
+  /** Revit-style two-letter codes (WA, DR, …, TL). */
+  const shortcutSeqRef = useRef(createShortcutMatcher());
   useEffect(() => {
     rendererRef.current?.setHairline(hairline);
     saveHairline(typeof localStorage !== 'undefined' ? localStorage : undefined, hairline);
@@ -1960,11 +1971,17 @@ export default function App() {
       const typing =
         active instanceof HTMLElement &&
         (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT');
-      // Revit "TL": Thin Lines toggle.
+      // Ctrl+K: command palette over every command.
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+        return;
+      }
+      // Revit-style two-letter codes (WA wall, DR door, …, TL thin lines).
       if (!typing && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        if (thinLinesSeqRef.current.feed(e.key, performance.now())) {
+        const command = shortcutSeqRef.current.feed(e.key, performance.now());
+        if (command && shortcutRunRef.current(command)) {
           e.preventDefault();
-          setHairline((v) => !v);
           return;
         }
       }
@@ -3044,11 +3061,12 @@ export default function App() {
         </button>
       </>
     );
+  // Attach top/base joins the contextual Modify panel (not Annotate).
   const attachToolbar =
     attachableIds.length > 0 ? (
-      <div className="tools-grp" role="group" aria-label={t('attach.group')}>
+      <span className="rb-attach" role="group" aria-label={t('attach.group')}>
         {attachButtons(true)}
-      </div>
+      </span>
     ) : null;
   const attachSection =
     attachableIds.length > 0 ? (
@@ -3208,6 +3226,18 @@ export default function App() {
   );
 
   const onboarding = showGettingStarted && elements.length === 0;
+  const contextSpecies = useMemo(
+    () => {
+      if (!tool.componentId) return [] as SpeciesDto[];
+      try {
+        return apexRunQuery({ op: 'list_genus_species' }) as SpeciesDto[];
+      } catch {
+        return [] as SpeciesDto[];
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tool.componentId, scene],
+  );
   const statusText = `${info ?? tool.hint(pending.length)}${
     pending.length > 0 && tool.group === 'create'
       ? typedLength
@@ -3215,6 +3245,94 @@ export default function App() {
         : t('chrome.typeLengthHint')
       : ''
   }${snapStatus ? t('chrome.elementSnap', { kind: t(`snap.kind.${snapStatus}`, undefined, snapStatus) }) : ''}`;
+
+  shortcutRunRef.current = (command: string) => {
+    if (command === 'action:thin-lines') {
+      setHairline((v) => !v);
+      return true;
+    }
+    if (command.startsWith('tool:')) {
+      const id = command.slice('tool:'.length);
+      if (!registryRef.current.get(id)) return false;
+      activateTool(id);
+      return true;
+    }
+    return false;
+  };
+
+  const paletteCommands = (): PaletteCommand[] => {
+    const out: PaletteCommand[] = [];
+    const add = (
+      id: string,
+      key: string,
+      groupKey: string,
+      run: () => void,
+      opts: { shortcut?: string; disabled?: boolean; label?: string; extra?: string[] } = {},
+    ) =>
+      out.push({
+        id,
+        label: opts.label ?? t(key),
+        search: bilingual(key, id, opts.shortcut, ...(opts.extra ?? [])),
+        group: t(groupKey),
+        shortcut: opts.shortcut,
+        disabled: opts.disabled,
+        run,
+      });
+    for (const item of tools) {
+      const key = item.id.startsWith('place:')
+        ? `component.${item.id.slice('place:'.length)}`
+        : `tool.${item.id}.label`;
+      add(`tool:${item.id}`, key, 'cmd.group.tool', () => activateTool(item.id), {
+        label: toolDisplayLabel(item),
+        shortcut: shortcutForCommand(`tool:${item.id}`) ?? item.shortcut,
+        extra: [item.label],
+      });
+    }
+    if (attachableIds.length > 0) {
+      add('attach-top', 'cmd.attachTop', 'cmd.group.edit', () =>
+        setAttachPick({ end: 'top', ids: attachableIds }),
+      );
+      add('attach-base', 'cmd.attachBase', 'cmd.group.edit', () =>
+        setAttachPick({ end: 'base', ids: attachableIds }),
+      );
+    }
+    add('undo', 'cmd.undo', 'cmd.group.edit', onUndo, { shortcut: 'Ctrl+Z', disabled: !scene?.can_undo });
+    add('redo', 'cmd.redo', 'cmd.group.edit', onRedo, { shortcut: 'Ctrl+Y', disabled: !scene?.can_redo });
+    add('new', 'cmd.new', 'cmd.group.file', onNewProject, { shortcut: 'Ctrl+N' });
+    add('open', 'cmd.open', 'cmd.group.file', onRequestOpenProject, { shortcut: 'Ctrl+O' });
+    add('save', 'cmd.save', 'cmd.group.file', onSaveProject, { shortcut: 'Ctrl+S' });
+    add('save-as', 'cmd.saveAs', 'cmd.group.file', onSaveProjectAs);
+    for (const exporter of exporters) {
+      const label = exporterDisplayLabel(exporter);
+      out.push({
+        id: `export:${exporter.id}`,
+        label: t('cmd.export', { label }),
+        search: `${bilingual('cmd.group.export')} export экспорт ${label} ${exporter.id}`.toLowerCase(),
+        group: t('cmd.group.export'),
+        run: () => {
+          try {
+            downloadText(exporter.filename, exporter.export(), 'application/octet-stream');
+            setError(null);
+          } catch (err) {
+            setError(err instanceof Error ? err.message : String(err));
+          }
+        },
+      });
+    }
+    add('view-3d', 'cmd.view3d', 'cmd.group.view', () => setViewNavigationMode('3d'), { shortcut: '3' });
+    add('view-plan', 'cmd.plan', 'cmd.group.view', () => setViewNavigationMode('plan'), { shortcut: 'P' });
+    add('view-fit', 'cmd.fit', 'cmd.group.view', fitView, { shortcut: 'F' });
+    add('view-axon', 'cmd.axon', 'cmd.group.view', () => setProjectionMode('orthographic'));
+    add('view-persp', 'cmd.persp', 'cmd.group.view', () => setProjectionMode('perspective'));
+    add('thin-lines', 'cmd.thinLines', 'cmd.group.view', () => setHairline((v) => !v), { shortcut: 'TL' });
+    add('split', 'cmd.split', 'cmd.group.view', toggleSplit);
+    add('theme-light', 'cmd.themeLight', 'cmd.group.settings', () => setThemePreference('light'));
+    add('theme-dark', 'cmd.themeDark', 'cmd.group.settings', () => setThemePreference('dark'));
+    add('theme-system', 'cmd.themeSystem', 'cmd.group.settings', () => setThemePreference('system'));
+    add('lang-ru', 'cmd.langRu', 'cmd.group.settings', () => setLocale('ru'), { disabled: locale === 'ru' });
+    add('lang-en', 'cmd.langEn', 'cmd.group.settings', () => setLocale('en'), { disabled: locale === 'en' });
+    return out;
+  };
 
   return (
     <div className={`app${onboarding ? ' app--onboarding' : ''}`}>
@@ -3317,19 +3435,39 @@ export default function App() {
         <ToolsToolbar
           tools={tools}
           activeToolId={toolId}
-          drawMode={drawMode}
           onActivateTool={activateTool}
-          onActivateDrawMode={activateDrawMode}
-          extra={attachToolbar}
+          selectedCount={selectedIds.length}
+          modifyExtra={attachToolbar}
+          onOpenPalette={() => setPaletteOpen(true)}
+          view={{
+            viewNavigation,
+            onSetViewNavigation: setViewNavigationMode,
+            onFitView: fitView,
+            hairline,
+            onToggleHairline: () => setHairline((v) => !v),
+          }}
         />
-        <div
-          className={`topbar-hint${info ? ' topbar-hint--notice' : ''}`}
-          data-testid="topbar-hint"
-        >
-          <b>{t('chrome.info')}</b>
-          <span>{statusText}</span>
-        </div>
+        <ContextBar
+          tool={tool}
+          drawMode={drawMode}
+          onActivateDrawMode={activateDrawMode}
+          components={components}
+          species={contextSpecies}
+          profiles={profiles}
+          draft={placementDraft}
+          selectedCount={selectedIds.length}
+          statusText={statusText}
+          notice={Boolean(info)}
+        />
       </header>
+      <CommandPalette
+        open={paletteOpen}
+        commands={paletteOpen ? paletteCommands() : []}
+        onClose={() => {
+          setPaletteOpen(false);
+          queueMicrotask(() => focusViewportCanvas());
+        }}
+      />
 
       {!isMobile ? (
         <aside className="sidebar">
