@@ -28,10 +28,10 @@ export interface PlanStyle {
 
 export const PLAN_STYLES: Record<ResolvedTheme, PlanStyle> = {
   light: {
-    paper: [0.97, 0.97, 0.96, 1],
+    paper: [0xf4 / 255, 0xf5 / 255, 0xf7 / 255, 1], // bimpunk scene (light)
     cutFill: [0, 0, 0, 1],
     cutFillByCategory: {},
-    slabFill: [0.86, 0.86, 0.85, 1],
+    slabFill: [0xde / 255, 0xe1 / 255, 0xe6 / 255, 1],
     gridLine: [0.55, 0.55, 0.53, 0.35],
     edge: [0.05, 0.05, 0.05, 1],
     symbol: [0.1, 0.1, 0.1, 1],
@@ -41,12 +41,12 @@ export const PLAN_STYLES: Record<ResolvedTheme, PlanStyle> = {
     gridAxis: [0.38, 0.39, 0.41, 0.95],
   },
   dark: {
-    paper: [28 / 255, 28 / 255, 28 / 255, 1],
-    cutFill: [0.82, 0.82, 0.8, 1],
+    paper: [0x17 / 255, 0x1a / 255, 0x21 / 255, 1], // bimpunk scene (dark)
+    cutFill: [0xd5 / 255, 0xd9 / 255, 0xe1 / 255, 1], // bimpunk accent: light poche
     cutFillByCategory: {},
-    slabFill: [0.2, 0.2, 0.2, 1],
+    slabFill: [0x22 / 255, 0x26 / 255, 0x2f / 255, 1],
     gridLine: [0.44, 0.43, 0.4, 0.38],
-    edge: [0.86, 0.86, 0.84, 1],
+    edge: [0xe7 / 255, 0xe9 / 255, 0xee / 255, 1],
     symbol: [0.86, 0.87, 0.9, 1],
     space: [0.5, 0.58, 0.62, 0.7],
     contour: [0.55, 0.55, 0.55, 0.5],

@@ -39,6 +39,49 @@ export interface ElementSnapHit {
   other_element_id?: string;
 }
 
+/** User-facing snap groups toggled from the status bar. */
+export type SnapGroup = 'end' | 'mid' | 'intersection' | 'edge';
+export const SNAP_GROUPS: readonly SnapGroup[] = ['end', 'mid', 'intersection', 'edge'];
+export type SnapFilter = Readonly<Record<SnapGroup, boolean>>;
+export const ALL_SNAPS: SnapFilter = { end: true, mid: true, intersection: true, edge: true };
+
+/** Status-bar group that governs a target kind (end covers vertices / points). */
+export function snapGroupOf(kind: SnapHitKind): SnapGroup {
+  switch (kind) {
+    case 'mid':
+      return 'mid';
+    case 'edge':
+      return 'edge';
+    case 'intersection':
+      return 'intersection';
+    default:
+      return 'end';
+  }
+}
+
+const SNAP_FILTER_KEY = 'apex.snaps';
+
+export function loadSnapFilter(storage?: Pick<Storage, 'getItem'>): SnapFilter {
+  try {
+    const raw = storage?.getItem(SNAP_FILTER_KEY);
+    if (!raw) return ALL_SNAPS;
+    const v = JSON.parse(raw) as Partial<Record<SnapGroup, unknown>>;
+    const out = { ...ALL_SNAPS };
+    for (const g of SNAP_GROUPS) if (typeof v[g] === 'boolean') out[g] = v[g] as boolean;
+    return out;
+  } catch {
+    return ALL_SNAPS;
+  }
+}
+
+export function saveSnapFilter(storage: Pick<Storage, 'setItem'> | undefined, f: SnapFilter): void {
+  try {
+    storage?.setItem(SNAP_FILTER_KEY, JSON.stringify(f));
+  } catch {
+    /* private mode */
+  }
+}
+
 /** Max nearby lines considered for pairwise crossings (keeps k² tiny). */
 const MAX_INTERSECTION_LINES = 12;
 
@@ -103,10 +146,13 @@ export function findElementSnap(
   geometry: ElementSnapGeometryDto,
   cursorWorld: Vec3,
   tolerancePx = ELEMENT_SNAP_PX,
+  filter: SnapFilter = ALL_SNAPS,
 ): ElementSnapHit | null {
+  if (!filter.end && !filter.mid && !filter.intersection && !filter.edge) return null;
   let best: { hit: ElementSnapHit; score: number } | null = null;
 
   const consider = (target: ElementSnapTargetDto) => {
+    if (!filter[snapGroupOf(target.kind)]) return;
     const screen = ctx.worldToClient(target.point);
     if (!screen) return;
     const dist = Math.hypot(screen[0] - clientX, screen[1] - clientY);
@@ -138,7 +184,7 @@ export function findElementSnap(
     const dist = Math.hypot(screen[0] - clientX, screen[1] - clientY);
     if (dist <= tolerancePx) near.push({ seg, dist });
   }
-  if (near.length >= 2) {
+  if (filter.intersection && near.length >= 2) {
     near.sort((x, y) => x.dist - y.dist);
     if (near.length > MAX_INTERSECTION_LINES) near.length = MAX_INTERSECTION_LINES;
     let bestX: { hit: ElementSnapHit; dist: number } | null = null;
@@ -168,6 +214,7 @@ export function findElementSnap(
     }
   }
 
+  if (!filter.edge) return (best as { hit: ElementSnapHit } | null)?.hit ?? null;
   for (const seg of geometry.segments) {
     const closest = closestOnSegmentXz(seg.a, seg.b, cursorWorld);
     if (!closest) continue;

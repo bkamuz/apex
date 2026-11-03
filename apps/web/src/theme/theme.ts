@@ -63,7 +63,7 @@ export interface ViewportTheme {
 
 export const VIEWPORT_THEMES: Record<ResolvedTheme, ViewportTheme> = {
   dark: {
-    clear: [28 / 255, 28 / 255, 28 / 255],
+    clear: [0x17 / 255, 0x1a / 255, 0x21 / 255], // bimpunk scene
     grid: [0.44, 0.43, 0.4, 0.38],
     edge: [0.08, 0.09, 0.1, 1],
     contour: [0.5, 0.56, 0.64, 0.45],
@@ -74,7 +74,7 @@ export const VIEWPORT_THEMES: Record<ResolvedTheme, ViewportTheme> = {
     ground: [0.28, 0.3, 0.34],
   },
   light: {
-    clear: [0.93, 0.93, 0.92],
+    clear: [0xf4 / 255, 0xf5 / 255, 0xf7 / 255], // bimpunk scene
     grid: [0.55, 0.55, 0.53, 0.4],
     edge: [0.12, 0.12, 0.12, 1],
     contour: [0.45, 0.47, 0.5, 0.5],
@@ -107,8 +107,6 @@ export interface ViewCubeTheme {
   hoverLabel: string;
 }
 
-const CUBE_ACCENT = "#5a7d4e";
-
 export const VIEW_CUBE_THEMES: Record<ResolvedTheme, ViewCubeTheme> = {
   dark: {
     faces: {
@@ -122,9 +120,9 @@ export const VIEW_CUBE_THEMES: Record<ResolvedTheme, ViewCubeTheme> = {
     edge: "#1a1a1a",
     label: "#f2f2f2",
     labelHalo: "rgba(12,12,12,0.9)",
-    hoverFill: CUBE_ACCENT,
-    hoverEdge: "#6f9460",
-    hoverLabel: "#f4f8f2",
+    hoverFill: "#d5d9e1", // bimpunk --accent (dark)
+    hoverEdge: "#eef0f4",
+    hoverLabel: "#14171d",
   },
   light: {
     faces: {
@@ -138,8 +136,8 @@ export const VIEW_CUBE_THEMES: Record<ResolvedTheme, ViewCubeTheme> = {
     edge: "#8e8e89",
     label: "#2b2b29",
     labelHalo: "rgba(255,255,255,0.85)",
-    hoverFill: CUBE_ACCENT,
-    hoverEdge: "#46653c",
+    hoverFill: "#2a303b", // bimpunk --accent (light)
+    hoverEdge: "#14171d",
     hoverLabel: "#ffffff",
   },
 };
