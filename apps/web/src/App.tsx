@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ThemeSwitcher } from './theme/ThemeSwitcher';
 import { createKeySequence, loadHairline, saveHairline } from './viewport/planStyle';
 import {
   apexAbortUndoGroup,
@@ -103,7 +102,15 @@ import {
   setKernelSceneSink,
 } from './kernel/geometryKernel';
 import { KernelToggle } from './ui/KernelToggle';
-import { findElementSnap, snapKindLabel } from './tools/elementSnap';
+import {
+  findElementSnap,
+  loadSnapFilter,
+  saveSnapFilter,
+  snapKindLabel,
+  type SnapFilter,
+  type SnapGroup,
+} from './tools/elementSnap';
+import { StatusBar } from './ui/StatusBar';
 import {
   GRID_STEP,
   orthoConstrain,
@@ -184,7 +191,6 @@ import { extensions, installGlobalSdk } from './extensions/sdk';
 import {
   exporterDisplayLabel,
   exporterDisplayTitle,
-  LanguageSwitcher,
   useI18n,
 } from './i18n';
 import { exporterRegistry, importerRegistry, installPlugins } from './plugins';
@@ -281,6 +287,30 @@ export default function App() {
   const [info, setInfo] = useState<string | null>(null);
   /** Live element-snap kind shown in the status line (end / mid / edge / …). */
   const [snapStatus, setSnapStatus] = useState<string | null>(null);
+  /** Status-bar snap toggles; the ref feeds the hot snap path without re-renders. */
+  const [snapFilter, setSnapFilter] = useState<SnapFilter>(() =>
+    loadSnapFilter(typeof localStorage !== 'undefined' ? localStorage : undefined),
+  );
+  const snapFilterRef = useRef(snapFilter);
+  snapFilterRef.current = snapFilter;
+  const toggleSnap = useCallback((g: SnapGroup) => {
+    setSnapFilter((prev) => {
+      const next = { ...prev, [g]: !prev[g] };
+      saveSnapFilter(typeof localStorage !== 'undefined' ? localStorage : undefined, next);
+      return next;
+    });
+  }, []);
+  /** fps + revision readout; `?debug=1` or localStorage `apex.debug=1`. */
+  const [debugInfo] = useState<boolean>(() => {
+    try {
+      return (
+        new URLSearchParams(location.search).get('debug') === '1' ||
+        localStorage.getItem('apex.debug') === '1'
+      );
+    } catch {
+      return false;
+    }
+  });
   const lastElementSnapRef = useRef<{ kind: string; point: Vec3 } | null>(null);
   const [showGettingStarted, setShowGettingStarted] = useState(() => {
     try {
@@ -730,6 +760,8 @@ export default function App() {
           clientY,
           geometry,
           raw,
+          undefined,
+          snapFilterRef.current,
         );
       } catch {
         elementHit = null;
@@ -3249,8 +3281,6 @@ export default function App() {
                 }}
               />
               <KernelToggle key={kernelEpoch} onScene={(next) => applyScene(next)} />
-              <ThemeSwitcher />
-              <LanguageSwitcher />
             </div>
             <input
               ref={fileRef}
@@ -3434,16 +3464,6 @@ export default function App() {
             {t('chrome.menu')}
           </button>
         ) : null}
-        <div
-          className="viewport-badge"
-          title={`WebGL2 · ${fps > 0 ? `${fps} fps` : '…'} · rev ${scene?.version ?? 0}`}
-        >
-          <span className="viewport-badge-primary">{activeLevel?.name ?? '—'}</span>
-          <span className="viewport-badge-meta" aria-hidden="true">
-            {' · '}
-            {fps > 0 ? `${fps} fps` : '…'} · v{scene?.version ?? 0}
-          </span>
-        </div>
         {isMobile ? (
           <MobileMenuSheet
             open={mobileMenuOpen}
@@ -3532,6 +3552,16 @@ export default function App() {
         </aside>
       ) : null}
 
+      <StatusBar
+        levelName={activeLevel?.name ?? '—'}
+        snapKind={snapStatus}
+        snaps={snapFilter}
+        onToggleSnap={toggleSnap}
+        hairline={hairline}
+        onToggleHairline={() => setHairline((v) => !v)}
+        debug={debugInfo ? { fps, version: scene?.version ?? 0 } : null}
+        compact={isMobile}
+      />
       {profileEditor ? (
         <ProfileEditor
           initial={profileEditor.profile}

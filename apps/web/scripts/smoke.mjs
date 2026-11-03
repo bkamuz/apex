@@ -990,7 +990,7 @@ check(
   ),
 );
 
-const badge = await page.locator('.viewport-badge').textContent();
+const badge = await page.getByTestId('statusbar').textContent();
 console.log('\nbadge:', badge);
 
 // --- Sample house load (replaces the in-progress smoke document) ------------

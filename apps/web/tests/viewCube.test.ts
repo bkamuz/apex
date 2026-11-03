@@ -25,9 +25,12 @@ test("view cube fit: bounding sphere stays inside the widget at every orientatio
 
 test("view cube palettes exist for both themes with accent hover", () => {
   for (const t of ["light", "dark"] as const) {
-    assert.equal(VIEW_CUBE_THEMES[t].hoverFill, "#5a7d4e");
+    assert.match(VIEW_CUBE_THEMES[t].hoverFill, /^#[0-9a-f]{6}$/);
     assert.equal(Object.keys(VIEW_CUBE_THEMES[t].faces).length, 6);
   }
+  // bimpunk accent: light grey on dark, slate on light.
+  assert.equal(VIEW_CUBE_THEMES.dark.hoverFill, "#d5d9e1");
+  assert.equal(VIEW_CUBE_THEMES.light.hoverFill, "#2a303b");
   assert.notEqual(
     VIEW_CUBE_THEMES.light.faces.front,
     VIEW_CUBE_THEMES.dark.faces.front,

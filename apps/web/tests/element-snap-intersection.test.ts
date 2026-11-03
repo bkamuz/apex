@@ -48,3 +48,19 @@ test('a wall end clearly closer than the crossing still wins', () => {
   );
   assert.equal(snap(g, 5.15, 0.01)?.kind, 'end');
 });
+
+test('snap filter: disabled groups never win', async () => {
+  const { findElementSnap, ALL_SNAPS } = await import('../src/tools/elementSnap.ts');
+  const ctx = { worldToClient: (p: [number, number, number]) => [p[0] * 100, p[2] * 100] as [number, number] };
+  const geometry = {
+    points: [{ point: [0, 0, 0] as [number, number, number], kind: 'end' as const, element_id: 'w1' }],
+    segments: [{ a: [0, 0, 0] as [number, number, number], b: [2, 0, 0] as [number, number, number], element_id: 'w1' }],
+  };
+  const near: [number, number, number] = [0.05, 0, 0];
+  assert.equal(findElementSnap(ctx, 5, 0, geometry as never, near)?.kind, 'end');
+  const noEnd = { ...ALL_SNAPS, end: false };
+  assert.equal(findElementSnap(ctx, 5, 0, geometry as never, near, undefined, noEnd)?.kind, undefined);
+  const off = { end: false, mid: false, intersection: false, edge: false };
+  assert.equal(findElementSnap(ctx, 50, 0, geometry as never, [0.5, 0, 0], undefined, off), null);
+  assert.equal(findElementSnap(ctx, 50, 0, geometry as never, [0.5, 0, 0])?.kind, 'edge');
+});

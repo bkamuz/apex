@@ -1,0 +1,92 @@
+/*
+ * Apex colour palette — the single file to swap for a new look.
+ * Values come from bkamuz/bimpunk-ifcworkspace `web/src/styles.css`
+ * (:root and :root[data-theme="light"]) and `web/src/lib/theme.ts`
+ * (3D scene colours). Layout / spacing / type tokens live in app.css.
+ * Plan + 3D canvas colours mirror these in src/viewport/planStyle.ts and
+ * src/theme/theme.ts (keep the two in sync when swapping).
+ */
+:root {
+  /* bimpunk dark */
+  --chrome-bg: #1b1e26; /* --panel */
+  --chrome-bg-doc: #20252f; /* --head-2 */
+  --chrome-bg-tabs: #22262f; /* --panel-2 */
+  --chrome-bg-tools: #1b1e26; /* --panel */
+  --chrome-bg-hint: #12141a; /* --bg */
+  --chrome-viewport: #171a21; /* theme.ts scene */
+  --chrome-line: #313744; /* --line */
+  --chrome-border: #3a4352; /* --chip-border */
+  --chrome-hover: #343b4a; /* --hover */
+  --chrome-muted: #9aa3b2; /* --muted */
+  --chrome-text: #e7e9ee; /* --text */
+  --chrome-active: #d5d9e1; /* --accent */
+  --chrome-active-border: #d5d9e1; /* --accent */
+  --chrome-active-text: #14171d; /* --accent-fg */
+  --chrome-active-soft: #2f3644; /* --sel-row */
+  --chrome-context: #4cc38a; /* --ctx */
+  --chrome-info: #f0c674; /* --warn */
+  --chrome-field: #12141a; /* --bg */
+  --chrome-placeholder: #5c6577; /* --dim */
+  --chrome-scrollbar: #3a4352;
+  --chrome-scrollbar-hover: #4a5366; /* theme.ts cardBorder */
+  --chrome-overlay: rgba(20, 23, 30, 0.85); /* --overlay */
+  --chrome-overlay-strong: rgba(20, 23, 30, 0.94);
+  --chrome-sunken: #12141a; /* --bg */
+  --chrome-code: #12141a;
+  --chrome-error-bg: #2c1c1c; /* --notice-err */
+  --chrome-error-border: #5a3030;
+  --chrome-error-text: #e07a72; /* --danger */
+  --chrome-shadow: rgba(0, 0, 0, 0.45);
+  --chrome-brand-bg: #20252f; /* --head-2 */
+  --chrome-brand-text: #eef0f4; /* --logo-b */
+  --chrome-dirty: #f0c674; /* --warn */
+  --chrome-dirty-on-active: #9a6c00;
+  --danger: #e07a72; /* --danger */
+  --success: #7dcea0; /* --ok */
+  --warn: #f0c674; /* --warn */
+  --orange: #f0a04b; /* --orange */
+  --link: #8fc1ff; /* --link */
+  --font: ui-sans-serif, system-ui, "Segoe UI", sans-serif; /* :root font-family */
+}
+
+:root[data-theme='light'] {
+  /* bimpunk light */
+  --chrome-bg: #ffffff; /* --panel */
+  --chrome-bg-doc: #eef0f3; /* --head-2 */
+  --chrome-bg-tabs: #eef0f3; /* --panel-2 */
+  --chrome-bg-tools: #ffffff; /* --panel */
+  --chrome-bg-hint: #f4f5f7; /* --bg */
+  --chrome-viewport: #f4f5f7; /* theme.ts scene */
+  --chrome-line: #d3d8e0; /* --line */
+  --chrome-border: #c9d0da; /* --chip-border */
+  --chrome-hover: #e3e7ed; /* --hover */
+  --chrome-muted: #5d6575; /* --muted */
+  --chrome-text: #1b1f27; /* --text */
+  --chrome-active: #2a303b; /* --accent */
+  --chrome-active-border: #2a303b; /* --accent */
+  --chrome-active-text: #ffffff;
+  --chrome-active-soft: #e2e6ed; /* --sel-row */
+  --chrome-context: #17713f; /* --ctx */
+  --chrome-info: #9a6c00; /* --warn */
+  --chrome-field: #ffffff;
+  --chrome-placeholder: #8a93a3; /* --dim */
+  --chrome-scrollbar: #c9d0da;
+  --chrome-scrollbar-hover: #b6bdc9; /* theme.ts cardBorder */
+  --chrome-overlay: rgba(255, 255, 255, 0.9); /* --overlay */
+  --chrome-overlay-strong: rgba(255, 255, 255, 0.96);
+  --chrome-sunken: #ffffff;
+  --chrome-code: #ffffff;
+  --chrome-error-bg: #fbe3e0; /* --notice-err */
+  --chrome-error-border: #e2a9a2;
+  --chrome-error-text: #c0392b; /* --danger */
+  --chrome-shadow: rgba(0, 0, 0, 0.16);
+  --chrome-brand-bg: #eef0f3;
+  --chrome-brand-text: #14171d; /* --logo-c */
+  --chrome-dirty: #9a6c00;
+  --chrome-dirty-on-active: #fff3c4;
+  --danger: #c0392b;
+  --success: #2e8b57; /* --ok */
+  --warn: #9a6c00;
+  --orange: #c46a10; /* --orange */
+  --link: #1d5fb8; /* --link */
+}
