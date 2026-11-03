@@ -81,10 +81,9 @@ pub fn import_ifc4_into(project: &mut Project, text: &str) -> Result<ImportStats
         .active_level_id()
         .ok_or_else(|| ImportError("fresh project has no level".into()))?;
 
-    let level_count;
-    if storeys.is_empty() {
+    let level_count = if storeys.is_empty() {
         level_by_storey.insert(0, default_level);
-        level_count = 1;
+        1
     } else {
         let mut sorted = storeys;
         sorted.sort_by(|a, b| {
@@ -106,8 +105,8 @@ pub fn import_ifc4_into(project: &mut Project, text: &str) -> Result<ImportStats
             level_by_storey.insert(storey.id, level_id);
         }
         let _ = project.set_active_level(default_level);
-        level_count = sorted.len();
-    }
+        sorted.len()
+    };
 
     let mut imported = 0usize;
     let mut skipped = 0usize;
@@ -1368,10 +1367,9 @@ pub fn import_meshes_into(
         .ok_or_else(|| ImportError("fresh project has no level".into()))?;
 
     let mut level_ids: Vec<LevelId> = Vec::new();
-    let level_count;
-    if payload.levels.is_empty() {
+    let level_count = if payload.levels.is_empty() {
         level_ids.push(default_level);
-        level_count = 1;
+        1
     } else {
         let mut sorted: Vec<(usize, &MeshImportLevel)> =
             payload.levels.iter().enumerate().collect();
@@ -1397,8 +1395,8 @@ pub fn import_meshes_into(
         }
         level_ids = by_orig.into_iter().map(|id| id.expect("level")).collect();
         let _ = project.set_active_level(default_level);
-        level_count = payload.levels.len();
-    }
+        payload.levels.len()
+    };
 
     let mut imported = 0usize;
     let mut skipped = 0usize;

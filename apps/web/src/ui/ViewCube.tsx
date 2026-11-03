@@ -13,7 +13,9 @@ import {
   projectViewCube,
   type ViewCubeFace,
   type ViewCubeHit,
+  FACE_LABEL_KEY,
 } from "../viewport/viewCube";
+import { useI18n } from "../i18n";
 import { ViewCubeGl } from "../viewport/viewCubeGl";
 import { VIEW_CUBE_THEMES, themeStore } from "../theme/theme";
 
@@ -32,7 +34,23 @@ export interface ViewCubeProps {
  * captions stay flat on each face under perspective. Transparent hit canvas
  * shares the projected picker for faces/edges/corners + drag orbit.
  */
+const FACES: readonly ViewCubeFace[] = [
+  "front",
+  "back",
+  "left",
+  "right",
+  "top",
+  "bottom",
+];
+
 export function ViewCube({ renderer, visible }: ViewCubeProps) {
+  const { t, locale } = useI18n();
+  const labels = Object.fromEntries(
+    FACES.map((f) => [f, t(FACE_LABEL_KEY[f])]),
+  ) as Record<ViewCubeFace, string>;
+  const labelsKey = FACES.map((f) => labels[f]).join("|");
+  const labelsRef = useRef(labels);
+  labelsRef.current = labels;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const glRef = useRef<ViewCubeGl | null>(null);
   const hitRef = useRef<ViewCubeHit | null>(null);
@@ -53,7 +71,11 @@ export function ViewCube({ renderer, visible }: ViewCubeProps) {
     if (!canvas) return;
     let cube: ViewCubeGl;
     try {
-      cube = new ViewCubeGl(canvas, VIEW_CUBE_THEMES[themeStore().resolved()]);
+      cube = new ViewCubeGl(
+        canvas,
+        VIEW_CUBE_THEMES[themeStore().resolved()],
+        labelsRef.current,
+      );
     } catch {
       return;
     }
@@ -67,6 +89,10 @@ export function ViewCube({ renderer, visible }: ViewCubeProps) {
       glRef.current = null;
     };
   }, [visible]);
+
+  useEffect(() => {
+    glRef.current?.setLabels(labelsRef.current);
+  }, [labelsKey, locale]);
 
   useEffect(() => {
     if (!visible || !renderer) return;
@@ -238,13 +264,13 @@ export function ViewCube({ renderer, visible }: ViewCubeProps) {
     <div
       className="view-cube"
       data-testid="view-cube"
-      title="View cube — click to orient, drag to orbit"
+      title={t("viewCube.title")}
     >
       <canvas
         ref={canvasRef}
         width={SIZE}
         height={SIZE}
-        aria-label="View cube"
+        aria-label={t("viewCube.aria")}
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={onPointerUp}

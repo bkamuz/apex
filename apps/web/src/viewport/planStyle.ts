@@ -15,6 +15,8 @@ export interface PlanStyle {
   cutFill: Rgba;
   /** Per-category overrides — empty for now (everything solid). */
   cutFillByCategory: Record<string, Rgba>;
+  /** Slabs seen below the cut (projection): flat neutral fill, no lighting. */
+  slabFill: Rgba;
   gridLine: Rgba;
   edge: Rgba;
   symbol: Rgba;
@@ -29,6 +31,7 @@ export const PLAN_STYLES: Record<ResolvedTheme, PlanStyle> = {
     paper: [0.97, 0.97, 0.96, 1],
     cutFill: [0, 0, 0, 1],
     cutFillByCategory: {},
+    slabFill: [0.86, 0.86, 0.85, 1],
     gridLine: [0.55, 0.55, 0.53, 0.35],
     edge: [0.05, 0.05, 0.05, 1],
     symbol: [0.1, 0.1, 0.1, 1],
@@ -41,6 +44,7 @@ export const PLAN_STYLES: Record<ResolvedTheme, PlanStyle> = {
     paper: [28 / 255, 28 / 255, 28 / 255, 1],
     cutFill: [0.82, 0.82, 0.8, 1],
     cutFillByCategory: {},
+    slabFill: [0.2, 0.2, 0.2, 1],
     gridLine: [0.44, 0.43, 0.4, 0.38],
     edge: [0.86, 0.86, 0.84, 1],
     symbol: [0.86, 0.87, 0.9, 1],
