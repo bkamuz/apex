@@ -1,6 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { useTheme } from '../theme/useTheme';
-import type { ProjectionMode, ViewNavigationMode } from '../viewport/ViewportRenderer';
 import type { Tool } from '../tools/Tool';
 import {
   collectToolTabs,
@@ -20,15 +18,8 @@ export interface ToolsToolbarProps {
   tools: readonly Tool[];
   activeToolId: string;
   drawMode: string | null;
-  projection: ProjectionMode;
-  viewNavigation: ViewNavigationMode;
   onActivateTool: (id: string) => void;
   onActivateDrawMode: (id: string) => void;
-  onSetProjection: (mode: ProjectionMode) => void;
-  hairline: boolean;
-  onToggleHairline: () => void;
-  onSetViewNavigation: (mode: ViewNavigationMode) => void;
-  onFitView: () => void;
   /** Extra command group (e.g. Attach Top/Base) shown after Transform. */
   extra?: ReactNode;
 }
@@ -85,19 +76,11 @@ export function ToolsToolbar({
   tools,
   activeToolId,
   drawMode,
-  projection,
-  viewNavigation,
   onActivateTool,
   onActivateDrawMode,
-  onSetProjection,
-  hairline,
-  onToggleHairline,
-  onSetViewNavigation,
-  onFitView,
   extra,
 }: ToolsToolbarProps) {
   const { t, locale } = useI18n();
-  const { resolved: resolvedTheme, toggle: toggleTheme } = useTheme();
   const activeTool = useMemo(
     () => tools.find((tool) => tool.id === activeToolId),
     [tools, activeToolId],
@@ -254,82 +237,6 @@ export function ToolsToolbar({
               </ToolGroup>
             ) : null}
           </div>
-        </div>
-        {/* View controls live outside the per-tab tools so they never move. */}
-        <div className="tools-view" role="toolbar" aria-label={t('toolbar.view')} data-testid="view-controls">
-          <ToolGroup label={t('toolbar.view')}>
-            <button
-              type="button"
-              className={viewNavigation === '3d' ? 'active' : ''}
-              onClick={() => onSetViewNavigation('3d')}
-              title={t('toolbar.view3dTitle')}
-              data-testid="view-3d"
-            >
-              {t('toolbar.view3d')}
-            </button>
-            <button
-              type="button"
-              className={viewNavigation === 'plan' ? 'active' : ''}
-              onClick={() => onSetViewNavigation('plan')}
-              title={t('toolbar.planTitle')}
-              data-testid="view-plan"
-            >
-              {t('toolbar.plan')}
-            </button>
-            <button
-              type="button"
-              onClick={onFitView}
-              title={t('toolbar.fitTitle')}
-              data-testid="fit-view"
-            >
-              {t('toolbar.fit')}
-            </button>
-          </ToolGroup>
-
-          <ToolGroup label={t('toolbar.projection')}>
-            <button
-              type="button"
-              className={projection === 'orthographic' ? 'active' : ''}
-              disabled={viewNavigation === 'plan'}
-              onClick={() => onSetProjection('orthographic')}
-              title={t('toolbar.axonTitle')}
-            >
-              {t('toolbar.axon')}
-            </button>
-            <button
-              type="button"
-              className={projection === 'perspective' ? 'active' : ''}
-              disabled={viewNavigation === 'plan'}
-              onClick={() => onSetProjection('perspective')}
-              title={t('toolbar.perspTitle')}
-            >
-              {t('toolbar.persp')}
-            </button>
-          </ToolGroup>
-
-          <ToolGroup label={t('toolbar.lines')}>
-            <button
-              type="button"
-              data-testid="toggle-thin-lines"
-              className={hairline ? 'active' : ''}
-              aria-pressed={hairline}
-              onClick={onToggleHairline}
-              title={t('toolbar.thinLinesTitle')}
-            >
-              {t('toolbar.thinLines')}
-            </button>
-          </ToolGroup>
-
-          <ToolGroup label={t('toolbar.theme')}>
-            <button
-              type="button"
-              data-testid="toggle-theme"
-              onClick={toggleTheme}
-              title={t('toolbar.themeTitle')}
-            >
-              {resolvedTheme === 'dark' ? t('toolbar.themeToLight') : t('toolbar.themeToDark')}
-            </button>
-          </ToolGroup>
         </div>
       </div>
     </>
