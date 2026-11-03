@@ -18,11 +18,7 @@ export const FACE_EYE_DIR: Record<
   bottom: [0, -1, 0],
 };
 
-/**
- * Default English face captions painted onto the cube (CAD-style caps).
- * i18n-ready keys for AP-18: `viewCube.front` … `viewCube.bottom`
- * (catalog not wired here until i18n lands on main).
- */
+/** English fallback face captions; the UI bakes `t(FACE_LABEL_KEY[face])`. */
 export const FACE_LABEL: Record<ViewCubeFace, string> = {
   front: "FRONT",
   back: "BACK",
@@ -32,7 +28,7 @@ export const FACE_LABEL: Record<ViewCubeFace, string> = {
   bottom: "BOTTOM",
 };
 
-/** Stable message keys for future `t('viewCube.*')` wiring. */
+/** Catalog keys for the localized face captions (RU/EN). */
 export const FACE_LABEL_KEY: Record<ViewCubeFace, string> = {
   front: "viewCube.front",
   back: "viewCube.back",

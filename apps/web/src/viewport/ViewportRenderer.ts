@@ -168,6 +168,7 @@ uniform int uPlanMode;
 uniform float uCutY;
 uniform float uCutFade;
 uniform vec4 uCutFill;
+uniform vec4 uSlabFill;
 uniform int uMeshLayer;
 uniform int uSlabPickCount;
 uniform float uSlabPicks[32];
@@ -277,7 +278,7 @@ void main(){
     if (above > 0.0) {
       alpha *= 1.0 - clamp(above / max(uCutFade, 1e-4), 0.0, 0.92);
     }
-    if (slab && uMeshLayer != 2) {
+    if (slab && uMeshLayer != 2 && (selected || hovered)) {
       alpha *= 0.34;
     }
     if (abs(vWorld.y - uCutY) < 0.12) {
@@ -289,6 +290,13 @@ void main(){
   if (uPlanMode != 0 && uGlassPass == 0 && !gl_FrontFacing && !slab
       && !selected && uSelectionMode != 3 && vWorld.y <= uCutY + 1e-3) {
     outColor = uCutFill;
+    return;
+  }
+  // Plan: slabs below the cut read as a flat neutral fill (projection), so
+  // walls' cut poche stays legible on top; edges give the thin outline.
+  if (uPlanMode != 0 && slab && uGlassPass == 0 && !selected && uSelectionMode != 3
+      && !hoverTint) {
+    outColor = vec4(uSlabFill.rgb, uSlabFill.a * alpha);
     return;
   }
   vec3 color = base * (ambient * 0.45 + vec3(wrap) * 0.7);
@@ -473,6 +481,7 @@ type MeshUniforms = {
   uSelectionMode: WebGLUniformLocation | null;
   uPlanMode: WebGLUniformLocation | null;
   uCutFill: WebGLUniformLocation | null;
+  uSlabFill: WebGLUniformLocation | null;
   uCutY: WebGLUniformLocation | null;
   uCutFade: WebGLUniformLocation | null;
   uMeshLayer: WebGLUniformLocation | null;
@@ -534,6 +543,7 @@ function meshUniforms(gl: WebGL2RenderingContext, prog: WebGLProgram): MeshUnifo
     uSelectionMode: gl.getUniformLocation(prog, 'uSelectionMode'),
     uPlanMode: gl.getUniformLocation(prog, 'uPlanMode'),
     uCutFill: gl.getUniformLocation(prog, 'uCutFill'),
+    uSlabFill: gl.getUniformLocation(prog, 'uSlabFill'),
     uCutY: gl.getUniformLocation(prog, 'uCutY'),
     uCutFade: gl.getUniformLocation(prog, 'uCutFade'),
     uMeshLayer: gl.getUniformLocation(prog, 'uMeshLayer'),
@@ -1006,6 +1016,7 @@ export class ViewportRenderer {
   private ps: PlanStyle = PLAN_STYLES.dark;
   /** Cut poche colour for the active theme. */
   private planCutFill = new Float32Array(PLAN_STYLES.dark.cutFill);
+  private planSlabFill = new Float32Array(PLAN_STYLES.dark.slabFill);
   private hairline = false;
   private unsubscribeTheme: (() => void) | null = null;
   private sceneAabb: Aabb | null = null;
@@ -1674,6 +1685,7 @@ export class ViewportRenderer {
     this.vt = VIEWPORT_THEMES[theme];
     this.ps = PLAN_STYLES[theme];
     this.planCutFill.set(this.ps.cutFill);
+    this.planSlabFill.set(this.ps.slabFill);
     this.scratchSky.set(this.vt.sky);
     this.scratchGround.set(this.vt.ground);
   }
@@ -2646,6 +2658,7 @@ export class ViewportRenderer {
     gl.uniform1f(u.uCutY, this.planCutY);
     gl.uniform1f(u.uCutFade, this.planCutFade);
     gl.uniform4fv(u.uCutFill, this.planCutFill);
+    gl.uniform4fv(u.uSlabFill, this.planSlabFill);
     this.uploadSlabPickUniforms(u);
 
     gl.bindVertexArray(this.vao);
@@ -2792,6 +2805,7 @@ export class ViewportRenderer {
     gl.uniform1f(u.uCutY, this.planCutY);
     gl.uniform1f(u.uCutFade, this.planCutFade);
     gl.uniform4fv(u.uCutFill, this.planCutFill);
+    gl.uniform4fv(u.uSlabFill, this.planSlabFill);
     gl.uniform1i(u.uMeshLayer, 0);
     gl.uniform2f(u.uResolution, this.canvas.width, this.canvas.height);
     gl.uniform1f(u.uOutlinePx, outlinePx);
@@ -2855,6 +2869,7 @@ export class ViewportRenderer {
     gl.uniform1f(u.uCutY, this.planCutY);
     gl.uniform1f(u.uCutFade, this.planCutFade);
     gl.uniform4fv(u.uCutFill, this.planCutFill);
+    gl.uniform4fv(u.uSlabFill, this.planSlabFill);
     gl.uniform1i(u.uMeshLayer, 0);
     this.uploadSlabPickUniforms(u);
 

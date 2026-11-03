@@ -7,6 +7,28 @@
       content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
     />
     <title>Apex</title>
+    <script>
+      // Apply the saved/system theme before React mounts (no dark flash).
+      (function () {
+        var pref = 'system';
+        try {
+          var v = localStorage.getItem('apex.theme');
+          if (v === 'light' || v === 'dark' || v === 'system') pref = v;
+        } catch (e) {}
+        var dark =
+          pref === 'dark' ||
+          (pref === 'system' &&
+            !!window.matchMedia &&
+            window.matchMedia('(prefers-color-scheme: dark)').matches);
+        var r = dark ? 'dark' : 'light';
+        document.documentElement.dataset.theme = r;
+        document.documentElement.style.colorScheme = r;
+      })();
+    </script>
+    <style>
+      html { background: #1c1c1c; }
+      html[data-theme='light'] { background: #ededeb; }
+    </style>
     <link rel="icon" href="%BASE_URL%favicon.svg" type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />

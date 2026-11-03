@@ -1,3 +1,4 @@
+import { localizedParamLabel, localizedUnit } from './paramLabels';
 import { apexRunQuery } from '../wasm/apex';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ProvenanceBadge } from './inspector/ProvenanceBadge';
@@ -10,7 +11,6 @@ import {
   groupSpecs,
   provenanceIndex,
   stepFor,
-  unitFor,
   type ProvenanceRow,
 } from './inspector/model';
 import {
@@ -216,12 +216,12 @@ export function ParamField({
   onCommit: (value?: ParamValue) => void;
 }) {
   const { t } = useI18n();
-  const unit = unitFor(spec);
+  const unit = localizedUnit(spec, t);
   const formula = provenance?.source === 'formula';
   const locked = readOnly || formula;
   const label = (
     <label title={spec.id}>
-      <span className="field-label-text">{spec.label}</span>
+      <span className="field-label-text">{localizedParamLabel(spec, t)}</span>
       {unit ? <span className="field-unit">{unit}</span> : null}
       {provenance ? <ProvenanceBadge row={provenance} /> : null}
       {onReset && canReset(provenance) && !locked ? (

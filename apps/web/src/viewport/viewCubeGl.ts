@@ -93,6 +93,7 @@ function bakeFaceCanvas(
   face: ViewCubeFace,
   hover: boolean,
   pal: ViewCubeTheme,
+  labels: Record<ViewCubeFace, string>,
 ): HTMLCanvasElement {
   const canvas = document.createElement("canvas");
   canvas.width = FACE_TEX;
@@ -104,7 +105,7 @@ function bakeFaceCanvas(
   ctx.lineWidth = 8;
   ctx.strokeRect(4, 4, FACE_TEX - 8, FACE_TEX - 8);
 
-  const label = FACE_LABEL[face];
+  const label = labels[face] || FACE_LABEL[face];
   let fontPx = 56;
   ctx.font = `700 ${fontPx}px "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif`;
   while (ctx.measureText(label).width > FACE_TEX * 0.78 && fontPx > 22) {
@@ -261,11 +262,16 @@ export class ViewCubeGl {
   private readonly texHover = new Map<ViewCubeFace, WebGLTexture>();
   private hoverFaces = new Set<ViewCubeFace>();
   private disposed = false;
+  private palette: ViewCubeTheme;
+  private labels: Record<ViewCubeFace, string> = { ...FACE_LABEL };
 
   constructor(
     canvas: HTMLCanvasElement,
     palette: ViewCubeTheme = VIEW_CUBE_THEMES.dark,
+    labels?: Record<ViewCubeFace, string>,
   ) {
+    this.palette = palette;
+    if (labels) this.labels = { ...labels };
     const gl = canvas.getContext("webgl2", {
       alpha: true,
       antialias: true,
@@ -320,17 +326,30 @@ export class ViewCubeGl {
 
   /** Re-bake face textures for a new theme palette (live theme switch). */
   setPalette(palette: ViewCubeTheme): void {
+    this.palette = palette;
+    this.rebake();
+  }
+
+  /** Re-bake face captions for a new UI locale. */
+  setLabels(labels: Record<ViewCubeFace, string>): void {
+    this.labels = { ...labels };
+    this.rebake();
+  }
+
+  private rebake(): void {
     if (this.disposed) return;
+    const palette = this.palette;
+    const labels = this.labels;
     for (const t of this.texNormal.values()) this.gl.deleteTexture(t);
     for (const t of this.texHover.values()) this.gl.deleteTexture(t);
     for (const face of FACES) {
       this.texNormal.set(
         face,
-        this.uploadCanvas(bakeFaceCanvas(face, false, palette)),
+        this.uploadCanvas(bakeFaceCanvas(face, false, palette, labels)),
       );
       this.texHover.set(
         face,
-        this.uploadCanvas(bakeFaceCanvas(face, true, palette)),
+        this.uploadCanvas(bakeFaceCanvas(face, true, palette, labels)),
       );
     }
   }
