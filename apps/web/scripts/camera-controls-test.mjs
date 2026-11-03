@@ -15,6 +15,8 @@ await page.waitForTimeout(1200);
 await page.getByTestId('view-3d').click();
 await page.waitForTimeout(300);
 
+const axonIn3d = (await page.getByTestId('view-axon').count()) === 1;
+
 const getCamera = () =>
   page.evaluate(() => {
     const el = document.querySelector('[data-testid="viewport-canvas"]');
@@ -44,6 +46,7 @@ await page.mouse.move(cx + 120, cy + 80, { steps: 12 });
 await page.mouse.up({ button: 'right' });
 await page.waitForTimeout(200);
 const afterRmb = await getCamera();
+check('View pill shows Axon/Persp in 3D', axonIn3d);
 check('RMB orbit changes yaw', Math.abs(afterRmb.yaw - before.yaw) > 0.01);
 
 // MMB pan
@@ -95,6 +98,8 @@ check(
 
 // Plan view: RMB pans, no orbit (yaw locked).
 await page.getByTestId('view-plan').click();
+await page.waitForTimeout(200);
+check('View pill hides Axon/Persp in Plan', (await page.getByTestId('view-axon').count()) === 0);
 await page.waitForTimeout(300);
 const planBefore = await getCamera();
 await page.mouse.move(cx, cy);

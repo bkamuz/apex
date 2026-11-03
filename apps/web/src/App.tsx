@@ -140,6 +140,8 @@ import type {
 } from './types';
 import { GridAxisLabels } from './ui/GridAxisLabels';
 import { ViewCube } from './ui/ViewCube';
+import { ViewPill } from './ui/ViewPill';
+import { SettingsMenu } from './ui/SettingsMenu';
 import { LevelList } from './ui/LevelList';
 import { MobileMenuSheet, type MobileMenuTab } from './ui/MobileMenuSheet';
 import { ComponentEditor } from './ui/ComponentEditor';
@@ -301,7 +303,7 @@ export default function App() {
     });
   }, []);
   /** fps + revision readout; `?debug=1` or localStorage `apex.debug=1`. */
-  const [debugInfo] = useState<boolean>(() => {
+  const [debugInfo, setDebugInfo] = useState<boolean>(() => {
     try {
       return (
         new URLSearchParams(location.search).get('debug') === '1' ||
@@ -3247,40 +3249,27 @@ export default function App() {
                 onOpen={onRequestOpenProject}
                 onSave={onSaveProject}
                 onSaveAs={onSaveProjectAs}
-              />
-              {exporters.map((exporter) => (
-                <button
-                  key={exporter.id}
-                  type="button"
-                  data-testid={`export-${exporter.id}`}
-                  title={exporterDisplayTitle(exporter)}
-                  onClick={() => {
-                    try {
-                      const text = exporter.export();
-                      downloadText(exporter.filename, text, 'application/octet-stream');
-                      setError(null);
-                    } catch (err) {
-                      setError(err instanceof Error ? err.message : String(err));
-                    }
-                  }}
-                >
-                  {exporterDisplayLabel(exporter)}
-                </button>
-              ))}
-            </div>
-            <div className="file-actions-group file-actions-group--secondary" data-group="dev">
-              <AgentBridgeControl
-                onModelChanged={(fit) => {
-                  applyScene(apexGetScene(), fit);
-                  syncCatalog();
-                }}
-                screenshot={async () => {
-                  const r = rendererRef.current;
-                  if (!r) throw new Error('no 3D viewport is open');
-                  return r.snapshotDataUrl();
-                }}
-              />
-              <KernelToggle key={kernelEpoch} onScene={(next) => applyScene(next)} />
+              >
+                {exporters.map((exporter) => (
+                  <button
+                    key={exporter.id}
+                    type="button"
+                    data-testid={`export-${exporter.id}`}
+                    title={exporterDisplayTitle(exporter)}
+                    onClick={() => {
+                      try {
+                        const text = exporter.export();
+                        downloadText(exporter.filename, text, 'application/octet-stream');
+                        setError(null);
+                      } catch (err) {
+                        setError(err instanceof Error ? err.message : String(err));
+                      }
+                    }}
+                  >
+                    {exporterDisplayLabel(exporter)}
+                  </button>
+                ))}
+              </FileMenu>
             </div>
             <input
               ref={fileRef}
@@ -3296,23 +3285,41 @@ export default function App() {
               }}
             />
           </div>
-          <div className="topbar-level" data-testid="topbar-level">
-            <em>{activeLevel?.name ?? '—'}</em>
+          <div className="topbar-end">
+            <SettingsMenu
+              debug={debugInfo}
+              onToggleDebug={() =>
+                setDebugInfo((v) => {
+                  try {
+                    localStorage.setItem('apex.debug', v ? '0' : '1');
+                  } catch {
+                    /* ignore */
+                  }
+                  return !v;
+                })
+              }
+            >
+                <AgentBridgeControl
+                  onModelChanged={(fit) => {
+                    applyScene(apexGetScene(), fit);
+                    syncCatalog();
+                  }}
+                  screenshot={async () => {
+                    const r = rendererRef.current;
+                    if (!r) throw new Error('no 3D viewport is open');
+                    return r.snapshotDataUrl();
+                  }}
+                />
+                <KernelToggle key={kernelEpoch} onScene={(next) => applyScene(next)} />
+            </SettingsMenu>
           </div>
         </div>
         <ToolsToolbar
           tools={tools}
           activeToolId={toolId}
           drawMode={drawMode}
-          projection={projection}
-          viewNavigation={viewNavigation}
           onActivateTool={activateTool}
           onActivateDrawMode={activateDrawMode}
-          onSetProjection={setProjectionMode}
-          hairline={hairline}
-          onToggleHairline={() => setHairline((v) => !v)}
-          onSetViewNavigation={setViewNavigationMode}
-          onFitView={fitView}
           extra={attachToolbar}
         />
         <div
@@ -3442,6 +3449,13 @@ export default function App() {
               <ViewCube
                 renderer={ready ? rendererRef.current : null}
                 visible={ready && viewNavigation === '3d'}
+              />
+              <ViewPill
+                viewNavigation={viewNavigation}
+                projection={projection}
+                onSetViewNavigation={setViewNavigationMode}
+                onSetProjection={setProjectionMode}
+                onFitView={fitView}
               />
             </>
           }

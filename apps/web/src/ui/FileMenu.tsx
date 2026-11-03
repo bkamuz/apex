@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
 import { useI18n } from '../i18n';
 
 type Props = {
@@ -7,13 +7,15 @@ type Props = {
   onOpen: () => void;
   onSave: () => void;
   onSaveAs: () => void;
+  /** Extra items (exporters such as IFC) shown under a separator. */
+  children?: ReactNode;
 };
 
 /**
  * Industrial Option C File menu: New / Open / Save / Save As.
  * Keeps document ops out of flat export buttons; exporters stay siblings.
  */
-export function FileMenu({ dirty, onNew, onOpen, onSave, onSaveAs }: Props) {
+export function FileMenu({ dirty, onNew, onOpen, onSave, onSaveAs, children }: Props) {
   const { t } = useI18n();
   const detailsRef = useRef<HTMLDetailsElement>(null);
 
@@ -88,6 +90,19 @@ export function FileMenu({ dirty, onNew, onOpen, onSave, onSaveAs }: Props) {
           {t('chrome.saveAs')}
           <kbd>{t('chrome.saveAsShortcut')}</kbd>
         </button>
+        {children ? (
+          <>
+            <div className="file-menu-sep" role="separator" />
+            <div
+              className="file-menu-extra"
+              onClick={(e) => {
+                if (e.target instanceof Element && e.target.closest('button')) close();
+              }}
+            >
+              {children}
+            </div>
+          </>
+        ) : null}
       </div>
     </details>
   );
