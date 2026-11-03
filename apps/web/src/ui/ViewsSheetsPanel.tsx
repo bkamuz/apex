@@ -45,6 +45,7 @@ function ViewsGroup({
   onRenameView: (id: string, name: string) => void;
   onDeleteView: (id: string) => void;
 }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(true);
   return (
     <div className="browser-tree-group">
@@ -76,20 +77,31 @@ function ViewsGroup({
                   {view.name}
                 </button>
                 <div className="browser-tree-item-actions">
-                  <button type="button" title="Duplicate" onClick={() => onDuplicateView(view.id)}>
+                  <button
+                    type="button"
+                    title={t('views.duplicate')}
+                    aria-label={`${t('views.duplicate')}: ${view.name}`}
+                    onClick={() => onDuplicateView(view.id)}
+                  >
                     ⧉
                   </button>
                   <button
                     type="button"
-                    title="Rename"
+                    title={t('views.rename')}
+                    aria-label={`${t('views.rename')}: ${view.name}`}
                     onClick={() => {
-                      const name = window.prompt('View name', view.name);
+                      const name = window.prompt(t('views.promptName'), view.name);
                       if (name?.trim()) onRenameView(view.id, name.trim());
                     }}
                   >
                     ✎
                   </button>
-                  <button type="button" title="Delete" onClick={() => onDeleteView(view.id)}>
+                  <button
+                    type="button"
+                    title={t('views.delete')}
+                    aria-label={`${t('views.delete')}: ${view.name}`}
+                    onClick={() => onDeleteView(view.id)}
+                  >
                     ×
                   </button>
                 </div>
@@ -148,7 +160,7 @@ export function ViewsSheetsPanel({
             onClick={() => levelId && onNewPlanView(levelId)}
             title={t('views.newPlan')}
           >
-            + Plan
+            {t('views.newPlanShort')}
           </button>
           <button
             type="button"
@@ -157,7 +169,7 @@ export function ViewsSheetsPanel({
             onClick={onNewThreeDView}
             title={t('views.new3d')}
           >
-            + 3D
+            {t('views.new3dShort')}
           </button>
         </div>
         {viewsOpen ? (
@@ -207,7 +219,7 @@ export function ViewsSheetsPanel({
                 onCreateSheetWithLayout(newPaper, newOrientation, newCustomW, newCustomH)
               }
             >
-              + Create sheet
+              {t('sheets.create')}
             </button>
           </div>
         ) : null}
@@ -230,17 +242,23 @@ export function ViewsSheetsPanel({
                   <div className="browser-tree-item-actions">
                     <button
                       type="button"
-                      title="Rename"
+                      title={t('sheets.rename')}
+                      aria-label={`${t('sheets.rename')}: ${sheet.name}`}
                       onClick={() => {
-                        const number = window.prompt('Sheet number', sheet.number);
+                        const number = window.prompt(t('sheets.promptNumber'), sheet.number);
                         if (!number?.trim()) return;
-                        const name = window.prompt('Sheet name', sheet.name);
+                        const name = window.prompt(t('sheets.promptName'), sheet.name);
                         if (name?.trim()) onRenameSheet(sheet.id, number.trim(), name.trim());
                       }}
                     >
                       ✎
                     </button>
-                    <button type="button" title="Delete" onClick={() => onDeleteSheet(sheet.id)}>
+                    <button
+                      type="button"
+                      title={t('sheets.delete')}
+                      aria-label={`${t('sheets.delete')}: ${sheet.name}`}
+                      onClick={() => onDeleteSheet(sheet.id)}
+                    >
                       ×
                     </button>
                   </div>

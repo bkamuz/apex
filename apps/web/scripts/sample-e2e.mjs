@@ -117,6 +117,7 @@ const fit2 = await camera();
 if (!(fit2.pitch > 1.4)) note('second Fit left Plan');
 
 // Level 1 plan.
+await page.getByTestId('browser-tab-views').click(); // levels live in the Виды tab
 const levelRows = page.locator('.level-list li');
 if ((await levelRows.count()) >= 2) {
   await levelRows.nth(1).click();

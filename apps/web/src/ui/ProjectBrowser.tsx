@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState, type ReactNode } from 'react';
 import type {
   ComponentDto,
   ConstructionLineDto,
@@ -16,12 +16,19 @@ import { isUserAuthoredComponent } from './componentModel';
 import { profileLabel } from './profileModel';
 import { ViewsSheetsPanel } from './ViewsSheetsPanel';
 import type { SheetDto, ViewDto } from '../types';
+import { matchesBrowserSearch, type SidebarTab } from './sidebarPrefs';
 
 export type BrowserGroupBy = 'kind' | 'category' | 'level' | 'profile' | 'none';
 export type BrowserSortBy = 'name' | 'kind' | 'category';
-export type BrowserFilter = 'all' | 'types' | 'instances' | 'references' | 'grids' | 'annotations';
 
 interface Props {
+  /** Active browser tab (Виды / Модель / Роды). */
+  tab: SidebarTab;
+  onTabChange: (tab: SidebarTab) => void;
+  /** Collapse button in the tab strip (desktop). */
+  onCollapse?: () => void;
+  /** Levels list shown at the top of the Виды tab. */
+  levelsSlot?: ReactNode;
   elements: ElementListDto[];
   references: ReferenceDto[];
   gridAxes: GridAxisDto[];
@@ -94,27 +101,25 @@ interface BrowserItem {
 interface BrowserPrefs {
   groupBy: BrowserGroupBy;
   sortBy: BrowserSortBy;
-  filter: BrowserFilter;
   collapsed: Partial<Record<BrowserGroupBy, string[]>>;
 }
 
-const BROWSER_PREFS_KEY = 'apex.browser';
+const BROWSER_PREFS_KEY = 'apex.browser.v2';
 
 function loadPrefs(): BrowserPrefs {
   try {
     const raw = localStorage.getItem(BROWSER_PREFS_KEY);
     if (!raw) {
-      return { groupBy: 'kind', sortBy: 'name', filter: 'all', collapsed: {} };
+      return { groupBy: 'category', sortBy: 'name', collapsed: {} };
     }
     const parsed = JSON.parse(raw) as Partial<BrowserPrefs>;
     return {
-      groupBy: parsed.groupBy ?? 'kind',
+      groupBy: parsed.groupBy ?? 'category',
       sortBy: parsed.sortBy ?? 'name',
-      filter: parsed.filter ?? 'all',
       collapsed: parsed.collapsed ?? {},
     };
   } catch {
-    return { groupBy: 'kind', sortBy: 'name', filter: 'all', collapsed: {} };
+    return { groupBy: 'category', sortBy: 'name', collapsed: {} };
   }
 }
 
@@ -142,6 +147,10 @@ function groupKey(
       if (item.kind === 'space') return t('browser.kind.space');
       return t('browser.kind.element');
     case 'category':
+      // Datums group under their own kind; placed elements and types by category.
+      if (item.kind !== 'instance' && item.kind !== 'type' && item.kind !== 'component_def') {
+        return groupKey(item, 'kind', components);
+      }
       return categoryDisplayLabel(item.category || 'uncategorized', components);
     case 'level':
       return item.kind === 'type' ? t('browser.typesNotOnLevel') : item.levelName;
@@ -499,12 +508,16 @@ export function ProjectBrowser({
   onCreateSheetWithLayout,
   onRenameSheet,
   onDeleteSheet,
+  tab,
+  onTabChange,
+  onCollapse,
+  levelsSlot,
 }: Props) {
   const { t: tx, locale } = useI18n();
   const initial = loadPrefs();
   const [groupBy, setGroupBy] = useState<BrowserGroupBy>(initial.groupBy);
   const [sortBy, setSortBy] = useState<BrowserSortBy>(initial.sortBy);
-  const [filter, setFilter] = useState<BrowserFilter>(initial.filter);
+  const [query, setQuery] = useState('');
   const [collapsed, setCollapsed] = useState<Partial<Record<BrowserGroupBy, string[]>>>(
     initial.collapsed,
   );
@@ -516,13 +529,12 @@ export function ProjectBrowser({
       const prefs: BrowserPrefs = {
         groupBy,
         sortBy,
-        filter,
         collapsed,
         ...next,
       };
       storePrefs(prefs);
     },
-    [groupBy, sortBy, filter, collapsed],
+    [groupBy, sortBy, collapsed],
   );
 
   const setGroup = (value: BrowserGroupBy) => {
@@ -533,10 +545,6 @@ export function ProjectBrowser({
     setSortBy(value);
     persist({ sortBy: value });
   };
-  const setFilt = (value: BrowserFilter) => {
-    setFilter(value);
-    persist({ filter: value });
-  };
 
   const toggleGroup = (label: string) => {
     setCollapsed((prev) => {
@@ -545,7 +553,7 @@ export function ProjectBrowser({
         ? list.filter((entry) => entry !== label)
         : [...list, label];
       const next = { ...prev, [groupBy]: nextList };
-      storePrefs({ groupBy, sortBy, filter, collapsed: next });
+      storePrefs({ groupBy, sortBy, collapsed: next });
       return next;
     });
   };
@@ -632,34 +640,22 @@ export function ProjectBrowser({
       levelName: levelName(space.level_id),
       profileName: String(space.params.label ?? '—'),
     }));
-    let all = [...componentDefs, ...types, ...instances, ...refs, ...grids, ...lines, ...cuts, ...spaceItems];
-    switch (filter) {
-      case 'all':
-        break;
-      case 'types':
-        all = all.filter((item) => item.kind === 'type' || item.kind === 'component_def');
-        break;
-      case 'instances':
-        all = all.filter((item) => item.kind === 'instance');
-        break;
-      case 'references':
-        all = all.filter((item) => item.kind === 'reference');
-        break;
-      case 'grids':
-        all = all.filter((item) => item.kind === 'grid_axis');
-        break;
-      case 'annotations':
-        all = all.filter(
-          (item) =>
-            item.kind === 'construction_line' ||
-            item.kind === 'section_cut' ||
-            item.kind === 'space',
-        );
-        break;
-      default: {
-        const exhaustive: never = filter;
-        return exhaustive;
-      }
+    let all =
+      tab === 'genera'
+        ? [...componentDefs, ...types]
+        : [...instances, ...refs, ...grids, ...lines, ...cuts, ...spaceItems];
+    if (query.trim()) {
+      all = all.filter((item) =>
+        matchesBrowserSearch(
+          query,
+          item.name,
+          item.profileName,
+          item.levelName,
+          item.category,
+          categoryDisplayLabel(item.category || 'uncategorized', components),
+          groupKey(item, 'kind', components),
+        ),
+      );
     }
     all.sort((a, b) => compareItems(a, b, sortBy));
     return all;
@@ -673,8 +669,10 @@ export function ProjectBrowser({
     profiles,
     components,
     levels,
-    filter,
+    tab,
+    query,
     sortBy,
+    locale,
   ]);
 
   const groups = useMemo(() => {
@@ -690,50 +688,106 @@ export function ProjectBrowser({
 
   const selected = new Set(selectedIds);
 
+  const tabs: { id: SidebarTab; key: string }[] = [
+    { id: 'views', key: 'sidebar.tab.views' },
+    { id: 'model', key: 'sidebar.tab.model' },
+    { id: 'genera', key: 'sidebar.tab.genera' },
+  ];
+  const totalInTab =
+    tab === 'genera'
+      ? profiles.length + components.filter(isUserAuthoredComponent).length
+      : elements.length + references.length + gridAxes.length + constructionLines.length + sectionCuts.length + spaces.length;
+
   return (
-    <div className="project-browser" data-testid="project-browser">
-      <div className="panel-title-row">
-        <div className="panel-title">{tx('panel.project')}</div>
-        <button
-          type="button"
-          className="panel-action"
-          onClick={onNewComponent}
-          data-testid="browser-new-component"
-        >
-          {tx('panel.addComponent')}
-        </button>
-        <button
-          type="button"
-          className="panel-action"
-          onClick={onNewProfile}
-          data-testid="browser-new-profile"
-        >
-          {tx('panel.addProfile')}
-        </button>
-      </div>
-      <div className="browser-filter" role="tablist" aria-label={tx('browser.show')}>
-        {(
-          [
-            ['all', 'browser.filter.all'],
-            ['types', 'browser.filter.types'],
-            ['instances', 'browser.filter.instances'],
-            ['references', 'browser.filter.references'],
-            ['grids', 'browser.filter.grids'],
-            ['annotations', 'browser.filter.annotations'],
-          ] as const
-        ).map(([value, key]) => (
+    <div className="project-browser" data-testid="project-browser" data-tab={tab}>
+      <div className="browser-tabs" role="tablist" aria-label={tx('sidebar.tabsLabel')}>
+        {tabs.map(({ id, key }) => (
           <button
-            key={value}
+            key={id}
             type="button"
             role="tab"
-            aria-selected={filter === value}
-            className={filter === value ? 'active' : ''}
-            data-testid={`browser-filter-${value}`}
-            onClick={() => setFilt(value)}
+            aria-selected={tab === id}
+            className={`browser-tab${tab === id ? ' active' : ''}`}
+            data-testid={`browser-tab-${id}`}
+            onClick={() => onTabChange(id)}
           >
             {tx(key)}
           </button>
         ))}
+        {onCollapse ? (
+          <button
+            type="button"
+            className="browser-collapse"
+            data-testid="sidebar-collapse"
+            title={tx('sidebar.collapse')}
+            aria-label={tx('sidebar.collapse')}
+            onClick={onCollapse}
+          >
+            «
+          </button>
+        ) : null}
+      </div>
+      {tab === 'views' ? (
+        <div className="browser-views shell-scroll" data-testid="browser-views">
+          {levelsSlot}
+          {onOpenView && onNewPlanView && onNewThreeDView ? (
+            <ViewsSheetsPanel
+              views={views}
+              sheets={sheets}
+              levels={levels}
+              activeLevelId={activeLevelId}
+              openViewId={openViewId}
+              openSheetId={openSheetId}
+              onOpenView={onOpenView}
+              onOpenSheet={(id) => (onOpenSheet ?? onOpenView)?.(id)}
+              onNewPlanView={onNewPlanView}
+              onNewThreeDView={onNewThreeDView}
+              onDuplicateView={onDuplicateView ?? (() => {})}
+              onRenameView={onRenameView ?? (() => {})}
+              onDeleteView={onDeleteView ?? (() => {})}
+              onCreateSheetWithLayout={onCreateSheetWithLayout ?? (() => {})}
+              onRenameSheet={onRenameSheet ?? (() => {})}
+              onDeleteSheet={onDeleteSheet ?? (() => {})}
+            />
+          ) : null}
+        </div>
+      ) : (
+        <>
+      {tab === 'genera' ? (
+        <div className="panel-title-row browser-genera-actions">
+          <button
+            type="button"
+            className="panel-action"
+            onClick={onNewComponent}
+            data-testid="browser-new-component"
+          >
+            {tx('panel.addComponent')}
+          </button>
+          <button
+            type="button"
+            className="panel-action"
+            onClick={onNewProfile}
+            data-testid="browser-new-profile"
+          >
+            {tx('panel.addProfile')}
+          </button>
+        </div>
+      ) : null}
+      <div className="browser-search">
+        <input
+          type="search"
+          value={query}
+          placeholder={tx(tab === 'genera' ? 'browser.searchGenera' : 'browser.search')}
+          aria-label={tx(tab === 'genera' ? 'browser.searchGenera' : 'browser.search')}
+          data-testid="browser-search"
+          onChange={(e) => setQuery(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Escape' && query) {
+              e.stopPropagation();
+              setQuery('');
+            }
+          }}
+        />
       </div>
       <div className={`browser-arrange${arrangeOpen ? ' is-open' : ''}`}>
         <button
@@ -781,34 +835,13 @@ export function ProjectBrowser({
           </div>
         ) : null}
       </div>
-      {onOpenView && onNewPlanView && onNewThreeDView ? (
-        <ViewsSheetsPanel
-          views={views}
-          sheets={sheets}
-          levels={levels}
-          activeLevelId={activeLevelId}
-          openViewId={openViewId}
-          openSheetId={openSheetId}
-          onOpenView={onOpenView}
-          onOpenSheet={(id) => (onOpenSheet ?? onOpenView)?.(id)}
-          onNewPlanView={onNewPlanView}
-          onNewThreeDView={onNewThreeDView}
-          onDuplicateView={onDuplicateView ?? (() => {})}
-          onRenameView={onRenameView ?? (() => {})}
-          onDeleteView={onDeleteView ?? (() => {})}
-          onCreateSheetWithLayout={
-            onCreateSheetWithLayout ??
-            (() => {
-              /* noop */
-            })
-          }
-          onRenameSheet={onRenameSheet ?? (() => {})}
-          onDeleteSheet={onDeleteSheet ?? (() => {})}
-        />
-      ) : null}
       <div className="browser-tree-scroll shell-scroll" data-testid="browser-tree-scroll">
         {groups.length === 0 ? (
-          <div className="empty">{tx('browser.emptyTree')}</div>
+          <div className="empty">
+            {query.trim() && totalInTab > 0
+              ? tx('browser.noMatches')
+              : tx(tab === 'genera' ? 'browser.emptyGenera' : 'browser.emptyModel')}
+          </div>
         ) : groupBy === 'none' ? (
           <ul className="browser-tree-items browser-tree-items--flat">
             {orderWithParentHierarchy(items).map(({ item, depth }) => (
@@ -870,6 +903,8 @@ export function ProjectBrowser({
           </div>
         )}
       </div>
+        </>
+      )}
     </div>
   );
 }

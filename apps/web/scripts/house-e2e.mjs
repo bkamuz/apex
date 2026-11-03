@@ -272,6 +272,7 @@ await shot('l0-walls-openings');
 // ---------------------------------------------------------------- Level 1
 await page.getByRole('button', { name: '+ Level' }).click();
 await page.waitForTimeout(400);
+await page.getByTestId('browser-tab-views').click(); // levels live in the Виды tab
 const l1 = page.locator('.level-list li').nth(1);
 await l1.click();
 await page.waitForTimeout(400);

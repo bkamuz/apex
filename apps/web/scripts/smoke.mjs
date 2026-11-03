@@ -260,9 +260,13 @@ await clickCanvas(0.5, 0.45);
 await clickCanvas(0.62, 0.45);
 check('ref plane created', (await refCount()) >= 2);
 check('ref plane auto-selected after place', await isNamedItemSelected('reference', 'Ref plane'));
-await page.getByTestId('browser-filter-references').click();
-check('references filter lists refs', (await refCount()) >= 2);
-await page.getByTestId('browser-filter-all').click();
+await page.getByTestId('browser-search').fill('ref');
+await page.waitForTimeout(80);
+check('search lists refs', (await refCount()) >= 2);
+check('search hides walls', (await page.locator('[data-kind="instance"]').count()) === 0);
+await page.getByTestId('browser-search').press('Escape');
+await page.waitForTimeout(80);
+check('Esc clears search', (await page.getByTestId('browser-search').inputValue()) === '');
 
 console.log('\n[3a] viewport pick for references');
 await useTool('Select');
@@ -293,9 +297,8 @@ check(
   'grid label editable in inspector after auto-select',
   (await page.locator('.grid-axis-label').filter({ hasText: 'A' }).count()) >= 1,
 );
-await page.getByTestId('browser-filter-grids').click();
-check('grids filter lists axes', (await gridCount()) >= 1);
-await page.getByTestId('browser-filter-all').click();
+await page.getByTestId('browser-tab-model').click();
+check('model tab lists grid axes', (await gridCount()) >= 1);
 
 console.log('\n[3c] viewport pick for grid axis');
 await useTool('Select');
@@ -319,10 +322,13 @@ check(
 
 // --- 3d. Level / construction line / section cut (Basics phase 1) ----------
 console.log('\n[3d] Basics: Level, construction line, section cut');
+await page.getByTestId('browser-tab-views').click();
 const levelCountBefore = await page.locator('.level-list li').count();
+check('levels shown once', (await page.locator('.level-list').count()) === 1);
 await useTool('Level');
 await clickCanvas(0.5, 0.5);
 const levelCountAfter = await page.locator('.level-list li').count();
+await page.getByTestId('browser-tab-model').click();
 check('Level tool adds a storey', levelCountAfter === levelCountBefore + 1, `was ${levelCountBefore} now ${levelCountAfter}`);
 
 const clineCount = () => page.locator('[data-kind="construction_line"]').count();
@@ -358,9 +364,7 @@ await page.screenshot({ path: `${OUT}/apex-inspector-clears-on-tool-change.png`,
 
 await page.getByTestId('tools-tab-apex.architecture').click();
 await page.waitForTimeout(80);
-await page.getByTestId('browser-filter-annotations').click({ force: true });
-check('annotations filter lists lines/cuts', (await clineCount()) + (await cutCount()) >= 2);
-await page.getByTestId('browser-filter-all').click({ force: true });
+check('model tab lists lines/cuts', (await clineCount()) + (await cutCount()) >= 2);
 
 // --- 3e. Spaces tab + closed polyline space --------------------------------
 console.log('\n[3e] Spaces: place closed space');
@@ -573,7 +577,7 @@ await page.waitForTimeout(120);
 // --- 4. Schema-driven inspector -------------------------------------------
 console.log('\n[5] inspector generated from the parameter schema');
 await useTool('Select');
-await page.getByTestId('browser-filter-all').click();
+await page.getByTestId('browser-tab-model').click();
 // Elements are listed by id, so pick the wall by name rather than by position.
 const wallRow = page.locator('[data-kind="instance"]').filter({ hasText: /^Wall \d+/ }).first();
 await wallRow.scrollIntoViewIfNeeded();
@@ -874,6 +878,7 @@ await page.screenshot({ path: `${OUT}/apex-06-profile-editor.png`, fullPage: tru
 
 // --- Visual component editor (create → place → edit → save/reload) --------
 console.log('\n[10] visual component editor');
+await page.getByTestId('browser-tab-genera').click();
 await page.getByTestId('browser-new-component').click();
 await page.waitForSelector('[data-testid="component-editor"]');
 check('component editor opened', (await page.locator('[data-testid="component-editor"]').count()) === 1);
@@ -895,6 +900,7 @@ check(
   (await page.locator('[data-testid="component-editor"]').count()) === 0,
 );
 check('Smoke box tool on toolbar', (await toolbarNames()).includes('Smoke box'));
+await page.getByTestId('browser-tab-model').click();
 const beforeSmokeBox = await elementCount();
 await useTool('Smoke box');
 await clickCanvas(0.52, 0.52);
@@ -908,6 +914,7 @@ if ((await smokeHeight.count()) > 0) {
   await smokeHeight.fill('2.0');
   check('instance param edited on placed smoke box', Number(await smokeHeight.inputValue()) === 2);
 }
+await page.getByTestId('browser-tab-genera').click();
 await page.locator('[data-kind="component_def"]', { hasText: 'Smoke box' }).click();
 await page.waitForTimeout(200);
 check('user component opens in editor from browser', (await page.locator('[data-testid="component-editor"]').count()) === 1);
@@ -920,13 +927,22 @@ check(
   'browser is present',
   (await page.locator('[data-testid="project-browser"]').count()) >= 1,
 );
-await page.getByTestId('browser-filter-types').click();
+await page.getByTestId('browser-tab-genera').click();
 const typeCount = await page.locator('[data-kind="type"]').count();
 check('type browser lists profiles', typeCount >= 5, `got ${typeCount}`);
-await page.getByTestId('browser-filter-instances').click();
+await page.getByTestId('browser-tab-model').click();
 const instCount = await page.locator('[data-kind="instance"]').count();
 check('instance browser lists elements', instCount >= 8, `got ${instCount}`);
-await page.getByTestId('browser-filter-all').click();
+await page.keyboard.press('Control+b');
+await page.waitForTimeout(80);
+check('Ctrl+B collapses browser', (await page.getByTestId('sidebar-expand').count()) === 1);
+check(
+  'collapse state persisted',
+  await page.evaluate(() => JSON.parse(localStorage.getItem('apex.sidebar') || '{}').collapsed === true),
+);
+await page.getByTestId('sidebar-expand').click();
+await page.waitForSelector('[data-testid="project-browser"]');
+check('tab persists', (await page.getByTestId('browser-tab-model').getAttribute('aria-selected')) === 'true');
 await page.getByTestId('browser-arrange-toggle').click();
 await page.getByTestId('browser-group').selectOption('category');
 check(

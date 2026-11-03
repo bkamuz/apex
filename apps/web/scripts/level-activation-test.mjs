@@ -5,6 +5,7 @@ const BASE = process.env.APEX_SMOKE_URL ?? 'http://localhost:5173/';
 const browser = await chromium.launch({ headless: true });
 const page = await browser.newPage({ viewport: { width: 1400, height: 900 } });
 await page.goto(BASE, { waitUntil: 'networkidle' });
+await page.getByTestId('browser-tab-views').click(); // levels live in the Виды tab
 await page.waitForSelector('.level-list li');
 await page.waitForTimeout(400);
 
