@@ -32,13 +32,28 @@ test('theme strings exist in EN and RU', () => {
     'chrome.theme.system',
     'chrome.theme.light',
     'chrome.theme.dark',
-    'toolbar.theme',
-    'toolbar.themeToLight',
-    'toolbar.themeToDark',
-    'toolbar.themeTitle',
   ]) {
     assert.ok((en as Record<string, string>)[k], k);
     assert.ok((ru as Record<string, string>)[k], k);
     assert.notEqual((en as Record<string, string>)[k], (ru as Record<string, string>)[k]);
+  }
+});
+
+test('old theme-button strings are gone', () => {
+  for (const k of ['toolbar.theme', 'toolbar.themeToLight', 'toolbar.themeToDark', 'toolbar.themeTitle']) {
+    assert.equal((en as Record<string, string>)[k], undefined, k);
+    assert.equal((ru as Record<string, string>)[k], undefined, k);
+  }
+});
+
+test('ribbon, context bar and palette strings exist in EN and RU', () => {
+  const keys = Object.keys(en).filter((k) => /^(ribbon|ctx|palette|cmd)\./.test(k));
+  assert.ok(keys.length > 30, String(keys.length));
+  for (const k of keys) {
+    assert.ok((ru as Record<string, string>)[k], k);
+  }
+  for (const k of [...Object.keys(en), ...Object.keys(ru)]) {
+    const v = ((en as Record<string, string>)[k] ?? '') + ((ru as Record<string, string>)[k] ?? '');
+    if (/^(ribbon|ctx|palette|cmd)\./.test(k)) assert.ok(!/famil/i.test(v), k);
   }
 });
