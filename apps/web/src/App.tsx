@@ -153,6 +153,13 @@ import { ComponentEditor } from './ui/ComponentEditor';
 import { ProfileEditor } from './ui/ProfileEditor';
 import { defaultNewComponent, isUserAuthoredComponent, nextComponentId } from './ui/componentModel';
 import { ProjectBrowser } from './ui/ProjectBrowser';
+import {
+  clampSidebarWidth,
+  loadSidebarPrefs,
+  saveSidebarPrefs,
+  type SidebarPrefs,
+  type SidebarTab,
+} from './ui/sidebarPrefs';
 import { DocumentViewsHost } from './ui/DocumentViewsHost';
 import { useDocumentTabs } from './hooks/useDocumentTabs';
 import {
@@ -255,6 +262,47 @@ export default function App() {
   const { t, locale, setLocale } = useI18n();
   const { setPreference: setThemePreference } = useTheme();
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [sidebar, setSidebar] = useState<SidebarPrefs>(loadSidebarPrefs);
+  const updateSidebar = useCallback((patch: Partial<SidebarPrefs>) => {
+    setSidebar((prev) => {
+      const next = { ...prev, ...patch };
+      saveSidebarPrefs(next);
+      return next;
+    });
+  }, []);
+  const toggleSidebar = useCallback(
+    () =>
+      setSidebar((prev) => {
+        const next = { ...prev, collapsed: !prev.collapsed };
+        saveSidebarPrefs(next);
+        return next;
+      }),
+    [],
+  );
+  const setSidebarTab = useCallback(
+    (tab: SidebarTab) => updateSidebar({ tab, collapsed: false }),
+    [updateSidebar],
+  );
+  const startSidebarResize = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startW = sidebar.width;
+      const onMove = (ev: PointerEvent) =>
+        setSidebar((prev) => ({ ...prev, width: clampSidebarWidth(startW + ev.clientX - startX) }));
+      const onUp = () => {
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+        setSidebar((prev) => {
+          saveSidebarPrefs(prev);
+          return prev;
+        });
+      };
+      window.addEventListener('pointermove', onMove);
+      window.addEventListener('pointerup', onUp);
+    },
+    [sidebar.width],
+  );
   /** Runs a two-letter shortcut command; refreshed every render. */
   const shortcutRunRef = useRef<(command: string) => boolean>(() => false);
   const projectRestoreDoneRef = useRef(false);
@@ -400,7 +448,7 @@ export default function App() {
   const [fps, setFps] = useState(0);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [mobileMenuTab, setMobileMenuTab] = useState<MobileMenuTab>('levels');
-  const isMobile = useMediaQuery('(max-width: 900px)');
+  const isMobile = useMediaQuery('(max-width: 640px)');
   const fileRef = useRef<HTMLInputElement>(null);
   /** Baseline JSON after New / Open / Save — dirty when live export differs. */
   const cleanProjectJsonRef = useRef<string | null>(null);
@@ -1977,6 +2025,12 @@ export default function App() {
         setPaletteOpen((v) => !v);
         return;
       }
+      // Ctrl+B: show / hide the project browser.
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'b') {
+        e.preventDefault();
+        toggleSidebar();
+        return;
+      }
       // Revit-style two-letter codes (WA wall, DR door, …, TL thin lines).
       if (!typing && !e.ctrlKey && !e.metaKey && !e.altKey) {
         const command = shortcutSeqRef.current.feed(e.key, performance.now());
@@ -3324,6 +3378,7 @@ export default function App() {
     add('view-fit', 'cmd.fit', 'cmd.group.view', fitView, { shortcut: 'F' });
     add('view-axon', 'cmd.axon', 'cmd.group.view', () => setProjectionMode('orthographic'));
     add('view-persp', 'cmd.persp', 'cmd.group.view', () => setProjectionMode('perspective'));
+    add('toggle-browser', 'cmd.toggleBrowser', 'cmd.group.view', toggleSidebar, { shortcut: 'Ctrl+B' });
     add('thin-lines', 'cmd.thinLines', 'cmd.group.view', () => setHairline((v) => !v), { shortcut: 'TL' });
     add('split', 'cmd.split', 'cmd.group.view', toggleSplit);
     add('theme-light', 'cmd.themeLight', 'cmd.group.settings', () => setThemePreference('light'));
@@ -3469,16 +3524,56 @@ export default function App() {
         }}
       />
 
-      {!isMobile ? (
-        <aside className="sidebar">
-          <LevelList
-            levels={levels}
-            activeLevelId={scene?.active_level_id ?? null}
-            selectedLevelId={selectedLevel?.id ?? null}
-            onSelect={onSelectLevel}
-            onCreate={onCreateLevel}
+      {!isMobile && sidebar.collapsed ? (
+        <aside className="sidebar sidebar--collapsed" data-testid="sidebar" data-collapsed="true">
+          <button
+            type="button"
+            className="sidebar-rail-btn"
+            data-testid="sidebar-expand"
+            title={t('sidebar.expand')}
+            aria-label={t('sidebar.expand')}
+            onClick={toggleSidebar}
+          >
+            »
+          </button>
+          {(['views', 'model', 'genera'] as const).map((id) => (
+            <button
+              key={id}
+              type="button"
+              className={`sidebar-rail-btn sidebar-rail-tab${sidebar.tab === id ? ' active' : ''}`}
+              data-testid={`sidebar-rail-${id}`}
+              title={t(`sidebar.tab.${id}`)}
+              onClick={() => setSidebarTab(id)}
+            >
+              {t(`sidebar.tab.${id}`)}
+            </button>
+          ))}
+        </aside>
+      ) : null}
+      {!isMobile && !sidebar.collapsed ? (
+        <aside className="sidebar" data-testid="sidebar" style={{ width: sidebar.width }}>
+          <div
+            className="sidebar-resize"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label={t('sidebar.resize')}
+            data-testid="sidebar-resize"
+            onPointerDown={startSidebarResize}
+            onDoubleClick={() => updateSidebar({ width: 248 })}
           />
           <ProjectBrowser
+            tab={sidebar.tab}
+            onTabChange={setSidebarTab}
+            onCollapse={toggleSidebar}
+            levelsSlot={
+              <LevelList
+                levels={levels}
+                activeLevelId={scene?.active_level_id ?? null}
+                selectedLevelId={selectedLevel?.id ?? null}
+                onSelect={onSelectLevel}
+                onCreate={onCreateLevel}
+              />
+            }
             elements={elements}
             references={scene?.references ?? []}
             gridAxes={scene?.grid_axes ?? []}
@@ -3636,6 +3731,8 @@ export default function App() {
             }
             elements={
               <ProjectBrowser
+                tab={sidebar.tab}
+                onTabChange={setSidebarTab}
                 elements={elements}
                 references={scene?.references ?? []}
                 gridAxes={scene?.grid_axes ?? []}

@@ -53,6 +53,7 @@ await page.getByRole('button', { name: 'New', exact: true }).click();
 await page.waitForTimeout(300);
 await page.getByTestId('load-sample-project').click();
 await page.waitForTimeout(1000);
+await page.getByTestId('browser-tab-views').click(); // levels live in the Виды tab
 if ((await page.locator('.level-list li').count()) < 2) {
   await page.getByRole('button', { name: '+ Level', exact: true }).click();
   await page.waitForTimeout(400);
