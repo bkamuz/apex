@@ -39,6 +39,14 @@
   --chrome-scrollbar-hover: #4a5366; /* theme.ts cardBorder */
   --chrome-overlay: rgba(20, 23, 30, 0.85); /* --overlay */
   --chrome-overlay-strong: rgba(20, 23, 30, 0.94);
+  /* Floating frosted overlays (view pill): keep glass translucency, but idle
+     labels use high-contrast dark ink so they stay readable over light plan
+     paper / bright scene content. Opacity is high enough that the same dark
+     ink also holds over dark plan paper / 3D clear. Active chips keep
+     --chrome-active*. */
+  --chrome-surface: rgba(232, 236, 242, 0.72);
+  --chrome-surface-fg: #1b1f27;
+  --chrome-surface-line: rgba(20, 23, 29, 0.28);
   --chrome-sunken: #12141a; /* --bg */
   --chrome-code: #12141a;
   --chrome-error-bg: #2c1c1c; /* --notice-err */
@@ -100,6 +108,9 @@
   --chrome-scrollbar-hover: #b6bdc9; /* theme.ts cardBorder */
   --chrome-overlay: rgba(255, 255, 255, 0.9); /* --overlay */
   --chrome-overlay-strong: rgba(255, 255, 255, 0.96);
+  --chrome-surface: rgba(255, 255, 255, 0.72);
+  --chrome-surface-fg: #1b1f27;
+  --chrome-surface-line: rgba(27, 31, 39, 0.18);
   --chrome-sunken: #ffffff;
   --chrome-code: #ffffff;
   --chrome-error-bg: #fbe3e0; /* --notice-err */
