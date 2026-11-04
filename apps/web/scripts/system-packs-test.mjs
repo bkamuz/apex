@@ -79,11 +79,11 @@ check('default: Wall on Architecture', tools.includes('Wall'));
 
 await openSettings('general');
 await page.screenshot({
-  path: join(OUT, 'ap-42-settings-general.png'),
+  path: join(OUT, 'ap-43-settings-sidebar-general.png'),
   fullPage: false,
 });
 await page.screenshot({
-  path: join(STORE_MEDIA, 'settings-modal-general.png'),
+  path: join(STORE_MEDIA, 'settings-sidebar-general.png'),
   fullPage: false,
 });
 
@@ -93,7 +93,7 @@ await page.screenshot({
   fullPage: false,
 });
 await page.screenshot({
-  path: join(OUT, 'ap-42-settings-extensions.png'),
+  path: join(OUT, 'ap-43-settings-sidebar-extensions.png'),
   fullPage: false,
 });
 await page.screenshot({
@@ -101,7 +101,17 @@ await page.screenshot({
   fullPage: false,
 });
 await page.screenshot({
-  path: join(STORE_MEDIA, 'settings-modal-extensions.png'),
+  path: join(STORE_MEDIA, 'settings-sidebar-extensions.png'),
+  fullPage: false,
+});
+// Crop-friendly shot with pack descriptions visible.
+await page.locator('[data-testid="settings-pack-row-apex.pack.building"]').scrollIntoViewIfNeeded();
+await page.screenshot({
+  path: join(OUT, 'ap-43-settings-pack-descriptions.png'),
+  fullPage: false,
+});
+await page.screenshot({
+  path: join(STORE_MEDIA, 'settings-pack-descriptions.png'),
   fullPage: false,
 });
 

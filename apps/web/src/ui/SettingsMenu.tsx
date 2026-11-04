@@ -20,10 +20,15 @@ type SettingsTab = 'general' | 'extensions';
 
 const THEMES: ThemePreference[] = ['system', 'light', 'dark'];
 
+const NAV: { id: SettingsTab; labelKey: string; testId: string }[] = [
+  { id: 'general', labelKey: 'settings.tab.general', testId: 'settings-tab-general' },
+  { id: 'extensions', labelKey: 'settings.tab.extensions', testId: 'settings-tab-extensions' },
+];
+
 const FOCUSABLE =
   'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
-/** ⚙ opens a Settings modal: General (theme/lang/debug) + Extensions (system packs). */
+/** ⚙ opens a Settings modal: left nav (General | Extensions) + content panel. */
 export function SettingsMenu({ children, debug, onToggleDebug }: Props) {
   const { t, locale, setLocale, locales } = useI18n();
   const { preference, setPreference } = useTheme();
@@ -84,6 +89,7 @@ export function SettingsMenu({ children, debug, onToggleDebug }: Props) {
     case 'general':
       body = (
         <div className="settings-pane" data-testid="settings-pane-general" role="tabpanel">
+          <h3 className="settings-pane-title">{t('settings.tab.general')}</h3>
           <label className="settings-row">
             <span>{t('settings.theme')}</span>
             <select
@@ -134,18 +140,27 @@ export function SettingsMenu({ children, debug, onToggleDebug }: Props) {
           data-testid="settings-packs"
           role="tabpanel"
         >
+          <h3 className="settings-pane-title">{t('settings.tab.extensions')}</h3>
           <p className="settings-pane-hint">{t('settings.packsHint')}</p>
           {systemPacks.map((pack) => {
             const checked = enabledPacks.has(pack.id);
             return (
-              <label key={pack.id} className="settings-row settings-check">
+              <label
+                key={pack.id}
+                className="settings-pack"
+                data-testid={`settings-pack-row-${pack.id}`}
+              >
                 <input
                   type="checkbox"
+                  className="settings-pack-check"
                   checked={checked}
                   data-testid={`settings-pack-${pack.id}`}
                   onChange={(e) => setPackEnabled(pack.id, e.target.checked)}
                 />
-                <span>{t(pack.labelKey)}</span>
+                <span className="settings-pack-text">
+                  <span className="settings-pack-label">{t(pack.labelKey)}</span>
+                  <span className="settings-pack-desc">{t(pack.descriptionKey)}</span>
+                </span>
               </label>
             );
           })}
@@ -206,29 +221,29 @@ export function SettingsMenu({ children, debug, onToggleDebug }: Props) {
                 {t('panel.close')}
               </button>
             </header>
-            <div className="settings-tabs" role="tablist" aria-label={t('settings.title')}>
-              <button
-                type="button"
-                role="tab"
-                className={tab === 'general' ? 'active' : undefined}
-                aria-selected={tab === 'general'}
-                data-testid="settings-tab-general"
-                onClick={() => setTab('general')}
+            <div className="settings-dialog-main">
+              <nav
+                className="settings-nav"
+                role="tablist"
+                aria-orientation="vertical"
+                aria-label={t('settings.title')}
               >
-                {t('settings.tab.general')}
-              </button>
-              <button
-                type="button"
-                role="tab"
-                className={tab === 'extensions' ? 'active' : undefined}
-                aria-selected={tab === 'extensions'}
-                data-testid="settings-tab-extensions"
-                onClick={() => setTab('extensions')}
-              >
-                {t('settings.tab.extensions')}
-              </button>
+                {NAV.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    role="tab"
+                    className={tab === item.id ? 'active' : undefined}
+                    aria-selected={tab === item.id}
+                    data-testid={item.testId}
+                    onClick={() => setTab(item.id)}
+                  >
+                    {t(item.labelKey)}
+                  </button>
+                ))}
+              </nav>
+              <div className="settings-dialog-body">{body}</div>
             </div>
-            <div className="settings-dialog-body">{body}</div>
           </div>
         </div>
       ) : null}

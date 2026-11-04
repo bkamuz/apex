@@ -2622,7 +2622,8 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
   padding: var(--sp-5);
 }
 .settings-dialog {
-  width: min(440px, 100%);
+  width: min(640px, 100%);
+  height: min(480px, 100%);
   max-height: min(560px, 100%);
   background: var(--chrome-bg);
   border: 1px solid var(--chrome-line);
@@ -2639,6 +2640,7 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
   padding: var(--sp-2) var(--sp-3);
   background: var(--chrome-bg-doc);
   border-bottom: 1px solid var(--chrome-line);
+  flex: none;
 }
 .settings-dialog-title {
   margin: 0;
@@ -2666,44 +2668,56 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
   outline: 1px solid var(--chrome-active);
   outline-offset: -1px;
 }
-.settings-tabs {
+.settings-dialog-main {
   display: flex;
-  align-items: stretch;
-  min-height: 28px;
-  background: var(--chrome-bg-tabs);
-  border-bottom: 1px solid var(--chrome-line);
+  min-height: 0;
+  flex: 1;
 }
-.settings-tabs [role='tab'] {
+.settings-nav {
+  flex: none;
+  width: 148px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: var(--sp-2) 0;
+  background: var(--chrome-bg-tabs);
+  border-right: 1px solid var(--chrome-line);
+  overflow-y: auto;
+}
+.settings-nav [role='tab'] {
   appearance: none;
   border: 0;
-  border-right: 1px solid var(--chrome-line);
   border-radius: 0;
+  border-left: 2px solid transparent;
   background: transparent;
   color: var(--chrome-muted);
   font-weight: 600;
   font-size: 11px;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  padding: 0 14px;
-  min-height: 28px;
+  text-align: left;
+  padding: 8px 12px;
   cursor: pointer;
+  width: 100%;
 }
-.settings-tabs [role='tab']:hover {
+.settings-nav [role='tab']:hover {
   color: var(--text);
   background: var(--chrome-hover);
 }
-.settings-tabs [role='tab'].active,
-.settings-tabs [role='tab'][aria-selected='true'] {
+.settings-nav [role='tab'].active,
+.settings-nav [role='tab'][aria-selected='true'] {
   background: var(--chrome-context);
+  border-left-color: #fff;
   color: #fff;
 }
-.settings-tabs [role='tab']:focus-visible {
+.settings-nav [role='tab']:focus-visible {
   outline: 1px solid var(--chrome-active);
   outline-offset: -1px;
 }
 .settings-dialog-body {
-  padding: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
   overflow: auto;
+  min-width: 0;
   min-height: 0;
   flex: 1;
 }
@@ -2711,6 +2725,14 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
+}
+.settings-pane-title {
+  margin: 0 0 var(--sp-1);
+  font-size: var(--fs-s);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text);
 }
 .settings-pane-hint {
   margin: 0 0 var(--sp-1);
@@ -2736,7 +2758,40 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
 .settings-packs {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-1);
+  gap: var(--sp-2);
+}
+.settings-pack {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  padding: var(--sp-2);
+  border: 1px solid var(--chrome-line);
+  border-radius: 2px;
+  background: var(--chrome-bg-doc);
+  cursor: pointer;
+}
+.settings-pack:hover {
+  background: var(--chrome-hover);
+}
+.settings-pack-check {
+  margin-top: 2px;
+  flex: none;
+}
+.settings-pack-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.settings-pack-label {
+  font-size: var(--fs-s);
+  font-weight: 600;
+  color: var(--text);
+}
+.settings-pack-desc {
+  font-size: var(--fs-xs);
+  color: var(--chrome-muted);
+  line-height: 1.35;
 }
 .settings-section-label {
   font-size: var(--fs-s);
@@ -2753,6 +2808,35 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
   display: flex;
   justify-content: space-between;
   gap: var(--sp-3);
+}
+@media (max-width: 560px) {
+  .settings-dialog {
+    width: min(100%, 100%);
+    height: min(90vh, 560px);
+  }
+  .settings-dialog-main {
+    flex-direction: column;
+  }
+  .settings-nav {
+    width: 100%;
+    flex-direction: row;
+    border-right: 0;
+    border-bottom: 1px solid var(--chrome-line);
+    padding: 0;
+    overflow-x: auto;
+  }
+  .settings-nav [role='tab'] {
+    width: auto;
+    flex: none;
+    border-left: 0;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+  }
+  .settings-nav [role='tab'].active,
+  .settings-nav [role='tab'][aria-selected='true'] {
+    border-left-color: transparent;
+    border-bottom-color: #fff;
+  }
 }
 .file-menu-sep {
   height: 1px;
