@@ -4,6 +4,10 @@
   /* Industrial flat chrome (Option C) — shared shell tokens. */
   /* Viewport clear matches shell hint so the canvas is not a cool gray island. */
   --chrome-radius: 4px;
+  /* Fixed ribbon strip — buttons must not grow this (single dense row). */
+  --chrome-ribbon-h: 78px;
+  --chrome-ribbon-body-h: 58px;
+  --chrome-ribbon-btn-h: 50px;
   /* Form controls: dark fields + light text (UA defaults paint black otherwise). */
   --chrome-field-text: var(--chrome-text);
   --grid-axis-fill: var(--chrome-viewport);
@@ -516,6 +520,9 @@ input[type="radio"] {
   display: flex;
   align-items: stretch;
   width: 100%;
+  height: var(--chrome-ribbon-h);
+  max-height: var(--chrome-ribbon-h);
+  overflow: hidden;
   background: var(--chrome-bg-tools);
 }
 
@@ -565,12 +572,14 @@ input[type="radio"] {
   align-items: center;
   gap: 0;
   width: 100%;
+  height: 100%;
+  max-height: 100%;
   padding: 3px 4px;
-  min-height: 34px;
   border: 0;
   border-radius: 0;
   background: var(--chrome-bg-tools);
   overflow-x: auto;
+  overflow-y: hidden;
   scrollbar-width: thin;
   scrollbar-color: var(--chrome-scrollbar) transparent;
 }
@@ -2928,24 +2937,26 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
   gap: 0;
   padding: 0 4px;
   flex-shrink: 0;
+  height: 100%;
+  max-height: 100%;
+  overflow: hidden;
 }
 
 .rb-panel-body {
   display: flex;
-  align-items: flex-start;
+  flex-wrap: nowrap;
+  align-items: center;
   gap: 1px;
   flex: 1 1 auto;
-}
-
-.rb-panel-body--stack {
-  display: grid;
-  grid-auto-flow: column;
-  grid-template-rows: repeat(3, auto);
-  gap: 1px 2px;
-  align-content: start;
+  height: var(--chrome-ribbon-body-h);
+  max-height: var(--chrome-ribbon-body-h);
+  min-height: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .rb-panel-caption {
+  flex-shrink: 0;
   text-align: center;
   font-size: 10px;
   line-height: 14px;
@@ -2962,9 +2973,12 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
   gap: 3px;
   min-width: 52px;
   max-width: 76px;
-  min-height: 50px;
+  height: var(--chrome-ribbon-btn-h);
+  min-height: var(--chrome-ribbon-btn-h);
+  max-height: var(--chrome-ribbon-btn-h);
   padding: 5px 4px 3px;
   white-space: normal;
+  overflow: hidden;
 }
 
 .tools button.rb-btn--big .tool-icon,
@@ -2980,6 +2994,11 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
   overflow-wrap: normal;
   word-break: normal;
   hyphens: none;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  max-height: 2.3em;
 }
 
 .tools .rb-glyph {
@@ -2991,10 +3010,13 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
 }
 
 .tools button.rb-btn--small {
-  min-height: 15px;
+  height: 26px;
+  min-height: 26px;
+  max-height: 26px;
   padding: 1px 6px;
   font-size: 11px;
   gap: 4px;
+  white-space: nowrap;
 }
 
 .rb-panel--context {
@@ -3006,19 +3028,28 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
   color: var(--chrome-context);
 }
 
+/* Attach commands stay in the Modify row — never a vertical stack that grows the bar. */
 .rb-attach {
   display: inline-flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
   gap: 1px;
   margin-left: 2px;
   padding-left: 4px;
   border-left: 1px solid var(--chrome-line);
+  max-height: 100%;
+  overflow: hidden;
 }
 
 .tools .rb-attach button {
-  min-height: 15px;
+  height: 26px;
+  min-height: 26px;
+  max-height: 26px;
   padding: 1px 6px;
   font-size: 11px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .tools-tabs .tools-tab--context {
@@ -3254,7 +3285,9 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
 @media (max-width: 900px) {
   .tools button.rb-btn--big {
     min-width: 34px;
+    height: 32px;
     min-height: 32px;
+    max-height: 32px;
     padding: 5px 6px;
   }
 
@@ -3268,12 +3301,10 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
   }
 
   .tools button.rb-btn--small {
+    height: 32px;
     min-height: 32px;
+    max-height: 32px;
     padding: 5px 6px;
-  }
-
-  .rb-panel-body--stack {
-    display: flex;
   }
 
   .tools-palette-btn kbd {

@@ -40,18 +40,16 @@ function ToolButton({
   tool,
   active,
   onActivate,
-  small,
 }: {
   tool: Tool;
   active: boolean;
   onActivate: (id: string) => void;
-  small?: boolean;
 }) {
   const label = toolDisplayLabel(tool);
   const key = shortcutHint(tool);
-  const classes = ['rb-btn', small ? 'rb-btn--small' : 'rb-btn--big', active ? 'active' : '']
-    .filter(Boolean)
-    .join(' ');
+  const classes = ['rb-btn', 'rb-btn--big', active ? 'active' : ''].filter(Boolean).join(' ');
+  // Activate on pointerdown: an inspector blur/commit can remount the ribbon
+  // between mousedown and mouseup and swallow the click (smoke: label → Detect).
   return (
     <button
       type="button"
@@ -60,7 +58,10 @@ function ToolButton({
       aria-pressed={active}
       title={key ? `${label} (${key})` : label}
       data-testid={`tool-${tool.id}`}
-      onClick={() => onActivate(tool.id)}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        onActivate(tool.id);
+      }}
     >
       <ToolIconGlyph icon={tool.icon} />
       <span className="tool-label">{label}</span>
@@ -72,13 +73,11 @@ function RibbonPanel({
   label,
   children,
   className,
-  stack,
   testId,
 }: {
   label: string;
   children: ReactNode;
   className?: string;
-  stack?: boolean;
   testId?: string;
 }) {
   return (
@@ -88,7 +87,7 @@ function RibbonPanel({
       aria-label={label}
       data-testid={testId}
     >
-      <div className={`rb-panel-body${stack ? ' rb-panel-body--stack' : ''}`}>{children}</div>
+      <div className="rb-panel-body">{children}</div>
       <div className="rb-panel-caption" aria-hidden="true">
         {label}
       </div>
@@ -119,7 +118,10 @@ function TextButton({
       aria-pressed={active}
       title={title}
       data-testid={testId}
-      onClick={onClick}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        onClick();
+      }}
     >
       <span className="tool-icon rb-glyph" aria-hidden="true">
         {glyph}
@@ -251,14 +253,12 @@ export function ToolsToolbar({
                 <RibbonPanel
                   key={group.id + (group.label ?? '')}
                   label={groupLabel(group)}
-                  stack={group.stack}
                   testId={`ribbon-group-${group.id}`}
                 >
                   {group.tools.map((tool) => (
                     <ToolButton
                       key={tool.id}
                       tool={tool}
-                      small={group.stack}
                       active={activeToolId === tool.id}
                       onActivate={onActivateTool}
                     />

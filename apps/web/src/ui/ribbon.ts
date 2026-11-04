@@ -26,11 +26,10 @@ export type RibbonGroupId =
   | 'modify'
   | 'plugin';
 
-/** `stack`: small buttons stacked in up to three rows (Revit small panel). */
+/** One labelled ribbon panel. Tools always lay out in a single dense row. */
 export interface RibbonGroup {
   id: RibbonGroupId;
   tools: Tool[];
-  stack?: boolean;
   /** Plugin-provided label (open-world tabs). */
   label?: string;
 }
@@ -63,7 +62,6 @@ const GROUP_ORDER: RibbonGroupId[] = [
   'sections',
   'plugin',
 ];
-const STACKED: ReadonlySet<RibbonGroupId> = new Set(['datums', 'rooms']);
 
 /** Selection-dependent tools (Move, Copy, Parent, Detach, Boolean). */
 export function modifyTools(tools: readonly Tool[]): Tool[] {
@@ -87,7 +85,7 @@ export function buildRibbon(tools: readonly Tool[]): RibbonTab[] {
     }
     let group = tab.groups.find((g) => g.id === groupId);
     if (!group) {
-      group = { id: groupId, tools: [], stack: STACKED.has(groupId), label };
+      group = { id: groupId, tools: [], label };
       tab.groups.push(group);
     }
     return group;
