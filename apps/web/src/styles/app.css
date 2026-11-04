@@ -2582,20 +2582,141 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
   display: flex;
   align-items: stretch;
 }
+.settings-menu {
+  display: flex;
+  align-items: stretch;
+  position: relative;
+}
+.settings-menu > .settings-trigger,
 .settings-menu > .file-menu-summary {
+  appearance: none;
+  font: inherit;
   font-size: var(--fs-l);
   padding: 0 var(--sp-3);
+  border: 0;
   border-right: 0;
   border-left: 1px solid var(--chrome-line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
 }
-.settings-menu .settings-panel {
-  left: auto;
-  right: 0;
-  min-width: 260px;
-  padding: var(--sp-2);
+.settings-menu > .settings-trigger:hover,
+.settings-menu > .file-menu-summary:hover {
+  background: var(--chrome-hover);
+}
+.settings-menu > .settings-trigger:focus-visible,
+.settings-menu > .file-menu-summary:focus-visible {
+  outline: 1px solid var(--chrome-active);
+  outline-offset: -1px;
+}
+.settings-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.62);
+  display: grid;
+  place-items: center;
+  z-index: 50;
+  padding: var(--sp-5);
+}
+.settings-dialog {
+  width: min(440px, 100%);
+  max-height: min(560px, 100%);
+  background: var(--chrome-bg);
+  border: 1px solid var(--chrome-line);
+  border-radius: 2px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 8px 28px var(--chrome-shadow);
+}
+.settings-dialog-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--chrome-bg-doc);
+  border-bottom: 1px solid var(--chrome-line);
+}
+.settings-dialog-title {
+  margin: 0;
+  font-size: var(--fs-m);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+.settings-dialog-close {
+  margin-left: auto;
+  appearance: none;
+  border: 1px solid var(--chrome-line);
+  border-radius: 2px;
+  background: var(--chrome-bg-tools);
+  color: var(--text);
+  font-size: var(--fs-s);
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.settings-dialog-close:hover {
+  background: var(--chrome-hover);
+}
+.settings-dialog-close:focus-visible {
+  outline: 1px solid var(--chrome-active);
+  outline-offset: -1px;
+}
+.settings-tabs {
+  display: flex;
+  align-items: stretch;
+  min-height: 28px;
+  background: var(--chrome-bg-tabs);
+  border-bottom: 1px solid var(--chrome-line);
+}
+.settings-tabs [role='tab'] {
+  appearance: none;
+  border: 0;
+  border-right: 1px solid var(--chrome-line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--chrome-muted);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 0 14px;
+  min-height: 28px;
+  cursor: pointer;
+}
+.settings-tabs [role='tab']:hover {
+  color: var(--text);
+  background: var(--chrome-hover);
+}
+.settings-tabs [role='tab'].active,
+.settings-tabs [role='tab'][aria-selected='true'] {
+  background: var(--chrome-context);
+  color: #fff;
+}
+.settings-tabs [role='tab']:focus-visible {
+  outline: 1px solid var(--chrome-active);
+  outline-offset: -1px;
+}
+.settings-dialog-body {
+  padding: var(--sp-3);
+  overflow: auto;
+  min-height: 0;
+  flex: 1;
+}
+.settings-pane {
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
+}
+.settings-pane-hint {
+  margin: 0 0 var(--sp-1);
+  font-size: var(--fs-xs);
+  color: var(--chrome-muted);
+  line-height: 1.35;
 }
 .settings-row {
   display: flex;

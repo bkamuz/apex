@@ -1,9 +1,9 @@
 # System packs
 
-First-party tools are grouped into **system packs** (Obsidian-style). Settings
-can enable or disable a pack; the toolbar and File exporters/importers rebuild
-from the enabled set. Always-on chrome (Select, Move, Copy, Parent, project
-JSON Open) is not toggleable.
+First-party tools are grouped into **system packs** (Obsidian-style). Open
+**Settings → Extensions** to enable or disable a pack; the toolbar and File
+exporters/importers rebuild from the enabled set. Always-on chrome (Select,
+Move, Copy, Parent, project JSON Open) is not toggleable.
 
 Community marketplace plugins are a later phase. Runtime
 `window.apex.registerTool` / `registerExporter` / `registerImporter` stays the

@@ -2034,6 +2034,8 @@ export default function App() {
           setProfileEditor(null);
           return;
         }
+        // SettingsMenu owns Escape while its modal is open (closes itself).
+        if (document.querySelector('[data-testid="settings-dialog"]')) return;
         onEscape();
         return;
       }
