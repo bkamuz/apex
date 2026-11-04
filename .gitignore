@@ -7,6 +7,7 @@ node_modules
 apps/web/dist/
 apps/web/node_modules/
 apps/web/tsconfig.tsbuildinfo
+apps/desktop/node_modules/
 *.local
 
 # Generated WASM package — rebuild with `npm run wasm:build` in apps/web

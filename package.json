@@ -7,6 +7,8 @@
     "build": "npm run build --prefix apps/web",
     "wasm:build": "npm run wasm:build --prefix apps/web",
     "typecheck": "npm run typecheck --prefix apps/web",
+    "desktop:dev": "npm run dev --prefix apps/desktop",
+    "desktop:build": "npm run build --prefix apps/desktop",
     "test:rust": "cargo test -p apex-core -p apex-geometry -p apex-ifc",
     "test:smoke": "npm run test:smoke --prefix apps/web",
     "test:camera": "npm run test:camera --prefix apps/web",

@@ -7,6 +7,10 @@ members = [
     "crates/apex-smlib",
     "crates/apex-wasm",
 ]
+# Tauri shell keeps its own Cargo.toml / target; do not pull it into BIM crate CI.
+exclude = [
+    "apps/desktop/src-tauri",
+]
 default-members = [
     "crates/apex-core",
     "crates/apex-geometry",
