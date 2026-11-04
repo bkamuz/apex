@@ -1,0 +1,145 @@
+# Build unsigned Tauri 2 desktop packages for Windows / Linux / macOS.
+# Separate from .github/workflows/ci.yml so Rust/web/smoke stay fast.
+name: Desktop
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/desktop/**'
+      - '.github/workflows/desktop.yml'
+  pull_request:
+    paths:
+      - 'apps/desktop/**'
+      - '.github/workflows/desktop.yml'
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x64
+            os: windows-latest
+            args: ''
+            rust_targets: ''
+            bundle_path: apps/desktop/src-tauri/target/release/bundle
+
+          - name: windows-arm64
+            os: windows-11-arm
+            args: ''
+            rust_targets: ''
+            bundle_path: apps/desktop/src-tauri/target/release/bundle
+
+          - name: linux-x64
+            os: ubuntu-22.04
+            args: ''
+            rust_targets: ''
+            bundle_path: apps/desktop/src-tauri/target/release/bundle
+
+          # Public GitHub-hosted ARM runner (straightforward aarch64).
+          - name: linux-arm64
+            os: ubuntu-24.04-arm
+            args: ''
+            rust_targets: ''
+            bundle_path: apps/desktop/src-tauri/target/release/bundle
+
+          - name: macos-arm64
+            os: macos-latest
+            args: --target aarch64-apple-darwin
+            rust_targets: aarch64-apple-darwin
+            bundle_path: apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle
+
+          # Intel macOS: cross-compile from Apple Silicon (macos-13 Intel runners retired).
+          - name: macos-x64
+            os: macos-latest
+            args: --target x86_64-apple-darwin
+            rust_targets: x86_64-apple-darwin
+            bundle_path: apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux WebKit / bundler deps
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: |
+            apps/web/package-lock.json
+            apps/desktop/package-lock.json
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_targets }}
+
+      - name: Rust cache (desktop crate)
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri -> target
+          shared-key: desktop-${{ matrix.name }}
+
+      - name: Install web dependencies
+        working-directory: apps/web
+        run: npm ci
+
+      - name: Install desktop CLI dependencies
+        working-directory: apps/desktop
+        run: npm ci
+
+      - name: Build Tauri app (unsigned)
+        working-directory: apps/desktop
+        # No signing secrets in MVP — see apps/desktop/README.md.
+        # macOS uses ad-hoc identity "-" from tauri.conf.json.
+        run: npm run tauri -- build ${{ matrix.args }}
+
+      - name: List bundle outputs
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -d "${{ matrix.bundle_path }}" ]; then
+            find "${{ matrix.bundle_path }}" -type f | sort
+          else
+            echo "No bundle directory at ${{ matrix.bundle_path }}"
+          fi
+
+      - name: Upload desktop artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: apex-desktop-${{ matrix.name }}
+          path: |
+            ${{ matrix.bundle_path }}/deb/*.deb
+            ${{ matrix.bundle_path }}/rpm/*.rpm
+            ${{ matrix.bundle_path }}/appimage/*.AppImage
+            ${{ matrix.bundle_path }}/msi/*.msi
+            ${{ matrix.bundle_path }}/nsis/*.exe
+            ${{ matrix.bundle_path }}/dmg/*.dmg
+            ${{ matrix.bundle_path }}/macos/*.app
+          if-no-files-found: error
+          retention-days: 14
