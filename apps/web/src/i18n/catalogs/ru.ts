@@ -536,6 +536,7 @@ export const ru: MessageCatalog = {
   'param.label.count': 'Количество',
   'param.label.depth': 'Глубина',
   'param.label.diameter': 'Диаметр',
+  'param.label.elevation': 'Отметка',
   'param.label.extension': 'Удлинение',
   'param.label.fill_height': 'Высота заполнения',
   'param.label.frame_reference': 'Профиль рамы',

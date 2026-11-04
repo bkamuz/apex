@@ -550,6 +550,7 @@ export const en: MessageCatalog = {
   'param.label.count': 'Count',
   'param.label.depth': 'Depth',
   'param.label.diameter': 'Diameter',
+  'param.label.elevation': 'Elevation',
   'param.label.extension': 'Extension',
   'param.label.fill_height': 'Fill height',
   'param.label.frame_reference': 'Frame reference',
