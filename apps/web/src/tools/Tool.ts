@@ -46,7 +46,7 @@ export interface ToolContext {
     placementKind?: PlacementKind,
   ): void;
   /** Elements on the active level with their placement picks, for host snapping. */
-  hostCandidates(): { id: string; category: string; anchors: Vec3[] }[];
+  hostCandidates(): { id: string; category: string; anchors: Vec3[]; path?: Vec3[] }[];
   /** World point to client (CSS px) coordinates, or null when behind the camera. */
   worldToClient(point: Vec3): [number, number] | null;
   /** Category of an element, for host-cut eligibility checks. */

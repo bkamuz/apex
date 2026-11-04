@@ -8,8 +8,8 @@
 //! a host polyline vertex and trim the stem via a negative join offset.
 
 use apex_geometry::{
-    angle_between, closest_on_segment_xz, miter_extension, outward_dir, plan_distance,
-    split_curve_at, stem_trim, Curve, JOIN_SNAP, MIN_CURVE_LENGTH,
+    angle_between, closest_on_curve_xz, closest_on_segment_xz, miter_extension, outward_dir,
+    plan_distance, split_curve_at, stem_trim, Curve, JOIN_SNAP, MIN_CURVE_LENGTH,
 };
 use glam::Vec3;
 
@@ -331,29 +331,7 @@ fn set_join_offset(
 }
 
 pub(crate) fn closest_on_host(curve: &Curve, tip: Vec3) -> Option<(Vec3, f32, f32)> {
-    match curve {
-        Curve::Line { a, b } => closest_on_segment_xz(*a, *b, tip),
-        Curve::Polyline { points } => {
-            let mut best: Option<(Vec3, f32, f32)> = None;
-            let total = curve.length();
-            if total < MIN_CURVE_LENGTH {
-                return None;
-            }
-            let mut travelled = 0.0;
-            for w in points.windows(2) {
-                let seg_len = (w[1] - w[0]).length();
-                if let Some((q, t_local, dist)) = closest_on_segment_xz(w[0], w[1], tip) {
-                    let t = ((travelled + t_local * seg_len) / total).clamp(0.0, 1.0);
-                    if best.as_ref().map(|b| dist < b.2).unwrap_or(true) {
-                        best = Some((q, t, dist));
-                    }
-                }
-                travelled += seg_len;
-            }
-            best
-        }
-        _ => None,
-    }
+    closest_on_curve_xz(curve, tip)
 }
 
 pub(crate) fn host_tangent_at(curve: &Curve, point: Vec3) -> Option<Vec3> {
@@ -370,7 +348,11 @@ pub(crate) fn host_tangent_at(curve: &Curve, point: Vec3) -> Option<Vec3> {
             }
             best.map(|(d, _)| d)
         }
-        _ => curve.tangent_at(0.5).ok(),
+        // Arc / circle: tangent at the closest parameter — never the midpoint.
+        _ => {
+            let (_, t, _) = closest_on_curve_xz(curve, point)?;
+            curve.tangent_at(t).ok()
+        }
     }
 }
 
@@ -502,6 +484,28 @@ mod tests {
         assert!(
             (hw - 0.1).abs() < 1e-4,
             "default wall thickness 0.2 → half 0.1, got {hw}"
+        );
+    }
+
+    #[test]
+    fn host_tangent_on_arc_uses_local_parameter_not_midpoint() {
+        let arc = Curve::arc_from_three_points(
+            Vec3::new(4.0, 0.0, 0.0),
+            Vec3::new(0.0, 0.0, 4.0),
+            Vec3::new(-4.0, 0.0, 0.0),
+        )
+        .expect("arc");
+        let at = arc.point_at(0.25);
+        let dir = host_tangent_at(&arc, at).expect("tangent");
+        let expected = arc.tangent_at(0.25).unwrap();
+        assert!(
+            dir.dot(expected).abs() > 0.99,
+            "got {dir} expected {expected}"
+        );
+        let mid = arc.tangent_at(0.5).unwrap();
+        assert!(
+            dir.dot(mid).abs() < 0.9,
+            "must not return midpoint tangent {mid}"
         );
     }
 }

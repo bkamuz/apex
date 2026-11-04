@@ -43,10 +43,17 @@ export function findHostSnap(
   let best: HostSnap | null = null;
   for (const host of ctx.hostCandidates()) {
     if (allowed.length > 0 && !allowed.includes(host.category)) continue;
-    if (host.anchors.length < 2) continue;
-    for (let i = 0; i + 1 < host.anchors.length; i += 1) {
-      const a = host.anchors[i];
-      const b = host.anchors[i + 1];
+    // Prefer tessellated centerline (arcs) over control anchors (chords).
+    const path =
+      host.path && host.path.length >= 2
+        ? host.path
+        : host.anchors.length >= 2
+          ? host.anchors
+          : null;
+    if (!path) continue;
+    for (let i = 0; i + 1 < path.length; i += 1) {
+      const a = path[i];
+      const b = path[i + 1];
       const sa = ctx.worldToClient(a);
       const sb = ctx.worldToClient(b);
       if (!sa || !sb) continue;

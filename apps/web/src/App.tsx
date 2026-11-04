@@ -960,6 +960,7 @@ export default function App() {
             id: element.id,
             category: element.category,
             anchors: element.anchors,
+            path: element.path && element.path.length >= 2 ? element.path : element.anchors,
           }));
       },
 

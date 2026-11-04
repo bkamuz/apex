@@ -9,7 +9,9 @@
 //! (that created acute "spike" kinks on the house sample). Peer updates only
 //! move **endpoints**; stem tips are re-projected onto unmoved hosts.
 
-use apex_geometry::{closest_on_segment_xz, plan_distance, Curve, JOIN_SNAP, MIN_CURVE_LENGTH};
+use apex_geometry::{
+    closest_on_curve_xz, closest_on_segment_xz, plan_distance, Curve, JOIN_SNAP, MIN_CURVE_LENGTH,
+};
 use glam::Vec3;
 
 use crate::element::ElementId;
@@ -105,31 +107,9 @@ fn apply_vertex_moves_inner(
     Some(next)
 }
 
-/// Closest point on a straight/open host curve (plan XZ).
+/// Closest point on a host curve (plan XZ), including arcs.
 pub fn closest_on_curve(curve: &Curve, tip: Vec3) -> Option<(Vec3, f32, f32)> {
-    match curve {
-        Curve::Line { a, b } => closest_on_segment_xz(*a, *b, tip),
-        Curve::Polyline { points } => {
-            let mut best: Option<(Vec3, f32, f32)> = None;
-            let total = curve.length();
-            if total < MIN_CURVE_LENGTH {
-                return None;
-            }
-            let mut travelled = 0.0;
-            for w in points.windows(2) {
-                let seg_len = (w[1] - w[0]).length();
-                if let Some((q, t_local, dist)) = closest_on_segment_xz(w[0], w[1], tip) {
-                    let t = ((travelled + t_local * seg_len) / total).clamp(0.0, 1.0);
-                    if best.as_ref().map(|b| dist < b.2).unwrap_or(true) {
-                        best = Some((q, t, dist));
-                    }
-                }
-                travelled += seg_len;
-            }
-            best
-        }
-        _ => None,
-    }
+    closest_on_curve_xz(curve, tip)
 }
 
 /// True when `tip` sits mid-span on `host` (T-junction), not at a corner.
