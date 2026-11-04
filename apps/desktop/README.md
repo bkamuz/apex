@@ -43,12 +43,39 @@ npm run build
 
 This runs `apps/web` production build, then packages the desktop app. Artifacts
 land under `src-tauri/target/release/bundle/` (platform-specific). Code signing
-and auto-update are out of scope for this shell.
+and auto-update are out of scope for this shell (unsigned / ad-hoc macOS is OK).
 
 ```bash
 # Root convenience
 npm run desktop:build
 ```
+
+### CI matrix (GitHub Actions)
+
+Workflow: [`.github/workflows/desktop.yml`](../../.github/workflows/desktop.yml).
+Runs on `workflow_dispatch`, pushes to `main` that touch `apps/desktop/**`, and
+PRs that change the desktop app or that workflow. Existing Rust / web / smoke CI
+is unchanged.
+
+| Job id | Runner | Notes |
+| --- | --- | --- |
+| `windows-x64` | `windows-latest` | MSI + NSIS |
+| `windows-arm64` | `windows-11-arm` | Native ARM64 runner |
+| `linux-x64` | `ubuntu-22.04` | deb / rpm / AppImage |
+| `linux-arm64` | `ubuntu-24.04-arm` | Native aarch64 runner |
+| `macos-arm64` | `macos-latest` | `--target aarch64-apple-darwin` |
+| `macos-x64` | `macos-latest` | Cross-compile `--target x86_64-apple-darwin` (Intel runners retired) |
+
+Artifacts upload as `apex-desktop-<job id>` (14-day retention). Download from the
+Actions run → Artifacts. Packages are **unsigned** MVP builds.
+
+**Signing / notarization (not configured):** to ship signed builds later, add
+repo secrets such as Apple certificate + notarization
+(`APPLE_CERTIFICATE`, `APPLE_CERTIFICATE_PASSWORD`, `APPLE_SIGNING_IDENTITY`,
+`APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`) and Windows
+Authenticode cert material, then wire them into the workflow. Until then,
+`bundle.macOS.signingIdentity` is `"-"` (ad-hoc) so CI can produce macOS
+bundles without Apple credentials.
 
 ## File I/O
 
@@ -59,5 +86,5 @@ web uses `<input type="file">` and download.
 
 ## Notes
 
-- Full `tauri build` in CI is optional; local `tauri dev` is the smoke check.
+- Prefer `tauri dev` locally for day-to-day checks; CI covers packaging.
 - Do not add per-component branches in the shell — it only hosts the web UI.
