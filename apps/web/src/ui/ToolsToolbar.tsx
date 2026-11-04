@@ -40,18 +40,14 @@ function ToolButton({
   tool,
   active,
   onActivate,
-  small,
 }: {
   tool: Tool;
   active: boolean;
   onActivate: (id: string) => void;
-  small?: boolean;
 }) {
   const label = toolDisplayLabel(tool);
   const key = shortcutHint(tool);
-  const classes = ['rb-btn', small ? 'rb-btn--small' : 'rb-btn--big', active ? 'active' : '']
-    .filter(Boolean)
-    .join(' ');
+  const classes = ['rb-btn', 'rb-btn--big', active ? 'active' : ''].filter(Boolean).join(' ');
   return (
     <button
       type="button"
@@ -72,13 +68,11 @@ function RibbonPanel({
   label,
   children,
   className,
-  stack,
   testId,
 }: {
   label: string;
   children: ReactNode;
   className?: string;
-  stack?: boolean;
   testId?: string;
 }) {
   return (
@@ -88,7 +82,7 @@ function RibbonPanel({
       aria-label={label}
       data-testid={testId}
     >
-      <div className={`rb-panel-body${stack ? ' rb-panel-body--stack' : ''}`}>{children}</div>
+      <div className="rb-panel-body">{children}</div>
       <div className="rb-panel-caption" aria-hidden="true">
         {label}
       </div>
@@ -251,14 +245,12 @@ export function ToolsToolbar({
                 <RibbonPanel
                   key={group.id + (group.label ?? '')}
                   label={groupLabel(group)}
-                  stack={group.stack}
                   testId={`ribbon-group-${group.id}`}
                 >
                   {group.tools.map((tool) => (
                     <ToolButton
                       key={tool.id}
                       tool={tool}
-                      small={group.stack}
                       active={activeToolId === tool.id}
                       onActivate={onActivateTool}
                     />
