@@ -117,7 +117,7 @@ button {
   color: var(--chrome-text);
 }
 
-button:hover {
+button:hover:not(.active) {
   border-color: var(--chrome-scrollbar);
   background: var(--chrome-hover);
 }
@@ -125,7 +125,7 @@ button:hover {
 button.active {
   background: var(--chrome-active);
   border-color: var(--chrome-active-border);
-  color: var(--chrome-active-text);
+  color: var(--chrome-active-fg);
 }
 
 button:disabled {
@@ -649,19 +649,22 @@ input[type="radio"] {
   opacity: 1;
 }
 
-.tools button:hover:not(:disabled) {
+/* Exclude .active: :hover:not(:disabled) is more specific than .active and
+   would replace the active fill with --chrome-hover while leaving
+   --chrome-active-fg (white in light) — white-on-pale, unreadable. */
+.tools button:hover:not(:disabled):not(.active) {
   background: var(--chrome-hover);
   border-color: var(--chrome-scrollbar);
 }
 
 .tools button.active {
-  background: var(--apex-accent);
-  border-color: var(--apex-accent);
-  color: var(--apex-accent-fg);
+  background: var(--chrome-active);
+  border-color: var(--chrome-active-border);
+  color: var(--chrome-active-fg);
 }
 
 .tools button:focus-visible {
-  outline: 1px solid var(--apex-accent);
+  outline: 1px solid var(--chrome-active);
   outline-offset: 0;
 }
 
@@ -672,7 +675,7 @@ input[type="radio"] {
 }
 
 .tools button.mode.active {
-  color: var(--chrome-active-text);
+  color: var(--chrome-active-fg);
 }
 
 .tools-grp-modes {
@@ -2218,14 +2221,14 @@ input[type="radio"] {
   border-right: none;
 }
 
-.profile-editor-modes button:hover:not(:disabled) {
+.profile-editor-modes button:hover:not(:disabled):not(.active) {
   background: var(--chrome-hover);
   color: var(--text);
 }
 
 .profile-editor-modes button.active {
   background: var(--chrome-active);
-  color: var(--chrome-active-text);
+  color: var(--chrome-active-fg);
 }
 
 .profile-sketch {
@@ -3169,7 +3172,7 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
   min-height: 20px;
 }
 
-.context-bar button.mode:hover {
+.context-bar button.mode:hover:not(.active) {
   color: var(--text);
   background: var(--chrome-hover);
 }
@@ -3177,7 +3180,7 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
 .context-bar button.mode.active {
   background: var(--chrome-active);
   border-color: var(--chrome-active-border);
-  color: var(--chrome-active-text);
+  color: var(--chrome-active-fg);
 }
 
 .context-bar .ctx-hint {
