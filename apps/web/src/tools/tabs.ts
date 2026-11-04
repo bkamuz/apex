@@ -30,6 +30,11 @@ export const TOOL_TABS = {
     id: 'apex.spaces',
     label: 'Spaces',
   },
+  /** Site / landscape: fencing, surfaces, topo, DXF underlay. */
+  site: {
+    id: 'apex.site',
+    label: 'Site',
+  },
   /** View-owned dimensions and notes (saved views). */
   annotate: {
     id: 'apex.annotate',

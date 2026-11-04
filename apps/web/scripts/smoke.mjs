@@ -1043,6 +1043,9 @@ const houseCounts = await page.evaluate(() => {
     roofs: by['apex.roof.pitched'] ?? 0,
     stairs: by['apex.stair'] ?? 0,
     slabs: by['apex.slab'] ?? 0,
+    fences: by['apex.fence'] ?? 0,
+    gates: by['apex.gate'] ?? 0,
+    surfaces: by['apex.site_surface'] ?? 0,
     spaces: spaces.length,
     levels: Array.isArray(levels) ? levels.length : Object.keys(levels).length,
   };
@@ -1053,6 +1056,9 @@ check('sample has stair', (houseCounts?.stairs ?? 0) >= 1);
 check('sample has ≥2 levels', (houseCounts?.levels ?? 0) >= 2);
 check('sample has ≥4 spaces', (houseCounts?.spaces ?? 0) >= 4);
 check('sample has many walls', (houseCounts?.walls ?? 0) >= 10);
+check('sample has fence loop', (houseCounts?.fences ?? 0) >= 4);
+check('sample has gate', (houseCounts?.gates ?? 0) >= 1);
+check('sample has site surfaces', (houseCounts?.surfaces ?? 0) >= 3);
 await page.screenshot({ path: `${OUT}/apex-sample-house.png`, fullPage: true });
 
 

@@ -8,13 +8,13 @@ use std::cell::RefCell;
 use std::str::FromStr;
 
 use apex_core::{
-    construction_line_param_specs, grid_axis_param_specs, section_cut_param_specs,
-    space_param_specs, ComponentDefinition, ComponentRegistry, ConstructionLine,
-    ConstructionLineId, Element, ElementId, GridAxis, GridAxisId, LevelId, PaperOrientation,
-    PaperSize, ParamKind, ParamMap, ParamSpec, PlacementKind, ProfileSpec, ProfileType, Project,
-    ProjectSnapshot, RefId, Reference, ReferenceKind, SceneBuffers, SectionCut, SectionCutId,
-    Sheet, SheetId, Space, SpaceId, View, ViewAnnotation, ViewAnnotationId, ViewAnnotationKind,
-    ViewId, ViewKind, ViewSettings,
+    construction_line_param_specs, grid_axis_param_specs, plan_underlay_param_specs,
+    section_cut_param_specs, space_param_specs, ComponentDefinition, ComponentRegistry,
+    ConstructionLine, ConstructionLineId, Element, ElementId, GridAxis, GridAxisId, LevelId,
+    PaperOrientation, PaperSize, ParamKind, ParamMap, ParamSpec, PlacementKind, PlanUnderlay,
+    PlanUnderlayId, ProfileSpec, ProfileType, Project, ProjectSnapshot, RefId, Reference,
+    ReferenceKind, SceneBuffers, SectionCut, SectionCutId, Sheet, SheetId, Space, SpaceId, View,
+    ViewAnnotation, ViewAnnotationId, ViewAnnotationKind, ViewId, ViewKind, ViewSettings,
 };
 use glam::Vec3;
 use serde::{Deserialize, Serialize};
@@ -119,6 +119,7 @@ thread_local! {
         const { RefCell::new(None) };
     static SELECTED_SECTION_CUT: RefCell<Option<SectionCutId>> = const { RefCell::new(None) };
     static SELECTED_SPACE: RefCell<Option<SpaceId>> = const { RefCell::new(None) };
+    static SELECTED_UNDERLAY: RefCell<Option<PlanUnderlayId>> = const { RefCell::new(None) };
 }
 
 fn with_selection<R>(f: impl FnOnce(&mut Selection) -> R) -> R {
@@ -273,6 +274,25 @@ struct SpaceDto {
 }
 
 #[derive(Serialize)]
+struct PlanUnderlayDto {
+    id: String,
+    name: String,
+    source_name: String,
+    visible: bool,
+    locked: bool,
+    opacity: f32,
+    origin_x: f64,
+    origin_z: f64,
+    rotation: f64,
+    scale: f64,
+    elevation: f64,
+    line_segments: Vec<[f32; 3]>,
+    polyline_count: usize,
+    params: ParamMap,
+    param_specs: Vec<ParamSpec>,
+}
+
+#[derive(Serialize)]
 struct ViewDto {
     id: String,
     name: String,
@@ -334,6 +354,7 @@ struct SceneDto {
     construction_lines: Vec<ConstructionLineDto>,
     section_cuts: Vec<SectionCutDto>,
     spaces: Vec<SpaceDto>,
+    underlays: Vec<PlanUnderlayDto>,
     views: Vec<ViewDto>,
     sheets: Vec<SheetDto>,
     view_annotations: Vec<ViewAnnotationDto>,
@@ -352,6 +373,7 @@ struct SceneDto {
     selected_construction_line_id: Option<String>,
     selected_section_cut_id: Option<String>,
     selected_space_id: Option<String>,
+    selected_underlay_id: Option<String>,
     can_undo: bool,
     can_redo: bool,
 }
@@ -453,6 +475,33 @@ fn grid_axis_dto(project: &Project, axis: &GridAxis) -> GridAxisDto {
             .collect(),
         params,
         param_specs: grid_axis_param_specs(),
+    }
+}
+
+fn underlay_dto(underlay: &PlanUnderlay) -> PlanUnderlayDto {
+    let mut underlay = underlay.clone();
+    underlay.sync_params_from_fields();
+    let params = underlay.resolved_params();
+    PlanUnderlayDto {
+        id: underlay.id.to_string(),
+        name: underlay.name.clone(),
+        source_name: underlay.source_name.clone(),
+        visible: underlay.visible,
+        locked: underlay.locked,
+        opacity: underlay.opacity,
+        origin_x: underlay.origin_x,
+        origin_z: underlay.origin_z,
+        rotation: underlay.rotation,
+        scale: underlay.scale,
+        elevation: underlay.elevation,
+        line_segments: underlay
+            .overlay_line_segments()
+            .into_iter()
+            .map(|p| p.to_array())
+            .collect(),
+        polyline_count: underlay.polylines.len(),
+        params,
+        param_specs: plan_underlay_param_specs(),
     }
 }
 
@@ -661,6 +710,8 @@ fn scene_dto(project: &Project) -> SceneDto {
     let selected_section_cut_id =
         SELECTED_SECTION_CUT.with(|cell| cell.borrow().map(|id| id.to_string()));
     let selected_space_id = SELECTED_SPACE.with(|cell| cell.borrow().map(|id| id.to_string()));
+    let selected_underlay_id =
+        SELECTED_UNDERLAY.with(|cell| cell.borrow().map(|id| id.to_string()));
     let mut references: Vec<_> = project
         .document()
         .references()
@@ -695,6 +746,9 @@ fn scene_dto(project: &Project) -> SceneDto {
         .map(|space| space_dto(project, space))
         .collect();
     spaces.sort_by(|a, b| (a.name.len(), &a.name).cmp(&(b.name.len(), &b.name)));
+
+    let mut underlays: Vec<_> = project.underlays().map(underlay_dto).collect();
+    underlays.sort_by(|a, b| a.name.cmp(&b.name));
 
     let (fit_bounds_min, fit_bounds_max) = project
         .document()
@@ -758,6 +812,7 @@ fn scene_dto(project: &Project) -> SceneDto {
         construction_lines,
         section_cuts,
         spaces,
+        underlays,
         views,
         sheets,
         view_annotations,
@@ -784,6 +839,7 @@ fn scene_dto(project: &Project) -> SceneDto {
         selected_construction_line_id,
         selected_section_cut_id,
         selected_space_id,
+        selected_underlay_id,
         can_undo: project.can_undo(),
         can_redo: project.can_redo(),
     }
@@ -825,6 +881,10 @@ fn clear_space_selection() {
     SELECTED_SPACE.with(|cell| *cell.borrow_mut() = None);
 }
 
+fn clear_underlay_selection() {
+    SELECTED_UNDERLAY.with(|cell| *cell.borrow_mut() = None);
+}
+
 /// Clear every non-element selection (refs + plan annotations).
 fn clear_datum_selections() {
     clear_ref_selection();
@@ -832,6 +892,11 @@ fn clear_datum_selections() {
     clear_construction_line_selection();
     clear_section_cut_selection();
     clear_space_selection();
+    clear_underlay_selection();
+}
+
+fn underlay_id(id: &str) -> Result<PlanUnderlayId, JsValue> {
+    PlanUnderlayId::from_str(id).map_err(|e| err(format!("bad underlay id: {e}")))
 }
 
 fn grid_axis_id(id: &str) -> Result<GridAxisId, JsValue> {
@@ -1879,6 +1944,72 @@ pub fn delete_selected_construction_line() -> Result<JsValue, JsValue> {
         let id = SELECTED_CONSTRUCTION_LINE.with(|cell| cell.borrow_mut().take());
         if let Some(id) = id {
             project.delete_construction_line(id);
+        }
+        scene(project)
+    })
+}
+
+/// Link a DXF R12 ASCII file as a non-editable plan underlay (additive).
+#[wasm_bindgen(js_name = linkDxfUnderlay)]
+pub fn link_dxf_underlay(dxf_text: &str, source_name: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let id = project
+            .link_dxf_underlay(dxf_text, source_name)
+            .map_err(err)?;
+        clear_element_selection();
+        clear_datum_selections();
+        SELECTED_UNDERLAY.with(|cell| *cell.borrow_mut() = Some(id));
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = selectUnderlay)]
+pub fn select_underlay(id: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        if id.is_empty() {
+            clear_underlay_selection();
+        } else {
+            let underlay = underlay_id(id)?;
+            if project.get_underlay(underlay).is_none() {
+                return Err(err("Underlay not found"));
+            }
+            clear_element_selection();
+            clear_datum_selections();
+            SELECTED_UNDERLAY.with(|cell| *cell.borrow_mut() = Some(underlay));
+        }
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = getSelectedUnderlay)]
+pub fn get_selected_underlay() -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let selected = SELECTED_UNDERLAY.with(|cell| *cell.borrow());
+        match selected.and_then(|id| project.get_underlay(id)) {
+            Some(u) => to_js(&underlay_dto(u)),
+            None => Ok(JsValue::NULL),
+        }
+    })
+}
+
+#[wasm_bindgen(js_name = updateUnderlay)]
+pub fn update_underlay(id: &str, params_json: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let underlay = underlay_id(id)?;
+        let params = parse_params(params_json)?;
+        project
+            .update_underlay(underlay, params, true)
+            .map_err(err)?;
+        scene(project)
+    })
+}
+
+#[wasm_bindgen(js_name = deleteSelectedUnderlay)]
+pub fn delete_selected_underlay() -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let id = SELECTED_UNDERLAY.with(|cell| cell.borrow_mut().take());
+        if let Some(id) = id {
+            project.delete_underlay(id);
         }
         scene(project)
     })

@@ -203,8 +203,8 @@ export interface Tool {
   /**
    * When set, the tool's button lives under this tab instead of the flat
    * create row. Prefer `ApexTabs.building` / `ApexTabs.basics` /
-   * `ApexTabs.engineering` / `ApexTabs.spaces` (or another catalog
-   * entry); a custom `{ id, label }` creates a new tab.
+   * `ApexTabs.engineering` / `ApexTabs.spaces` / `ApexTabs.site` (or
+   * another catalog entry); a custom `{ id, label }` creates a new tab.
    * Select/transform tools usually omit it (always pinned).
    */
   readonly tab?: ToolTab;

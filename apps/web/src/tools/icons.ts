@@ -35,6 +35,9 @@ export const TOOL_ICONS = {
   sectionCut: 'section-cut',
   space: 'space',
   detectRooms: 'detect-rooms',
+  fence: 'fence',
+  gate: 'gate',
+  siteSurface: 'site-surface',
 } as const;
 
 export type ToolIconName = (typeof TOOL_ICONS)[keyof typeof TOOL_ICONS];
@@ -93,6 +96,12 @@ const CATALOG_SVG: Readonly<Record<string, string>> = {
     '<path d="M3 3.5h8v7H3z" fill="none" stroke="currentColor" stroke-width="1.25"/><path d="M5 6.5h4M7 4.5v4" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>',
   'detect-rooms':
     '<path d="M2.5 3.5h4v4h-4zM7.5 3.5h4v4h-4zM2.5 8.5h9v3h-9z" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M4.5 5.5h0.01M9.5 5.5h0.01M7 10h0.01" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
+  fence:
+    '<path d="M2 11.5V3.5M5 11.5V3.5M8 11.5V3.5M11 11.5V3.5M2 5.5h9M2 8.5h9" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>',
+  gate:
+    '<path d="M2.5 12V3h4.5v9M11.5 12V3H7v9" fill="none" stroke="currentColor" stroke-width="1.25"/><circle cx="6.2" cy="7.5" r="0.6" fill="currentColor"/><path d="M2.5 12h9" fill="none" stroke="currentColor" stroke-width="1.25"/>',
+  'site-surface':
+    '<path d="M2 10.5L4.5 4h5L12 10.5z" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/><path d="M3.5 8.5h7" fill="none" stroke="currentColor" stroke-width="1.1"/>',
 };
 
 /** Map built-in component ids → catalog icon names. */
@@ -110,6 +119,9 @@ export const COMPONENT_ICON_BY_ID: Readonly<Record<string, ToolIconName>> = {
   'apex.pipe': TOOL_ICONS.pipe,
   'apex.duct': TOOL_ICONS.duct,
   'apex.cable_tray': TOOL_ICONS.cable,
+  'apex.fence': TOOL_ICONS.fence,
+  'apex.gate': TOOL_ICONS.gate,
+  'apex.site_surface': TOOL_ICONS.siteSurface,
 };
 
 export function catalogIconByName(name: string): string | undefined {

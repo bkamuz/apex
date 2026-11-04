@@ -300,6 +300,25 @@ export interface SpaceDto {
   param_specs: ParamSpecDto[];
 }
 
+/** Linked DXF (etc.) plan underlay — non-editable reference overlay. */
+export interface PlanUnderlayDto {
+  id: string;
+  name: string;
+  source_name: string;
+  visible: boolean;
+  locked: boolean;
+  opacity: number;
+  origin_x: number;
+  origin_z: number;
+  rotation: number;
+  scale: number;
+  elevation: number;
+  line_segments: Vec3[];
+  polyline_count: number;
+  params: Record<string, ParamValue>;
+  param_specs: ParamSpecDto[];
+}
+
 export interface LevelDto {
   id: string;
   name: string;
@@ -470,6 +489,7 @@ export interface SceneDto {
   construction_lines?: ConstructionLineDto[];
   section_cuts?: SectionCutDto[];
   spaces?: SpaceDto[];
+  underlays?: PlanUnderlayDto[];
   views?: ViewDto[];
   sheets?: SheetDto[];
   view_annotations?: ViewAnnotationDto[];
@@ -486,6 +506,7 @@ export interface SceneDto {
   selected_construction_line_id?: string | null;
   selected_section_cut_id?: string | null;
   selected_space_id?: string | null;
+  selected_underlay_id?: string | null;
   can_undo?: boolean;
   can_redo?: boolean;
   fit_bounds_min?: Vec3 | null;

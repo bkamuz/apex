@@ -247,12 +247,29 @@ await useTool('Slab');
 await polyline([[0, 0], [10, 0], [10, 8], [0, 8]]);
 await page.keyboard.press('Escape');
 await checkError('slab L0');
-// A ramp east of the house: a slab whose far edge is lifted 0.6 m through
-// the shape editor (Revit "Modify Sub Elements").
-await useTool('Slab');
-await polyline([[11, 4], [14, 4], [14, 7], [11, 7]]);
+// Site yard: fence loop, gate, lawn/paved/driveway (driveway slope via shape edit).
+await useTool('Fence');
+const fenceLoop = [[-3, -3], [13, -3], [13, 11], [-3, 11], [-3, -3]];
+for (let i = 0; i < 4; i += 1) {
+  await clickW(fenceLoop[i][0], fenceLoop[i][1]);
+  await clickW(fenceLoop[i + 1][0], fenceLoop[i + 1][1]);
+}
 await page.keyboard.press('Escape');
-await clickW(12.5, 5.5, { snap: false });
+await checkError('fence');
+await useTool('Gate');
+await clickW(2.5, -3, { snap: false });
+await page.keyboard.press('Escape');
+await checkError('gate');
+await useTool('Site surface');
+await polyline([[-2.5, 0], [-0.2, 0], [-0.2, 8], [-2.5, 8]]);
+await page.keyboard.press('Escape');
+await useTool('Site surface');
+await polyline([[0.5, -2.5], [4.5, -2.5], [4.5, -0.2], [0.5, -0.2]]);
+await page.keyboard.press('Escape');
+await useTool('Site surface');
+await polyline([[10.2, 3.5], [12.8, 3.5], [12.8, 7.5], [10.2, 7.5]]);
+await page.keyboard.press('Escape');
+await clickW(11.5, 5.5, { snap: false });
 await page.waitForTimeout(200);
 if (await page.getByTestId('slab-shape-edit').isVisible().catch(() => false)) {
   await page.getByTestId('slab-shape-edit').click();
@@ -262,11 +279,11 @@ if (await page.getByTestId('slab-shape-edit').isVisible().catch(() => false)) {
     await input.press('Enter');
     await page.waitForTimeout(250);
   }
-  await shot('l0-ramp-shape-edit-plan');
+  await shot('l0-driveway-shape-edit-plan');
   await page.getByTestId('slab-shape-edit').click();
-} else note('ramp slab: no "Edit shape" button');
+} else note('driveway: no "Edit shape" button');
 await page.keyboard.press('Escape');
-await checkError('ramp slab');
+await checkError('site yard');
 await shot('l0-walls-openings');
 
 // ---------------------------------------------------------------- Level 1
@@ -441,19 +458,20 @@ await shot('3d-view');
     ['gable-junction-b', [0, 6.8, 6.5], 7, 0.9 + Math.PI, 0.15],
     ['ridge-closeup', [10.5, 7.6, 4], 4.5, 0.6, 0.3],
     ['eave-closeup', [10.5, 6, 8.5], 3.5, 0.7, 0.15],
-    ['ramp', [12.5, 0.4, 5.5], 9, 2.2, 0.35],
+    ['driveway', [11.5, 0.4, 5.5], 9, 2.2, 0.35],
+    ['yard-fence', [5, 1.0, -3], 18, -0.4, 0.45],
   ]) {
     await page.evaluate(([t, d, yaw, pitch]) => window.__apexTest.setCamera({ target: t, distance: d, yaw, pitch }), [t, dist, yaw, pitch]);
     await page.waitForTimeout(300);
     await shot(`3d-${name}`);
   }
   // Shape-edit handles in 3D, with one vertex dragged up by mouse.
-  await page.evaluate(() => window.__apexTest.setCamera({ target: [12.5, 0.4, 5.5], distance: 9, yaw: 2.2, pitch: 0.35 }));
+  await page.evaluate(() => window.__apexTest.setCamera({ target: [11.5, 0.4, 5.5], distance: 9, yaw: 2.2, pitch: 0.35 }));
   await page.waitForTimeout(300);
   const savedElev = elev;
   elev = 0.2;
   await page.getByRole('button', { name: 'Select', exact: true }).first().click().catch(() => {});
-  await clickW(12.5, 5.5, { snap: false });
+  await clickW(11.5, 5.5, { snap: false });
   elev = savedElev;
   await page.waitForTimeout(200);
   if (await page.getByTestId('slab-shape-edit').isVisible().catch(() => false)) {
@@ -461,19 +479,19 @@ await shot('3d-view');
     await page.waitForTimeout(300);
     await page.getByTestId('slab-shape-add-point').click();
     await page.waitForTimeout(300);
-    const [hx, hy] = await rawClient(11, 7, 0.2);
+    const [hx, hy] = await rawClient(10.2, 7.5, 0.2);
     await page.mouse.move(hx, hy);
     await page.mouse.down();
     await page.mouse.move(hx, hy - 40, { steps: 6 });
     await page.mouse.up();
     await page.waitForTimeout(400);
-    await shot('3d-ramp-shape-edit');
+    await shot('3d-driveway-shape-edit');
     await page.keyboard.press('Control+z');
     await page.waitForTimeout(300);
     await page.keyboard.press('Control+z');
     await page.waitForTimeout(300);
     await page.getByTestId('slab-shape-edit').click().catch(() => {});
-  } else note('3D: no "Edit shape" button on the ramp');
+  } else note('3D: no "Edit shape" button on the driveway');
   await page.keyboard.press('Escape');
   await fit();
 }

@@ -52,11 +52,15 @@ function lastId(componentId: string): string | undefined {
   return hits[hits.length - 1]?.id;
 }
 
-/** Host wall whose centreline contains (x, z) on the active level. */
-function wallHostAt(x: number, z: number): string | undefined {
+/** Host path element whose centreline contains (x, z) on the active level. */
+function pathHostAt(
+  x: number,
+  z: number,
+  category: string,
+): string | undefined {
   const levelId = apexGetScene().active_level_id;
   for (const e of apexListElements()) {
-    if (e.category !== "wall") continue;
+    if (e.category !== category) continue;
     if (levelId && e.level_id !== levelId && e.effective_level_id !== levelId) {
       continue;
     }
@@ -79,6 +83,14 @@ function wallHostAt(x: number, z: number): string | undefined {
   }
   apexSelectElement(null);
   return undefined;
+}
+
+function wallHostAt(x: number, z: number): string | undefined {
+  return pathHostAt(x, z, "wall");
+}
+
+function fenceHostAt(x: number, z: number): string | undefined {
+  return pathHostAt(x, z, "fence");
 }
 
 function pointInPolygon(x: number, z: number, poly: Vec3[]): boolean {
@@ -234,10 +246,120 @@ function renameRoomsOnLevel(
   }
 }
 
+const fenceParams: Record<string, ParamValue> = {
+  height: 1.5,
+  thickness: 0.05,
+};
+
+/**
+ * Site yard on L0: joinable fence loop, gate opposite the entrance door,
+ * lawn / paved patio / sloping driveway (replaces the old east ramp slab).
+ */
+function buildYard(elev: number): void {
+  // Fence rectangle −3..13 × −3..11 (outside the 10×8 house).
+  const fenceLoop: Array<[number, number]> = [
+    [-3, -3],
+    [13, -3],
+    [13, 11],
+    [-3, 11],
+    [-3, -3],
+  ];
+  for (let i = 0; i < 4; i += 1) {
+    apexCreateElement(
+      "apex.fence",
+      [
+        xz(fenceLoop[i][0], fenceLoop[i][1], elev),
+        xz(fenceLoop[i + 1][0], fenceLoop[i + 1][1], elev),
+      ],
+      fenceParams,
+      0,
+      "two_point",
+    );
+  }
+  // Gate on the south fence near the house entrance (x≈2.5, z=−3).
+  const fenceHost = fenceHostAt(2.5, -3);
+  if (fenceHost) {
+    apexCreateElementWithParent(
+      "apex.gate",
+      [xz(2.5, -3, elev)],
+      fenceHost,
+      {},
+      0,
+      "point",
+    );
+  }
+
+  // Lawn west of the house (inside fence).
+  apexCreateElement(
+    "apex.site_surface",
+    [
+      xz(-2.5, 0, elev),
+      xz(-0.2, 0, elev),
+      xz(-0.2, 8, elev),
+      xz(-2.5, 8, elev),
+    ],
+    { thickness: 0.05, surface_kind: "lawn" },
+    0,
+    "polyline",
+  );
+  // Lawn strip north of the house.
+  apexCreateElement(
+    "apex.site_surface",
+    [
+      xz(-2.5, 8.2, elev),
+      xz(10.2, 8.2, elev),
+      xz(10.2, 10.5, elev),
+      xz(-2.5, 10.5, elev),
+    ],
+    { thickness: 0.05, surface_kind: "lawn" },
+    0,
+    "polyline",
+  );
+  // Paved patio south of the entrance.
+  apexCreateElement(
+    "apex.site_surface",
+    [
+      xz(0.5, -2.5, elev),
+      xz(4.5, -2.5, elev),
+      xz(4.5, -0.2, elev),
+      xz(0.5, -0.2, elev),
+    ],
+    { thickness: 0.08, surface_kind: "paved" },
+    0,
+    "polyline",
+  );
+  // Driveway east of the house (replaces the old ramp slab); far edge lifted.
+  apexCreateElement(
+    "apex.site_surface",
+    [
+      xz(10.2, 3.5, elev),
+      xz(12.8, 3.5, elev),
+      xz(12.8, 7.5, elev),
+      xz(10.2, 7.5, elev),
+    ],
+    { thickness: 0.1, surface_kind: "driveway" },
+    0,
+    "polyline",
+  );
+  const driveId = lastId("apex.site_surface");
+  if (driveId) {
+    try {
+      apexSetSlabShape(driveId, {
+        z: [0, 0.6, 0.6, 0],
+        points: [],
+        creases: [],
+      });
+    } catch {
+      /* shape edit optional if kernel rejects */
+    }
+  }
+}
+
 /**
  * Two-storey demo house (10×8 m footprint) with pitched roof, stair,
- * grid axes, and Spaces from wall-loop detect — same construction as
- * `scripts/house-e2e.mjs` / `packages/apex-mcp/scripts/house-mcp.mjs`.
+ * grid axes, Spaces from wall-loop detect, and a site yard (fence, gate,
+ * surfaces) — same construction as `scripts/house-e2e.mjs` /
+ * `packages/apex-mcp/scripts/house-mcp.mjs`.
  */
 export function buildHouseSampleProject(): SceneDto {
   apexNewProject();
@@ -261,26 +383,8 @@ export function buildHouseSampleProject(): SceneDto {
 
   buildStorey(0, { entrance: true });
 
-  // Ramp slab east of the house; far edge lifted 0.6 m.
-  apexCreateElement(
-    "apex.slab",
-    [xz(11, 4, 0), xz(14, 4, 0), xz(14, 7, 0), xz(11, 7, 0)],
-    slabParams,
-    0,
-    "polyline",
-  );
-  const rampId = lastId("apex.slab");
-  if (rampId) {
-    try {
-      apexSetSlabShape(rampId, {
-        z: [0, 0.6, 0.6, 0],
-        points: [],
-        creases: [],
-      });
-    } catch {
-      /* shape edit optional if kernel rejects */
-    }
-  }
+  // Yard: fence loop (−3..13 × −3..11), gate at south entrance, mixed surfaces.
+  buildYard(0);
 
   scene = apexCreateLevel("Level 1", 3);
   const l1 =

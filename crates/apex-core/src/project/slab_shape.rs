@@ -28,7 +28,7 @@ use crate::registry::{RegistryError, SLAB_SHAPE};
 
 use super::Project;
 
-const SHAPEABLE: [&str; 2] = ["apex.slab", "apex.roof"];
+const SHAPEABLE: [&str; 3] = ["apex.slab", "apex.roof", "apex.site_surface"];
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct SlabShape {
