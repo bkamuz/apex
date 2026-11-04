@@ -1,11 +1,28 @@
 # Build unsigned Tauri 2 desktop packages for Windows / Linux / macOS.
 # Separate from .github/workflows/ci.yml so Rust/web/smoke stay fast.
+#
+# Artifacts (Actions tab, 14-day retention) vs GitHub Releases:
+# - Push/PR/dispatch always upload apex-desktop-* Actions artifacts.
+# - Tag push v* / desktop-v* (or dispatch with publish_draft) also creates a
+#   GitHub Release on the repo Releases page with the installers attached.
 name: Desktop
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_draft:
+        description: 'After builds, create a draft GitHub Release with installers (testing; no production tag required)'
+        type: boolean
+        default: false
+      draft_tag:
+        description: 'Tag name for the draft release (e.g. draft-test-1). Used only when publish_draft is true; created if missing. Leave empty to use desktop-draft-<run_number>.'
+        type: string
+        default: ''
   push:
     branches: [main]
+    tags:
+      - 'v*'
+      - 'desktop-v*'
     paths:
       - 'apps/desktop/**'
       - '.github/workflows/desktop.yml'
@@ -143,3 +160,76 @@ jobs:
             ${{ matrix.bundle_path }}/macos/*.app
           if-no-files-found: error
           retention-days: 14
+
+  # GitHub Releases page (not Actions artifacts). Tag push or draft dispatch.
+  release:
+    name: GitHub Release
+    needs: build
+    if: >
+      startsWith(github.ref, 'refs/tags/v') ||
+      startsWith(github.ref, 'refs/tags/desktop-v') ||
+      (github.event_name == 'workflow_dispatch' && inputs.publish_draft)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - name: Resolve release metadata
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ "${{ inputs.publish_draft }}" = "true" ]; then
+            TAG="${{ inputs.draft_tag }}"
+            if [ -z "$TAG" ]; then
+              TAG="desktop-draft-${{ github.run_number }}"
+            fi
+            echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+            echo "name=Draft ${TAG}" >> "$GITHUB_OUTPUT"
+            echo "draft=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "name=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+            echo "draft=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: apex-desktop-*
+          path: release-assets
+
+      - name: List release assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          find release-assets -type f | sort
+          # Fail early if nothing installer-like was produced.
+          mapfile -t files < <(find release-assets -type f \( \
+            -name '*.deb' -o -name '*.rpm' -o -name '*.AppImage' -o \
+            -name '*.msi' -o -name '*.exe' -o -name '*.dmg' \) )
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No installer files found under release-assets/"
+            exit 1
+          fi
+          echo "Attaching ${#files[@]} installer file(s)"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.name }}
+          draft: ${{ steps.meta.outputs.draft }}
+          generate_release_notes: true
+          # Some targets omit a format (e.g. no rpm); earlier step requires ≥1 installer.
+          fail_on_unmatched_files: false
+          # Installers only (skip raw .app bundles — use .dmg for macOS).
+          files: |
+            release-assets/**/*.deb
+            release-assets/**/*.rpm
+            release-assets/**/*.AppImage
+            release-assets/**/*.msi
+            release-assets/**/*.exe
+            release-assets/**/*.dmg
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

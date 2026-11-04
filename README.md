@@ -139,8 +139,11 @@ npm run desktop:build
 ```
 
 CI builds Windows (x64 + arm64), Linux (x64 + arm64), and macOS (arm64 +
-Intel cross-compile) via [`.github/workflows/desktop.yml`](.github/workflows/desktop.yml);
-download unsigned artifacts from the Actions run. Details and signing notes:
+Intel cross-compile) via [`.github/workflows/desktop.yml`](.github/workflows/desktop.yml).
+**Actions artifacts** (14-day) appear on each Desktop workflow run; **GitHub
+Releases** (installers on the repo Releases page) are created only when you
+push a `v*` / `desktop-v*` tag, or run the workflow with **publish_draft**.
+Cut a release: `git tag v0.1.0 && git push origin v0.1.0`. Details:
 [`apps/desktop/README.md`](apps/desktop/README.md).
 
 ### Live demo (GitHub Pages)
