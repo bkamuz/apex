@@ -53,9 +53,9 @@ npm run desktop:build
 ### CI matrix (GitHub Actions)
 
 Workflow: [`.github/workflows/desktop.yml`](../../.github/workflows/desktop.yml).
-Runs on `workflow_dispatch`, pushes to `main` that touch `apps/desktop/**`, and
-PRs that change the desktop app or that workflow. Existing Rust / web / smoke CI
-is unchanged.
+Runs on `workflow_dispatch`, pushes to `main` that touch `apps/desktop/**`, PRs
+that change the desktop app or that workflow, and pushes of version tags
+(`v*` or `desktop-v*`). Existing Rust / web / smoke CI is unchanged.
 
 | Job id | Runner | Notes |
 | --- | --- | --- |
@@ -66,8 +66,46 @@ is unchanged.
 | `macos-arm64` | `macos-latest` | `--target aarch64-apple-darwin` |
 | `macos-x64` | `macos-latest` | Cross-compile `--target x86_64-apple-darwin` (Intel runners retired) |
 
-Artifacts upload as `apex-desktop-<job id>` (14-day retention). Download from the
-Actions run → Artifacts. Packages are **unsigned** MVP builds.
+Packages are **unsigned** MVP builds (ad-hoc macOS).
+
+#### Actions artifacts vs GitHub Releases
+
+These are two different places:
+
+| | **Actions artifacts** | **GitHub Releases** |
+| --- | --- | --- |
+| Where | Actions → open a **Desktop** run → **Artifacts** | Repo **Releases** page (`/releases`) |
+| When | Every matrix build (push / PR / dispatch / tag) | Only on tag `v*` / `desktop-v*`, or dispatch with **publish_draft** |
+| Retention | 14 days | Until you delete the release |
+| Names | `apex-desktop-<job id>` zip per platform | Installers attached to the release (msi / nsis / deb / rpm / AppImage / dmg) |
+
+If you only look at the Releases page after a normal `main` push, it will be
+empty — that is expected. Use Actions artifacts for CI smoke downloads; use a
+version tag (below) when you want a visible Release.
+
+#### Cut a release
+
+From a commit you want to ship (usually `main`):
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+# or: git push --tags
+```
+
+That runs the full desktop matrix, then creates a **published** GitHub Release
+named after the tag with platform installers attached. Tags matching
+`desktop-v*` work the same way (e.g. `desktop-v0.1.0`).
+
+Do **not** create production tags from a PR branch unless you intend to ship
+that commit. Path filters do not apply to tag pushes — any `v*` /
+`desktop-v*` tag triggers the workflow.
+
+**Draft release without a production tag (testing):** Actions → Desktop →
+**Run workflow** → enable **publish_draft**. Optionally set **draft_tag**
+(default `desktop-draft-<run_number>`). The release job creates a **draft**
+Release you can inspect and delete; delete the throwaway tag afterward if you
+do not need it.
 
 **Signing / notarization (not configured):** to ship signed builds later, add
 repo secrets such as Apple certificate + notarization
