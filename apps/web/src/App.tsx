@@ -191,6 +191,12 @@ import {
   normalizeProjectFilename,
   storeProject,
 } from './persist';
+import {
+  filtersFromAccept,
+  isTauriShell,
+  openTextFileDesktop,
+  saveTextFileDesktop,
+} from './desktop/projectIo';
 import { useMediaQuery } from './hooks/useMediaQuery';
 import { ToolRegistry } from './tools/registry';
 import { finishOpenGesture } from './tools/placementTool';
@@ -470,6 +476,8 @@ export default function App() {
   const [mobileMenuTab, setMobileMenuTab] = useState<MobileMenuTab>('levels');
   const isMobile = useMediaQuery('(max-width: 640px)');
   const fileRef = useRef<HTMLInputElement>(null);
+  /** Absolute path when running under Tauri (for Save without re-picking). */
+  const projectFilePathRef = useRef<string | null>(null);
   /** Baseline JSON after New / Open / Save — dirty when live export differs. */
   const cleanProjectJsonRef = useRef<string | null>(null);
   const [projectFileName, setProjectFileName] = useState(DEFAULT_PROJECT_FILENAME);
@@ -2933,41 +2941,134 @@ export default function App() {
   );
 
   const writeProjectFile = useCallback(
-    (fileName: string) => {
+    async (opts: { forceDialog?: boolean; suggestedName?: string } = {}) => {
       const json = apexExportProject();
-      const name = normalizeProjectFilename(fileName);
+      if (isTauriShell()) {
+        const suggested = normalizeProjectFilename(
+          opts.suggestedName ?? projectFileName ?? DEFAULT_PROJECT_FILENAME,
+        );
+        const saved = await saveTextFileDesktop(json, {
+          suggestedName: suggested,
+          existingPath: projectFilePathRef.current,
+          forcePicker: opts.forceDialog === true,
+          filters: [{ name: 'Apex project', extensions: ['json'] }],
+        });
+        if (!saved) return;
+        projectFilePathRef.current = saved.path;
+        storeProject(json);
+        markProjectClean(json, saved.name);
+        setInfo(t('chrome.saveDone', { name: saved.name }));
+        setError(null);
+        return;
+      }
+      const name = normalizeProjectFilename(
+        opts.suggestedName ?? projectFileName ?? DEFAULT_PROJECT_FILENAME,
+      );
       storeProject(json);
       downloadText(name, json);
       markProjectClean(json, name);
       setInfo(t('chrome.saveDone', { name }));
       setError(null);
     },
-    [markProjectClean, t],
+    [markProjectClean, projectFileName, t],
   );
 
   const onSaveProject = useCallback(() => {
-    try {
-      writeProjectFile(projectFileName);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
-  }, [projectFileName, writeProjectFile]);
+    void (async () => {
+      try {
+        await writeProjectFile({ forceDialog: false });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    })();
+  }, [writeProjectFile]);
 
   const onSaveProjectAs = useCallback(() => {
-    const suggested = projectFileName || DEFAULT_PROJECT_FILENAME;
-    const entered = window.prompt(t('chrome.saveAsPrompt'), suggested);
-    if (entered == null) return;
-    try {
-      writeProjectFile(entered);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
-    }
+    void (async () => {
+      try {
+        if (isTauriShell()) {
+          await writeProjectFile({ forceDialog: true });
+          return;
+        }
+        const suggested = projectFileName || DEFAULT_PROJECT_FILENAME;
+        const entered = window.prompt(t('chrome.saveAsPrompt'), suggested);
+        if (entered == null) return;
+        await writeProjectFile({ suggestedName: entered, forceDialog: true });
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
+    })();
   }, [projectFileName, t, writeProjectFile]);
+
+  const loadProjectFromText = useCallback(
+    async (fileName: string, text: string, filePath?: string | null) => {
+      const importer = importerRegistry.findForFile(fileName);
+      if (importer) {
+        setInfo(t('chrome.opening', { label: importer.label }));
+        const next = (await Promise.resolve(importer.import(text))) as SceneDto & {
+          ifc_import?: {
+            levels: number;
+            products: number;
+            skipped_no_mesh: number;
+            warnings: string[];
+          };
+        };
+        applyScene(next, true);
+        syncCatalog();
+        if (importer.id === 'apex.project') {
+          storeProject(text);
+          markProjectClean(text, fileName);
+          projectFilePathRef.current = filePath ?? null;
+        } else {
+          // Non-JSON imports (IFC) start a new live document until Save.
+          clearStoredProject();
+          markProjectClean(undefined, DEFAULT_PROJECT_FILENAME);
+          projectFilePathRef.current = null;
+        }
+        const summary = next.ifc_import;
+        if (summary) {
+          const skipped =
+            summary.skipped_no_mesh > 0
+              ? ` (${summary.skipped_no_mesh} without mesh skipped)`
+              : '';
+          setInfo(
+            `Opened IFC: ${summary.products} product${summary.products === 1 ? '' : 's'}, ${summary.levels} level${summary.levels === 1 ? '' : 's'}${skipped}`,
+          );
+        } else {
+          setInfo(t('chrome.openImporterDone', { label: importer.label, name: fileName }));
+        }
+        setError(null);
+        return;
+      }
+      const next = apexImportProject(text);
+      storeProject(text);
+      markProjectClean(text, fileName);
+      projectFilePathRef.current = filePath ?? null;
+      applyScene(next, true);
+      syncCatalog();
+      setInfo(t('chrome.openDone', { name: fileName }));
+      setError(null);
+    },
+    [applyScene, markProjectClean, syncCatalog, t],
+  );
 
   const onRequestOpenProject = useCallback(() => {
     if (!confirmDiscardIfDirty(t('chrome.openConfirm'))) return;
+    if (isTauriShell()) {
+      void (async () => {
+        try {
+          const accept = ['application/json', '.json', ...importers.map((i) => i.accept)];
+          const opened = await openTextFileDesktop(filtersFromAccept(accept));
+          if (!opened) return;
+          await loadProjectFromText(opened.name, opened.text, opened.path);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+      })();
+      return;
+    }
     fileRef.current?.click();
-  }, [confirmDiscardIfDirty, t]);
+  }, [confirmDiscardIfDirty, importers, loadProjectFromText, t]);
 
   const onOpenProjectFile = useCallback(
     (file: File) => {
@@ -2975,52 +3076,7 @@ export default function App() {
       reader.onload = () => {
         void (async () => {
           try {
-            const text = String(reader.result ?? '');
-            const importer = importerRegistry.findForFile(file.name);
-            if (importer) {
-              setInfo(t('chrome.opening', { label: importer.label }));
-              const next = (await Promise.resolve(importer.import(text))) as SceneDto & {
-                ifc_import?: {
-                  levels: number;
-                  products: number;
-                  skipped_no_mesh: number;
-                  warnings: string[];
-                };
-              };
-              applyScene(next, true);
-              syncCatalog();
-              if (importer.id === 'apex.project') {
-                storeProject(text);
-                markProjectClean(text, file.name);
-              } else {
-                // Non-JSON imports (IFC) start a new live document until Save.
-                clearStoredProject();
-                markProjectClean(undefined, DEFAULT_PROJECT_FILENAME);
-              }
-              const summary = next.ifc_import;
-              if (summary) {
-                const skipped =
-                  summary.skipped_no_mesh > 0
-                    ? ` (${summary.skipped_no_mesh} without mesh skipped)`
-                    : '';
-                setInfo(
-                  `Opened IFC: ${summary.products} product${summary.products === 1 ? '' : 's'}, ${summary.levels} level${summary.levels === 1 ? '' : 's'}${skipped}`,
-                );
-              } else {
-                setInfo(
-                  t('chrome.openImporterDone', { label: importer.label, name: file.name }),
-                );
-              }
-              setError(null);
-              return;
-            }
-            const next = apexImportProject(text);
-            storeProject(text);
-            markProjectClean(text, file.name);
-            applyScene(next, true);
-            syncCatalog();
-            setInfo(t('chrome.openDone', { name: file.name }));
-            setError(null);
+            await loadProjectFromText(file.name, String(reader.result ?? ''), null);
           } catch (err) {
             setError(err instanceof Error ? err.message : String(err));
           }
@@ -3028,7 +3084,7 @@ export default function App() {
       };
       reader.readAsText(file);
     },
-    [applyScene, markProjectClean, syncCatalog, t],
+    [loadProjectFromText],
   );
 
   const onNewProject = useCallback(() => {
@@ -3036,6 +3092,7 @@ export default function App() {
     try {
       const next = apexNewProject();
       clearStoredProject();
+      projectFilePathRef.current = null;
       applyScene(next, true);
       syncCatalog();
       setPlacementDraft({});

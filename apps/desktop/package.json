@@ -1,0 +1,17 @@
+{
+  "name": "apex-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Tauri 2 desktop shell for the Apex web UI",
+  "scripts": {
+    "web:dev": "npm run dev --prefix ../web -- --host 127.0.0.1 --port 5173 --strictPort",
+    "web:build": "npm run build --prefix ../web",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "tauri": "tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

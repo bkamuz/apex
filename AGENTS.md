@@ -6,11 +6,12 @@
 
 `apex` is a greenfield BIM MVP: a **Rust core compiled to WASM** driving a **React + WebGL2** front end. The legacy Three.js JS prototype was archived to branch `archive/js-prototype`. See `README.md` for the architecture and demo steps; this section only adds non-obvious environment notes.
 
-Layout (Cargo workspace + one web app):
+Layout (Cargo workspace + web app + optional desktop shell):
 - `crates/apex-geometry` — geometry kernel (Frame, Curve, Profile, sweep, extrude). Layer 0: depends on nothing else in the workspace and knows nothing about walls, levels or documents.
 - `crates/apex-core` — document, components, parameters, expressions, `Project`. Depends on `apex-geometry`.
 - `crates/apex-wasm` — `wasm-bindgen` façade. Deliberately thin: JSON in, scene out.
 - `apps/web` — Vite + React UI that imports the generated WASM package from `apps/web/src/wasm/pkg/`.
+- `apps/desktop` — Tauri 2 shell around the same web UI (`npm run desktop:dev`). Native Open/Save via `apps/web/src/desktop/projectIo.ts` when `__TAURI_INTERNALS__` is present; the `src-tauri` crate is **not** a workspace member.
 
 ### Components are data
 

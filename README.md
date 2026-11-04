@@ -11,6 +11,7 @@ crates/apex-geometry   Geometry kernel: Frame, Curve, Profile, sweep, extrude
 crates/apex-core       Document, components, parameters, expressions, Project
 crates/apex-wasm       wasm-bindgen façade for the web app
 apps/web               Vite + React UI
+apps/desktop           Tauri 2 shell (same web UI + native Open/Save)
 ```
 
 Flow: React tool → WASM command → Rust rebuilds mesh → flat GPU buffers → one WebGL2 draw.
@@ -90,6 +91,7 @@ tool infrastructure.
 
 - Rust (stable) + `wasm32-unknown-unknown` + `wasm-pack`
 - Node.js 20+
+- Desktop (optional): [Tauri 2 system deps](https://v2.tauri.app/start/prerequisites/)
 
 ```bash
 rustup target add wasm32-unknown-unknown
@@ -107,6 +109,23 @@ cd apps/web && npm install && npm run dev
 ```
 
 Open http://localhost:5173
+
+### Desktop (Tauri 2)
+
+Same React + WASM UI in a native window, with system Open / Save / Save As
+dialogs. Details: [`apps/desktop/README.md`](apps/desktop/README.md).
+
+```bash
+cd apps/web && npm install
+cd ../desktop && npm install && npm run dev
+# or from repo root: npm run desktop:dev
+```
+
+Production package (unsigned/local is enough for this shell):
+
+```bash
+npm run desktop:build
+```
 
 ### Live demo (GitHub Pages)
 
@@ -186,7 +205,7 @@ round-trip, no full CSG boolean trees.
 - A full CAD constraint solver (the sketch editor is polyline + labeled edge lengths)
 - csgrs / full CSG booleans (blocked on crates.io WASM packaging; openings use AABB punch)
 - Richer IFC import (parametric walls/spaces, full CSG trees; optional IfcOpenShell sidecar)
-- Desktop via Tauri
+- Auto-update / signed desktop releases; community plugin marketplace
 - Rotate / mirror / array transforms; richer MEP fittings (tees)
 
 ## Geometry kernels
