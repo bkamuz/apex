@@ -247,6 +247,8 @@ input[type="radio"] {
 /* Industrial flat chrome (Option C): dense DCC header. Tokens live on :root. */
 .topbar {
   grid-column: 1 / -1;
+  min-width: 0;
+  max-width: 100%;
   display: flex;
   flex-direction: column;
   gap: 0;
@@ -1911,7 +1913,7 @@ input[type="radio"] {
 
 @media (max-width: 640px) {
   .app {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto minmax(0, 1fr) auto;
   }
 
@@ -3238,3 +3240,30 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
   .inspector-header .inspector-title { font-size: 16px; }
 }
 .inspector-body .field-label-text { white-space: normal; overflow-wrap: anywhere; line-height: 1.25; }
+
+/* Mobile: ribbon tabs, tool strip and context bar stay within the viewport and
+   scroll sideways by touch (a swipe scrolls, a tap still activates a tool). */
+.tools-tabs,
+.tools,
+.context-bar,
+.view-tab-list {
+  overscroll-behavior-x: contain;
+}
+@media (max-width: 900px), (pointer: coarse) {
+  .tools-tabs,
+  .tools {
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    touch-action: pan-x;
+    scrollbar-width: none;
+  }
+  .tools-tabs::-webkit-scrollbar,
+  .tools::-webkit-scrollbar { display: none; }
+  .tools-scroll.can-scroll-left::before,
+  .tools-scroll.can-scroll-right::after { width: 28px; }
+  .context-bar { min-width: 0; max-width: 100%; }
+  .context-bar .ctx-tool { flex-shrink: 0; }
+  .context-bar .ctx-hint,
+  .context-bar .ctx-hint span { white-space: nowrap; text-overflow: ellipsis; overflow: hidden; }
+}
