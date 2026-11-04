@@ -41,6 +41,11 @@ type Listener = () => void;
  * A module is a plugin: it installs a component (data the core validates) and
  * a default placement tool. `registerTool` / `registerExporter` / `registerImporter`
  * are for gestures and formats the generated helpers cannot express.
+ *
+ * First-party feature areas live in Settings as system packs
+ * (`docs/system-packs.md`) with full PluginHost access. Runtime registration
+ * here stays open-world (community marketplace precursor); there is no
+ * permission sandbox in this phase.
  */
 class ExtensionHost {
   private listeners = new Set<Listener>();

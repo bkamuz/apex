@@ -139,10 +139,14 @@ npm run test:smoke                         # Playwright end-to-end
 
 ### Plugin-first extensibility
 
-Every toolbar tool is a plugin (`apps/web/src/plugins/`). New object types are
-`ComponentDefinition` data (params + recipe + optional `placement_options`,
-`host_cut`, `ifc_entity`). File formats register through `registerExporter`.
-Do not add per-type branches in `App.tsx` / `apex-wasm` — extend a seam instead.
+Every toolbar tool is a plugin (`apps/web/src/plugins/`). First-party plugins
+are grouped into **system packs** (Basics, Building, Engineering, Spaces,
+Annotate, IFC) with Settings checkboxes; defaults match the full toolbar.
+See [docs/system-packs.md](docs/system-packs.md) to add a pack (catalog entry
+only — no `App.tsx` branches). New object types are `ComponentDefinition` data
+(params + recipe + optional `placement_options`, `host_cut`, `ifc_entity`).
+File formats register through `registerExporter`. Do not add per-type branches
+in `App.tsx` / `apex-wasm` — extend a seam instead.
 
 ```js
 window.apex.defineComponent({ /* … */ });

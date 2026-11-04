@@ -208,7 +208,12 @@ import {
   toolDisplayLabel,
   useI18n,
 } from './i18n';
-import { exporterRegistry, importerRegistry, installPlugins } from './plugins';
+import {
+  exporterRegistry,
+  importerRegistry,
+  installPlugins,
+  subscribePackPrefs,
+} from './plugins';
 import { FileMenu } from './ui/FileMenu';
 
 const DEFAULT_LEVEL_RISE = 3;
@@ -404,6 +409,10 @@ export default function App() {
     originalId: string | null;
   } | null>(null);
   const [toolId, setToolId] = useState<string>(ToolRegistry.selectId);
+  const toolIdRef = useRef(toolId);
+  toolIdRef.current = toolId;
+  /** Bumped whenever plugins are reinstalled so the toolbar re-reads the registry. */
+  const [pluginEpoch, setPluginEpoch] = useState(0);
   const placementToolIdRef = useRef(toolId);
   const [drawMode, setDrawMode] = useState<string | null>(null);
   const [projection, setProjection] = useState<ProjectionMode>('orthographic');
@@ -661,6 +670,7 @@ export default function App() {
     setProfiles(apexListProfiles());
     setExporters(exporterRegistry.list());
     setImporters(importerRegistry.list());
+    setPluginEpoch((n) => n + 1);
   }, []);
 
   const sceneFitBounds = useCallback((next: SceneDto) => {
@@ -2495,6 +2505,21 @@ export default function App() {
     });
   }, [ready, syncCatalog, applyScene]);
 
+  const activateToolRef = useRef(activateTool);
+  activateToolRef.current = activateTool;
+
+  // System-pack Settings toggles reinstall plugins; fall back to Select if the
+  // active tool belonged to a pack that was just disabled.
+  useEffect(() => {
+    if (!ready) return;
+    return subscribePackPrefs(() => {
+      syncCatalog();
+      if (!registryRef.current.get(toolIdRef.current)) {
+        activateToolRef.current(ToolRegistry.selectId);
+      }
+    });
+  }, [ready, syncCatalog]);
+
   const elements: ElementListDto[] = useMemo(() => scene?.elements ?? [], [scene]);
   /** Space labels follow the outlines: only the active storey's spaces. */
   const activeLevelSpaces = useMemo(
@@ -3080,7 +3105,7 @@ export default function App() {
     }
     return out;
   }, [scene]);
-  const tools = useMemo(() => registryRef.current.list(), [components]);
+  const tools = useMemo(() => registryRef.current.list(), [components, pluginEpoch]);
   const placementComponent = tool.componentId
     ? (components.find((item) => item.id === tool.componentId) ?? null)
     : null;

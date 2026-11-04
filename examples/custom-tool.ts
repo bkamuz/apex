@@ -2,7 +2,9 @@
  * Minimal third-party tool / exporter stub for apex.
  *
  * Load manually in dev (e.g. dynamic import from the console) or copy into
- * `apps/web/src/plugins/` and add the plugin to `firstPartyPlugins`.
+ * `apps/web/src/plugins/` and add the plugin to a `systemPacks` entry in
+ * `catalog.ts` (or `alwaysOnPlugins` for non-toggleable chrome). See
+ * `docs/system-packs.md`.
  *
  * Every tool and exporter must carry `descriptor: { purpose }` (docs/descriptors.md);
  * registration throws without one.

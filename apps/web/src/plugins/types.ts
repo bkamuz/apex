@@ -60,3 +60,19 @@ export interface Plugin {
   readonly descriptor: Descriptor;
   install(host: PluginHost): void;
 }
+
+/**
+ * A toggleable first-party feature area (Obsidian-style system pack).
+ *
+ * Packs group plugins that Settings can enable/disable together. Always-on
+ * chrome (select, move, copy, parent, project JSON) is not a pack.
+ * Community marketplace packs are a later phase — system packs keep full
+ * `PluginHost` access.
+ */
+export interface SystemPack {
+  readonly id: string;
+  /** i18n message key for the Settings checkbox label. */
+  readonly labelKey: string;
+  readonly defaultEnabled: boolean;
+  readonly plugins: readonly Plugin[];
+}

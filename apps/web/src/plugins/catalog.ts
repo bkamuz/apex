@@ -16,46 +16,95 @@ import { selectPlugin } from './select';
 import { annotatePlugin } from './annotate';
 import { spacePlugin } from './space';
 import { wallPlugin } from './wall';
-import type { Plugin } from './types';
+import type { Plugin, SystemPack } from './types';
 
 /**
- * Shipped tools, each its own plugin.
- *
- * Wall and Column are one plugin each: draw mode (line / arc / polyline) and
- * profile (rectangle / round) are switches on the tool, not extra buttons.
- * Openings use a hosted placement gesture; MEP routes reuse path placement.
+ * Always-on chrome — not toggleable in Settings.
+ * Select / transform / parent / project JSON Open+Save.
  */
-export const firstPartyPlugins: Plugin[] = [
+export const alwaysOnPlugins: readonly Plugin[] = [
   selectPlugin,
   movePlugin,
   copyPlugin,
   parentPlugin,
-  // Basics tab tools first so `apex.basics` appears before building constructions.
-  // Ref point is the only point tool (no second “point” type).
-  levelPlugin,
-  refPointPlugin,
-  refPlanePlugin,
-  constructionLinePlugin,
-  gridAxisPlugin,
-  sectionCutPlugin,
-  wallPlugin,
-  componentPlugin('apex.column'),
-  componentPlugin('apex.beam'),
-  componentPlugin('apex.slab'),
-  hostedComponentPlugin('apex.door'),
-  hostedComponentPlugin('apex.window'),
-  hostedComponentPlugin('apex.slab_opening'),
-  componentPlugin('apex.stair'),
-  componentPlugin('apex.roof'),
-  componentPlugin('apex.roof.pitched'),
-  // Engineering tab (after Building so tab chips stay Basics → Building → Engineering).
-  componentPlugin('apex.pipe', { tab: ApexTabs.engineering }),
-  componentPlugin('apex.duct', { tab: ApexTabs.engineering }),
-  componentPlugin('apex.cable_tray', { tab: ApexTabs.engineering }),
-  // Spaces tab (after Engineering).
-  spacePlugin,
-  annotatePlugin,
-  // Document Open (.json) before IFC so both register through PluginHost.
   projectJsonPlugin,
-  exportIfcPlugin,
+];
+
+/**
+ * First-party system packs. Order matches toolbar tab discovery
+ * (Basics → Building → Engineering → Spaces) then annotate / IFC.
+ *
+ * Toggle via Settings; defaults recreate today's full toolbar.
+ * Add a pack here — do not branch on component ids in App.tsx.
+ */
+export const systemPacks: readonly SystemPack[] = [
+  {
+    id: 'apex.pack.basics',
+    labelKey: 'settings.pack.basics',
+    defaultEnabled: true,
+    plugins: [
+      // Basics tab tools first so `apex.basics` appears before building constructions.
+      // Ref point is the only point tool (no second “point” type).
+      levelPlugin,
+      refPointPlugin,
+      refPlanePlugin,
+      constructionLinePlugin,
+      gridAxisPlugin,
+      sectionCutPlugin,
+    ],
+  },
+  {
+    id: 'apex.pack.building',
+    labelKey: 'settings.pack.building',
+    defaultEnabled: true,
+    plugins: [
+      wallPlugin,
+      componentPlugin('apex.column'),
+      componentPlugin('apex.beam'),
+      componentPlugin('apex.slab'),
+      hostedComponentPlugin('apex.door'),
+      hostedComponentPlugin('apex.window'),
+      hostedComponentPlugin('apex.slab_opening'),
+      componentPlugin('apex.stair'),
+      componentPlugin('apex.roof'),
+      componentPlugin('apex.roof.pitched'),
+    ],
+  },
+  {
+    id: 'apex.pack.engineering',
+    labelKey: 'settings.pack.engineering',
+    defaultEnabled: true,
+    plugins: [
+      componentPlugin('apex.pipe', { tab: ApexTabs.engineering }),
+      componentPlugin('apex.duct', { tab: ApexTabs.engineering }),
+      componentPlugin('apex.cable_tray', { tab: ApexTabs.engineering }),
+    ],
+  },
+  {
+    id: 'apex.pack.spaces',
+    labelKey: 'settings.pack.spaces',
+    defaultEnabled: true,
+    plugins: [spacePlugin],
+  },
+  {
+    id: 'apex.pack.annotate',
+    labelKey: 'settings.pack.annotate',
+    defaultEnabled: true,
+    plugins: [annotatePlugin],
+  },
+  {
+    id: 'apex.pack.ifc',
+    labelKey: 'settings.pack.ifc',
+    defaultEnabled: true,
+    plugins: [exportIfcPlugin],
+  },
+];
+
+/**
+ * Flat list of every first-party plugin (always-on + all packs).
+ * Prefer `alwaysOnPlugins` + `systemPacks` when installing or documenting packs.
+ */
+export const firstPartyPlugins: Plugin[] = [
+  ...alwaysOnPlugins,
+  ...systemPacks.flatMap((pack) => [...pack.plugins]),
 ];
