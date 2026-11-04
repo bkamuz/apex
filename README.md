@@ -1,8 +1,19 @@
 # Apex
 
-Greenfield BIM MVP: **Rust core (WASM)** + **React shell** + flat-buffer WebGL2 viewport.
+Greenfield BIM MVP: **Rust core → WASM** driving a **React + WebGL2** shell (flat GPU buffers, no Three.js scene graph). Object types are data (`ComponentDefinition`); first-party tools ship as **system packs** (Settings toggles). Same UI runs in the browser and in a **Tauri 2** desktop shell (`apps/desktop`) with native Open/Save.
+
+**Кратко:** BIM MVP на Rust→WASM + React/WebGL2; систем packs в Settings; десктоп через Tauri.
 
 Legacy JS prototype (Three.js / That Open) lives on branch `archive/js-prototype`.
+
+<p align="center">
+  <img src="docs/images/apex-3d-overview.png" alt="Apex — 3D sample house with toolbar, project browser, and inspector" width="920" />
+</p>
+
+| Plan | Selection / inspector | Settings · Extensions |
+| :---: | :---: | :---: |
+| <img src="docs/images/apex-plan.png" alt="Apex plan view with walls, spaces, and grid axes" width="300" /> | <img src="docs/images/apex-inspector.png" alt="Apex 3D view with a wall selected and properties open" width="300" /> | <img src="docs/images/apex-settings-extensions.png" alt="Apex Settings modal showing system packs" width="300" /> |
+
 
 ## Architecture
 
