@@ -26,6 +26,12 @@ export const ru: MessageCatalog = {
   'chrome.openDone': 'Открыт проект: {name}',
   'chrome.openImporterDone': 'Открыто ({label}): {name}',
   'chrome.opening': 'Открытие {label}…',
+  'chrome.linkUnderlay': 'Привязать подложку…',
+  'chrome.linkUnderlayTitle': 'Привязать DXF как неизменяемую подложку плана',
+  'chrome.linkUnderlayFile': 'Выбрать файл DXF-подложки',
+  'chrome.underlayLinked': 'Подложка привязана: {name}',
+  'chrome.underlayNoLinker':
+    'Нет импортёра подложки (включите пакет «Участок» в настройках).',
   'chrome.new': 'Новый',
   'chrome.newTitle': 'Создать пустой проект (Ctrl+N)',
   'chrome.newShortcut': 'Ctrl+N',
@@ -416,6 +422,11 @@ export const ru: MessageCatalog = {
   'inspector.gridAxis': 'Ось сетки',
   'inspector.thisAxis': 'Эта ось',
   'inspector.constructionLine': 'Построительная',
+  'inspector.underlay': 'Подложка DXF',
+  'inspector.underlaySource': 'Исходный файл',
+  'inspector.underlayPolylines': 'Полилинии',
+  'inspector.thisUnderlay': 'Эта подложка',
+  'inspector.unlinkUnderlay': 'Отвязать подложку',
   'inspector.thisLine': 'Эта линия',
   'inspector.sectionCut': 'Разрез',
   'inspector.thisSection': 'Этот разрез',
@@ -599,7 +610,11 @@ export const ru: MessageCatalog = {
   'settings.pack.spaces.desc': 'Замкнутые контуры помещений и поиск комнат по стенам.',
   'settings.pack.site': 'Участок',
   'settings.pack.site.desc':
+<<<<<<< HEAD
     'Ограждение, калитки, покрытия двора (газон, мощение, подъезд) и связанные DXF-подложки плана.',
+=======
+    'Ограждения, покрытия, рельеф и привязанные DXF-подложки плана.',
+>>>>>>> 32bfb47 (feat: DXF linked underlay for plan references)
   'settings.pack.annotate': 'Аннотации',
   'settings.pack.annotate.desc': 'Аннотации видов — размеры и заметки на сохранённых видах.',
   'settings.pack.ifc': 'IFC импорт / экспорт',

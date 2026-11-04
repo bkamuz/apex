@@ -987,6 +987,10 @@ export class ViewportRenderer {
   private spaceLineVao: WebGLVertexArrayObject;
   private spaceLineBuf: WebGLBuffer;
   private spaceLineCount = 0;
+  private underlayLineVao: WebGLVertexArrayObject;
+  private underlayLineBuf: WebGLBuffer;
+  private underlayLineCount = 0;
+  private underlayOpacity = 0.55;
   private viewAnnotationLineVao: WebGLVertexArrayObject;
   private viewAnnotationLineBuf: WebGLBuffer;
   private viewAnnotationLineCount = 0;
@@ -1202,6 +1206,9 @@ export class ViewportRenderer {
     this.spaceLineVao = gl.createVertexArray()!;
     this.spaceLineBuf = gl.createBuffer()!;
     this.bindThickLineVao(this.spaceLineVao, this.spaceLineBuf);
+    this.underlayLineVao = gl.createVertexArray()!;
+    this.underlayLineBuf = gl.createBuffer()!;
+    this.bindThickLineVao(this.underlayLineVao, this.underlayLineBuf);
     this.viewAnnotationLineVao = gl.createVertexArray()!;
     this.viewAnnotationLineBuf = gl.createBuffer()!;
     this.bindThickLineVao(this.viewAnnotationLineVao, this.viewAnnotationLineBuf);
@@ -1772,6 +1779,20 @@ export class ViewportRenderer {
     }
     this.includePoints(lines);
     this.spaceLineCount = this.uploadThickLines(this.spaceLineBuf, flatten(lines));
+  }
+
+  /**
+   * Linked DXF underlay linework — muted blue-grey, drawn behind model overlays.
+   * `opacity` (0..1) scales the alpha of the underlay pass.
+   */
+  setUnderlayOverlays(lines: Vec3[] | null, opacity = 0.55): void {
+    this.underlayOpacity = Math.min(1, Math.max(0.05, opacity));
+    if (!lines || lines.length < 2) {
+      this.underlayLineCount = 0;
+      return;
+    }
+    this.includePoints(lines);
+    this.underlayLineCount = this.uploadThickLines(this.underlayLineBuf, flatten(lines));
   }
 
   /** Saved-view annotations (dimensions, notes) — gold overlay. */
@@ -3170,6 +3191,24 @@ export class ViewportRenderer {
     this.drawOccludedAxis(this.editLineVao, this.editLineCount, [0.95, 0.72, 0.28, 1], 3.0);
     this.drawOccludedAxis(this.refLineVao, this.refLineCount, [0.35, 0.82, 0.95, 0.95], 2.5);
     this.drawGridAxes();
+    // DXF underlay: muted slate, drawn under construction/grid annotations.
+    const ua = this.underlayOpacity;
+    if (plan) {
+      this.drawLines(
+        this.underlayLineVao,
+        this.underlayLineCount,
+        [0.45, 0.55, 0.68, ua],
+        1.2,
+        { overlay: true },
+      );
+    } else {
+      this.drawOccludedAxis(
+        this.underlayLineVao,
+        this.underlayLineCount,
+        [0.45, 0.55, 0.68, ua * 0.85],
+        1.2,
+      );
+    }
     // Construction lines: olive (distinct from grey grid / cyan refs).
     this.drawOccludedAxis(
       this.constructionLineVao,

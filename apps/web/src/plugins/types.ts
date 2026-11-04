@@ -36,6 +36,23 @@ export interface Importer {
   import(text: string): SceneDto | Promise<SceneDto>;
 }
 
+/**
+ * Additive underlay linker — inserts reference geometry without replacing the
+ * live project (unlike {@link Importer}).
+ */
+export interface UnderlayLinker {
+  readonly id: string;
+  readonly label: string;
+  readonly descriptor: Descriptor;
+  readonly title?: string;
+  /** Filename extensions including the dot, e.g. `['.dxf']`. */
+  readonly extensions: string[];
+  /** `accept` attribute fragment for `<input type="file">`. */
+  readonly accept: string;
+  /** Link file text as underlay; returns the updated scene. */
+  link(text: string, fileName: string): SceneDto | Promise<SceneDto>;
+}
+
 /** Services a plugin uses to install itself. */
 export interface PluginHost {
   component(id: string): ComponentDto | undefined;
@@ -46,6 +63,11 @@ export interface PluginHost {
   registerExporter(exporter: Exporter): void;
   /** Contribute a file importer used by Open (and optional Import buttons). */
   registerImporter(importer: Importer): void;
+  /**
+   * Contribute an additive underlay linker (File → Link underlay / drag-drop).
+   * Never used by Open's replace-project path.
+   */
+  registerUnderlayLinker(linker: UnderlayLinker): void;
 }
 
 /**

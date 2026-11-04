@@ -26,11 +26,13 @@ import {
   apexDeleteSelectedReference,
   apexDeleteSelectedSectionCut,
   apexDeleteSelectedSpace,
+  apexDeleteSelectedUnderlay,
   apexGetSelectedConstructionLine,
   apexGetSelectedGridAxis,
   apexGetSelectedReference,
   apexGetSelectedSectionCut,
   apexGetSelectedSpace,
+  apexGetSelectedUnderlay,
   apexExportProject,
   apexGetScene,
   apexGetSelected,
@@ -51,6 +53,8 @@ import {
   apexSelectReference,
   apexSelectSectionCut,
   apexSelectSpace,
+  apexSelectUnderlay,
+  apexUpdateUnderlay,
   apexSetConstructionLinePlacement,
   apexSetGridAxisPlacement,
   apexSetReferencePlacement,
@@ -133,6 +137,7 @@ import type {
   LevelDto,
   ParamValue,
   PlacementKind,
+  PlanUnderlayDto,
   ProfileTypeDto,
   GridAxisDto,
   ReferenceDto,
@@ -219,6 +224,7 @@ import {
   importerRegistry,
   installPlugins,
   subscribePackPrefs,
+  underlayLinkerRegistry,
 } from './plugins';
 import { FileMenu } from './ui/FileMenu';
 
@@ -348,6 +354,7 @@ export default function App() {
   const selectedConstructionLineRef = useRef<ConstructionLineDto | null>(null);
   const selectedSectionCutRef = useRef<SectionCutDto | null>(null);
   const selectedSpaceRef = useRef<SpaceDto | null>(null);
+  const selectedUnderlayRef = useRef<PlanUnderlayDto | null>(null);
   const selectedCountRef = useRef(0);
   /** Attach Top/Base pick mode: the next clicked roof/slab becomes the target. */
   const attachPickRef = useRef<{ end: 'top' | 'base'; ids: string[] } | null>(null);
@@ -404,6 +411,7 @@ export default function App() {
   const [components, setComponents] = useState<ComponentDto[]>([]);
   const [exporters, setExporters] = useState(() => exporterRegistry.list());
   const [importers, setImporters] = useState(() => importerRegistry.list());
+  const [underlayLinkers, setUnderlayLinkers] = useState(() => underlayLinkerRegistry.list());
   const [profiles, setProfiles] = useState<ProfileTypeDto[]>([]);
   const [placementDraft, setPlacementDraft] = useState<Record<string, ParamValue>>({});
   const [profileEditor, setProfileEditor] = useState<{
@@ -457,6 +465,7 @@ export default function App() {
     useState<ConstructionLineDto | null>(null);
   const [selectedSectionCut, setSelectedSectionCut] = useState<SectionCutDto | null>(null);
   const [selectedSpace, setSelectedSpace] = useState<SpaceDto | null>(null);
+  const [selectedUnderlay, setSelectedUnderlay] = useState<PlanUnderlayDto | null>(null);
   const [selectedLevelId, setSelectedLevelId] = useState<string | null>(null);
   const [pending, setPending] = useState<Vec3[]>([]);
   /** Bumps when a tool wants the status line to re-read `hint()`. */
@@ -489,6 +498,7 @@ export default function App() {
   selectedConstructionLineRef.current = selectedConstructionLine;
   selectedSectionCutRef.current = selectedSectionCut;
   selectedSpaceRef.current = selectedSpace;
+  selectedUnderlayRef.current = selectedUnderlay;
   selectedCountRef.current = scene?.selected_ids?.length ?? 0;
   sceneRef.current = scene;
 
@@ -612,6 +622,21 @@ export default function App() {
     rendererRef.current?.setSpaceOverlays(lines.length >= 2 ? lines : null);
   }, []);
 
+  const syncUnderlayOverlays = useCallback((items: PlanUnderlayDto[]) => {
+    const lines: Vec3[] = [];
+    let opacity = 0.55;
+    for (const item of items) {
+      if (!item.visible) continue;
+      if (item.line_segments?.length) lines.push(...item.line_segments);
+      opacity = Math.min(opacity, item.opacity ?? 0.55);
+    }
+    // When several underlays, use the max opacity so none wash out.
+    if (items.length > 0) {
+      opacity = Math.max(...items.filter((u) => u.visible).map((u) => u.opacity ?? 0.55), 0.05);
+    }
+    rendererRef.current?.setUnderlayOverlays(lines.length >= 2 ? lines : null, opacity);
+  }, []);
+
   const showShapeGizmo = useCallback((info: SlabShapeInfoDto, drag?: { index: number; dz: number }) => {
     const points = info.handles.map((h, i) => {
       const p = [...h.position] as Vec3;
@@ -678,6 +703,7 @@ export default function App() {
     setProfiles(apexListProfiles());
     setExporters(exporterRegistry.list());
     setImporters(importerRegistry.list());
+    setUnderlayLinkers(underlayLinkerRegistry.list());
     setPluginEpoch((n) => n + 1);
   }, []);
 
@@ -725,6 +751,7 @@ export default function App() {
         syncConstructionLineOverlays(next.construction_lines ?? []);
         syncSectionCutOverlays(next.section_cuts ?? []);
         syncSpaceOverlays(next.spaces ?? [], next.active_level_id);
+        syncUnderlayOverlays(next.underlays ?? []);
         syncViewAnnotationOverlays(next, viewId);
       }
     },
@@ -736,6 +763,7 @@ export default function App() {
       syncReferenceGizmos,
       syncSectionCutOverlays,
       syncSpaceOverlays,
+      syncUnderlayOverlays,
       syncViewAnnotationOverlays,
     ],
   );
@@ -796,12 +824,14 @@ export default function App() {
       const selLine = apexGetSelectedConstructionLine();
       const selCut = apexGetSelectedSectionCut();
       const selSpace = apexGetSelectedSpace();
+      const selUnderlay = apexGetSelectedUnderlay();
       setSelected(sel);
       setSelectedReference(selRef);
       setSelectedGridAxis(selAxis);
       setSelectedConstructionLine(selLine);
       setSelectedSectionCut(selCut);
       setSelectedSpace(selSpace);
+      setSelectedUnderlay(selUnderlay);
       if (sel) setSelectedLevelId(sel.level_id);
       else if (selRef) setSelectedLevelId(selRef.level_id);
       else if (selAxis) setSelectedLevelId(selAxis.level_id);
@@ -1209,6 +1239,7 @@ export default function App() {
           applyScene(apexSelectConstructionLine(null));
           applyScene(apexSelectSectionCut(null));
           applyScene(apexSelectSpace(null));
+          applyScene(apexSelectUnderlay(null));
         }
       },
 
@@ -2120,6 +2151,15 @@ export default function App() {
           }
           return;
         }
+        if (selectedUnderlayRef.current) {
+          e.preventDefault();
+          try {
+            applyScene(apexDeleteSelectedUnderlay());
+          } catch {
+            /* ignore */
+          }
+          return;
+        }
         if (selectedReferenceRef.current) {
           e.preventDefault();
           try {
@@ -2395,6 +2435,7 @@ export default function App() {
             applyScene(apexSelectConstructionLine(null));
             applyScene(apexSelectSectionCut(null));
             applyScene(apexSelectSpace(null));
+            applyScene(apexSelectUnderlay(null));
           },
         };
 
@@ -2487,6 +2528,12 @@ export default function App() {
         scene.views?.length ?? 0,
         scene.sheets?.length ?? 0,
         scene.view_annotations?.length ?? 0,
+        scene.underlays?.length ?? 0,
+        scene.selected_underlay_id ?? '',
+        // Opacity / transform edits must also re-persist.
+        ...(scene.underlays ?? []).map(
+          (u) => `${u.id}:${u.opacity}:${u.origin_x}:${u.origin_z}:${u.scale}:${u.rotation}:${u.visible}:${u.locked}`,
+        ),
       ].join(':')
     : '';
 
@@ -2836,6 +2883,16 @@ export default function App() {
     }
   };
 
+  const onUpdateUnderlayParams = (params: Record<string, ParamValue>) => {
+    if (!selectedUnderlay) return;
+    try {
+      applyScene(apexUpdateUnderlay(selectedUnderlay.id, params));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const onRenameSpace = (name: string) => {
     if (!selectedSpace) return;
     try {
@@ -3092,6 +3149,46 @@ export default function App() {
     [loadProjectFromText],
   );
 
+  const underlayFileRef = useRef<HTMLInputElement>(null);
+
+  const linkUnderlayFromText = useCallback(
+    async (fileName: string, text: string) => {
+      const ext = fileName.includes('.') ? `.${fileName.split('.').pop()!.toLowerCase()}` : '';
+      const linker =
+        underlayLinkerRegistry.findByExtension(ext) ?? underlayLinkers[0] ?? null;
+      if (!linker) {
+        throw new Error(t('chrome.underlayNoLinker'));
+      }
+      const next = await Promise.resolve(linker.link(text, fileName));
+      applyScene(next, false);
+      setInfo(t('chrome.underlayLinked', { name: fileName }));
+      setError(null);
+    },
+    [applyScene, t, underlayLinkers],
+  );
+
+  const onRequestLinkUnderlay = useCallback(() => {
+    if (underlayLinkers.length === 0) return;
+    underlayFileRef.current?.click();
+  }, [underlayLinkers.length]);
+
+  const onUnderlayFileChosen = useCallback(
+    (file: File) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        void (async () => {
+          try {
+            await linkUnderlayFromText(file.name, String(reader.result ?? ''));
+          } catch (err) {
+            setError(err instanceof Error ? err.message : String(err));
+          }
+        })();
+      };
+      reader.readAsText(file);
+    },
+    [linkUnderlayFromText],
+  );
+
   const onNewProject = useCallback(() => {
     if (!confirmDiscardIfDirty(t('chrome.newProjectConfirm'))) return;
     try {
@@ -3250,6 +3347,7 @@ export default function App() {
       selectedConstructionLine={selectedConstructionLine}
       selectedSectionCut={selectedSectionCut}
       selectedSpace={selectedSpace}
+      selectedUnderlay={selectedUnderlay}
       component={selectedComponent}
       profiles={profiles}
       references={scene?.references ?? []}
@@ -3260,6 +3358,7 @@ export default function App() {
         !selectedConstructionLine &&
         !selectedSectionCut &&
         !selectedSpace &&
+        !selectedUnderlay &&
         !selectedReference
           ? selectedLevel
           : null
@@ -3341,6 +3440,7 @@ export default function App() {
       onUpdateConstructionLine={onUpdateConstructionLineParams}
       onUpdateSectionCut={onUpdateSectionCutParams}
       onUpdateSpace={onUpdateSpaceParams}
+      onUpdateUnderlay={onUpdateUnderlayParams}
       onRenameSpace={onRenameSpace}
       onPlacementChange={onPlacementChange}
       onEditType={onEditType}
@@ -3377,6 +3477,7 @@ export default function App() {
       onDeleteConstructionLine={() => applyScene(apexDeleteSelectedConstructionLine())}
       onDeleteSectionCut={() => applyScene(apexDeleteSelectedSectionCut())}
       onDeleteSpace={() => applyScene(apexDeleteSelectedSpace())}
+      onDeleteUnderlay={() => applyScene(apexDeleteSelectedUnderlay())}
     />
   );
 
@@ -3491,7 +3592,31 @@ export default function App() {
   };
 
   return (
-    <div className={`app${onboarding ? ' app--onboarding' : ''}`}>
+    <div
+      className={`app${onboarding ? ' app--onboarding' : ''}`}
+      onDragOver={(e) => {
+        if (!underlayLinkers.length) return;
+        const types = Array.from(e.dataTransfer.types);
+        if (types.includes('Files')) {
+          e.preventDefault();
+          e.dataTransfer.dropEffect = 'copy';
+        }
+      }}
+      onDrop={(e) => {
+        if (!underlayLinkers.length) return;
+        const file = e.dataTransfer.files?.[0];
+        if (!file) return;
+        const name = file.name.toLowerCase();
+        const linker = underlayLinkers.find((l) =>
+          l.extensions.some((ext) => name.endsWith(ext.toLowerCase())),
+        );
+        if (!linker) return;
+        // Only claim DXF (etc.) drops — leave JSON/IFC for Open.
+        e.preventDefault();
+        e.stopPropagation();
+        onUnderlayFileChosen(file);
+      }}
+    >
       <header className="topbar">
         <div className="topbar-doc">
           <div className="brand" title="Apex">
@@ -3527,6 +3652,17 @@ export default function App() {
                 onSave={onSaveProject}
                 onSaveAs={onSaveProjectAs}
               >
+                {underlayLinkers.map((linker) => (
+                  <button
+                    key={linker.id}
+                    type="button"
+                    data-testid={`link-underlay-${linker.id}`}
+                    title={linker.title ?? t('chrome.linkUnderlayTitle')}
+                    onClick={onRequestLinkUnderlay}
+                  >
+                    {t('chrome.linkUnderlay')}
+                  </button>
+                ))}
                 {exporters.map((exporter) => (
                   <button
                     key={exporter.id}
@@ -3559,6 +3695,20 @@ export default function App() {
                 const file = e.target.files?.[0];
                 e.target.value = '';
                 if (file) onOpenProjectFile(file);
+              }}
+            />
+            <input
+              ref={underlayFileRef}
+              type="file"
+              accept={underlayLinkers.map((l) => l.accept).join(',') || '.dxf'}
+              hidden
+              aria-label={t('chrome.linkUnderlayFile')}
+              title={t('chrome.linkUnderlayTitle')}
+              data-testid="underlay-file-input"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = '';
+                if (file) onUnderlayFileChosen(file);
               }}
             />
           </div>

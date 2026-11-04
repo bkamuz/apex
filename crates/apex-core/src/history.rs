@@ -140,6 +140,8 @@ mod tests {
             sheet_counter: 0,
             view_annotations: Vec::new(),
             view_annotation_counter: 0,
+            underlays: Vec::new(),
+            underlay_counter: 0,
         }
     }
 

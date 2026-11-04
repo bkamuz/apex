@@ -43,6 +43,7 @@ use crate::path_snap::{
 };
 use crate::path_stretch::{plan_stretch_from_edit, plan_stretch_translate};
 use crate::placement::{Placement, PlacementKind};
+use crate::plan_underlay::{PlanUnderlay, PlanUnderlayId, PlanUnderlayLibrary};
 use crate::reference::{RefId, Reference, ReferenceKind};
 use crate::registry::{ComponentRegistry, RegistryError};
 use crate::room_detect::{detect_room_polygons, wall_centerline_segments, ENDPOINT_SNAP};
@@ -202,6 +203,9 @@ pub struct Project {
     pub(crate) sheet_counter: u32,
     pub(crate) view_annotations: crate::view_annotation::ViewAnnotationLibrary,
     pub(crate) view_annotation_counter: u32,
+    /// Linked DXF (etc.) plan underlays — additive reference geometry.
+    pub(crate) underlays: PlanUnderlayLibrary,
+    pub(crate) underlay_counter: u32,
     history: History,
     pub(crate) kernel: kernel::KernelSlot,
     pub(crate) memo: memo::SolidMemo,
@@ -245,6 +249,8 @@ impl Project {
             sheet_counter: 0,
             view_annotations: Default::default(),
             view_annotation_counter: 0,
+            underlays: Default::default(),
+            underlay_counter: 0,
             history: History::default(),
             kernel: Default::default(),
             memo: Default::default(),
@@ -1210,6 +1216,87 @@ impl Project {
         self.document.upsert_construction_line(line);
         self.history.record_before(before);
         Ok(new_id)
+    }
+
+    // —— Plan underlays (linked DXF reference) ————————————————————————————
+
+    pub fn underlays(&self) -> impl Iterator<Item = &PlanUnderlay> {
+        self.underlays.values()
+    }
+
+    pub fn get_underlay(&self, id: PlanUnderlayId) -> Option<&PlanUnderlay> {
+        self.underlays.get(&id)
+    }
+
+    fn next_underlay_name(&mut self) -> String {
+        self.underlay_counter += 1;
+        format!("Underlay {}", self.underlay_counter)
+    }
+
+    /// Parse DXF ASCII and insert as a linked underlay (does not replace the project).
+    pub fn link_dxf_underlay(
+        &mut self,
+        dxf_text: &str,
+        source_name: &str,
+    ) -> Result<PlanUnderlayId, RegistryError> {
+        let before = self.export_snapshot();
+        let elevation = self
+            .document
+            .active_level_id()
+            .map(|id| self.work_plane(id).origin.y)
+            .unwrap_or(0.0) as f64;
+        let name = self.next_underlay_name();
+        let mut underlay = PlanUnderlay::from_dxf_text(name, source_name, dxf_text, elevation)
+            .map_err(|e| RegistryError::Unknown(e.to_string()))?;
+        underlay.sync_params_from_fields();
+        let id = underlay.id;
+        self.underlays.insert(id, underlay);
+        self.history.record_before(before);
+        Ok(id)
+    }
+
+    pub fn update_underlay(
+        &mut self,
+        id: PlanUnderlayId,
+        params: ParamMap,
+        record: bool,
+    ) -> Result<(), RegistryError> {
+        let before = if record && !self.history.has_pending() {
+            Some(self.export_snapshot())
+        } else {
+            None
+        };
+        let underlay = self
+            .underlays
+            .get_mut(&id)
+            .ok_or_else(|| RegistryError::Unknown(id.to_string()))?;
+        if underlay.locked {
+            // Still allow unlock / visibility toggles via params.
+            let unlocking = params.bool("locked") == Some(false);
+            let only_meta = params
+                .iter()
+                .all(|(k, _)| matches!(k.as_str(), "locked" | "visible" | "opacity" | "name"));
+            if !unlocking && !only_meta {
+                return Err(RegistryError::Unknown("underlay is locked".to_string()));
+            }
+        }
+        underlay.apply_params(&params);
+        if record {
+            self.finish_recorded_edit(before);
+        }
+        Ok(())
+    }
+
+    pub fn delete_underlay(&mut self, id: PlanUnderlayId) -> bool {
+        if !self.underlays.contains_key(&id) {
+            return false;
+        }
+        let before = self.export_snapshot();
+        let removed = self.underlays.remove(&id).is_some();
+        if removed {
+            self.history.record_before(before);
+        }
+        removed
     }
 
     pub fn placement_for_section_cut(
@@ -3073,6 +3160,8 @@ impl Project {
             sheet_counter: self.sheet_counter,
             view_annotations: self.view_annotations.values().cloned().collect(),
             view_annotation_counter: self.view_annotation_counter,
+            underlays: self.underlays.values().cloned().collect(),
+            underlay_counter: self.underlay_counter,
             species: self
                 .registry
                 .species_list(None)
@@ -3105,6 +3194,7 @@ impl Project {
         // Format ≤8 predates viewport crop polygons (full-frame rect via default).
         // Format ≤9 predates species: windows/doors carry raw sizes and
         // are mapped to a matching (or derived) type below.
+        // Format ≤10 predates linked plan underlays (empty via default).
         let known = snap.format == PROJECT_FORMAT
             || snap.format == 1
             || snap.format == 2
@@ -3114,7 +3204,8 @@ impl Project {
             || snap.format == 6
             || snap.format == 7
             || snap.format == 8
-            || snap.format == 9;
+            || snap.format == 9
+            || snap.format == 10;
         if !known {
             return Err(RegistryError::Unknown(format!(
                 "unsupported project format {}",
@@ -3155,6 +3246,8 @@ impl Project {
             .map(|a| (a.id, a))
             .collect();
         next.view_annotation_counter = snap.view_annotation_counter;
+        next.underlays = snap.underlays.into_iter().map(|u| (u.id, u)).collect();
+        next.underlay_counter = snap.underlay_counter;
 
         for profile in snap.profiles {
             next.registry.upsert_profile(profile)?;
@@ -3220,7 +3313,7 @@ impl Project {
 }
 
 /// On-disk / download format. Bump [`PROJECT_FORMAT`] when the shape changes.
-pub const PROJECT_FORMAT: u32 = 10;
+pub const PROJECT_FORMAT: u32 = 11;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectSnapshot {
@@ -3269,6 +3362,11 @@ pub struct ProjectSnapshot {
     pub view_annotations: Vec<crate::view_annotation::ViewAnnotation>,
     #[serde(default)]
     pub view_annotation_counter: u32,
+    /// Linked DXF plan underlays (format ≥11). Formats ≤10 import empty.
+    #[serde(default)]
+    pub underlays: Vec<PlanUnderlay>,
+    #[serde(default)]
+    pub underlay_counter: u32,
     /// Species (windows, doors, …), built-in ones included so edits persist.
     #[serde(default, alias = "family_types")]
     pub species: Vec<crate::genus::Species>,

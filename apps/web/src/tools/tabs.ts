@@ -40,6 +40,11 @@ export const TOOL_TABS = {
     id: 'apex.annotate',
     label: 'Annotate',
   },
+  /** Site / landscape: fencing, surfaces, topo, DXF underlay tools. */
+  site: {
+    id: 'apex.site',
+    label: 'Site',
+  },
 } as const satisfies Record<string, ResolvedToolTab>;
 
 /** Alias preferred in SDK / examples (`ApexTabs.building` / `ApexTabs.spaces`). */

@@ -27,6 +27,11 @@ export const en: MessageCatalog = {
   'chrome.openDone': 'Opened project: {name}',
   'chrome.openImporterDone': 'Opened {label}: {name}',
   'chrome.opening': 'Opening {label}…',
+  'chrome.linkUnderlay': 'Link underlay…',
+  'chrome.linkUnderlayTitle': 'Link a DXF file as a non-editable plan underlay',
+  'chrome.linkUnderlayFile': 'Choose DXF underlay file',
+  'chrome.underlayLinked': 'Linked underlay: {name}',
+  'chrome.underlayNoLinker': 'No underlay linker is available (enable the Site pack in Settings).',
   'chrome.new': 'New',
   'chrome.newTitle': 'Start a new empty project (Ctrl+N)',
   'chrome.newShortcut': 'Ctrl+N',
@@ -426,6 +431,11 @@ export const en: MessageCatalog = {
   'inspector.gridAxis': 'Grid axis',
   'inspector.thisAxis': 'This axis',
   'inspector.constructionLine': 'Construction line',
+  'inspector.underlay': 'DXF underlay',
+  'inspector.underlaySource': 'Source file',
+  'inspector.underlayPolylines': 'Polylines',
+  'inspector.thisUnderlay': 'This underlay',
+  'inspector.unlinkUnderlay': 'Unlink underlay',
   'inspector.thisLine': 'This line',
   'inspector.sectionCut': 'Section cut',
   'inspector.thisSection': 'This section',
@@ -614,7 +624,11 @@ export const en: MessageCatalog = {
   'settings.pack.spaces.desc': 'Closed room polylines and Detect rooms from wall loops.',
   'settings.pack.site': 'Site / landscape',
   'settings.pack.site.desc':
+<<<<<<< HEAD
     'Yard fencing, gates, site surfaces (lawn, paved, driveway), and linked DXF plan underlays.',
+=======
+    'Yard fencing, surfaces, topography, and linked DXF plan underlays.',
+>>>>>>> 32bfb47 (feat: DXF linked underlay for plan references)
   'settings.pack.annotate': 'Annotate',
   'settings.pack.annotate.desc': 'View annotations — dimensions and notes on saved views.',
   'settings.pack.ifc': 'IFC import / export',

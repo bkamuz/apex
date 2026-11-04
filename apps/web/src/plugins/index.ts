@@ -5,13 +5,14 @@ import type { ToolRegistry } from '../tools/registry';
 import { alwaysOnPlugins, systemPacks } from './catalog';
 import { exporterRegistry } from './exporters';
 import { importerRegistry } from './importers';
+import { underlayLinkerRegistry } from './underlayLinkers';
 import { pluginsForEnabledPacks } from './packPrefs';
 import { getEnabledPackIds } from './packStore';
 import { registerUserComponentTools } from './userComponentTools';
 import type { PluginHost } from './types';
 import { assertDescribed } from '../descriptor';
 
-export type { Plugin, PluginHost, Exporter, Importer, SystemPack } from './types';
+export type { Plugin, PluginHost, Exporter, Importer, UnderlayLinker, SystemPack } from './types';
 export {
   alwaysOnPlugins,
   firstPartyPlugins,
@@ -32,6 +33,7 @@ export {
 } from './packStore';
 export { exporterRegistry } from './exporters';
 export { importerRegistry } from './importers';
+export { underlayLinkerRegistry } from './underlayLinkers';
 
 export type InstallPluginsOptions = {
   /** Override enabled pack ids (tests). Default: localStorage / pack defaults. */
@@ -50,6 +52,7 @@ export function installPlugins(
   registry.reset();
   exporterRegistry.reset();
   importerRegistry.reset();
+  underlayLinkerRegistry.reset();
   const byId = new Map(components.map((component) => [component.id, component]));
   const host: PluginHost = {
     component: (id) => byId.get(id),
@@ -64,6 +67,7 @@ export function installPlugins(
     },
     registerExporter: (exporter) => exporterRegistry.register(exporter),
     registerImporter: (importer) => importerRegistry.register(importer),
+    registerUnderlayLinker: (linker) => underlayLinkerRegistry.register(linker),
   };
 
   const enabledIds = options?.enabledPackIds ?? getEnabledPackIds();

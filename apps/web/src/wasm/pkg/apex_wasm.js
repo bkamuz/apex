@@ -403,6 +403,17 @@ export function deleteSelectedSpace() {
 }
 
 /**
+ * @returns {any}
+ */
+export function deleteSelectedUnderlay() {
+    const ret = wasm.deleteSelectedUnderlay();
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * @param {string} id
  * @returns {any}
  */
@@ -815,6 +826,17 @@ export function getSelectedSpace() {
 }
 
 /**
+ * @returns {any}
+ */
+export function getSelectedUnderlay() {
+    const ret = wasm.getSelectedUnderlay();
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
  * Replace the current project by importing an IFC STEP file (tessellated MVP).
  *
  * Returns the usual scene object plus an `ifc_import` summary
@@ -916,6 +938,24 @@ export function joinableSnapTargets(component_id) {
  */
 export function kernelStatus() {
     const ret = wasm.kernelStatus();
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * Link a DXF R12 ASCII file as a non-editable plan underlay (additive).
+ * @param {string} dxf_text
+ * @param {string} source_name
+ * @returns {any}
+ */
+export function linkDxfUnderlay(dxf_text, source_name) {
+    const ptr0 = passStringToWasm0(dxf_text, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(source_name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.linkDxfUnderlay(ptr0, len0, ptr1, len1);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }
@@ -1420,6 +1460,20 @@ export function selectSpace(id) {
  * @param {string} id
  * @returns {any}
  */
+export function selectUnderlay(id) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ret = wasm.selectUnderlay(ptr0, len0);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {string} id
+ * @returns {any}
+ */
 export function setActiveLevel(id) {
     const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len0 = WASM_VECTOR_LEN;
@@ -1901,6 +1955,23 @@ export function updateSpace(id, params_json) {
     const ptr1 = passStringToWasm0(params_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
     const len1 = WASM_VECTOR_LEN;
     const ret = wasm.updateSpace(ptr0, len0, ptr1, len1);
+    if (ret[2]) {
+        throw takeFromExternrefTable0(ret[1]);
+    }
+    return takeFromExternrefTable0(ret[0]);
+}
+
+/**
+ * @param {string} id
+ * @param {string} params_json
+ * @returns {any}
+ */
+export function updateUnderlay(id, params_json) {
+    const ptr0 = passStringToWasm0(id, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(params_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.updateUnderlay(ptr0, len0, ptr1, len1);
     if (ret[2]) {
         throw takeFromExternrefTable0(ret[1]);
     }

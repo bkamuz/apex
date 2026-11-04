@@ -82,6 +82,8 @@ export function deleteSelectedSectionCut(): any;
 
 export function deleteSelectedSpace(): any;
 
+export function deleteSelectedUnderlay(): any;
+
 export function deleteSheet(id: string): any;
 
 export function deleteView(id: string): any;
@@ -166,6 +168,8 @@ export function getSelectedSectionCut(): any;
 
 export function getSelectedSpace(): any;
 
+export function getSelectedUnderlay(): any;
+
 /**
  * Replace the current project by importing an IFC STEP file (tessellated MVP).
  *
@@ -211,6 +215,11 @@ export function joinableSnapTargets(component_id: string): any;
  * `{ kernel, pending }` for the status line.
  */
 export function kernelStatus(): any;
+
+/**
+ * Link a DXF R12 ASCII file as a non-editable plan underlay (additive).
+ */
+export function linkDxfUnderlay(dxf_text: string, source_name: string): any;
 
 /**
  * Every installed component. The UI builds its toolbar and inspector from this.
@@ -327,6 +336,8 @@ export function selectSectionCut(id: string): any;
 
 export function selectSpace(id: string): any;
 
+export function selectUnderlay(id: string): any;
+
 export function setActiveLevel(id: string): any;
 
 export function setConstructionLinePlacement(id: string, points_json: string, rotation: number, record_history: boolean): any;
@@ -424,6 +435,8 @@ export function updateSheetViewportState(sheet_id_str: string, viewport_id_str: 
 
 export function updateSpace(id: string, params_json: string): any;
 
+export function updateUnderlay(id: string, params_json: string): any;
+
 export function updateViewAnnotation(id: string, kind_json: string): any;
 
 export function updateViewSettings(id: string, settings_json: string): any;
@@ -458,6 +471,7 @@ export interface InitOutput {
     readonly deleteSelectedReference: () => [number, number, number];
     readonly deleteSelectedSectionCut: () => [number, number, number];
     readonly deleteSelectedSpace: () => [number, number, number];
+    readonly deleteSelectedUnderlay: () => [number, number, number];
     readonly deleteSheet: (a: number, b: number) => [number, number, number];
     readonly deleteView: (a: number, b: number) => [number, number, number];
     readonly deleteViewAnnotation: (a: number, b: number) => [number, number, number];
@@ -482,6 +496,7 @@ export interface InitOutput {
     readonly getSelectedReference: () => [number, number, number];
     readonly getSelectedSectionCut: () => [number, number, number];
     readonly getSelectedSpace: () => [number, number, number];
+    readonly getSelectedUnderlay: () => [number, number, number];
     readonly importIfc: (a: number, b: number) => [number, number, number];
     readonly importIfcMeshes: (a: number, b: number) => [number, number, number];
     readonly importProject: (a: number, b: number) => [number, number, number];
@@ -489,6 +504,7 @@ export interface InitOutput {
     readonly joinPaths: (a: number, b: number) => [number, number, number];
     readonly joinableSnapTargets: (a: number, b: number) => [number, number, number];
     readonly kernelStatus: () => [number, number, number];
+    readonly linkDxfUnderlay: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly listComponents: () => [number, number, number];
     readonly listElements: () => [number, number, number];
     readonly listProfiles: (a: number, b: number) => [number, number, number];
@@ -518,6 +534,7 @@ export interface InitOutput {
     readonly selectReference: (a: number, b: number) => [number, number, number];
     readonly selectSectionCut: (a: number, b: number) => [number, number, number];
     readonly selectSpace: (a: number, b: number) => [number, number, number];
+    readonly selectUnderlay: (a: number, b: number) => [number, number, number];
     readonly setActiveLevel: (a: number, b: number) => [number, number, number];
     readonly setConstructionLinePlacement: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly setElementParent: (a: number, b: number, c: number, d: number) => [number, number, number];
@@ -546,6 +563,7 @@ export interface InitOutput {
     readonly updateSheetLayout: (a: number, b: number, c: number, d: number, e: number, f: number, g: number, h: number) => [number, number, number];
     readonly updateSheetViewportState: (a: number, b: number, c: number, d: number, e: number, f: number, g: number) => [number, number, number];
     readonly updateSpace: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly updateUnderlay: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly updateViewAnnotation: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly updateViewSettings: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly __wbindgen_malloc: (a: number, b: number) => number;
