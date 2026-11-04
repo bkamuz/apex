@@ -575,7 +575,15 @@ export const ru: MessageCatalog = {
   'param.label.bubble_at_end': 'Марка в конце',
   'param.label.bubble_at_start': 'Марка в начале',
   'param.label.label': 'Обозначение',
+  'param.label.locked': 'Блокировка',
+  'param.label.name': 'Имя',
+  'param.label.opacity': 'Непрозрачность',
+  'param.label.origin_x': 'Начало X',
+  'param.label.origin_z': 'Начало Z',
+  'param.label.rotation': 'Поворот',
+  'param.label.scale': 'Масштаб',
   'param.label.show_fill_hint': 'Показать подсказку заливки',
+  'param.label.visible': 'Видимость',
   'param.label.alignment': 'Привязка',
   'param.label.operation': 'Операция',
   'param.label.eave_cut': 'Подрезка карниза',
@@ -610,11 +618,7 @@ export const ru: MessageCatalog = {
   'settings.pack.spaces.desc': 'Замкнутые контуры помещений и поиск комнат по стенам.',
   'settings.pack.site': 'Участок',
   'settings.pack.site.desc':
-<<<<<<< HEAD
     'Ограждение, калитки, покрытия двора (газон, мощение, подъезд) и связанные DXF-подложки плана.',
-=======
-    'Ограждения, покрытия, рельеф и привязанные DXF-подложки плана.',
->>>>>>> 32bfb47 (feat: DXF linked underlay for plan references)
   'settings.pack.annotate': 'Аннотации',
   'settings.pack.annotate.desc': 'Аннотации видов — размеры и заметки на сохранённых видах.',
   'settings.pack.ifc': 'IFC импорт / экспорт',

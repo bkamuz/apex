@@ -589,7 +589,15 @@ export const en: MessageCatalog = {
   'param.label.bubble_at_end': 'Bubble at end',
   'param.label.bubble_at_start': 'Bubble at start',
   'param.label.label': 'Label',
+  'param.label.locked': 'Locked',
+  'param.label.name': 'Name',
+  'param.label.opacity': 'Opacity',
+  'param.label.origin_x': 'Origin X',
+  'param.label.origin_z': 'Origin Z',
+  'param.label.rotation': 'Rotation',
+  'param.label.scale': 'Scale',
   'param.label.show_fill_hint': 'Show fill hint',
+  'param.label.visible': 'Visible',
   'param.label.alignment': 'Alignment',
   'param.label.operation': 'Operation',
   'param.label.eave_cut': 'Eave cut',
@@ -624,11 +632,7 @@ export const en: MessageCatalog = {
   'settings.pack.spaces.desc': 'Closed room polylines and Detect rooms from wall loops.',
   'settings.pack.site': 'Site / landscape',
   'settings.pack.site.desc':
-<<<<<<< HEAD
     'Yard fencing, gates, site surfaces (lawn, paved, driveway), and linked DXF plan underlays.',
-=======
-    'Yard fencing, surfaces, topography, and linked DXF plan underlays.',
->>>>>>> 32bfb47 (feat: DXF linked underlay for plan references)
   'settings.pack.annotate': 'Annotate',
   'settings.pack.annotate.desc': 'View annotations — dimensions and notes on saved views.',
   'settings.pack.ifc': 'IFC import / export',

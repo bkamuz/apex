@@ -60,7 +60,12 @@ const packs = [
   {
     id: 'apex.pack.site',
     defaultEnabled: true,
-    plugins: [{ id: 'apex.fence' }, { id: 'apex.gate' }, { id: 'apex.site_surface' }],
+    plugins: [
+      { id: 'apex.fence' },
+      { id: 'apex.gate' },
+      { id: 'apex.site_surface' },
+      { id: 'apex.dxf_underlay' },
+    ],
   },
   {
     id: 'apex.pack.annotate',

@@ -96,16 +96,12 @@ export const systemPacks: readonly SystemPack[] = [
     labelKey: 'settings.pack.site',
     descriptionKey: 'settings.pack.site.desc',
     defaultEnabled: true,
-<<<<<<< HEAD
     plugins: [
       componentPlugin('apex.fence', { tab: ApexTabs.site }),
       hostedComponentPlugin('apex.gate', { tab: ApexTabs.site }),
       componentPlugin('apex.site_surface', { tab: ApexTabs.site }),
+      dxfUnderlayPlugin,
     ],
-=======
-    // Fence / gate / surfaces land in follow-up PRs; DXF underlay ships first.
-    plugins: [dxfUnderlayPlugin],
->>>>>>> 32bfb47 (feat: DXF linked underlay for plan references)
   },
   {
     id: 'apex.pack.annotate',

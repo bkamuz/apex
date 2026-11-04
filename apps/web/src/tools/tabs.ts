@@ -30,7 +30,7 @@ export const TOOL_TABS = {
     id: 'apex.spaces',
     label: 'Spaces',
   },
-  /** Site / landscape (fence, gate, yard surfaces). */
+  /** Site / landscape: fencing, surfaces, topo, DXF underlay. */
   site: {
     id: 'apex.site',
     label: 'Site',
@@ -39,11 +39,6 @@ export const TOOL_TABS = {
   annotate: {
     id: 'apex.annotate',
     label: 'Annotate',
-  },
-  /** Site / landscape: fencing, surfaces, topo, DXF underlay tools. */
-  site: {
-    id: 'apex.site',
-    label: 'Site',
   },
 } as const satisfies Record<string, ResolvedToolTab>;
 
