@@ -107,40 +107,129 @@ export interface ViewCubeTheme {
   hoverLabel: string;
 }
 
+/**
+ * Fallbacks mirror palette.css chrome tokens (cool blue-greys — never warm
+ * olive). Live values come from `--view-cube-*` / `--apex-accent` via
+ * `resolveViewCubeTheme`.
+ */
 export const VIEW_CUBE_THEMES: Record<ResolvedTheme, ViewCubeTheme> = {
   dark: {
     faces: {
-      front: "#5e5e5b",
-      back: "#4b4b49",
-      right: "#545452",
-      left: "#545452",
-      top: "#666662",
-      bottom: "#424240",
+      front: "#343b4a", // --chrome-hover
+      back: "#22262f", // --chrome-bg-tabs
+      right: "#3a4352", // --chrome-border
+      left: "#3a4352",
+      top: "#4a5366", // --chrome-scrollbar-hover
+      bottom: "#20252f", // --chrome-bg-doc
     },
-    edge: "#1a1a1a",
-    label: "#f2f2f2",
-    labelHalo: "rgba(12,12,12,0.9)",
-    hoverFill: "#d5d9e1", // bimpunk --accent (dark)
+    edge: "#12141a", // --chrome-bg-hint
+    label: "#e7e9ee", // --chrome-text
+    labelHalo: "rgba(20,23,30,0.94)", // --chrome-overlay-strong
+    hoverFill: "#d5d9e1", // --apex-accent
     hoverEdge: "#eef0f4",
-    hoverLabel: "#14171d",
+    hoverLabel: "#14171d", // --apex-accent-fg
   },
   light: {
     faces: {
-      front: "#f4f4f2",
-      back: "#e2e2df",
-      right: "#ebebe8",
-      left: "#ebebe8",
-      top: "#fbfbfa",
-      bottom: "#d9d9d6",
+      front: "#e3e7ed", // --chrome-hover
+      back: "#eef0f3", // --chrome-bg-doc
+      right: "#e2e6ed", // --apex-accent-soft
+      left: "#e2e6ed",
+      top: "#ffffff", // --chrome-bg
+      bottom: "#c9d0da", // --chrome-border
     },
-    edge: "#8e8e89",
-    label: "#2b2b29",
-    labelHalo: "rgba(255,255,255,0.85)",
-    hoverFill: "#2a303b", // bimpunk --accent (light)
+    edge: "#c9d0da", // --chrome-border
+    label: "#1b1f27", // --chrome-text
+    labelHalo: "rgba(255,255,255,0.96)", // --chrome-overlay-strong
+    hoverFill: "#2a303b", // --apex-accent
     hoverEdge: "#14171d",
-    hoverLabel: "#ffffff",
+    hoverLabel: "#ffffff", // --apex-accent-fg
   },
 };
+
+/** Hex `#rrggbb` or `rgba(...)` paint string from a computed CSS color. */
+function cssColorToPaint(value: string): string | null {
+  const v = value.trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(v)) return v.toLowerCase();
+  if (/^#[0-9a-fA-F]{3}$/.test(v)) {
+    const r = v[1];
+    const g = v[2];
+    const b = v[3];
+    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
+  }
+  const m = v.match(
+    /^rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)(?:\s*,\s*([\d.]+))?\s*\)$/i,
+  );
+  if (!m) return null;
+  if (m[4] !== undefined && Number(m[4]) < 1) {
+    return `rgba(${Math.round(Number(m[1]))},${Math.round(Number(m[2]))},${Math.round(Number(m[3]))},${m[4]})`;
+  }
+  const hex = (n: string) =>
+    Math.round(Number(n)).toString(16).padStart(2, "0");
+  return `#${hex(m[1])}${hex(m[2])}${hex(m[3])}`;
+}
+
+/** Resolve a custom property, unwrapping nested `var(--x)` up to a few hops. */
+function readCssVar(
+  style: CSSStyleDeclaration,
+  name: string,
+): string | null {
+  let v = style.getPropertyValue(name).trim();
+  for (let i = 0; i < 4 && v; i++) {
+    const paint = cssColorToPaint(v);
+    if (paint) return paint;
+    const ref = v.match(/^var\(\s*(--[\w-]+)\s*(?:,[^)]+)?\)$/i);
+    if (!ref) return null;
+    v = style.getPropertyValue(ref[1]).trim();
+  }
+  return null;
+}
+
+const VIEW_CUBE_FACE_VARS = {
+  front: "--view-cube-face-front",
+  back: "--view-cube-face-back",
+  right: "--view-cube-face-right",
+  left: "--view-cube-face-left",
+  top: "--view-cube-face-top",
+  bottom: "--view-cube-face-bottom",
+} as const;
+
+/**
+ * View-cube palette for the resolved theme. Idle faces / edge / label and
+ * hover fill come from live chrome / accent CSS vars so theme swaps stay cool
+ * and in sync with panels (no independent warm greys).
+ */
+export function resolveViewCubeTheme(
+  resolved: ResolvedTheme,
+  style?: CSSStyleDeclaration | null,
+): ViewCubeTheme {
+  const base = VIEW_CUBE_THEMES[resolved];
+  if (!style) return { ...base, faces: { ...base.faces } };
+  const faces = { ...base.faces };
+  for (const face of Object.keys(VIEW_CUBE_FACE_VARS) as Array<
+    keyof typeof VIEW_CUBE_FACE_VARS
+  >) {
+    const paint = readCssVar(style, VIEW_CUBE_FACE_VARS[face]);
+    if (paint && paint.startsWith("#")) faces[face] = paint;
+  }
+  const edge = readCssVar(style, "--view-cube-edge");
+  const label = readCssVar(style, "--view-cube-label");
+  const labelHalo = readCssVar(style, "--view-cube-label-halo");
+  const accent = readCssVar(style, "--apex-accent");
+  const accentFg = readCssVar(style, "--apex-accent-fg");
+  return {
+    ...base,
+    faces,
+    edge: edge && edge.startsWith("#") ? edge : base.edge,
+    label: label && label.startsWith("#") ? label : base.label,
+    labelHalo: labelHalo ?? base.labelHalo,
+    hoverFill: accent && accent.startsWith("#") ? accent : base.hoverFill,
+    hoverLabel:
+      accentFg && accentFg.startsWith("#") ? accentFg : base.hoverLabel,
+    hoverEdge:
+      accentFg && accentFg.startsWith("#") ? accentFg : base.hoverEdge,
+  };
+}
 
 export interface ThemeEnv {
   storage?: Pick<Storage, "getItem" | "setItem">;

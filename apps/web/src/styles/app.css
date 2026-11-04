@@ -1744,9 +1744,10 @@ input[type="radio"] {
   user-select: none;
   -webkit-user-select: none;
   cursor: pointer;
-  /* Floats directly over the viewport (Revit/Fusion style) — no panel chrome. */
-  background: transparent;
-  border: 0;
+  /* Same panel surface as header/inspector — not a separate charcoal blob. */
+  background: var(--chrome-bg);
+  border: 1px solid var(--chrome-border);
+  border-radius: var(--chrome-radius);
 }
 
 .view-cube canvas {
