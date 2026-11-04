@@ -6,7 +6,7 @@
  * installs a user component at runtime to prove the extension path works
  * in a real browser.
  */
-import { chromium } from 'playwright';
+import { chromium, devices } from 'playwright';
 import { mkdirSync } from 'fs';
 
 const OUT = process.env.APEX_SMOKE_OUT ?? '/opt/cursor/artifacts/screenshots';
@@ -1051,6 +1051,31 @@ check('sample has ≥4 spaces', (houseCounts?.spaces ?? 0) >= 4);
 check('sample has many walls', (houseCounts?.walls ?? 0) >= 10);
 await page.screenshot({ path: `${OUT}/apex-sample-house.png`, fullPage: true });
 
+
+// Mobile: the ribbon tool strip scrolls sideways by touch.
+{
+  const mctx = await browser.newContext({ ...devices['iPhone 13'], viewport: { width: 390, height: 780 } });
+  const mp = await mctx.newPage();
+  await mp.goto(BASE, { waitUntil: 'networkidle' });
+  await mp.waitForSelector('.tools button');
+  const dims = await mp.evaluate(() => {
+    const t = document.querySelector('.tools');
+    return { sw: t.scrollWidth, cw: t.clientWidth, doc: document.documentElement.scrollWidth };
+  });
+  check('mobile ribbon overflows and page does not', dims.sw > dims.cw && dims.doc <= 390);
+  const cdp = await mctx.newCDPSession(mp);
+  const tb = await mp.locator('.tools').boundingBox();
+  const y = tb.y + tb.height / 2;
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 340, y }] });
+  for (let i = 1; i <= 10; i++) {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 340 - 28 * i, y }] });
+    await mp.waitForTimeout(16);
+  }
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await mp.waitForTimeout(400);
+  check('mobile ribbon scrolls on swipe', (await mp.evaluate(() => document.querySelector('.tools').scrollLeft)) > 0);
+  await mctx.close();
+}
 await browser.close();
 
 if (failures.length > 0) {
