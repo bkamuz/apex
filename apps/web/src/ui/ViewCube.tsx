@@ -17,7 +17,15 @@ import {
 } from "../viewport/viewCube";
 import { useI18n } from "../i18n";
 import { ViewCubeGl } from "../viewport/viewCubeGl";
-import { VIEW_CUBE_THEMES, themeStore } from "../theme/theme";
+import { resolveViewCubeTheme, themeStore } from "../theme/theme";
+
+function liveViewCubeTheme() {
+  const style =
+    typeof document !== "undefined"
+      ? getComputedStyle(document.documentElement)
+      : null;
+  return resolveViewCubeTheme(themeStore().resolved(), style);
+}
 
 const SIZE = 128;
 const DRAG_THRESHOLD_PX = 4;
@@ -71,17 +79,13 @@ export function ViewCube({ renderer, visible }: ViewCubeProps) {
     if (!canvas) return;
     let cube: ViewCubeGl;
     try {
-      cube = new ViewCubeGl(
-        canvas,
-        VIEW_CUBE_THEMES[themeStore().resolved()],
-        labelsRef.current,
-      );
+      cube = new ViewCubeGl(canvas, liveViewCubeTheme(), labelsRef.current);
     } catch {
       return;
     }
     glRef.current = cube;
-    const unsubscribe = themeStore().subscribe((resolved) =>
-      cube.setPalette(VIEW_CUBE_THEMES[resolved]),
+    const unsubscribe = themeStore().subscribe(() =>
+      cube.setPalette(liveViewCubeTheme()),
     );
     return () => {
       unsubscribe();

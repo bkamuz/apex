@@ -120,7 +120,8 @@ export const VIEW_CUBE_THEMES: Record<ResolvedTheme, ViewCubeTheme> = {
     edge: "#1a1a1a",
     label: "#f2f2f2",
     labelHalo: "rgba(12,12,12,0.9)",
-    hoverFill: "#d5d9e1", // bimpunk --accent (dark)
+    // Fallbacks mirror palette.css --apex-accent / --apex-accent-fg (dark).
+    hoverFill: "#d5d9e1",
     hoverEdge: "#eef0f4",
     hoverLabel: "#14171d",
   },
@@ -136,11 +137,53 @@ export const VIEW_CUBE_THEMES: Record<ResolvedTheme, ViewCubeTheme> = {
     edge: "#8e8e89",
     label: "#2b2b29",
     labelHalo: "rgba(255,255,255,0.85)",
-    hoverFill: "#2a303b", // bimpunk --accent (light)
+    // Fallbacks mirror palette.css --apex-accent / --apex-accent-fg (light).
+    hoverFill: "#2a303b",
     hoverEdge: "#14171d",
     hoverLabel: "#ffffff",
   },
 };
+
+/** Hex `#rrggbb` from a computed CSS color, or null if unusable. */
+function cssColorToHex(value: string): string | null {
+  const v = value.trim();
+  if (/^#[0-9a-fA-F]{6}$/.test(v)) return v.toLowerCase();
+  if (/^#[0-9a-fA-F]{3}$/.test(v)) {
+    const r = v[1];
+    const g = v[2];
+    const b = v[3];
+    return `#${r}${r}${g}${g}${b}${b}`.toLowerCase();
+  }
+  const m = v.match(
+    /^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*[\d.]+)?\s*\)$/i,
+  );
+  if (!m) return null;
+  const hex = (n: string) => Number(n).toString(16).padStart(2, "0");
+  return `#${hex(m[1])}${hex(m[2])}${hex(m[3])}`;
+}
+
+/**
+ * View-cube palette for the resolved theme, with hover fill/label taken from
+ * live `--apex-accent` / `--apex-accent-fg` so accent swaps stay in sync.
+ */
+export function resolveViewCubeTheme(
+  resolved: ResolvedTheme,
+  style?: CSSStyleDeclaration | null,
+): ViewCubeTheme {
+  const base = VIEW_CUBE_THEMES[resolved];
+  if (!style) return { ...base, faces: { ...base.faces } };
+  const accent = cssColorToHex(style.getPropertyValue("--apex-accent").trim());
+  const accentFg = cssColorToHex(
+    style.getPropertyValue("--apex-accent-fg").trim(),
+  );
+  return {
+    ...base,
+    faces: { ...base.faces },
+    hoverFill: accent ?? base.hoverFill,
+    hoverLabel: accentFg ?? base.hoverLabel,
+    hoverEdge: accentFg ?? base.hoverEdge,
+  };
+}
 
 export interface ThemeEnv {
   storage?: Pick<Storage, "getItem" | "setItem">;

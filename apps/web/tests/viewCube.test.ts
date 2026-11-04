@@ -4,7 +4,10 @@ import {
   projectViewCube,
   viewCubePixelScale,
 } from "../src/viewport/viewCube.ts";
-import { VIEW_CUBE_THEMES } from "../src/theme/theme.ts";
+import {
+  VIEW_CUBE_THEMES,
+  resolveViewCubeTheme,
+} from "../src/theme/theme.ts";
 
 test("view cube fit: bounding sphere stays inside the widget at every orientation", () => {
   for (const size of [96, 128]) {
@@ -28,11 +31,30 @@ test("view cube palettes exist for both themes with accent hover", () => {
     assert.match(VIEW_CUBE_THEMES[t].hoverFill, /^#[0-9a-f]{6}$/);
     assert.equal(Object.keys(VIEW_CUBE_THEMES[t].faces).length, 6);
   }
-  // bimpunk accent: light grey on dark, slate on light.
+  // Fallbacks mirror palette.css --apex-accent (dark / light).
   assert.equal(VIEW_CUBE_THEMES.dark.hoverFill, "#d5d9e1");
   assert.equal(VIEW_CUBE_THEMES.light.hoverFill, "#2a303b");
   assert.notEqual(
     VIEW_CUBE_THEMES.light.faces.front,
     VIEW_CUBE_THEMES.dark.faces.front,
+  );
+});
+
+test("resolveViewCubeTheme overlays live --apex-accent CSS vars", () => {
+  const style = {
+    getPropertyValue(name: string) {
+      if (name === "--apex-accent") return "#aabbcc";
+      if (name === "--apex-accent-fg") return "#112233";
+      return "";
+    },
+  } as CSSStyleDeclaration;
+  const themed = resolveViewCubeTheme("dark", style);
+  assert.equal(themed.hoverFill, "#aabbcc");
+  assert.equal(themed.hoverLabel, "#112233");
+  assert.equal(themed.hoverEdge, "#112233");
+  assert.equal(themed.faces.front, VIEW_CUBE_THEMES.dark.faces.front);
+  assert.equal(
+    resolveViewCubeTheme("light").hoverFill,
+    VIEW_CUBE_THEMES.light.hoverFill,
   );
 });
