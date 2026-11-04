@@ -2882,22 +2882,27 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
   gap: 2px;
   padding: 3px;
   background: var(--chrome-surface);
-  border: 1px solid var(--chrome-line);
+  border: 1px solid var(--chrome-surface-line);
   border-radius: 999px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(10px) saturate(1.15);
+  -webkit-backdrop-filter: blur(10px) saturate(1.15);
 }
 .view-pill button {
   border: 0;
   background: transparent;
-  color: var(--text);
+  /* Idle labels: high-contrast surface ink, not chrome --text (washes out
+     when the frosted plate sits over light plan paper / bright geometry). */
+  color: var(--chrome-surface-fg);
   font-size: var(--fs-s);
   padding: 3px var(--sp-3);
   border-radius: 999px;
   min-height: 24px;
   cursor: pointer;
 }
-.view-pill button:hover {
-  background: var(--chrome-hover);
+.view-pill button:hover:not(.active) {
+  /* Light wash on the frost plate — avoid dark chrome-hover blotting idle ink. */
+  background: color-mix(in srgb, var(--chrome-surface-fg) 12%, transparent);
 }
 .view-pill button.active {
   background: var(--chrome-active);
@@ -2906,7 +2911,7 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
 .view-pill-sep {
   width: 1px;
   height: 16px;
-  background: var(--chrome-line);
+  background: var(--chrome-surface-line);
   margin: 0 2px;
 }
 
