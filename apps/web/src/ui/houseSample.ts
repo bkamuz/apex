@@ -252,10 +252,41 @@ const fenceParams: Record<string, ParamValue> = {
 };
 
 /**
- * Site yard on L0: joinable fence loop, gate opposite the entrance door,
- * lawn / paved patio / sloping driveway (replaces the old east ramp slab).
+ * Site yard on L0: graded topo pad (SE L outside the house), joinable fence
+ * loop, gate opposite the entrance, lawn / paved patio / driveway on the pad.
  */
 function buildYard(elev: number): void {
+  // Graded topo pad: south strip + east strip (L outside the 10×8 house).
+  // SE corner falls away so the yard reads as terrain under fence/driveway.
+  apexCreateElement(
+    "apex.topo_pad",
+    [
+      xz(-3, -3, elev),
+      xz(13, -3, elev),
+      xz(13, 11, elev),
+      xz(10.2, 11, elev),
+      xz(10.2, -0.15, elev),
+      xz(-3, -0.15, elev),
+    ],
+    { thickness: 0.2, elevation: 0 },
+    0,
+    "polyline",
+  );
+  const padId = lastId("apex.topo_pad");
+  if (padId) {
+    try {
+      // Vertices: SW, SE, NE-east, NE-inner, house-SE corner, NW-south.
+      // East/south edges drop ~0.7–0.9 m; house edge stays near level.
+      apexSetSlabShape(padId, {
+        z: [-0.25, -0.9, -0.55, 0, 0, -0.15],
+        points: [],
+        creases: [],
+      });
+    } catch {
+      /* shape edit optional if kernel rejects */
+    }
+  }
+
   // Fence rectangle −3..13 × −3..11 (outside the 10×8 house).
   const fenceLoop: Array<[number, number]> = [
     [-3, -3],
@@ -289,7 +320,7 @@ function buildYard(elev: number): void {
     );
   }
 
-  // Lawn west of the house (inside fence).
+  // Lawn west of the house (inside fence; not on the SE topo pad).
   apexCreateElement(
     "apex.site_surface",
     [
@@ -302,7 +333,7 @@ function buildYard(elev: number): void {
     0,
     "polyline",
   );
-  // Lawn strip north of the house.
+  // Lawn strip north of the house (west half off-pad; east tip on pad).
   apexCreateElement(
     "apex.site_surface",
     [
@@ -315,7 +346,7 @@ function buildYard(elev: number): void {
     0,
     "polyline",
   );
-  // Paved patio south of the entrance.
+  // Paved patio south of the entrance (seats on topo pad).
   apexCreateElement(
     "apex.site_surface",
     [
@@ -328,7 +359,7 @@ function buildYard(elev: number): void {
     0,
     "polyline",
   );
-  // Driveway east of the house (replaces the old ramp slab); far edge lifted.
+  // Driveway east of the house — sits on the graded topo pad (no own shape).
   apexCreateElement(
     "apex.site_surface",
     [
@@ -341,24 +372,12 @@ function buildYard(elev: number): void {
     0,
     "polyline",
   );
-  const driveId = lastId("apex.site_surface");
-  if (driveId) {
-    try {
-      apexSetSlabShape(driveId, {
-        z: [0, 0.6, 0.6, 0],
-        points: [],
-        creases: [],
-      });
-    } catch {
-      /* shape edit optional if kernel rejects */
-    }
-  }
 }
 
 /**
  * Two-storey demo house (10×8 m footprint) with pitched roof, stair,
- * grid axes, Spaces from wall-loop detect, and a site yard (fence, gate,
- * surfaces) — same construction as `scripts/house-e2e.mjs` /
+ * grid axes, Spaces from wall-loop detect, and a site yard (topo pad,
+ * fence, gate, surfaces) — same construction as `scripts/house-e2e.mjs` /
  * `packages/apex-mcp/scripts/house-mcp.mjs`.
  */
 export function buildHouseSampleProject(): SceneDto {
@@ -383,7 +402,7 @@ export function buildHouseSampleProject(): SceneDto {
 
   buildStorey(0, { entrance: true });
 
-  // Yard: fence loop (−3..13 × −3..11), gate at south entrance, mixed surfaces.
+  // Yard: graded topo pad, fence loop, gate, mixed surfaces.
   buildYard(0);
 
   scene = apexCreateLevel("Level 1", 3);

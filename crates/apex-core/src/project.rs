@@ -416,8 +416,15 @@ impl Project {
         let display_name = definition.display_name.clone();
         let name = self.next_name(component_id, &display_name);
 
+        let mut raw_params = params;
         let placement = if definition.placement_options.seat_on_level {
-            let elevation = self.work_plane(level_id).origin.y;
+            let elevation = self.seat_elevation(
+                level_id,
+                &definition.category,
+                &placement,
+                &raw_params,
+                None,
+            );
             placement.with_elevation(elevation)
         } else {
             placement
@@ -425,8 +432,6 @@ impl Project {
         // Hosted point openings seat on the host centerline (arc tangent frame
         // uses the same projection). Chord snaps from UI anchors get corrected.
         let placement = seat_hosted_point_on_parent(&self.document, &definition, parent, placement);
-
-        let mut raw_params = params;
         self.registry
             .normalize_species_key(component_id, &mut raw_params);
         if let Some(type_id) = self
@@ -594,17 +599,23 @@ impl Project {
             .ok_or_else(|| RegistryError::Unknown(update.id.to_string()))?;
 
         if let Some(placement) = update.placement {
-            let seat = self
-                .registry
-                .get(&element.component_id)
-                .map(|def| def.placement_options.seat_on_level)
+            let def = self.registry.get(&element.component_id);
+            let seat = def
+                .map(|d| d.placement_options.seat_on_level)
                 .unwrap_or(true);
             let level_id = self
                 .document
                 .effective_level_id(update.id)
                 .unwrap_or(element.level_id);
             element.placement = if seat {
-                let elevation = self.work_plane(level_id).origin.y;
+                let category = def.map(|d| d.category.as_str()).unwrap_or("");
+                let elevation = self.seat_elevation(
+                    level_id,
+                    category,
+                    &placement,
+                    &element.params,
+                    Some(update.id),
+                );
                 placement.with_elevation(elevation)
             } else {
                 placement
@@ -830,13 +841,14 @@ impl Project {
             .effective_level_id(id)
             .unwrap_or(element.level_id);
         if let Some(placement) = placement {
-            let seat = self
-                .registry
-                .get(&element.component_id)
-                .map(|def| def.placement_options.seat_on_level)
+            let def = self.registry.get(&element.component_id);
+            let seat = def
+                .map(|d| d.placement_options.seat_on_level)
                 .unwrap_or(true);
             element.placement = if seat {
-                let elevation = self.work_plane(level_id).origin.y;
+                let category = def.map(|d| d.category.as_str()).unwrap_or("");
+                let elevation =
+                    self.seat_elevation(level_id, category, &placement, &element.params, Some(id));
                 placement.with_elevation(elevation)
             } else {
                 placement
@@ -2028,13 +2040,14 @@ impl Project {
             .document
             .effective_level_id(id)
             .unwrap_or(source.level_id);
-        let seat = self
-            .registry
-            .get(&source.component_id)
-            .map(|def| def.placement_options.seat_on_level)
+        let def = self.registry.get(&source.component_id);
+        let seat = def
+            .map(|d| d.placement_options.seat_on_level)
             .unwrap_or(true);
         let placement = if seat {
-            let elevation = self.work_plane(level_id).origin.y;
+            let category = def.map(|d| d.category.as_str()).unwrap_or("");
+            let elevation =
+                self.seat_elevation(level_id, category, new_placement, &source.params, Some(id));
             new_placement.with_elevation(elevation)
         } else {
             new_placement.clone()
@@ -6181,6 +6194,70 @@ mod plugin_first_tests {
         let info = project.slab_shape_info(id).expect("info");
         assert!((info.shape.z[1] - 0.4).abs() < 1e-6);
         let mesh = project.document().get_mesh(id).expect("mesh");
+        assert!(mesh.triangle_count() > 0);
+    }
+
+    #[test]
+    fn topo_pad_grades_and_seats_fence_on_pad_top() {
+        let mut project = Project::new();
+        let level = project.document().active_level_id().unwrap();
+        let pad_placement = PlacementKind::Polyline
+            .build(
+                &[
+                    Vec3::new(0.0, 0.0, 0.0),
+                    Vec3::new(6.0, 0.0, 0.0),
+                    Vec3::new(6.0, 0.0, 4.0),
+                    Vec3::new(0.0, 0.0, 4.0),
+                ],
+                0.0,
+                &apex_geometry::Frame::horizontal(0.0),
+            )
+            .expect("pad poly");
+        let pad = project
+            .create_element(
+                "apex.topo_pad",
+                pad_placement,
+                ParamMap::new()
+                    .with("thickness", ParamValue::Length(0.2))
+                    .with("elevation", ParamValue::Length(0.0)),
+            )
+            .expect("topo pad");
+        project
+            .set_slab_shape(
+                pad,
+                &crate::SlabShape {
+                    // East edge lifted so pad top at x=6 is 0.2 + 0.5.
+                    z: vec![0.0, 0.5, 0.5, 0.0],
+                    points: vec![],
+                    creases: vec![],
+                },
+            )
+            .expect("grade");
+        let top_east = project
+            .topo_height_at(level, 6.0, 2.0, None)
+            .expect("pad hit");
+        assert!(
+            (top_east - 0.7).abs() < 1e-3,
+            "graded pad top ≈ 0.7, got {top_east}"
+        );
+        assert!(project.topo_height_at(level, 20.0, 2.0, None).is_none());
+
+        let fence = project
+            .create_element(
+                "apex.fence",
+                Placement::line(Vec3::new(6.0, 0.0, 1.0), Vec3::new(6.0, 0.0, 3.0)),
+                ParamMap::new()
+                    .with("height", ParamValue::Length(1.5))
+                    .with("thickness", ParamValue::Length(0.05)),
+            )
+            .expect("fence");
+        let fe = project.document().get_element(fence).unwrap();
+        let y = fe.placement.anchors()[0].y;
+        assert!(
+            (y - top_east as f32).abs() < 1e-3,
+            "fence should seat on pad top {top_east}, got {y}"
+        );
+        let mesh = project.document().get_mesh(pad).expect("pad mesh");
         assert!(mesh.triangle_count() > 0);
     }
 

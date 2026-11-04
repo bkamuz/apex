@@ -2,7 +2,12 @@ import { useEffect, useState } from 'react';
 import type { SlabShapeDto, SlabShapeInfoDto } from '../types';
 
 /** Element types whose top surface can be shaped (Revit "Modify Sub Elements"). */
-export const SHAPEABLE_COMPONENTS = new Set(['apex.slab', 'apex.roof', 'apex.site_surface']);
+export const SHAPEABLE_COMPONENTS = new Set([
+  'apex.slab',
+  'apex.roof',
+  'apex.site_surface',
+  'apex.topo_pad',
+]);
 /** The raw JSON param the panel edits; hidden from the generic fields. */
 export const SHAPE_PARAM = 'shape';
 

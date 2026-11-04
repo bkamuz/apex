@@ -716,9 +716,12 @@ export default function App() {
 
   const slabPickIds = useCallback((next: SceneDto) => {
     // Horizontal floor-like solids drawn under walls/fences in plan:
-    // slabs and site surfaces (category-driven, not component-id branches).
+    // slabs, site surfaces, and topo pads (category-driven).
     return (next.elements ?? [])
-      .filter((el) => el.category === 'slab' || el.category === 'site')
+      .filter(
+        (el) =>
+          el.category === 'slab' || el.category === 'site' || el.category === 'topo',
+      )
       .map((el) => el.pick_id);
   }, []);
 

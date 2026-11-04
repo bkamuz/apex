@@ -88,6 +88,7 @@ else {
   if ((counts.by['apex.gate'] ?? 0) < 1) note('missing gate');
   if ((counts.by['apex.site_surface'] ?? 0) < 3)
     note(`expected ≥3 site surfaces, got ${counts.by['apex.site_surface']}`);
+  if ((counts.by['apex.topo_pad'] ?? 0) < 1) note('missing topo pad');
   if (counts.levels < 2) note(`expected 2 levels, got ${counts.levels}`);
   if (counts.spaces < 4) note(`expected ≥4 spaces, got ${counts.spaces}`);
 }
