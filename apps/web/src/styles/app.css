@@ -1739,7 +1739,7 @@ input[type="radio"] {
   opacity: 0.75;
 }
 
-/* CAD view cube — WebGL textured faces; chrome plate behind the canvas. */
+/* CAD view cube — WebGL textured faces float over the viewport (no plate). */
 .view-cube {
   position: absolute;
   top: 10px;
@@ -1753,10 +1753,10 @@ input[type="radio"] {
   user-select: none;
   -webkit-user-select: none;
   cursor: pointer;
-  /* Same panel surface as header/inspector — not a separate charcoal blob. */
-  background: var(--chrome-bg);
-  border: 1px solid var(--chrome-border);
-  border-radius: var(--chrome-radius);
+  /* Transparent container — theme only face fills via --view-cube-face-*. */
+  background: transparent;
+  border: 0;
+  border-radius: 0;
 }
 
 .view-cube canvas {
