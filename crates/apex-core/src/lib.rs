@@ -7,6 +7,7 @@ mod construction_line;
 mod descriptor;
 mod document;
 mod dxf_export;
+mod dxf_import;
 mod element;
 mod expr;
 mod genus;
@@ -22,6 +23,7 @@ mod path_snap;
 mod path_stretch;
 mod placement;
 mod plan_symbols;
+mod plan_underlay;
 mod project;
 mod project_view_annotations;
 mod project_views;
@@ -56,6 +58,9 @@ pub use descriptor::{
 };
 pub use document::{Document, DocumentChange, DocumentChangeKind, ElementSceneEntry, SceneBuffers};
 pub use dxf_export::drawing_to_dxf;
+pub use dxf_import::{
+    parse_dxf_r12, DxfImportError, ParsedDxf, ParsedPolyline, MAX_DXF_BYTES, MAX_UNDERLAY_SEGMENTS,
+};
 pub use element::{ComponentId, Element, ElementId};
 pub use expr::{Expr, ExprError};
 pub use genus::{
@@ -95,6 +100,10 @@ pub use path_stretch::{
 };
 pub use placement::{Placement, PlacementError, PlacementKind};
 pub use plan_symbols::opening_plan_symbols;
+pub use plan_underlay::{
+    plan_underlay_param_specs, PlanUnderlay, PlanUnderlayError, PlanUnderlayId,
+    PlanUnderlayLibrary, UnderlayPolyline,
+};
 pub use project::commands::{
     annotation_descriptors, api_catalog, command_descriptors, component_catalog, conventions,
     query_descriptors, Command, CommandError, Query,

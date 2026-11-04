@@ -40,6 +40,7 @@ export function assertDescribed(
     | 'annotation kind'
     | 'exporter'
     | 'importer'
+    | 'underlayLinker'
     | 'opening generator',
   id: string,
   value: { descriptor?: Descriptor } | undefined,

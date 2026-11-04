@@ -14,6 +14,7 @@ import { refPointPlugin } from './refPoint';
 import { sectionCutPlugin } from './sectionCut';
 import { selectPlugin } from './select';
 import { annotatePlugin } from './annotate';
+import { dxfUnderlayPlugin } from './dxfUnderlay';
 import { spacePlugin } from './space';
 import { wallPlugin } from './wall';
 import type { Plugin, SystemPack } from './types';
@@ -89,6 +90,14 @@ export const systemPacks: readonly SystemPack[] = [
     descriptionKey: 'settings.pack.spaces.desc',
     defaultEnabled: true,
     plugins: [spacePlugin],
+  },
+  {
+    id: 'apex.pack.site',
+    labelKey: 'settings.pack.site',
+    descriptionKey: 'settings.pack.site.desc',
+    defaultEnabled: true,
+    // Fence / gate / surfaces land in follow-up PRs; DXF underlay ships first.
+    plugins: [dxfUnderlayPlugin],
   },
   {
     id: 'apex.pack.annotate',

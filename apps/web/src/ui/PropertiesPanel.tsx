@@ -27,6 +27,7 @@ import type {
   LevelDto,
   ParamSpecDto,
   ParamValue,
+  PlanUnderlayDto,
   ProfileTypeDto,
   ReferenceDto,
   SectionCutDto,
@@ -50,6 +51,7 @@ interface Props {
   selectedConstructionLine: ConstructionLineDto | null;
   selectedSectionCut: SectionCutDto | null;
   selectedSpace: SpaceDto | null;
+  selectedUnderlay: PlanUnderlayDto | null;
   /** Definition of the selected element's component, which supplies the schema. */
   component: ComponentDto | null;
   profiles: ProfileTypeDto[];
@@ -79,6 +81,7 @@ interface Props {
   onUpdateConstructionLine: (params: Record<string, ParamValue>) => void;
   onUpdateSectionCut: (params: Record<string, ParamValue>) => void;
   onUpdateSpace: (params: Record<string, ParamValue>) => void;
+  onUpdateUnderlay: (params: Record<string, ParamValue>) => void;
   onRenameSpace: (name: string) => void;
   onPlacementChange: (params: Record<string, ParamValue>) => void;
   onEditType: (profileId: string) => void;
@@ -98,6 +101,7 @@ interface Props {
   onDeleteConstructionLine: () => void;
   onDeleteSectionCut: () => void;
   onDeleteSpace: () => void;
+  onDeleteUnderlay: () => void;
 }
 
 /** Readable name for a species id (tool dropdowns list species by id). */
@@ -492,6 +496,7 @@ export function PropertiesPanel({
   selectedConstructionLine,
   selectedSectionCut,
   selectedSpace,
+  selectedUnderlay,
   component,
   profiles,
   references,
@@ -511,6 +516,7 @@ export function PropertiesPanel({
   onUpdateConstructionLine,
   onUpdateSectionCut,
   onUpdateSpace,
+  onUpdateUnderlay,
   onRenameSpace,
   onPlacementChange,
   onEditType,
@@ -526,6 +532,7 @@ export function PropertiesPanel({
   onDeleteConstructionLine,
   onDeleteSectionCut,
   onDeleteSpace,
+  onDeleteUnderlay,
 }: Props) {
   const { t } = useI18n();
   const [draft, setDraft] = useState<Record<string, ParamValue>>({});
@@ -533,6 +540,7 @@ export function PropertiesPanel({
   const [lineDraft, setLineDraft] = useState<Record<string, ParamValue>>({});
   const [cutDraft, setCutDraft] = useState<Record<string, ParamValue>>({});
   const [spaceDraft, setSpaceDraft] = useState<Record<string, ParamValue>>({});
+  const [underlayDraft, setUnderlayDraft] = useState<Record<string, ParamValue>>({});
   const [elevation, setElevation] = useState(0);
 
   useEffect(() => {
@@ -582,6 +590,10 @@ export function PropertiesPanel({
   useEffect(() => {
     setSpaceDraft(selectedSpace ? { ...selectedSpace.params } : {});
   }, [selectedSpace]);
+
+  useEffect(() => {
+    setUnderlayDraft(selectedUnderlay ? { ...selectedUnderlay.params } : {});
+  }, [selectedUnderlay]);
 
   useEffect(() => {
     if (!selectedLevel) return;
@@ -820,6 +832,51 @@ export function PropertiesPanel({
         </div>
         <button type="button" className="danger" onClick={onDeleteSpace}>
           {t('inspector.delete')}
+        </button>
+      </div>
+    );
+  }
+
+  if (selectedUnderlay) {
+    const applyUnderlay = (patch: Record<string, ParamValue> = {}) => {
+      const next = { ...underlayDraft, ...patch };
+      setUnderlayDraft(next);
+      onUpdateUnderlay(next);
+    };
+    return (
+      <div className="inspector-body shell-scroll">
+        <div className="field">
+          <label>{t('inspector.name')}</label>
+          <div>{selectedUnderlay.name}</div>
+        </div>
+        <div className="field">
+          <label>{t('inspector.type')}</label>
+          <div>{t('inspector.underlay')}</div>
+        </div>
+        {selectedUnderlay.source_name ? (
+          <div className="field">
+            <label>{t('inspector.underlaySource')}</label>
+            <div>{selectedUnderlay.source_name}</div>
+          </div>
+        ) : null}
+        <div className="field">
+          <label>{t('inspector.underlayPolylines')}</label>
+          <div>{selectedUnderlay.polyline_count}</div>
+        </div>
+        <div className="inspector-section" data-section="instance">
+          <div className="section-title">{t('inspector.thisUnderlay')}</div>
+          <SchemaFields
+            specs={selectedUnderlay.param_specs}
+            values={underlayDraft}
+            profiles={profiles}
+            references={references}
+            live
+            onDraft={(id, value) => setUnderlayDraft((prev) => ({ ...prev, [id]: value }))}
+            onCommit={(patch) => applyUnderlay(patch)}
+          />
+        </div>
+        <button type="button" className="danger" onClick={onDeleteUnderlay}>
+          {t('inspector.unlinkUnderlay')}
         </button>
       </div>
     );

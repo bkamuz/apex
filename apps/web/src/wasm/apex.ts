@@ -65,6 +65,11 @@ import initWasm, {
   setConstructionLinePlacement,
   updateConstructionLine,
   deleteSelectedConstructionLine,
+  linkDxfUnderlay,
+  selectUnderlay,
+  getSelectedUnderlay,
+  updateUnderlay,
+  deleteSelectedUnderlay,
   createSectionCut,
   selectSectionCut,
   getSelectedSectionCut,
@@ -121,6 +126,7 @@ import type {
   MeshDto,
   ParamValue,
   PlacementKind,
+  PlanUnderlayDto,
   ProfilePreviewDto,
   ProfileTypeDto,
   GridAxisDto,
@@ -459,6 +465,7 @@ export function apexClearDatumSelections(): SceneDto {
   apexSelectConstructionLine(null);
   apexSelectSectionCut(null);
   apexSelectSpace(null);
+  apexSelectUnderlay(null);
   return apexSelectReference(null);
 }
 
@@ -547,6 +554,29 @@ export function apexUpdateConstructionLine(
 
 export function apexDeleteSelectedConstructionLine(): SceneDto {
   return asScene(deleteSelectedConstructionLine());
+}
+
+/** Link DXF R12 ASCII as a plan underlay (additive — does not replace the project). */
+export function apexLinkDxfUnderlay(dxfText: string, sourceName: string): SceneDto {
+  return asScene(linkDxfUnderlay(dxfText, sourceName));
+}
+
+export function apexSelectUnderlay(id: string | null): SceneDto {
+  return asScene(selectUnderlay(id ?? ''));
+}
+
+export function apexGetSelectedUnderlay(): PlanUnderlayDto | null {
+  const value = getSelectedUnderlay();
+  if (value === null || value === undefined) return null;
+  return value as PlanUnderlayDto;
+}
+
+export function apexUpdateUnderlay(id: string, params: Record<string, ParamValue>): SceneDto {
+  return asScene(updateUnderlay(id, encodeParams(params)));
+}
+
+export function apexDeleteSelectedUnderlay(): SceneDto {
+  return asScene(deleteSelectedUnderlay());
 }
 
 export function apexCreateSectionCut(
