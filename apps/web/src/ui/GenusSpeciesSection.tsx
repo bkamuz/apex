@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useI18n } from '../i18n';
+import { componentDisplayName, useI18n } from '../i18n';
 import { Section } from './inspector/Section';
 import type { ComponentDto, ElementDto, SpeciesDto, ParamValue, SceneDto } from '../types';
 import { apexExecuteCommand, apexRunQuery, apexSelectElement } from '../wasm/apex';
@@ -154,7 +154,7 @@ export function GenusSpeciesSection({
         >
           {genera.map((f) => (
             <option key={f.id} value={f.id}>
-              {f.display_name}
+              {componentDisplayName(f.id, f.display_name)}
             </option>
           ))}
         </select>
@@ -165,12 +165,11 @@ export function GenusSpeciesSection({
           {ownSpecies.map((row) => (
             <option key={row.id} value={row.id}>
               {row.name}
-              {row.instances > 0 ? ` · ${row.instances}` : ''}
             </option>
           ))}
         </select>
       </div>
-      <div className="button-row">
+      <div className="button-row button-row--compact">
         <button
           type="button"
           data-testid="duplicate-species"

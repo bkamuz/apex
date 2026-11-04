@@ -209,21 +209,21 @@ interface BrowserTreeItemProps {
 function kindBadge(kind: BrowserItem['kind'], depth = 0): string {
   switch (kind) {
     case 'component_def':
-      return 'comp';
+      return t('browser.badge.component');
     case 'type':
-      return 'type';
+      return t('browser.badge.type');
     case 'reference':
-      return 'ref';
+      return t('browser.badge.reference');
     case 'grid_axis':
-      return 'grid';
+      return t('browser.badge.grid');
     case 'construction_line':
-      return 'line';
+      return t('browser.badge.line');
     case 'section_cut':
-      return 'cut';
+      return t('browser.badge.cut');
     case 'space':
-      return 'space';
+      return t('browser.badge.space');
     case 'instance':
-      return depth > 0 ? 'child' : 'instance';
+      return depth > 0 ? t('browser.badge.child') : t('browser.badge.instance');
     default: {
       const exhaustive: never = kind;
       return exhaustive;

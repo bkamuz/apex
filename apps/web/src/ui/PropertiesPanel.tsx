@@ -3,6 +3,8 @@ import { apexRunQuery } from '../wasm/apex';
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { ProvenanceBadge } from './inspector/ProvenanceBadge';
 import { Section } from './inspector/Section';
+import { ToolIconGlyph } from './ToolIcon';
+import { COMPONENT_ICON_BY_ID } from '../tools/icons';
 import {
   MIXED,
   canReset,
@@ -282,7 +284,7 @@ export function ParamField({
             {(spec.options ?? []).map((option) => (
               <option key={option || '__none'} value={option}>
                 {spec.kind === 'reference' && option === ''
-                  ? '(placement)'
+                  ? t('inspector.placementRef')
                   : optionLabel(spec, option, profiles, references)}
               </option>
             ))}
@@ -927,25 +929,37 @@ export function PropertiesPanel({
     };
     const has = (id: string) => groups.some((g) => g.id === id);
 
+    const speciesBlock = typed ? speciesSection : profile || speciesSpec ? (
+      <TypeBlock
+        profile={profile}
+        values={selected.type_values ?? typeValueMap(profile)}
+        profiles={profiles}
+        usage={profile ? (profileUsage?.[profile.id] ?? null) : null}
+        onEditType={onEditType}
+      />
+    ) : null;
+    const icon = COMPONENT_ICON_BY_ID[selected.component_id];
+    const categoryLabel = t(`inspector.cat.${selected.category}`, undefined, selected.category);
+
     return (
       <div className="inspector-body shell-scroll">
         <div className="inspector-header" data-testid="inspector-header">
-          <div className="inspector-chips">
-            <span className="cat-chip" title={t('inspector.category')}>
-              {t(`inspector.cat.${selected.category}`, undefined, selected.category)}
+          <div className="inspector-heading-row">
+            <span className="inspector-cat-icon" title={categoryLabel} aria-label={categoryLabel} role="img">
+              {icon ? <ToolIconGlyph icon={icon} /> : categoryLabel.slice(0, 1)}
             </span>
+            <h2 className="inspector-lineage" data-testid="inspector-lineage">
+              <span title={t('inspector.genus')}>{genusName}</span>
+              {speciesLabel ? (
+                <>
+                  <span className="lineage-sep" aria-hidden>›</span>
+                  <span title={t('inspector.species')}>{speciesLabel}</span>
+                </>
+              ) : null}
+            </h2>
           </div>
-          <div className="inspector-title" title={selected.id}>
+          <div className="inspector-title" title={selected.id} data-testid="inspector-title">
             {selected.name}
-          </div>
-          <div className="inspector-lineage" data-testid="inspector-lineage">
-            <span title={t('inspector.genus')}>{genusName}</span>
-            {speciesLabel ? (
-              <>
-                <span className="lineage-sep">›</span>
-                <span title={t('inspector.species')}>{speciesLabel}</span>
-              </>
-            ) : null}
           </div>
           {genusSection}
           {speciesSpec ? (
@@ -960,33 +974,40 @@ export function PropertiesPanel({
           ) : null}
         </div>
 
+        {speciesBlock}
+
         <div className="inspector-groups" data-section="instance">
-          <Section id="identity" title={t('inspector.group.identity')}>
-            <div className="field">
-              <label>{t('inspector.name')}</label>
-              <div>{selected.name}</div>
-            </div>
-            <div className="field">
-              <label>{t('inspector.genusId')}</label>
-              <div className="mono">{selected.component_id}</div>
-            </div>
-            <div className="field" data-field="parent">
-              <label>{t('inspector.parent')}</label>
-              {parentName ? (
-                <div className="parent-row">
-                  <span data-testid="parent-name">{parentName}</span>
-                  {onDetach ? (
-                    <button type="button" onClick={onDetach}>
-                      {t('inspector.detach')}
-                    </button>
-                  ) : null}
+          {has('dimensions') || has('genus') || selected.length != null || selected.category === 'wall' || shapeSection ? (
+            <Section id="dimensions" title={t('inspector.group.dimensions')}>
+              {groupBody('dimensions')}
+              {groupBody('genus')}
+              {selected.length != null ? (
+                <div className="field">
+                  <label>
+                    <span className="field-label-text">{t('inspector.length')}</span>
+                    <span className="field-unit">m</span>
+                  </label>
+                  <div className="mono">{selected.length.toFixed(3)}</div>
                 </div>
-              ) : (
-                <div className="muted">{t('inspector.none')}</div>
-              )}
-            </div>
-            {groupBody('identity')}
-          </Section>
+              ) : null}
+              {selected.category === 'wall' ? (
+                <div className="field" data-testid="wall-thickness-field">
+                  <label>
+                    <span className="field-label-text">{t('inspector.wallThickness')}</span>
+                    <span className="field-unit">m</span>
+                  </label>
+                  <NumberInput
+                    spec={{ id: 'thickness', label: '', kind: 'length', default: 0.2, min: 0.02 }}
+                    value={wallThicknessValue(selected, profile)}
+                    onChange={() => undefined}
+                    onCommit={(value) => typeof value === 'number' && onUpdateWallThickness(value)}
+                  />
+                  <div className="field-hint">{t('inspector.wallThicknessHint')}</div>
+                </div>
+              ) : null}
+              {shapeSection}
+            </Section>
+          ) : null}
 
           {has('constraints') || booleanOperands || attachSection ? (
             <Section id="constraints" title={t('inspector.group.constraints')}>
@@ -1014,55 +1035,40 @@ export function PropertiesPanel({
             </Section>
           ) : null}
 
-          {has('dimensions') || selected.length != null || selected.category === 'wall' || shapeSection ? (
-            <Section id="dimensions" title={t('inspector.group.dimensions')}>
-              {groupBody('dimensions')}
-              {selected.length != null ? (
-                <div className="field">
-                  <label>
-                    <span className="field-label-text">{t('inspector.length')}</span>
-                    <span className="field-unit">m</span>
-                  </label>
-                  <div>{selected.length.toFixed(3)}</div>
+          <Section id="identity" title={t('inspector.group.identity')} defaultClosed>
+            <div className="field">
+              <label>{t('inspector.name')}</label>
+              <div>{selected.name}</div>
+            </div>
+            <div className="field">
+              <label>{t('inspector.genusId')}</label>
+              <div className="mono">{selected.component_id}</div>
+            </div>
+            <div className="field" data-field="parent">
+              <label>{t('inspector.parent')}</label>
+              {parentName ? (
+                <div className="parent-row">
+                  <span data-testid="parent-name">{parentName}</span>
+                  {onDetach ? (
+                    <button type="button" onClick={onDetach}>
+                      {t('inspector.detach')}
+                    </button>
+                  ) : null}
                 </div>
-              ) : null}
-              {selected.category === 'wall' ? (
-                <div className="field" data-testid="wall-thickness-field">
-                  <label>
-                    <span className="field-label-text">{t('inspector.wallThickness')}</span>
-                    <span className="field-unit">m</span>
-                  </label>
-                  <NumberInput
-                    spec={{ id: 'thickness', label: '', kind: 'length', default: 0.2, min: 0.02 }}
-                    value={wallThicknessValue(selected, profile)}
-                    onChange={() => undefined}
-                    onCommit={(value) => typeof value === 'number' && onUpdateWallThickness(value)}
-                  />
-                  <div className="field-hint">{t('inspector.wallThicknessHint')}</div>
-                </div>
-              ) : null}
-              {shapeSection}
+              ) : (
+                <div className="muted">{t('inspector.none')}</div>
+              )}
+            </div>
+            {groupBody('identity')}
+          </Section>
+
+          {has('materials') || has('analytics') ? (
+            <Section id="more" title={t('inspector.group.more')} defaultClosed>
+              {groupBody('materials')}
+              {groupBody('analytics')}
             </Section>
           ) : null}
-
-          {(['materials', 'genus', 'analytics'] as const).map((id) =>
-            has(id) ? (
-              <Section key={id} id={id} title={t(`inspector.group.${id}`)}>
-                {groupBody(id)}
-              </Section>
-            ) : null,
-          )}
         </div>
-
-        {typed ? speciesSection : profile || speciesSpec ? (
-          <TypeBlock
-            profile={profile}
-            values={selected.type_values ?? typeValueMap(profile)}
-            profiles={profiles}
-            usage={profile ? (profileUsage?.[profile.id] ?? null) : null}
-            onEditType={onEditType}
-          />
-        ) : null}
 
         <button type="button" className="danger" onClick={onDelete}>
           {t('inspector.delete')}

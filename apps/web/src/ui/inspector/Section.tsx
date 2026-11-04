@@ -1,7 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { useI18n } from '../../i18n';
 
-const STORAGE_KEY = 'apex.inspector.sections';
+const STORAGE_KEY = 'apex.inspector.sections.v2';
 
 function readClosed(): Record<string, boolean> {
   try {
@@ -18,15 +18,18 @@ export function Section({
   badge,
   children,
   dataSection,
+  defaultClosed = false,
 }: {
   id: string;
   title: ReactNode;
   badge?: ReactNode;
   children: ReactNode;
   dataSection?: string;
+  /** Closed until the user opens it; the choice is then remembered. */
+  defaultClosed?: boolean;
 }) {
   const { t } = useI18n();
-  const [closed, setClosed] = useState(() => Boolean(readClosed()[id]));
+  const [closed, setClosed] = useState(() => readClosed()[id] ?? defaultClosed);
   const toggle = () => {
     const next = !closed;
     setClosed(next);
