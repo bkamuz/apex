@@ -55,6 +55,21 @@
   --orange: #f0a04b; /* --orange */
   --link: #8fc1ff; /* --link */
   --font: ui-sans-serif, system-ui, "Segoe UI", sans-serif; /* :root font-family */
+
+  /*
+   * View-cube idle faces — cool chrome surfaces only (no warm olive greys).
+   * Aliases of panel tokens so accent/theme swaps stay in sync. Read by
+   * resolveViewCubeTheme() when baking WebGL face textures.
+   */
+  --view-cube-face-top: var(--chrome-scrollbar-hover); /* #4a5366 */
+  --view-cube-face-front: var(--chrome-hover); /* #343b4a */
+  --view-cube-face-right: var(--chrome-border); /* #3a4352 */
+  --view-cube-face-left: var(--chrome-border);
+  --view-cube-face-back: var(--chrome-bg-tabs); /* #22262f */
+  --view-cube-face-bottom: var(--chrome-bg-doc); /* #20252f */
+  --view-cube-edge: var(--chrome-bg-hint); /* #12141a */
+  --view-cube-label: var(--chrome-text); /* #e7e9ee */
+  --view-cube-label-halo: var(--chrome-overlay-strong);
 }
 
 :root[data-theme='light'] {
@@ -100,4 +115,15 @@
   --warn: #9a6c00;
   --orange: #c46a10; /* --orange */
   --link: #1d5fb8; /* --link */
+
+  /* View-cube idle faces — light chrome surfaces (cool, not warm paper greys). */
+  --view-cube-face-top: var(--chrome-bg); /* #ffffff */
+  --view-cube-face-front: var(--chrome-hover); /* #e3e7ed */
+  --view-cube-face-right: var(--apex-accent-soft); /* #e2e6ed */
+  --view-cube-face-left: var(--apex-accent-soft);
+  --view-cube-face-back: var(--chrome-bg-doc); /* #eef0f3 */
+  --view-cube-face-bottom: var(--chrome-border); /* #c9d0da */
+  --view-cube-edge: var(--chrome-border);
+  --view-cube-label: var(--chrome-text); /* #1b1f27 */
+  --view-cube-label-halo: var(--chrome-overlay-strong);
 }
