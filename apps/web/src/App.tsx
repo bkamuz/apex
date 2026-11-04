@@ -2042,6 +2042,8 @@ export default function App() {
           setProfileEditor(null);
           return;
         }
+        // SettingsMenu owns Escape while its modal is open (closes itself).
+        if (document.querySelector('[data-testid="settings-dialog"]')) return;
         onEscape();
         return;
       }
@@ -3489,7 +3491,10 @@ export default function App() {
     <div className={`app${onboarding ? ' app--onboarding' : ''}`}>
       <header className="topbar">
         <div className="topbar-doc">
-          <div className="brand">APEX</div>
+          <div className="brand" title="Apex">
+            <span className="apex-mark" aria-hidden="true" />
+            <span className="brand-wordmark">APEX</span>
+          </div>
           <div className="file-actions">
             <div className="file-actions-group" data-group="history">
               <button

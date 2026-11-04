@@ -8,6 +8,14 @@
  */
 :root {
   /* bimpunk dark */
+  /*
+   * Single app accent — swap these to retheme toolbar active, Settings nav,
+   * focus rings, checkboxes, and the logo mask. Do not hardcode a second
+   * Settings-only colour.
+   */
+  --apex-accent: #d5d9e1;
+  --apex-accent-fg: #14171d;
+  --apex-accent-soft: #2f3644;
   --chrome-bg: #1b1e26; /* --panel */
   --chrome-bg-doc: #20252f; /* --head-2 */
   --chrome-bg-tabs: #22262f; /* --panel-2 */
@@ -19,11 +27,11 @@
   --chrome-hover: #343b4a; /* --hover */
   --chrome-muted: #9aa3b2; /* --muted */
   --chrome-text: #e7e9ee; /* --text */
-  --chrome-active: #d5d9e1; /* --accent */
-  --chrome-active-border: #d5d9e1; /* --accent */
-  --chrome-active-text: #14171d; /* --accent-fg */
-  --chrome-active-soft: #2f3644; /* --sel-row */
-  --chrome-context: #4cc38a; /* --ctx */
+  --chrome-active: var(--apex-accent);
+  --chrome-active-border: var(--apex-accent);
+  --chrome-active-text: var(--apex-accent-fg);
+  --chrome-active-soft: var(--apex-accent-soft);
+  --chrome-context: #4cc38a; /* --ctx — context bar only, not Settings */
   --chrome-info: #f0c674; /* --warn */
   --chrome-field: #12141a; /* --bg */
   --chrome-placeholder: #5c6577; /* --dim */
@@ -51,6 +59,9 @@
 
 :root[data-theme='light'] {
   /* bimpunk light */
+  --apex-accent: #2a303b;
+  --apex-accent-fg: #ffffff;
+  --apex-accent-soft: #e2e6ed;
   --chrome-bg: #ffffff; /* --panel */
   --chrome-bg-doc: #eef0f3; /* --head-2 */
   --chrome-bg-tabs: #eef0f3; /* --panel-2 */
@@ -62,11 +73,11 @@
   --chrome-hover: #e3e7ed; /* --hover */
   --chrome-muted: #5d6575; /* --muted */
   --chrome-text: #1b1f27; /* --text */
-  --chrome-active: #2a303b; /* --accent */
-  --chrome-active-border: #2a303b; /* --accent */
-  --chrome-active-text: #ffffff;
-  --chrome-active-soft: #e2e6ed; /* --sel-row */
-  --chrome-context: #17713f; /* --ctx */
+  --chrome-active: var(--apex-accent);
+  --chrome-active-border: var(--apex-accent);
+  --chrome-active-text: var(--apex-accent-fg);
+  --chrome-active-soft: var(--apex-accent-soft);
+  --chrome-context: #17713f; /* --ctx — context bar only, not Settings */
   --chrome-info: #9a6c00; /* --warn */
   --chrome-field: #ffffff;
   --chrome-placeholder: #8a93a3; /* --dim */

@@ -25,8 +25,8 @@
   --border: var(--chrome-border);
   --text: var(--chrome-text);
   --text-muted: var(--chrome-muted);
-  --accent: var(--chrome-active);
-  --accent-soft: var(--chrome-active-soft);
+  --accent: var(--apex-accent);
+  --accent-soft: var(--apex-accent-soft);
   /* Design tokens: one spacing scale, one type scale, two icon sizes. */
   --sp-1: 4px;
   --sp-2: 8px;
@@ -52,7 +52,7 @@
   color-scheme: dark;
 }
 
-/* Light theme — same accent green, light chrome; AA contrast for text. */
+/* Light theme — same --apex-accent family, light chrome; AA contrast for text. */
 :root[data-theme='light'] {
   --grid-axis-fill: #f7f7f5;
   --grid-axis-stroke: #4a4c50;
@@ -189,7 +189,7 @@ button:focus-visible {
 input[type="checkbox"],
 input[type="radio"] {
   width: auto;
-  accent-color: var(--chrome-active);
+  accent-color: var(--apex-accent);
   color-scheme: inherit;
   -webkit-text-fill-color: unset;
 }
@@ -269,6 +269,7 @@ input[type="radio"] {
 .brand {
   display: flex;
   align-items: center;
+  gap: 8px;
   flex-shrink: 0;
   padding: 0 12px;
   font-weight: 700;
@@ -277,6 +278,27 @@ input[type="radio"] {
   color: var(--chrome-brand-text);
   background: var(--chrome-brand-bg);
   border-right: 1px solid var(--chrome-line);
+}
+
+/* Apex mark — black silhouette PNG painted via mask; colour = currentColor. */
+.apex-mark {
+  display: inline-block;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  background-color: currentColor;
+  -webkit-mask: url(/apex-logo.png) center / contain no-repeat;
+  mask: url(/apex-logo.png) center / contain no-repeat;
+}
+
+.brand .apex-mark {
+  width: 16px;
+  height: 16px;
+  color: var(--apex-accent);
+}
+
+.brand-wordmark {
+  line-height: 1;
 }
 
 .file-actions {
@@ -608,13 +630,13 @@ input[type="radio"] {
 }
 
 .tools button.active {
-  background: var(--chrome-active);
-  border-color: var(--chrome-active-border);
-  color: var(--chrome-active-text);
+  background: var(--apex-accent);
+  border-color: var(--apex-accent);
+  color: var(--apex-accent-fg);
 }
 
 .tools button:focus-visible {
-  outline: 1px solid var(--chrome-active);
+  outline: 1px solid var(--apex-accent);
   outline-offset: 0;
 }
 
@@ -2582,20 +2604,169 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
   display: flex;
   align-items: stretch;
 }
+.settings-menu {
+  display: flex;
+  align-items: stretch;
+  position: relative;
+}
+.settings-menu > .settings-trigger,
 .settings-menu > .file-menu-summary {
+  appearance: none;
+  font: inherit;
   font-size: var(--fs-l);
   padding: 0 var(--sp-3);
+  border: 0;
   border-right: 0;
   border-left: 1px solid var(--chrome-line);
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
 }
-.settings-menu .settings-panel {
-  left: auto;
-  right: 0;
-  min-width: 260px;
-  padding: var(--sp-2);
+.settings-menu > .settings-trigger:hover,
+.settings-menu > .file-menu-summary:hover {
+  background: var(--chrome-hover);
+}
+.settings-menu > .settings-trigger:focus-visible,
+.settings-menu > .file-menu-summary:focus-visible {
+  outline: 1px solid var(--chrome-active);
+  outline-offset: -1px;
+}
+.settings-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.62);
+  display: grid;
+  place-items: center;
+  z-index: 50;
+  padding: var(--sp-5);
+}
+.settings-dialog {
+  width: min(640px, 100%);
+  height: min(480px, 100%);
+  max-height: min(560px, 100%);
+  background: var(--chrome-bg);
+  border: 1px solid var(--chrome-line);
+  border-radius: 2px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 8px 28px var(--chrome-shadow);
+}
+.settings-dialog-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--chrome-bg-doc);
+  border-bottom: 1px solid var(--chrome-line);
+  flex: none;
+}
+.settings-dialog-mark {
+  width: 18px;
+  height: 18px;
+  color: var(--apex-accent);
+}
+.settings-dialog-title {
+  margin: 0;
+  font-size: var(--fs-m);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+.settings-dialog-close {
+  margin-left: auto;
+  appearance: none;
+  border: 1px solid var(--chrome-line);
+  border-radius: 2px;
+  background: var(--chrome-bg-tools);
+  color: var(--text);
+  font-size: var(--fs-s);
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.settings-dialog-close:hover {
+  background: var(--chrome-hover);
+}
+.settings-dialog-close:focus-visible {
+  outline: 1px solid var(--apex-accent);
+  outline-offset: -1px;
+}
+.settings-dialog-main {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+}
+.settings-nav {
+  flex: none;
+  width: 148px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: var(--sp-2) 0;
+  background: var(--chrome-bg-tabs);
+  border-right: 1px solid var(--chrome-line);
+  overflow-y: auto;
+}
+.settings-nav [role='tab'] {
+  appearance: none;
+  border: 0;
+  border-radius: 0;
+  border-left: 2px solid transparent;
+  background: transparent;
+  color: var(--chrome-muted);
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  text-align: left;
+  padding: 8px 12px;
+  cursor: pointer;
+  width: 100%;
+}
+.settings-nav [role='tab']:hover {
+  color: var(--text);
+  background: var(--chrome-hover);
+}
+/* Same active fill as toolbar tools — --apex-accent, not a Settings-only green. */
+.settings-nav [role='tab'].active,
+.settings-nav [role='tab'][aria-selected='true'] {
+  background: var(--apex-accent);
+  border-left-color: var(--apex-accent-fg);
+  color: var(--apex-accent-fg);
+}
+.settings-nav [role='tab']:focus-visible {
+  outline: 1px solid var(--apex-accent);
+  outline-offset: -1px;
+}
+.settings-dialog-body {
+  padding: var(--sp-3) var(--sp-4);
+  overflow: auto;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+}
+.settings-pane {
   display: flex;
   flex-direction: column;
   gap: var(--sp-2);
+}
+.settings-pane-title {
+  margin: 0 0 var(--sp-1);
+  font-size: var(--fs-s);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text);
+}
+.settings-pane-hint {
+  margin: 0 0 var(--sp-1);
+  font-size: var(--fs-xs);
+  color: var(--chrome-muted);
+  line-height: 1.35;
 }
 .settings-row {
   display: flex;
@@ -2615,7 +2786,40 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
 .settings-packs {
   display: flex;
   flex-direction: column;
-  gap: var(--sp-1);
+  gap: var(--sp-2);
+}
+.settings-pack {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  padding: var(--sp-2);
+  border: 1px solid var(--chrome-line);
+  border-radius: 2px;
+  background: var(--chrome-bg-doc);
+  cursor: pointer;
+}
+.settings-pack:hover {
+  background: var(--chrome-hover);
+}
+.settings-pack-check {
+  margin-top: 2px;
+  flex: none;
+}
+.settings-pack-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.settings-pack-label {
+  font-size: var(--fs-s);
+  font-weight: 600;
+  color: var(--text);
+}
+.settings-pack-desc {
+  font-size: var(--fs-xs);
+  color: var(--chrome-muted);
+  line-height: 1.35;
 }
 .settings-section-label {
   font-size: var(--fs-s);
@@ -2632,6 +2836,35 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
   display: flex;
   justify-content: space-between;
   gap: var(--sp-3);
+}
+@media (max-width: 560px) {
+  .settings-dialog {
+    width: min(100%, 100%);
+    height: min(90vh, 560px);
+  }
+  .settings-dialog-main {
+    flex-direction: column;
+  }
+  .settings-nav {
+    width: 100%;
+    flex-direction: row;
+    border-right: 0;
+    border-bottom: 1px solid var(--chrome-line);
+    padding: 0;
+    overflow-x: auto;
+  }
+  .settings-nav [role='tab'] {
+    width: auto;
+    flex: none;
+    border-left: 0;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+  }
+  .settings-nav [role='tab'].active,
+  .settings-nav [role='tab'][aria-selected='true'] {
+    border-left-color: transparent;
+    border-bottom-color: var(--apex-accent-fg);
+  }
 }
 .file-menu-sep {
   height: 1px;

@@ -73,6 +73,8 @@ export interface SystemPack {
   readonly id: string;
   /** i18n message key for the Settings checkbox label. */
   readonly labelKey: string;
+  /** i18n message key for a short description of what the pack adds. */
+  readonly descriptionKey: string;
   readonly defaultEnabled: boolean;
   readonly plugins: readonly Plugin[];
 }

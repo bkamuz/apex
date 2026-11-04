@@ -41,6 +41,7 @@ export const systemPacks: readonly SystemPack[] = [
   {
     id: 'apex.pack.basics',
     labelKey: 'settings.pack.basics',
+    descriptionKey: 'settings.pack.basics.desc',
     defaultEnabled: true,
     plugins: [
       // Basics tab tools first so `apex.basics` appears before building constructions.
@@ -56,6 +57,7 @@ export const systemPacks: readonly SystemPack[] = [
   {
     id: 'apex.pack.building',
     labelKey: 'settings.pack.building',
+    descriptionKey: 'settings.pack.building.desc',
     defaultEnabled: true,
     plugins: [
       wallPlugin,
@@ -73,6 +75,7 @@ export const systemPacks: readonly SystemPack[] = [
   {
     id: 'apex.pack.engineering',
     labelKey: 'settings.pack.engineering',
+    descriptionKey: 'settings.pack.engineering.desc',
     defaultEnabled: true,
     plugins: [
       componentPlugin('apex.pipe', { tab: ApexTabs.engineering }),
@@ -83,18 +86,21 @@ export const systemPacks: readonly SystemPack[] = [
   {
     id: 'apex.pack.spaces',
     labelKey: 'settings.pack.spaces',
+    descriptionKey: 'settings.pack.spaces.desc',
     defaultEnabled: true,
     plugins: [spacePlugin],
   },
   {
     id: 'apex.pack.annotate',
     labelKey: 'settings.pack.annotate',
+    descriptionKey: 'settings.pack.annotate.desc',
     defaultEnabled: true,
     plugins: [annotatePlugin],
   },
   {
     id: 'apex.pack.ifc',
     labelKey: 'settings.pack.ifc',
+    descriptionKey: 'settings.pack.ifc.desc',
     defaultEnabled: true,
     plugins: [exportIfcPlugin],
   },

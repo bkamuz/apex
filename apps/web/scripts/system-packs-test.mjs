@@ -7,7 +7,7 @@
  */
 import { chromium } from 'playwright';
 import { mkdirSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { join } from 'node:path';
 
 const URL = process.env.APEX_SMOKE_URL ?? 'http://127.0.0.1:5173/';
 const OUT = process.env.APEX_PACKS_OUT ?? '/opt/cursor/artifacts/screenshots';
@@ -44,12 +44,25 @@ const toolbarNames = () =>
     els.map((e) => e.textContent.trim()),
   );
 
-async function openSettings() {
-  const details = page.locator('[data-testid="settings-menu"]');
-  await details.evaluate((el) => {
-    el.open = true;
-  });
-  await page.waitForSelector('[data-testid="settings-packs"]');
+async function openSettings(tab = 'extensions') {
+  if ((await page.getByTestId('settings-dialog').count()) === 0) {
+    await page.getByTestId('settings-menu-summary').click();
+    await page.waitForSelector('[data-testid="settings-dialog"]');
+  }
+  if (tab === 'general') {
+    await page.getByTestId('settings-tab-general').click();
+    await page.waitForSelector('[data-testid="settings-pane-general"]');
+  } else {
+    await page.getByTestId('settings-tab-extensions').click();
+    await page.waitForSelector('[data-testid="settings-packs"]');
+  }
+}
+
+async function closeSettings() {
+  const dialog = page.getByTestId('settings-dialog');
+  if ((await dialog.count()) === 0) return;
+  await page.getByTestId('settings-dialog-close').click();
+  await page.waitForSelector('[data-testid="settings-dialog"]', { state: 'detached' });
 }
 
 console.log('\n[system packs] defaults → Engineering tools present');
@@ -64,13 +77,41 @@ await page.waitForTimeout(80);
 tools = await toolbarNames();
 check('default: Wall on Architecture', tools.includes('Wall'));
 
-await openSettings();
+await openSettings('general');
+await page.screenshot({
+  path: join(OUT, 'ap-43-settings-sidebar-general.png'),
+  fullPage: false,
+});
+await page.screenshot({
+  path: join(STORE_MEDIA, 'settings-sidebar-general.png'),
+  fullPage: false,
+});
+
+await openSettings('extensions');
 await page.screenshot({
   path: join(OUT, 'ap-39-settings-packs-all-on.png'),
   fullPage: false,
 });
 await page.screenshot({
+  path: join(OUT, 'ap-43-settings-sidebar-extensions.png'),
+  fullPage: false,
+});
+await page.screenshot({
   path: join(STORE_MEDIA, 'settings-packs-all-on.png'),
+  fullPage: false,
+});
+await page.screenshot({
+  path: join(STORE_MEDIA, 'settings-sidebar-extensions.png'),
+  fullPage: false,
+});
+// Crop-friendly shot with pack descriptions visible.
+await page.locator('[data-testid="settings-pack-row-apex.pack.building"]').scrollIntoViewIfNeeded();
+await page.screenshot({
+  path: join(OUT, 'ap-43-settings-pack-descriptions.png'),
+  fullPage: false,
+});
+await page.screenshot({
+  path: join(STORE_MEDIA, 'settings-pack-descriptions.png'),
   fullPage: false,
 });
 
@@ -83,16 +124,6 @@ check(
   (await page.getByTestId('tools-tab-apex.engineering').count()) === 0,
 );
 
-await page.getByTestId('tools-tab-apex.architecture').click();
-await page.waitForTimeout(80);
-tools = await toolbarNames();
-check('Wall still present after Engineering off', tools.includes('Wall'));
-check('Column still present', tools.includes('Column'));
-for (const name of ['Pipe', 'Duct', 'Cable tray']) {
-  check(`"${name}" absent after Engineering off`, !tools.includes(name));
-}
-
-await openSettings();
 await page.screenshot({
   path: join(OUT, 'ap-39-settings-packs-engineering-off.png'),
   fullPage: false,
@@ -102,10 +133,16 @@ await page.screenshot({
   fullPage: false,
 });
 
-// Toolbar after disable (Architecture).
-await page.locator('[data-testid="settings-menu"]').evaluate((el) => {
-  el.open = false;
-});
+await closeSettings();
+await page.getByTestId('tools-tab-apex.architecture').click();
+await page.waitForTimeout(80);
+tools = await toolbarNames();
+check('Wall still present after Engineering off', tools.includes('Wall'));
+check('Column still present', tools.includes('Column'));
+for (const name of ['Pipe', 'Duct', 'Cable tray']) {
+  check(`"${name}" absent after Engineering off`, !tools.includes(name));
+}
+
 await page.screenshot({
   path: join(OUT, 'ap-39-toolbar-engineering-off.png'),
   fullPage: false,
@@ -116,9 +153,10 @@ await page.screenshot({
 });
 
 console.log('\n[system packs] re-enable Engineering');
-await openSettings();
+await openSettings('extensions');
 await page.getByTestId('settings-pack-apex.pack.engineering').check();
 await page.waitForTimeout(200);
+await closeSettings();
 check(
   'Engineering tab returns',
   (await page.getByTestId('tools-tab-apex.engineering').count()) === 1,

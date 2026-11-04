@@ -1,9 +1,9 @@
 # System packs
 
-First-party tools are grouped into **system packs** (Obsidian-style). Settings
-can enable or disable a pack; the toolbar and File exporters/importers rebuild
-from the enabled set. Always-on chrome (Select, Move, Copy, Parent, project
-JSON Open) is not toggleable.
+First-party tools are grouped into **system packs** (Obsidian-style). Open
+**Settings → Extensions** to enable or disable a pack; the toolbar and File
+exporters/importers rebuild from the enabled set. Always-on chrome (Select,
+Move, Copy, Parent, project JSON Open) is not toggleable.
 
 Community marketplace plugins are a later phase. Runtime
 `window.apex.registerTool` / `registerExporter` / `registerImporter` stays the
@@ -29,8 +29,9 @@ Prefs key: `apex.packs.enabled` (JSON string array of enabled pack ids).
 1. Implement one or more `Plugin`s under `apps/web/src/plugins/` (same
    `install(host)` as today — full `PluginHost`).
 2. Append a `SystemPack` entry to `systemPacks` in `catalog.ts`
-   (`id`, `labelKey`, `defaultEnabled`, `plugins`).
-3. Add EN/RU strings for `labelKey` (e.g. `settings.pack.myarea`).
+   (`id`, `labelKey`, `descriptionKey`, `defaultEnabled`, `plugins`).
+3. Add EN/RU strings for `labelKey` and `descriptionKey`
+   (e.g. `settings.pack.myarea` / `settings.pack.myarea.desc`).
 4. Prefer a shared `tool.tab` so an empty tab hides when the pack is off.
 
 Do **not** add `if (componentId === …)` branches in `App.tsx`, `apex-wasm`, or

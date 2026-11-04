@@ -963,7 +963,11 @@ check(
 
 const beforeReload = await elementCount();
 check('File menu is present', (await page.getByTestId('file-menu').count()) === 1);
-check('Settings (⚙) menu holds kernel + agent', (await page.locator('[data-testid="settings-menu"] [data-testid="kernel-toggle"]').count()) === 1 && (await page.locator('[data-testid="settings-menu"] [data-testid="agent-bridge"]').count()) === 1);
+await page.getByTestId('settings-menu-summary').click();
+await page.waitForSelector('[data-testid="settings-dialog"]');
+check('Settings (⚙) modal holds kernel + agent', (await page.locator('[data-testid="settings-dialog"] [data-testid="kernel-toggle"]').count()) === 1 && (await page.locator('[data-testid="settings-dialog"] [data-testid="agent-bridge"]').count()) === 1);
+await page.getByTestId('settings-dialog-close').click();
+await page.waitForSelector('[data-testid="settings-dialog"]', { state: 'detached' });
 check('IFC export lives in File menu', (await page.locator('[data-testid="file-menu"] [data-testid="export-apex.ifc"]').count()) === 1);
 check('View pill present', (await page.getByTestId('view-controls').count()) === 1);
 await page.locator('[data-testid="file-menu"]').evaluate((el) => {
