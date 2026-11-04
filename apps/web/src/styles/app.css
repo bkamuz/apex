@@ -488,7 +488,7 @@ input[type="radio"] {
   appearance: none;
   border: 0;
   border-right: 1px solid var(--chrome-line);
-  border-radius: var(--chrome-radius);
+  border-radius: 0;
   background: transparent;
   color: var(--chrome-muted);
   font-weight: 600;
@@ -505,10 +505,26 @@ input[type="radio"] {
   background: var(--chrome-hover);
 }
 
+/* Sharp top accent + tools-row fill so the active chip reads as fused with
+   the ribbon panel below (not a rounded bottom underline). ::after covers the
+   tabs strip border under the chip so the fill continues into the tools row. */
 .tools-tabs .tools-tab.active {
   background: var(--chrome-bg-tools);
   color: var(--text);
-  box-shadow: inset 0 -2px 0 var(--chrome-active);
+  box-shadow: inset 0 2px 0 var(--apex-accent);
+  position: relative;
+  z-index: 1;
+}
+
+.tools-tabs .tools-tab.active::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -1px;
+  height: 1px;
+  background: var(--chrome-bg-tools);
+  pointer-events: none;
 }
 
 .tools-tabs .tools-tab:focus-visible {
@@ -3055,8 +3071,9 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
 .tools-tabs .tools-tab--context {
   display: inline-flex;
   align-items: center;
+  border-radius: 0;
   color: var(--chrome-context);
-  box-shadow: inset 0 -2px 0 var(--chrome-context);
+  box-shadow: inset 0 2px 0 var(--chrome-context);
   cursor: default;
 }
 
