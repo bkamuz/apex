@@ -174,6 +174,9 @@ export const ru: MessageCatalog = {
   'component.apex.pipe': 'Труба',
   'component.apex.duct': 'Воздуховод',
   'component.apex.cable_tray': 'Кабельный лоток',
+  'component.apex.fence': 'Забор',
+  'component.apex.gate': 'Калитка',
+  'component.apex.site_surface': 'Покрытие участка',
 
   'tool.select.label': 'Выбор',
   'tool.apex.move.label': 'Переместить',
@@ -593,6 +596,9 @@ export const ru: MessageCatalog = {
   'settings.pack.engineering.desc': 'Инженерные сети: трубы, воздуховоды и кабельные лотки.',
   'settings.pack.spaces': 'Помещения',
   'settings.pack.spaces.desc': 'Замкнутые контуры помещений и поиск комнат по стенам.',
+  'settings.pack.site': 'Участок',
+  'settings.pack.site.desc':
+    'Ограждение, калитки и покрытия двора (газон, мощение, подъезд).',
   'settings.pack.annotate': 'Аннотации',
   'settings.pack.annotate.desc': 'Аннотации видов — размеры и заметки на сохранённых видах.',
   'settings.pack.ifc': 'IFC импорт / экспорт',

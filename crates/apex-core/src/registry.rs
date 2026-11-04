@@ -1184,6 +1184,9 @@ pub fn builtin_components() -> Vec<ComponentDefinition> {
         pipe(),
         duct(),
         cable_tray(),
+        fence(),
+        gate(),
+        site_surface(),
         boolean(),
         crate::ifc_mesh::ifc_mesh_definition(),
     ]
@@ -1522,6 +1525,12 @@ pub fn builtin_species() -> Vec<Species> {
                 ("rows", 2.0),
                 ("transom_height", 2.1),
             ],
+        ),
+        species(
+            "apex.gate",
+            "apex.gate.single-1000x1500",
+            "Gate 1000×1500 single leaf",
+            &[],
         ),
     ]
 }
@@ -1869,6 +1878,138 @@ fn cable_tray() -> ComponentDefinition {
         host_cut: None,
         level_height_params: vec![],
         ifc_entity: Some("IfcCableCarrierSegment".into()),
+        joinable: false,
+    }
+}
+
+/// Site fence: thin vertical rect swept along a plan path; joins fence↔fence only.
+fn fence() -> ComponentDefinition {
+    ComponentDefinition {
+        opening: None,
+        default_species: None,
+        genus: None,
+        id: "apex.fence".to_string(),
+        display_name: "Fence".to_string(),
+        category: "fence".to_string(),
+        source: ComponentSource::BuiltIn,
+        placement: PlacementKind::Path,
+        placement_options: PlacementOptions::default(),
+        params: vec![
+            ParamSpec::length("height", "Height", 1.5),
+            ParamSpec::length("thickness", "Thickness", 0.05),
+            ParamSpec::flag("allow_join_start", "Join at start", true),
+            ParamSpec::flag("allow_join_end", "Join at end", true),
+        ],
+        recipe: GeometryRecipe::Sweep {
+            profile: ProfileSpec::Rectangle {
+                width: Expr::param("thickness"),
+                height: Expr::param("height"),
+            },
+            justification: Justification::BaseCenter,
+            start_offset: Expr::zero(),
+            end_offset: Expr::zero(),
+        },
+        descriptor: Descriptor::new(
+            "Site fence: a thin vertical rectangle swept along a centreline on the level. Corners and T-junctions with other fences on the level join automatically (same component id only — not walls).",
+        )
+        .points("path: 2+ plan points [x, y, z] along the centreline (y = level elevation). placement_kind 'polyline' for a chain.")
+        .constraint("points must not repeat consecutively; segments shorter than 1 mm are refused")
+        .example(
+            "A 10 m fence run",
+            json!({"component": "apex.fence", "points": [[0, 0, 0], [10, 0, 0]], "placement_kind": "polyline"}),
+        ),
+        host_cut: None,
+        level_height_params: vec![],
+        ifc_entity: Some("IfcWall".into()),
+        joinable: true,
+    }
+}
+
+/// Gate hosted on a fence — same opening genus as a door, host category `fence`.
+fn gate() -> ComponentDefinition {
+    ComponentDefinition {
+        opening: Some(opening_recipe(true)),
+        default_species: Some("apex.gate.single-1000x1500".into()),
+        genus: Some(GenusDef::opening_body(vec!["fence".into()])),
+        id: "apex.gate".to_string(),
+        display_name: "Gate".to_string(),
+        category: "opening".to_string(),
+        source: ComponentSource::BuiltIn,
+        placement: PlacementKind::Point,
+        placement_options: PlacementOptions::default(),
+        params: vec![
+            ParamSpec::text(SPECIES_PARAM, "Species", "apex.gate.single-1000x1500"),
+            ParamSpec::length("sill", "Sill", 0.0).with_range(Some(0.0), None),
+        ]
+        .into_iter()
+        .chain(opening_type_specs(1.0, 1.5, 0.0))
+        .collect(),
+        recipe: GeometryRecipe::Extrude {
+            profile: ProfileSpec::Rectangle {
+                width: Expr::param("width"),
+                height: Expr::param("thickness"),
+            },
+            frame: FrameSource::PlacementCurve { t: Expr::zero() },
+            height: Expr::param("height"),
+        },
+        descriptor: Descriptor::new(
+            "Gate hosted in a fence: cuts an opening through its parent fence and shows a leaf and plan swing symbol.",
+        )
+        .points("point: one point on the host fence's centreline; pass `parent` = the fence id")
+        .constraint("must have a parent whose category is 'fence'; the point is projected onto the fence")
+        .example(
+            "Gate mid-fence",
+            json!({"component": "apex.gate", "points": [[2, 0, 0]], "parent": "<fence-id>"}),
+        ),
+        host_cut: Some(HostCutSpec {
+            host_categories: vec!["fence".into()],
+        }),
+        level_height_params: vec![],
+        ifc_entity: Some("IfcDoor".into()),
+        joinable: false,
+    }
+}
+
+/// Yard surface (lawn / paved / driveway): thin closed slab on the active level.
+fn site_surface() -> ComponentDefinition {
+    ComponentDefinition {
+        opening: None,
+        default_species: None,
+        genus: None,
+        id: "apex.site_surface".to_string(),
+        display_name: "Site surface".to_string(),
+        category: "site".to_string(),
+        source: ComponentSource::BuiltIn,
+        placement: PlacementKind::Polyline,
+        placement_options: PlacementOptions::closed_boundary(),
+        params: vec![
+            ParamSpec::choice(
+                "surface_kind",
+                "Surface",
+                &["lawn", "paved", "driveway"],
+                "lawn",
+            ),
+            ParamSpec::length("thickness", "Thickness", 0.05),
+            // Sub-element shape (JSON, see `project::slab_shape`); empty = flat.
+            ParamSpec::text(SLAB_SHAPE, "Shape", ""),
+        ],
+        recipe: GeometryRecipe::Extrude {
+            profile: ProfileSpec::FromPlacement,
+            frame: FrameSource::WorkPlane,
+            height: Expr::param("thickness"),
+        },
+        descriptor: Descriptor::new(
+            "Yard surface: a closed plan boundary extruded by `thickness` on the level. `surface_kind` selects lawn / paved / driveway. Slopes via set_slab_shape (same as slabs) until topography pads exist.",
+        )
+        .points("polyline: 3+ boundary points, closed automatically (do not repeat the first point)")
+        .constraint("boundary must be simple (non self-intersecting)")
+        .example(
+            "Lawn pad",
+            json!({"component": "apex.site_surface", "points": [[0, 0, 0], [5, 0, 0], [5, 0, 4], [0, 0, 4]], "params": {"surface_kind": "lawn"}}),
+        ),
+        host_cut: None,
+        level_height_params: vec![],
+        ifc_entity: Some("IfcCovering".into()),
         joinable: false,
     }
 }

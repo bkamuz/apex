@@ -689,8 +689,10 @@ export default function App() {
   }, []);
 
   const slabPickIds = useCallback((next: SceneDto) => {
+    // Horizontal floor-like solids drawn under walls/fences in plan:
+    // slabs and site surfaces (category-driven, not component-id branches).
     return (next.elements ?? [])
-      .filter((el) => el.category === 'slab' || el.component_id === 'apex.slab')
+      .filter((el) => el.category === 'slab' || el.category === 'site')
       .map((el) => el.pick_id);
   }, []);
 

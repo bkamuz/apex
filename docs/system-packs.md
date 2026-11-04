@@ -18,6 +18,7 @@ open-world precursor and is not gated by packs.
 | `apex.pack.building` | on | Wall, Column, Beam, Slab, openings, Stair, roofs |
 | `apex.pack.engineering` | on | Pipe, Duct, Cable tray |
 | `apex.pack.spaces` | on | Space + Detect rooms |
+| `apex.pack.site` | on | Fence, Gate, Site surface (lawn / paved / driveway) |
 | `apex.pack.annotate` | on | View annotations |
 | `apex.pack.ifc` | on | IFC import / export |
 

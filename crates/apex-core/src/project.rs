@@ -5966,6 +5966,127 @@ mod plugin_first_tests {
     }
 
     #[test]
+    fn fence_joins_peers_and_gate_cuts_fence_not_wall() {
+        let mut project = Project::new();
+        let a = project
+            .create_element(
+                "apex.fence",
+                Placement::line(Vec3::ZERO, Vec3::new(6.0, 0.0, 0.0)),
+                ParamMap::new()
+                    .with("height", ParamValue::Length(1.5))
+                    .with("thickness", ParamValue::Length(0.05)),
+            )
+            .expect("fence a");
+        let _b = project
+            .create_element(
+                "apex.fence",
+                Placement::line(Vec3::new(6.0, 0.0, 0.0), Vec3::new(6.0, 0.0, 4.0)),
+                ParamMap::new()
+                    .with("height", ParamValue::Length(1.5))
+                    .with("thickness", ParamValue::Length(0.05)),
+            )
+            .expect("fence b");
+        // Corner join should extend the first fence (same component id).
+        let fa = project.document().get_element(a).unwrap();
+        assert!(
+            fa.join_end.abs() > 1e-4 || fa.join_start.abs() > 1e-4,
+            "fence corner should get a miter extension"
+        );
+
+        let before = project
+            .document()
+            .get_mesh(a)
+            .expect("fence mesh")
+            .triangle_count();
+        let gate = project
+            .create_element_with_parent(
+                "apex.gate",
+                Placement::point(Vec3::new(3.0, 0.0, 0.0)),
+                ParamMap::new(),
+                Some(a),
+            )
+            .expect("gate");
+        assert_eq!(
+            project.document().get_element(gate).unwrap().parent_id,
+            Some(a)
+        );
+        let fence_el = project.document().get_element(a).unwrap().clone();
+        let cuts = project.genus_host_cuts(&fence_el);
+        assert_eq!(cuts.len(), 1, "gate cuts its fence host once");
+        let after = project
+            .document()
+            .get_mesh(a)
+            .expect("fence mesh")
+            .triangle_count();
+        assert!(
+            after >= before,
+            "fence mesh rebuilt around the gate opening"
+        );
+
+        // Gate hosted on a wall does not cut it (host_categories = fence only).
+        let wall = project
+            .create_element(
+                "apex.wall",
+                Placement::line(Vec3::new(0.0, 0.0, 8.0), Vec3::new(6.0, 0.0, 8.0)),
+                ParamMap::new(),
+            )
+            .expect("wall");
+        let _misplaced = project
+            .create_element_with_parent(
+                "apex.gate",
+                Placement::point(Vec3::new(3.0, 0.0, 8.0)),
+                ParamMap::new(),
+                Some(wall),
+            )
+            .expect("create still succeeds");
+        let wall_el = project.document().get_element(wall).unwrap().clone();
+        assert!(
+            project.genus_host_cuts(&wall_el).is_empty(),
+            "gate must not cut a wall host"
+        );
+    }
+
+    #[test]
+    fn site_surface_is_shapeable_like_slab() {
+        let mut project = Project::new();
+        let placement = PlacementKind::Polyline
+            .build(
+                &[
+                    Vec3::ZERO,
+                    Vec3::new(4.0, 0.0, 0.0),
+                    Vec3::new(4.0, 0.0, 3.0),
+                    Vec3::new(0.0, 0.0, 3.0),
+                ],
+                0.0,
+                &apex_geometry::Frame::horizontal(0.0),
+            )
+            .expect("polyline");
+        let id = project
+            .create_element(
+                "apex.site_surface",
+                placement,
+                ParamMap::new()
+                    .with("thickness", ParamValue::Length(0.05))
+                    .with("surface_kind", ParamValue::Text("driveway".into())),
+            )
+            .expect("surface");
+        project
+            .set_slab_shape(
+                id,
+                &crate::SlabShape {
+                    z: vec![0.0, 0.4, 0.4, 0.0],
+                    points: vec![],
+                    creases: vec![],
+                },
+            )
+            .expect("shape");
+        let info = project.slab_shape_info(id).expect("info");
+        assert!((info.shape.z[1] - 0.4).abs() < 1e-6);
+        let mesh = project.document().get_mesh(id).expect("mesh");
+        assert!(mesh.triangle_count() > 0);
+    }
+
+    #[test]
     fn storey_rise_seeds_wall_height_when_unspecified() {
         let mut project = Project::new();
         let ground = project.document().active_level_id().unwrap();

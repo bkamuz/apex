@@ -32,7 +32,7 @@ export const alwaysOnPlugins: readonly Plugin[] = [
 
 /**
  * First-party system packs. Order matches toolbar tab discovery
- * (Basics → Building → Engineering → Spaces) then annotate / IFC.
+ * (Basics → Building → Engineering → Spaces → Site) then annotate / IFC.
  *
  * Toggle via Settings; defaults recreate today's full toolbar.
  * Add a pack here — do not branch on component ids in App.tsx.
@@ -89,6 +89,17 @@ export const systemPacks: readonly SystemPack[] = [
     descriptionKey: 'settings.pack.spaces.desc',
     defaultEnabled: true,
     plugins: [spacePlugin],
+  },
+  {
+    id: 'apex.pack.site',
+    labelKey: 'settings.pack.site',
+    descriptionKey: 'settings.pack.site.desc',
+    defaultEnabled: true,
+    plugins: [
+      componentPlugin('apex.fence', { tab: ApexTabs.site }),
+      hostedComponentPlugin('apex.gate', { tab: ApexTabs.site }),
+      componentPlugin('apex.site_surface', { tab: ApexTabs.site }),
+    ],
   },
   {
     id: 'apex.pack.annotate',

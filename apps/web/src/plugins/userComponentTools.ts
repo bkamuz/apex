@@ -7,10 +7,16 @@ import type { ToolRegistry } from '../tools/registry';
 import { toolIdForComponent } from '../tools/Tool';
 
 const ENGINEERING_CATEGORIES = new Set(['pipe', 'duct', 'cable', 'mep']);
+const SITE_CATEGORIES = new Set(['fence', 'site', 'surface', 'landscape']);
 
 export function tabForUserComponent(component: ComponentDto): ToolTab {
   const category = component.category.toLowerCase();
-  if (ENGINEERING_CATEGORIES.has(category)) return ApexTabs.engineering;
+  if (ENGINEERING_CATEGORIES.has(category) || category.startsWith('mep.')) {
+    return ApexTabs.engineering;
+  }
+  if (SITE_CATEGORIES.has(category) || category.startsWith('site')) {
+    return ApexTabs.site;
+  }
   return ApexTabs.building;
 }
 

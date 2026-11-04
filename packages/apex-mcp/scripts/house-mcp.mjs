@@ -100,9 +100,19 @@ async function storey(level, elev, { entrance }) {
 }
 
 const s0 = await storey(L0, 0, { entrance: true });
-// Ramp: a slab whose far edge is lifted 0.6 m (sub-element shape edit).
-const ramp = await tool('place_slab', { level: L0, points: [P(11, 4), P(14, 4), P(14, 7), P(11, 7)] });
-await tool('set_slab_shape', { id: ramp.id, shape: { z: [0, 0.6, 0.6, 0] } }).catch((e) => console.log('  ramp shape:', e.message));
+// Yard: fence loop, gate at south entrance, lawn / paved / sloping driveway.
+const fenceLoop = [[-3, -3], [13, -3], [13, 11], [-3, 11], [-3, -3]];
+const fences = [];
+for (let i = 0; i < 4; i++) {
+  fences.push(await tool('place_fence', { level: L0, points: [P(...fenceLoop[i]), P(...fenceLoop[i + 1])], params: { height: 1.5, thickness: 0.05 } }));
+}
+const south = fences[0];
+await tool('place_gate', { level: L0, parent: south.id, points: [P(2.5, -3)] });
+await tool('place_site_surface', { level: L0, points: [P(-2.5, 0), P(-0.2, 0), P(-0.2, 8), P(-2.5, 8)], params: { surface_kind: 'lawn' } });
+await tool('place_site_surface', { level: L0, points: [P(-2.5, 8.2), P(10.2, 8.2), P(10.2, 10.5), P(-2.5, 10.5)], params: { surface_kind: 'lawn' } });
+await tool('place_site_surface', { level: L0, points: [P(0.5, -2.5), P(4.5, -2.5), P(4.5, -0.2), P(0.5, -0.2)], params: { surface_kind: 'paved', thickness: 0.08 } });
+const drive = await tool('place_site_surface', { level: L0, points: [P(10.2, 3.5), P(12.8, 3.5), P(12.8, 7.5), P(10.2, 7.5)], params: { surface_kind: 'driveway', thickness: 0.1 } });
+await tool('set_slab_shape', { id: drive.id, shape: { z: [0, 0.6, 0.6, 0] } }).catch((e) => console.log('  driveway shape:', e.message));
 const s1 = await storey(L1, 3, { entrance: false });
 
 // Stair from L0 up; it cuts the L1 slab.

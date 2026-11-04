@@ -180,6 +180,9 @@ export const en: MessageCatalog = {
   'component.apex.pipe': 'Pipe',
   'component.apex.duct': 'Duct',
   'component.apex.cable_tray': 'Cable tray',
+  'component.apex.fence': 'Fence',
+  'component.apex.gate': 'Gate',
+  'component.apex.site_surface': 'Site surface',
 
   // —— Tool labels ——
   'tool.select.label': 'Select',
@@ -608,6 +611,9 @@ export const en: MessageCatalog = {
   'settings.pack.engineering.desc': 'MEP routes: pipe, duct, and cable tray.',
   'settings.pack.spaces': 'Spaces',
   'settings.pack.spaces.desc': 'Closed room polylines and Detect rooms from wall loops.',
+  'settings.pack.site': 'Site / landscape',
+  'settings.pack.site.desc':
+    'Yard fencing, gates, and site surfaces (lawn, paved, driveway).',
   'settings.pack.annotate': 'Annotate',
   'settings.pack.annotate.desc': 'View annotations — dimensions and notes on saved views.',
   'settings.pack.ifc': 'IFC import / export',

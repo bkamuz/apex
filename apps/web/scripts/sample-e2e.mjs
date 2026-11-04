@@ -84,6 +84,10 @@ else {
   if ((counts.by['apex.roof.pitched'] ?? 0) < 1) note('missing pitched roof');
   if ((counts.by['apex.stair'] ?? 0) < 1) note('missing stair');
   if ((counts.by['apex.slab'] ?? 0) < 2) note(`expected ≥2 slabs, got ${counts.by['apex.slab']}`);
+  if ((counts.by['apex.fence'] ?? 0) < 4) note(`expected ≥4 fence runs, got ${counts.by['apex.fence']}`);
+  if ((counts.by['apex.gate'] ?? 0) < 1) note('missing gate');
+  if ((counts.by['apex.site_surface'] ?? 0) < 3)
+    note(`expected ≥3 site surfaces, got ${counts.by['apex.site_surface']}`);
   if (counts.levels < 2) note(`expected 2 levels, got ${counts.levels}`);
   if (counts.spaces < 4) note(`expected ≥4 spaces, got ${counts.spaces}`);
 }
