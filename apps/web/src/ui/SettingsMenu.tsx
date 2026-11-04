@@ -1,5 +1,11 @@
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useI18n } from '../i18n';
+import {
+  getEnabledPackIds,
+  setPackEnabled,
+  subscribePackPrefs,
+  systemPacks,
+} from '../plugins';
 import { useTheme } from '../theme/useTheme';
 import type { ThemePreference } from '../theme/theme';
 
@@ -12,11 +18,16 @@ type Props = {
 
 const THEMES: ThemePreference[] = ['system', 'light', 'dark'];
 
-/** ⚙ settings popover: theme, language, kernel, agent bridge, debug readout. */
+/** ⚙ settings popover: theme, language, system packs, kernel, agent bridge, debug. */
 export function SettingsMenu({ children, debug, onToggleDebug }: Props) {
   const { t, locale, setLocale, locales } = useI18n();
   const { preference, setPreference } = useTheme();
   const ref = useRef<HTMLDetailsElement>(null);
+  const [enabledPacks, setEnabledPacks] = useState(() => new Set(getEnabledPackIds()));
+
+  useEffect(() => {
+    return subscribePackPrefs((ids) => setEnabledPacks(new Set(ids)));
+  }, []);
 
   useEffect(() => {
     const onPointerDown = (e: PointerEvent) => {
@@ -68,6 +79,24 @@ export function SettingsMenu({ children, debug, onToggleDebug }: Props) {
             ))}
           </select>
         </label>
+        <div className="file-menu-sep" role="separator" />
+        <div className="settings-packs" data-testid="settings-packs">
+          <div className="settings-section-label">{t('settings.packs')}</div>
+          {systemPacks.map((pack) => {
+            const checked = enabledPacks.has(pack.id);
+            return (
+              <label key={pack.id} className="settings-row settings-check">
+                <input
+                  type="checkbox"
+                  checked={checked}
+                  data-testid={`settings-pack-${pack.id}`}
+                  onChange={(e) => setPackEnabled(pack.id, e.target.checked)}
+                />
+                <span>{t(pack.labelKey)}</span>
+              </label>
+            );
+          })}
+        </div>
         <div className="file-menu-sep" role="separator" />
         <div className="settings-advanced">{children}</div>
         <div className="file-menu-sep" role="separator" />

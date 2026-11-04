@@ -2,20 +2,51 @@ import { apexListComponents, apexRegisterComponent } from '../wasm/apex';
 import { extensions } from '../extensions/sdk';
 import type { ComponentDto } from '../types';
 import type { ToolRegistry } from '../tools/registry';
-import { firstPartyPlugins } from './catalog';
+import { alwaysOnPlugins, systemPacks } from './catalog';
 import { exporterRegistry } from './exporters';
 import { importerRegistry } from './importers';
+import { pluginsForEnabledPacks } from './packPrefs';
+import { getEnabledPackIds } from './packStore';
 import { registerUserComponentTools } from './userComponentTools';
 import type { PluginHost } from './types';
 import { assertDescribed } from '../descriptor';
 
-export type { Plugin, PluginHost, Exporter, Importer } from './types';
-export { firstPartyPlugins } from './catalog';
+export type { Plugin, PluginHost, Exporter, Importer, SystemPack } from './types';
+export {
+  alwaysOnPlugins,
+  firstPartyPlugins,
+  systemPacks,
+} from './catalog';
+export {
+  PACK_STORAGE_KEY,
+  defaultEnabledPackIds,
+  loadEnabledPackIds,
+  saveEnabledPackIds,
+  pluginsForEnabledPacks,
+} from './packPrefs';
+export {
+  getEnabledPackIds,
+  setPackEnabled,
+  isPackEnabled,
+  subscribePackPrefs,
+} from './packStore';
 export { exporterRegistry } from './exporters';
 export { importerRegistry } from './importers';
 
-/** Rebuild the toolbar and exporters from first-party plugins plus runtime modules. */
-export function installPlugins(registry: ToolRegistry, components: ComponentDto[]): void {
+export type InstallPluginsOptions = {
+  /** Override enabled pack ids (tests). Default: localStorage / pack defaults. */
+  enabledPackIds?: readonly string[];
+};
+
+/**
+ * Rebuild the toolbar and exporters from always-on plugins, enabled system
+ * packs, user components, plus runtime `window.apex` modules.
+ */
+export function installPlugins(
+  registry: ToolRegistry,
+  components: ComponentDto[],
+  options?: InstallPluginsOptions,
+): void {
   registry.reset();
   exporterRegistry.reset();
   importerRegistry.reset();
@@ -34,10 +65,13 @@ export function installPlugins(registry: ToolRegistry, components: ComponentDto[
     registerExporter: (exporter) => exporterRegistry.register(exporter),
     registerImporter: (importer) => importerRegistry.register(importer),
   };
-  for (const plugin of firstPartyPlugins) {
+
+  const enabledIds = options?.enabledPackIds ?? getEnabledPackIds();
+  for (const plugin of pluginsForEnabledPacks(alwaysOnPlugins, systemPacks, enabledIds)) {
     assertDescribed('plugin', plugin.id, plugin);
     plugin.install(host);
   }
+
   registerUserComponentTools(registry, components);
   for (const tool of extensions.customTools()) {
     if (!registry.get(tool.id)) host.registerTool(tool);

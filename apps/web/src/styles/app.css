@@ -2612,6 +2612,17 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
   justify-content: flex-start;
   gap: var(--sp-2);
 }
+.settings-packs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.settings-section-label {
+  font-size: var(--fs-s);
+  font-weight: 600;
+  color: var(--text-muted, var(--text));
+  margin-bottom: var(--sp-1);
+}
 .settings-advanced {
   display: flex;
   flex-direction: column;
