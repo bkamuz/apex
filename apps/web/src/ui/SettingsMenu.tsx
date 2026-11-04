@@ -208,6 +208,11 @@ export function SettingsMenu({ children, debug, onToggleDebug }: Props) {
             onMouseDown={(e) => e.stopPropagation()}
           >
             <header className="settings-dialog-head">
+              <span
+                className="apex-mark settings-dialog-mark"
+                aria-hidden="true"
+                data-testid="settings-logo"
+              />
               <h2 id={titleId} className="settings-dialog-title">
                 {t('settings.title')}
               </h2>
