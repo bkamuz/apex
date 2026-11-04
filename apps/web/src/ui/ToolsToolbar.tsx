@@ -48,6 +48,8 @@ function ToolButton({
   const label = toolDisplayLabel(tool);
   const key = shortcutHint(tool);
   const classes = ['rb-btn', 'rb-btn--big', active ? 'active' : ''].filter(Boolean).join(' ');
+  // Activate on pointerdown: an inspector blur/commit can remount the ribbon
+  // between mousedown and mouseup and swallow the click (smoke: label → Detect).
   return (
     <button
       type="button"
@@ -56,7 +58,10 @@ function ToolButton({
       aria-pressed={active}
       title={key ? `${label} (${key})` : label}
       data-testid={`tool-${tool.id}`}
-      onClick={() => onActivate(tool.id)}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        onActivate(tool.id);
+      }}
     >
       <ToolIconGlyph icon={tool.icon} />
       <span className="tool-label">{label}</span>
@@ -113,7 +118,10 @@ function TextButton({
       aria-pressed={active}
       title={title}
       data-testid={testId}
-      onClick={onClick}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return;
+        onClick();
+      }}
     >
       <span className="tool-icon rb-glyph" aria-hidden="true">
         {glyph}
