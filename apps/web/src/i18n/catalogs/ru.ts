@@ -549,6 +549,7 @@ export const ru: MessageCatalog = {
   'param.label.sill': 'Подоконник',
   'param.label.slope_by': 'Уклон по',
   'param.label.source_name': 'Исходное имя',
+  'param.label.surface': 'Покрытие',
   'param.label.system': 'Система',
   'param.label.leaf_thickness': 'Толщина полотна',
   'param.label.thickness': 'Толщина',
@@ -598,7 +599,7 @@ export const ru: MessageCatalog = {
   'settings.pack.spaces.desc': 'Замкнутые контуры помещений и поиск комнат по стенам.',
   'settings.pack.site': 'Участок',
   'settings.pack.site.desc':
-    'Ограждение, калитки и покрытия двора (газон, мощение, подъезд).',
+    'Ограждение, калитки, покрытия двора (газон, мощение, подъезд) и связанные DXF-подложки плана.',
   'settings.pack.annotate': 'Аннотации',
   'settings.pack.annotate.desc': 'Аннотации видов — размеры и заметки на сохранённых видах.',
   'settings.pack.ifc': 'IFC импорт / экспорт',

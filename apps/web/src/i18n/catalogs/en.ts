@@ -564,6 +564,7 @@ export const en: MessageCatalog = {
   'param.label.sill': 'Sill',
   'param.label.slope_by': 'Slope by',
   'param.label.source_name': 'Source name',
+  'param.label.surface': 'Surface',
   'param.label.system': 'System',
   'param.label.leaf_thickness': 'Leaf thickness',
   'param.label.thickness': 'Thickness',
@@ -613,7 +614,7 @@ export const en: MessageCatalog = {
   'settings.pack.spaces.desc': 'Closed room polylines and Detect rooms from wall loops.',
   'settings.pack.site': 'Site / landscape',
   'settings.pack.site.desc':
-    'Yard fencing, gates, and site surfaces (lawn, paved, driveway).',
+    'Yard fencing, gates, site surfaces (lawn, paved, driveway), and linked DXF plan underlays.',
   'settings.pack.annotate': 'Annotate',
   'settings.pack.annotate.desc': 'View annotations — dimensions and notes on saved views.',
   'settings.pack.ifc': 'IFC import / export',
