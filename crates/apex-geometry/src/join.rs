@@ -2,9 +2,12 @@
 //!
 //! Knows nothing about walls, beams, or documents — only curves and widths.
 
+use std::f32::consts::TAU;
+
 use glam::Vec3;
 
 use crate::curve::{Curve, MIN_CURVE_LENGTH};
+use crate::frame::plane_basis;
 
 /// Default plan-distance (metres) within which path ends are considered coincident.
 pub const JOIN_SNAP: f32 = 0.05;
@@ -65,6 +68,109 @@ pub fn closest_on_segment_xz(a: Vec3, b: Vec3, p: Vec3) -> Option<(Vec3, f32, f3
     let q = a.lerp(b, t);
     let dist = Vec3::new(p.x - q.x, 0.0, p.z - q.z).length();
     Some((q, t, dist))
+}
+
+/// Closest point on any [`Curve`] to `p` in plan (XZ).
+///
+/// Returns the world point on the curve, normalized parameter `t ∈ [0, 1]`, and
+/// plan distance. Arcs and circles use the tangent frame at that parameter —
+/// not a chord through control anchors.
+pub fn closest_on_curve_xz(curve: &Curve, p: Vec3) -> Option<(Vec3, f32, f32)> {
+    match curve {
+        Curve::Line { a, b } => closest_on_segment_xz(*a, *b, p),
+        Curve::Polyline { points } => {
+            let mut best: Option<(Vec3, f32, f32)> = None;
+            let total = curve.length();
+            if total < MIN_CURVE_LENGTH {
+                return None;
+            }
+            let mut travelled = 0.0;
+            for w in points.windows(2) {
+                let seg_len = (w[1] - w[0]).length();
+                if let Some((q, t_local, dist)) = closest_on_segment_xz(w[0], w[1], p) {
+                    let t = ((travelled + t_local * seg_len) / total).clamp(0.0, 1.0);
+                    if best.as_ref().map(|b| dist < b.2).unwrap_or(true) {
+                        best = Some((q, t, dist));
+                    }
+                }
+                travelled += seg_len;
+            }
+            best
+        }
+        Curve::Arc {
+            center,
+            normal,
+            radius,
+            start_angle,
+            sweep,
+        } => closest_on_arc_xz(*center, *normal, *radius, *start_angle, *sweep, p),
+        Curve::Circle {
+            center,
+            normal,
+            radius,
+        } => closest_on_arc_xz(*center, *normal, *radius, 0.0, TAU, p),
+    }
+}
+
+/// Closest point on a circular arc (or full circle when `sweep == ±TAU`).
+fn closest_on_arc_xz(
+    center: Vec3,
+    normal: Vec3,
+    radius: f32,
+    start_angle: f32,
+    sweep: f32,
+    p: Vec3,
+) -> Option<(Vec3, f32, f32)> {
+    if radius < MIN_CURVE_LENGTH || sweep.abs() < 1e-9 {
+        return None;
+    }
+    let n = normal.try_normalize()?;
+    let (u, v) = plane_basis(n);
+    let rel = p - center;
+    let in_plane = rel - n * rel.dot(n);
+    let t = if in_plane.length_squared() < 1e-12 {
+        0.0
+    } else {
+        let angle = in_plane.dot(v).atan2(in_plane.dot(u));
+        param_on_arc_sweep(start_angle, sweep, angle)
+    };
+    let q = Curve::Arc {
+        center,
+        normal: n,
+        radius,
+        start_angle,
+        sweep,
+    }
+    .point_at(t);
+    // Keep the query's elevation when projecting in plan.
+    let q = Vec3::new(q.x, p.y, q.z);
+    Some((q, t, plan_distance(p, q)))
+}
+
+/// Normalized arc parameter `t ∈ [0, 1]` for a world angle, clamped to the sweep.
+fn param_on_arc_sweep(start_angle: f32, sweep: f32, angle: f32) -> f32 {
+    let abs_sweep = sweep.abs();
+    if abs_sweep < 1e-9 {
+        return 0.0;
+    }
+    // Arc-length distance from start along the sweep direction, in [0, TAU).
+    let along = if sweep >= 0.0 {
+        (angle - start_angle).rem_euclid(TAU)
+    } else {
+        (start_angle - angle).rem_euclid(TAU)
+    };
+    if along <= abs_sweep + 1e-5 {
+        (along / abs_sweep).clamp(0.0, 1.0)
+    } else {
+        // Off the open arc: nearer endpoint.
+        let past_end = along - abs_sweep;
+        let past_start = TAU - along;
+        if past_end <= past_start {
+            1.0
+        } else {
+            0.0
+        }
+    }
 }
 
 /// Plan (XZ) distance between two points.
@@ -181,6 +287,43 @@ mod tests {
         assert!((t - 0.5).abs() < EPS);
         assert!((q.x - 5.0).abs() < EPS);
         assert!((dist - 0.2).abs() < EPS);
+    }
+
+    #[test]
+    fn closest_on_arc_projects_radially_not_onto_chord() {
+        let arc = Curve::arc_from_three_points(
+            Vec3::new(4.0, 0.0, 0.0),
+            Vec3::new(0.0, 0.0, 4.0),
+            Vec3::new(-4.0, 0.0, 0.0),
+        )
+        .expect("arc");
+        // Outside the arc at 45° — the chord start→mid would pull inward.
+        let p = Vec3::new(3.0, 0.0, 3.0);
+        let (q, t, dist) = closest_on_curve_xz(&arc, p).unwrap();
+        assert!((t - 0.25).abs() < 0.02, "t={t}");
+        assert!((q.length() - 4.0).abs() < 0.02, "q={q}");
+        assert!((dist - (p.length() - 4.0)).abs() < 0.05, "dist={dist}");
+        let tangent = arc.tangent_at(t).unwrap();
+        assert!(
+            (q.normalize().dot(tangent)).abs() < 1e-3,
+            "tangent not perpendicular to radius"
+        );
+    }
+
+    #[test]
+    fn closest_on_arc_clamps_to_endpoints() {
+        let arc = Curve::arc_from_three_points(
+            Vec3::new(2.0, 0.0, 0.0),
+            Vec3::new(0.0, 0.0, 2.0),
+            Vec3::new(-2.0, 0.0, 0.0),
+        )
+        .expect("arc");
+        let (q0, t0, _) = closest_on_curve_xz(&arc, Vec3::new(3.0, 0.0, -1.0)).unwrap();
+        assert!((t0 - 0.0).abs() < EPS);
+        assert!((q0 - arc.start()).length() < 0.02);
+        let (q1, t1, _) = closest_on_curve_xz(&arc, Vec3::new(-3.0, 0.0, -1.0)).unwrap();
+        assert!((t1 - 1.0).abs() < EPS);
+        assert!((q1 - arc.end()).length() < 0.02);
     }
 
     #[test]

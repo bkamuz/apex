@@ -23,8 +23,8 @@ pub use curve::{Curve, MIN_CURVE_LENGTH};
 pub use error::GeometryError;
 pub use frame::Frame;
 pub use join::{
-    adjust_end, angle_between, closest_on_segment_xz, inward_dir, miter_extension, outward_dir,
-    plan_distance, split_curve_at, stem_trim, JOIN_SNAP,
+    adjust_end, angle_between, closest_on_curve_xz, closest_on_segment_xz, inward_dir,
+    miter_extension, outward_dir, plan_distance, split_curve_at, stem_trim, JOIN_SNAP,
 };
 pub use kernel::{
     mesh_from_indexed, planar_faces, split_shells, GeometryKernel, KernelError, MeshKernel,

@@ -142,6 +142,8 @@ struct ElementDto {
     child_ids: Vec<String>,
     /// The picks that defined this element, so the UI can draw handles.
     anchors: Vec<[f32; 3]>,
+    /// Tessellated centerline for host snapping (arcs densified; lines match anchors).
+    path: Vec<[f32; 3]>,
     /// Length along the placement, when it has one.
     length: Option<f32>,
     /// Resolved instance values (component + profile instance), keyed by id.
@@ -395,6 +397,19 @@ fn element_dto(project: &Project, element: &Element) -> ElementDto {
             .iter()
             .map(|p| p.to_array())
             .collect(),
+        path: match element.placement.curve() {
+            Some(curve) => curve
+                .tessellate(0.02)
+                .into_iter()
+                .map(|p| p.to_array())
+                .collect(),
+            None => element
+                .placement
+                .anchors()
+                .iter()
+                .map(|p| p.to_array())
+                .collect(),
+        },
         length: element.placement.length(),
         params,
         profile_id,

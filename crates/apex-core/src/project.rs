@@ -151,29 +151,37 @@ fn opening_void_aabb(
     Some((min, max))
 }
 
-/// Closest point on a line / polyline host curve in plan.
+/// Closest point on a host curve in plan (line, polyline, or arc).
 fn project_onto_curve_xz(curve: &apex_geometry::Curve, p: Vec3) -> Option<Vec3> {
-    let pts: Vec<Vec3> = match curve {
-        apex_geometry::Curve::Line { a, b } => vec![*a, *b],
-        apex_geometry::Curve::Polyline { points } => points.clone(),
-        _ => return None,
-    };
-    let mut best: Option<(Vec3, f32)> = None;
-    for w in pts.windows(2) {
-        let (a, b) = (w[0], w[1]);
-        let ab = Vec3::new(b.x - a.x, 0.0, b.z - a.z);
-        let len2 = ab.length_squared();
-        if len2 < 1e-12 {
-            continue;
-        }
-        let t = (((p.x - a.x) * ab.x + (p.z - a.z) * ab.z) / len2).clamp(0.0, 1.0);
-        let q = Vec3::new(a.x + ab.x * t, p.y, a.z + ab.z * t);
-        let d = (q - p).length_squared();
-        if best.map(|(_, bd)| d < bd).unwrap_or(true) {
-            best = Some((q, d));
-        }
+    apex_geometry::closest_on_curve_xz(curve, p).map(|(q, _, _)| q)
+}
+
+/// Reproject a hosted point opening onto its parent's centerline (arc or line).
+fn seat_hosted_point_on_parent(
+    document: &Document,
+    definition: &ComponentDefinition,
+    parent: Option<ElementId>,
+    placement: Placement,
+) -> Placement {
+    if definition.host_cut.is_none() || definition.placement != PlacementKind::Point {
+        return placement;
     }
-    best.map(|(q, _)| q)
+    let Some(parent_id) = parent else {
+        return placement;
+    };
+    let Some(host) = document.get_element(parent_id) else {
+        return placement;
+    };
+    let Some(curve) = host.placement.curve() else {
+        return placement;
+    };
+    let origin = placement.origin();
+    match project_onto_curve_xz(curve, origin) {
+        Some(on_host) if (on_host - origin).length_squared() > 1e-12 => {
+            Placement::point(Vec3::new(on_host.x, origin.y, on_host.z))
+        }
+        _ => placement,
+    }
 }
 
 pub struct Project {
@@ -408,6 +416,9 @@ impl Project {
         } else {
             placement
         };
+        // Hosted point openings seat on the host centerline (arc tangent frame
+        // uses the same projection). Chord snaps from UI anchors get corrected.
+        let placement = seat_hosted_point_on_parent(&self.document, &definition, parent, placement);
 
         let mut raw_params = params;
         self.registry
@@ -824,6 +835,14 @@ impl Project {
             } else {
                 placement
             };
+            if let Some(def) = self.registry.get(&element.component_id) {
+                element.placement = seat_hosted_point_on_parent(
+                    &self.document,
+                    def,
+                    element.parent_id,
+                    element.placement.clone(),
+                );
+            }
         }
         element.params = self
             .registry
@@ -5795,6 +5814,100 @@ mod plugin_first_tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn openings_on_arc_walls_follow_local_tangent() {
+        // Semicircle wall of radius 4. A chord pick at 45° must seat on the arc
+        // with tangent ⊥ radius — never the midpoint (t=0.5) tangent.
+        let arc = apex_geometry::Curve::arc_from_three_points(
+            Vec3::new(4.0, 0.0, 0.0),
+            Vec3::new(0.0, 0.0, 4.0),
+            Vec3::new(-4.0, 0.0, 0.0),
+        )
+        .expect("arc");
+        let mut project = Project::new();
+        let wall = project
+            .create_element(
+                "apex.wall",
+                Placement::Curve { curve: arc.clone() },
+                ParamMap::new(),
+            )
+            .expect("wall");
+
+        // Outside the arc along the 45° ray — chord snap would leave this off-centerline.
+        let chord_pick = Vec3::new(3.5, 0.0, 3.5);
+        let window = project
+            .create_element_with_parent(
+                "apex.window",
+                Placement::point(chord_pick),
+                ParamMap::new().with("width", ParamValue::Length(1.0)),
+                Some(wall),
+            )
+            .expect("window");
+
+        let seated = project
+            .document()
+            .get_element(window)
+            .unwrap()
+            .placement
+            .origin();
+        let (on_arc, t, _) = apex_geometry::closest_on_curve_xz(&arc, chord_pick).unwrap();
+        assert!(
+            (seated - Vec3::new(on_arc.x, 0.0, on_arc.z)).length() < 1e-3,
+            "opening must seat on the arc, got {seated} expected {on_arc}"
+        );
+        assert!((t - 0.25).abs() < 0.05, "expected ~t=0.25, got {t}");
+        assert!(
+            (seated.length() - 4.0).abs() < 0.05,
+            "seated radius {}, want 4",
+            seated.length()
+        );
+
+        let yaw = project.hosted_opening_yaw(project.document().get_element(window).unwrap());
+        let yaw = yaw.expect("yaw");
+        let along = Vec3::new(yaw.cos(), 0.0, -yaw.sin());
+        let expected = arc.tangent_at(t).unwrap();
+        let expected = Vec3::new(expected.x, 0.0, expected.z).normalize();
+        assert!(
+            along.dot(expected).abs() > 0.99,
+            "yaw along {along} vs tangent {expected}"
+        );
+        // Mid-arc tangent is ±X; 45° seat must not collapse to that.
+        assert!(
+            along.dot(Vec3::X).abs() < 0.9,
+            "must not use midpoint tangent; along={along}"
+        );
+
+        let across = Vec3::new(-along.z, 0.0, along.x);
+        let mesh = project.document().get_mesh(window).expect("window mesh");
+        let mut lo_u = f32::MAX;
+        let mut hi_u = f32::MIN;
+        let mut lo_n = f32::MAX;
+        let mut hi_n = f32::MIN;
+        for p in mesh.positions.chunks(3) {
+            let d = Vec3::new(p[0], p[1], p[2]) - seated;
+            let u = d.dot(along);
+            let n = d.dot(across);
+            lo_u = lo_u.min(u);
+            hi_u = hi_u.max(u);
+            lo_n = lo_n.min(n);
+            hi_n = hi_n.max(n);
+        }
+        let span_along = hi_u - lo_u;
+        let span_across = hi_n - lo_n;
+        assert!(
+            (span_along - 1.0).abs() < 0.05,
+            "window width along local tangent: {span_along}"
+        );
+        assert!(
+            span_across < span_along * 0.5,
+            "window must be thin across the wall: along={span_along} across={span_across}"
+        );
+        assert!(
+            (lo_n + hi_n).abs() < 0.05,
+            "window not centred in wall thickness: {lo_n}..{hi_n}"
+        );
     }
 
     #[test]

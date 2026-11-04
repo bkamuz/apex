@@ -209,6 +209,8 @@ export interface ElementDto {
   child_ids: string[];
   /** The picks that defined this element; one draggable handle each. */
   anchors: Vec3[];
+  /** Tessellated centerline for host snapping (arcs densified). */
+  path?: Vec3[];
   length?: number | null;
   params: Record<string, ParamValue>;
   profile_id?: string | null;
