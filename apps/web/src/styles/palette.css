@@ -29,7 +29,9 @@
   --chrome-text: #e7e9ee; /* --text */
   --chrome-active: var(--apex-accent);
   --chrome-active-border: var(--apex-accent);
-  --chrome-active-text: var(--apex-accent-fg);
+  /* Foreground on --chrome-active fills (tool buttons, selected rows, …). */
+  --chrome-active-fg: var(--apex-accent-fg);
+  --chrome-active-text: var(--chrome-active-fg);
   --chrome-active-soft: var(--apex-accent-soft);
   --chrome-context: #4cc38a; /* --ctx — context bar only, not Settings */
   --chrome-info: #f0c674; /* --warn */
@@ -98,7 +100,8 @@
   --chrome-text: #1b1f27; /* --text */
   --chrome-active: var(--apex-accent);
   --chrome-active-border: var(--apex-accent);
-  --chrome-active-text: var(--apex-accent-fg);
+  --chrome-active-fg: var(--apex-accent-fg);
+  --chrome-active-text: var(--chrome-active-fg);
   --chrome-active-soft: var(--apex-accent-soft);
   --chrome-context: #17713f; /* --ctx — context bar only, not Settings */
   --chrome-info: #9a6c00; /* --warn */
