@@ -283,6 +283,17 @@ export default function App() {
     (tab: SidebarTab) => updateSidebar({ tab, collapsed: false }),
     [updateSidebar],
   );
+  // After placing from the Роды tab, show the model tree so the new instance is visible.
+  const showModelAfterPlace = useCallback(
+    () =>
+      setSidebar((prev) => {
+        if (prev.tab !== 'genera') return prev;
+        const next = { ...prev, tab: 'model' as SidebarTab };
+        saveSidebarPrefs(next);
+        return next;
+      }),
+    [],
+  );
   const startSidebarResize = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       e.preventDefault();
@@ -898,6 +909,7 @@ export default function App() {
             apexCreateElement(componentId, points, placementParamsRef.current, 0, placementKind),
           );
           setError(null);
+          showModelAfterPlace();
         } catch (e) {
           setError(e instanceof Error ? e.message : String(e));
         }
@@ -916,6 +928,7 @@ export default function App() {
             ),
           );
           setError(null);
+          showModelAfterPlace();
         } catch (e) {
           setError(e instanceof Error ? e.message : String(e));
         }
@@ -2529,6 +2542,13 @@ export default function App() {
     onDeleteSheet: (id: string) => runViewAction(() => apexDeleteSheet(id)),
   };
 
+  const blurFocusedField = () => {
+    const active = document.activeElement;
+    if (active instanceof HTMLElement && active.matches('input, select, textarea, [contenteditable="true"]')) {
+      active.blur();
+    }
+  };
+
   const placementKindOf = (componentId: string): PlacementKind =>
     components.find((c) => c.id === componentId)?.placement ?? 'point';
 
@@ -2536,6 +2556,9 @@ export default function App() {
 
   const onCanvasPointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
     if (!ready || !rendererRef.current || e.button !== 0) return;
+    // Commit a property edit in progress before the canvas acts on the click,
+    // otherwise its blur/commit can land after (and undo) the new selection.
+    blurFocusedField();
     if (toolRef.current.id === ToolRegistry.selectId) focusViewportCanvas();
     const claimed = tool.onPointerDown?.(pointerInfo(e), toolContext()) ?? false;
     if (!claimed) return;
@@ -3074,7 +3097,7 @@ export default function App() {
       setError(err instanceof Error ? err.message : String(err));
     }
   };
-  const attachButtons = (compact: boolean) =>
+  const attachButtons = () =>
     attachableIds.length === 0 ? null : (
       <>
         <button
@@ -3085,7 +3108,7 @@ export default function App() {
             runAttach({ op: 'attach_top', ids: attachableIds }, t('attach.topAutoDone'))
           }
         >
-          {compact ? t('attach.topAuto') : t('attach.topAutoFull')}
+          {t('attach.topAuto')}
         </button>
         <button
           type="button"
@@ -3094,7 +3117,7 @@ export default function App() {
           title={t('attach.topPickTitle')}
           onClick={() => setAttachPick({ end: 'top', ids: attachableIds })}
         >
-          {compact ? t('attach.topPick') : t('attach.topPickFull')}
+          {t('attach.topPick')}
         </button>
         <button
           type="button"
@@ -3103,7 +3126,7 @@ export default function App() {
           title={t('attach.basePickTitle')}
           onClick={() => setAttachPick({ end: 'base', ids: attachableIds })}
         >
-          {compact ? t('attach.basePick') : t('attach.basePickFull')}
+          {t('attach.basePick')}
         </button>
         <button
           type="button"
@@ -3111,7 +3134,7 @@ export default function App() {
           title={t('attach.detachTitle')}
           onClick={() => runAttach({ op: 'detach', ids: attachableIds }, t('attach.detachDone'))}
         >
-          {compact ? t('attach.detach') : t('attach.detachFull')}
+          {t('attach.detach')}
         </button>
       </>
     );
@@ -3119,25 +3142,16 @@ export default function App() {
   const attachToolbar =
     attachableIds.length > 0 ? (
       <span className="rb-attach" role="group" aria-label={t('attach.group')}>
-        {attachButtons(true)}
+        {attachButtons()}
       </span>
     ) : null;
-  const attachSection =
-    attachableIds.length > 0 ? (
-      <div className="inspector-section" data-section="attach">
-        <div className="field">
-          <label>{t('attach.sectionLabel', { n: attachableIds.length })}</label>
-          <div className="parent-row" style={{ flexWrap: 'wrap', gap: 4 }}>
-            {attachButtons(false)}
-          </div>
-          {attachPick ? (
-            <div className="empty" style={{ padding: 0, marginTop: 4 }} data-testid="attach-pick-hint">
-              {t('attach.pickHint', { end: attachPick.end })}
-            </div>
-          ) : null}
-        </div>
-      </div>
-    ) : null;
+  // Attach top/base commands live on the Изменить ribbon; the inspector keeps
+  // only the pick hint (the attach fields themselves are schema params).
+  const attachSection = attachPick ? (
+    <div className="empty" style={{ padding: 0, marginTop: 4 }} data-testid="attach-pick-hint">
+      {t('attach.pickHint', { end: attachPick.end })}
+    </div>
+  ) : null;
 
   const inspector = (
     <PropertiesPanel

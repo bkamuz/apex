@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useI18n } from '../i18n';
+import { useI18n, viewDisplayName } from '../i18n';
 import type { LevelDto, PaperOrientation, PaperSize, SheetDto, ViewDto } from '../types';
 import { viewsByType } from './viewModel';
 import { SheetLayoutControls } from './SheetLayoutControls';
@@ -74,7 +74,7 @@ function ViewsGroup({
                   onClick={() => onOpenView(view.id)}
                   data-testid={`view-row-${view.id}`}
                 >
-                  {view.name}
+                  {viewDisplayName(view.name)}
                 </button>
                 <div className="browser-tree-item-actions">
                   <button

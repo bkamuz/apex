@@ -460,11 +460,22 @@ const slabLabels = await page
   .locator('.inspector-body .field label')
   .evaluateAll((els) => els.map((e) => e.textContent.trim()));
 check('slab thickness field rendered', slabLabels.some((l) => l.startsWith('Thickness')));
+await page.locator('[data-kind="instance"]').filter({ hasText: /^Wall \d+/ }).first().click();
+await page.waitForTimeout(300);
+check('inspector heading shows genus › species', /›/.test((await page.getByTestId('inspector-lineage').textContent()) ?? ''));
+check('inspector Identity section collapsed by default', (await page.locator('.inspector-group.is-closed[data-group="identity"]').count()) === 1);
+check('no attach buttons duplicated in inspector', (await page.locator('.inspector button', { hasText: /attach|привяз/i }).count()) === 0);
+await page.locator('[data-kind="instance"]').filter({ hasText: /^Slab \d+/ }).first().click();
+await page.waitForTimeout(300);
 const slabThickness = page.locator('[data-section="instance"] input[type="number"]').first();
 await slabThickness.fill('0.35');
 await slabThickness.press('Enter');
 await page.waitForTimeout(400);
 check('slab thickness edit applied', Number(await slabThickness.inputValue()) === 0.35);
+await slabThickness.focus();
+await clickCanvas(0.05, 0.05);
+await page.waitForTimeout(300);
+check('canvas click commits/blurs a focused property field', await page.evaluate(() => !(document.activeElement instanceof HTMLInputElement)));
 
 await page.screenshot({ path: `${OUT}/apex-02-all-components.png`, fullPage: true });
 

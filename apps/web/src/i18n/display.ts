@@ -34,3 +34,12 @@ export function exporterDisplayTitle(exporter: Exporter): string {
 export function componentDisplayName(componentId: string, fallback: string): string {
   return t(`component.${componentId}`, undefined, fallback);
 }
+
+/** Display name for a view: default core names ("L1 — Plan 2", "3D View") are shown localized. */
+export function viewDisplayName(name: string): string {
+  const plan = /^(.*) — Plan( \d+)?$/.exec(name);
+  if (plan) return `${plan[1]} — ${t('viewName.plan')}${plan[2] ?? ''}`;
+  const three = /^3D View( \d+)?$/.exec(name);
+  if (three) return `${t('viewName.threeD')}${three[1] ?? ''}`;
+  return name;
+}

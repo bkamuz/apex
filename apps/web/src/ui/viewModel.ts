@@ -1,3 +1,4 @@
+import { t } from '../i18n';
 import type {
   DetailLevel,
   EdgeStyle,
@@ -35,11 +36,11 @@ import type {
 export function viewKindLabel(kind: ViewKindDto): string {
   switch (kind.kind) {
     case 'plan':
-      return 'Plan';
+      return t('viewKind.plan');
     case 'three_d':
-      return '3D';
+      return t('viewKind.threeD');
     case 'section':
-      return 'Section';
+      return t('viewKind.section');
     default: {
       const exhaustive: never = kind;
       return exhaustive;

@@ -57,3 +57,10 @@ test('ribbon, context bar and palette strings exist in EN and RU', () => {
     if (/^(ribbon|ctx|palette|cmd)\./.test(k)) assert.ok(!/famil/i.test(v), k);
   }
 });
+
+test('browser kind badges and view labels are translated in RU', () => {
+  for (const k of ['browser.badge.instance', 'browser.badge.type', 'browser.badge.space', 'viewTab.saveView', 'viewTab.export', 'viewKind.plan', 'viewName.threeD', 'component.apex.roof.pitched']) {
+    assert.ok(en[k] && ru[k], k);
+    assert.notEqual(ru[k], en[k], k);
+  }
+});

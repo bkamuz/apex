@@ -1,4 +1,4 @@
-import { useI18n } from '../i18n';
+import { useI18n, viewDisplayName } from '../i18n';
 import type { SheetDto, ViewDto } from '../types';
 
 export type DocumentTab =
@@ -31,7 +31,8 @@ function tabLabel(
   sheetFallback: string,
 ): string {
   if (tab.kind === 'view') {
-    return views.find((v) => v.id === tab.id)?.name ?? viewFallback;
+    const name = views.find((v) => v.id === tab.id)?.name;
+    return name ? viewDisplayName(name) : viewFallback;
   }
   const sheet = sheets.find((s) => s.id === tab.id);
   return sheet ? `${sheet.number} ${sheet.name}` : sheetFallback;
@@ -96,12 +97,12 @@ export function ViewTabBar({
       <div className="view-tab-actions">
         {activeIsView && onSaveView ? (
           <button type="button" data-testid="save-view" onClick={onSaveView}>
-            Save view
+            {t('viewTab.saveView')}
           </button>
         ) : null}
         {showViewExport && (onExportViewSvg || onExportViewDxf || onExportViewPdf) ? (
           <details className="view-export-menu">
-            <summary className="view-export-summary">Export</summary>
+            <summary className="view-export-summary">{t('viewTab.export')}</summary>
             <div className="view-export-panel" role="menu">
               {onExportViewSvg ? (
                 <button type="button" role="menuitem" data-testid="export-view-svg" onClick={onExportViewSvg}>
