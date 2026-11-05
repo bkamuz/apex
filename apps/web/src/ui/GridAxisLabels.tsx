@@ -30,8 +30,14 @@ export function GridAxisLabels({ axes, spaces = [], renderer, selectedIds = [] }
     let frame = 0;
     const tick = () => {
       const next: LabelPos[] = [];
+      const plan = renderer.getViewNavigation() === 'plan';
+      // One depth bake for all heads this frame (3D only).
+      if (!plan) renderer.beginOverlayOcclusion();
+
       for (const axis of axes) {
         for (const label of axis.labels ?? []) {
+          // In 3D, hide heads whose world point sits behind opaque solids.
+          if (!plan && renderer.isWorldOccluded(label.position)) continue;
           const screen = renderer.worldToClient(label.position);
           if (!screen) continue;
           next.push({
@@ -46,7 +52,7 @@ export function GridAxisLabels({ axes, spaces = [], renderer, selectedIds = [] }
       }
       // Spaces are a plan concept (WebGL outlines only draw in plan) — keep
       // HTML labels in sync so they do not float through the 3D solid model.
-      if (renderer.getViewNavigation() === 'plan') {
+      if (plan) {
         for (const space of spaces) {
           for (const label of space.labels ?? []) {
             const screen = renderer.worldToClient(label.position);
