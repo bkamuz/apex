@@ -44,17 +44,21 @@ export function GridAxisLabels({ axes, spaces = [], renderer, selectedIds = [] }
           });
         }
       }
-      for (const space of spaces) {
-        for (const label of space.labels ?? []) {
-          const screen = renderer.worldToClient(label.position);
-          if (!screen) continue;
-          next.push({
-            key: `space:${space.id}:${label.text}:${label.position.join(',')}`,
-            text: label.text,
-            left: screen[0],
-            top: screen[1],
-            kind: 'space',
-          });
+      // Spaces are a plan concept (WebGL outlines only draw in plan) — keep
+      // HTML labels in sync so they do not float through the 3D solid model.
+      if (renderer.getViewNavigation() === 'plan') {
+        for (const space of spaces) {
+          for (const label of space.labels ?? []) {
+            const screen = renderer.worldToClient(label.position);
+            if (!screen) continue;
+            next.push({
+              key: `space:${space.id}:${label.text}:${label.position.join(',')}`,
+              text: label.text,
+              left: screen[0],
+              top: screen[1],
+              kind: 'space',
+            });
+          }
         }
       }
       setLabels(next);

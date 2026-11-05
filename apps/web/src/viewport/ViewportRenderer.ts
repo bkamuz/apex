@@ -1710,7 +1710,7 @@ export class ViewportRenderer {
     return this.hairline;
   }
 
-  /** Always-visible plan grid axes: extended segment plus end bubbles. */
+  /** Plan grid axes: extended segment plus end bubbles (underlay draw). */
   setGridAxisOverlays(
     lines: Vec3[] | null,
     bubbles: Vec3[] | null,
@@ -2951,26 +2951,17 @@ export class ViewportRenderer {
   }
 
   /**
-   * Construction axis: solid where in front of scene depth, dashed where
-   * occluded by opaque walls (classic CAD hidden-line treatment).
-   */
-  /**
    * Grid axes, GOST 21.101 / Revit style: thin neutral-grey dash-dot line with
-   * a screen-stable pattern; dimmer where hidden behind geometry. The bubble
-   * heads are screen-space HTML circles (GridAxisLabels), always upright.
+   * a screen-stable pattern. Drawn as a CAD underlay (before solids in
+   * `drawFrame`) so walls/slabs occlude them — visible in empty space only,
+   * never x-rayed through the model. Bubble heads stay screen-space HTML
+   * (`GridAxisLabels`), always upright.
    */
   private drawGridAxes(): void {
     if (this.gridAxisLineCount === 0) return;
-    const gl = this.gl;
     const color: Rgba =
       this.viewNavigation === 'plan' ? this.ps.gridAxis : this.vt.gridAxis;
     this.drawLines(this.gridAxisLineVao, this.gridAxisLineCount, color, 1.25, {
-      depthFunc: gl.LEQUAL,
-      dashPeriodPx: GRID_AXIS_DASH_PERIOD_PX,
-      dashDot: true,
-    });
-    this.drawLines(this.gridAxisLineVao, this.gridAxisLineCount, this.vt.gridAxisFaint, 1.25, {
-      depthFunc: gl.GREATER,
       dashPeriodPx: GRID_AXIS_DASH_PERIOD_PX,
       dashDot: true,
     });
@@ -3158,13 +3149,16 @@ export class ViewportRenderer {
     const bg = plan ? this.ps.paper : this.vt.clear;
     gl.clearColor(bg[0], bg[1], bg[2], 1);
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-    // Active level grid (semi-transparent) — no separate Y=0 ground grid.
+    // Underlays first: active-level cell grid + document grid axes. Solids drawn
+    // next overwrite them, so helpers sit behind geometry and only show in
+    // empty space (no depth-fail x-ray pass).
     this.drawLines(
       this.gridVao,
       this.gridCount,
       plan ? this.ps.gridLine : this.vt.grid,
       0.8,
     );
+    this.drawGridAxes();
     this.drawMeshes(false);
     // Outlines at true depth; solids were polygon-offset back.
     const edgeWidth = plan ? 2.0 : 2.0;
@@ -3186,11 +3180,10 @@ export class ViewportRenderer {
       2.4,
       true,
     );
-    // Axis / preview: solid where visible, dashed where behind opaque walls.
+    // Preview / edit / refs: solid where visible, dashed where behind opaque walls.
     this.drawOccludedAxis(this.previewVao, this.previewCount, [0.95, 0.7, 0.3, 1], 3.0);
     this.drawOccludedAxis(this.editLineVao, this.editLineCount, [0.95, 0.72, 0.28, 1], 3.0);
     this.drawOccludedAxis(this.refLineVao, this.refLineCount, [0.35, 0.82, 0.95, 0.95], 2.5);
-    this.drawGridAxes();
     // DXF underlay: muted slate, drawn under construction/grid annotations.
     const ua = this.underlayOpacity;
     if (plan) {
