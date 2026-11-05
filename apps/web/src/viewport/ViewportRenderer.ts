@@ -160,6 +160,7 @@ uniform int uHoverCount;
 uniform float uHiddenPicks[32];
 uniform int uHiddenPickCount;
 uniform bool uPickPass;
+uniform bool uOcclusionPass;
 uniform float uPickExclude[8];
 uniform int uPickExcludeCount;
 uniform float uOpacity;
@@ -213,6 +214,20 @@ void main(){
   if (uPlanMode != 0 && vWorld.y - uCutY > uCutFade) discard;
   // Ghost path-anchor drag: suppress live solids replaced by the ghost overlay.
   if (uHiddenPickCount > 0 && isHiddenPick(vPick)) discard;
+  // Depth probe for HTML overlays (grid heads): pack window-space Z into RGB.
+  // Skip glass so bubbles remain visible through windows.
+  if (uOcclusionPass) {
+    if (vGlass > 0.5) discard;
+    float z = clamp(gl_FragCoord.z, 0.0, 1.0);
+    uint iz = uint(z * 16777215.0 + 0.5);
+    outColor = vec4(
+      float((iz >> 16u) & 255u) / 255.0,
+      float((iz >> 8u) & 255u) / 255.0,
+      float(iz & 255u) / 255.0,
+      1.0
+    );
+    return;
+  }
   if (uPickPass) {
     for (int i = 0; i < 8; i++) {
       if (i >= uPickExcludeCount) break;
@@ -474,6 +489,7 @@ type MeshUniforms = {
   uHiddenPicks: WebGLUniformLocation | null;
   uHiddenPickCount: WebGLUniformLocation | null;
   uPickPass: WebGLUniformLocation | null;
+  uOcclusionPass: WebGLUniformLocation | null;
   uPickExclude: WebGLUniformLocation | null;
   uPickExcludeCount: WebGLUniformLocation | null;
   uGlassPass: WebGLUniformLocation | null;
@@ -536,6 +552,7 @@ function meshUniforms(gl: WebGL2RenderingContext, prog: WebGLProgram): MeshUnifo
     uHiddenPicks: gl.getUniformLocation(prog, 'uHiddenPicks'),
     uHiddenPickCount: gl.getUniformLocation(prog, 'uHiddenPickCount'),
     uPickPass: gl.getUniformLocation(prog, 'uPickPass'),
+    uOcclusionPass: gl.getUniformLocation(prog, 'uOcclusionPass'),
     uPickExclude: gl.getUniformLocation(prog, 'uPickExclude'),
     uPickExcludeCount: gl.getUniformLocation(prog, 'uPickExcludeCount'),
     uGlassPass: gl.getUniformLocation(prog, 'uGlassPass'),
@@ -1001,6 +1018,11 @@ export class ViewportRenderer {
   private pickDepth: WebGLRenderbuffer | null = null;
   private pickW = 0;
   private pickH = 0;
+  /** Camera/scene signature for the last overlay-occlusion depth bake. */
+  private occlusionSig = '';
+  private occlusionPixel = new Uint8Array(4);
+  /** Window-Z bias so coplanar ground heads are not eaten by floor slabs. */
+  private static readonly OCCLUSION_DEPTH_BIAS = 3e-4;
   private camera: CameraState = {
     target: [...DEFAULT_CAMERA.target] as [number, number, number],
     distance: DEFAULT_CAMERA.distance,
@@ -1725,8 +1747,8 @@ export class ViewportRenderer {
         flatten(lines),
       );
     }
-    // Bubble heads are drawn as screen-space HTML circles (GridAxisLabels);
-    // their world footprint still counts towards the scene bounds.
+    // Bubble heads are HTML circles (GridAxisLabels); in 3D they depth-test via
+    // isWorldOccluded. World footprint still counts towards the scene bounds.
     if (bubbles && bubbles.length >= 2) this.includePoints(bubbles);
   }
 
@@ -1892,6 +1914,79 @@ export class ViewportRenderer {
     const ndcY = y / w;
     const rect = this.canvas.getBoundingClientRect();
     return [((ndcX + 1) * 0.5) * rect.width, ((1 - ndcY) * 0.5) * rect.height];
+  }
+
+  /**
+   * Bake opaque scene depth into the pick FBO colour buffer (once per camera/
+   * mesh signature). Call before a batch of `isWorldOccluded` queries.
+   * No-op in plan / sheet — drafting overlays stay fully visible.
+   */
+  beginOverlayOcclusion(): void {
+    if (this.viewNavigation === 'plan' || this.sheetPresentation) return;
+    if (this.indexCount === 0) {
+      this.occlusionSig = '';
+      return;
+    }
+    const { viewProj } = this.cameraMatrices();
+    const sig = `${this.canvas.width}x${this.canvas.height}|${this.indexCount}|${Array.prototype.join.call(viewProj, ',')}|${this.hiddenPickIds.join(',')}`;
+    if (sig === this.occlusionSig) return;
+    this.occlusionSig = sig;
+
+    const gl = this.gl;
+    this.ensurePickBuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.pickFbo);
+    gl.viewport(0, 0, this.pickW, this.pickH);
+    // Far depth packed as white so empty pixels never hide overlays.
+    gl.clearColor(1, 1, 1, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+    this.drawMeshes(false, true);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, this.canvas.width, this.canvas.height);
+  }
+
+  /**
+   * True when opaque scene geometry is closer to the camera than `world`
+   * (HTML grid heads / similar overlays). Always false in plan.
+   */
+  isWorldOccluded(world: [number, number, number]): boolean {
+    if (this.viewNavigation === 'plan' || this.sheetPresentation) return false;
+    if (this.indexCount === 0) return false;
+    this.beginOverlayOcclusion();
+    if (!this.occlusionSig) return false;
+
+    const client = this.worldToClient(world);
+    if (!client) return true;
+    const labelZ = this.worldWindowDepth(world);
+    if (labelZ == null) return true;
+
+    const gl = this.gl;
+    const rect = this.canvas.getBoundingClientRect();
+    const px = Math.floor(((client[0] - rect.left) / rect.width) * this.pickW);
+    const py = Math.floor((1 - (client[1] - rect.top) / rect.height) * this.pickH);
+    if (px < 0 || py < 0 || px >= this.pickW || py >= this.pickH) return true;
+
+    gl.bindFramebuffer(gl.FRAMEBUFFER, this.pickFbo);
+    gl.readPixels(px, py, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, this.occlusionPixel);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+
+    const sceneZ =
+      ((this.occlusionPixel[0]! << 16) |
+        (this.occlusionPixel[1]! << 8) |
+        this.occlusionPixel[2]!) /
+      16777215;
+    // Smaller window-Z = closer to the near plane / camera.
+    return sceneZ < labelZ - ViewportRenderer.OCCLUSION_DEPTH_BIAS;
+  }
+
+  /** Window-space depth in [0,1] matching `gl_FragCoord.z`, or null if behind the eye. */
+  private worldWindowDepth(p: [number, number, number]): number | null {
+    const { viewProj } = this.cameraMatrices();
+    const z = viewProj[2] * p[0] + viewProj[6] * p[1] + viewProj[10] * p[2] + viewProj[14];
+    const w = viewProj[3] * p[0] + viewProj[7] * p[1] + viewProj[11] * p[2] + viewProj[15];
+    if (Math.abs(w) < 1e-8) return null;
+    const ndcZ = z / w;
+    if (!Number.isFinite(ndcZ)) return null;
+    return ndcZ * 0.5 + 0.5;
   }
 
   /** Current edit-handle world positions, or null when no gizmo is shown. */
@@ -2637,7 +2732,7 @@ export class ViewportRenderer {
     gl.uniform1fv(u.uSlabPicks, this.scratchSlabPicks);
   }
 
-  private drawMeshes(pickPass: boolean): void {
+  private drawMeshes(pickPass: boolean, occlusionPass = false): void {
     const gl = this.gl;
     if (this.indexCount === 0) return;
     const { viewProj } = this.cameraMatrices();
@@ -2661,16 +2756,17 @@ export class ViewportRenderer {
       this.scratchHoverPicks[i] = this.hoveredPickIds[i]!;
     }
     gl.uniform1fv(u.uHoverPicks, this.scratchHoverPicks);
-    gl.uniform1i(u.uHoverCount, pickPass ? 0 : this.hoveredPickIds.length);
+    gl.uniform1i(u.uHoverCount, pickPass || occlusionPass ? 0 : this.hoveredPickIds.length);
     this.scratchHiddenPicks.fill(0);
     for (let i = 0; i < this.hiddenPickIds.length && i < 32; i++) {
       this.scratchHiddenPicks[i] = this.hiddenPickIds[i]!;
     }
     gl.uniform1fv(u.uHiddenPicks, this.scratchHiddenPicks);
     gl.uniform1i(u.uHiddenPickCount, this.hiddenPickIds.length);
-    gl.uniform1i(u.uPickPass, pickPass ? 1 : 0);
+    gl.uniform1i(u.uPickPass, pickPass && !occlusionPass ? 1 : 0);
+    gl.uniform1i(u.uOcclusionPass, occlusionPass ? 1 : 0);
     gl.uniform1fv(u.uPickExclude, this.pickExclude);
-    gl.uniform1i(u.uPickExcludeCount, pickPass ? this.pickExcludeCount : 0);
+    gl.uniform1i(u.uPickExcludeCount, pickPass && !occlusionPass ? this.pickExcludeCount : 0);
     gl.uniform1i(u.uGlassPass, 0);
     gl.uniform1i(u.uOutlinePass, 0);
     gl.uniform1f(u.uOutlinePx, 0);
@@ -2685,15 +2781,16 @@ export class ViewportRenderer {
     gl.bindVertexArray(this.vao);
     gl.enable(gl.DEPTH_TEST);
     // Classic CAD: push filled surfaces back so coplanar outlines win depth.
-    if (!pickPass) {
+    if (!pickPass && !occlusionPass) {
       gl.enable(gl.POLYGON_OFFSET_FILL);
       gl.polygonOffset(1, 1);
     }
 
     const planLayered =
-      !pickPass && this.viewNavigation === 'plan' && this.slabPickIds.length > 0;
+      !pickPass && !occlusionPass && this.viewNavigation === 'plan' && this.slabPickIds.length > 0;
 
-    if (pickPass) {
+    if (pickPass || occlusionPass) {
+      // Single opaque depth/id bake — no selection wash or glass.
       gl.disable(gl.BLEND);
       gl.depthMask(true);
       gl.uniform1i(u.uMeshLayer, 0);
@@ -2743,7 +2840,7 @@ export class ViewportRenderer {
     }
 
     // Olive pre-highlight overlay (Select hover / Tab cycle). Selection orange wins.
-    if (!pickPass && this.hoveredPickIds.length > 0) {
+    if (!pickPass && !occlusionPass && this.hoveredPickIds.length > 0) {
       gl.enable(gl.BLEND);
       gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
       gl.depthMask(false);
@@ -2755,7 +2852,7 @@ export class ViewportRenderer {
       gl.disable(gl.BLEND);
     }
 
-    if (!pickPass) {
+    if (!pickPass && !occlusionPass) {
       // Glass last: translucent, depth-tested, no depth writes.
       gl.uniform1i(u.uMeshLayer, 0);
       gl.uniform1i(u.uSelectionMode, 0);
@@ -2818,6 +2915,7 @@ export class ViewportRenderer {
     gl.uniform1fv(u.uHoverPicks, this.scratchHoverPicks);
     gl.uniform1i(u.uHoverCount, this.hoveredPickIds.length);
     gl.uniform1i(u.uPickPass, 0);
+    gl.uniform1i(u.uOcclusionPass, 0);
     gl.uniform1i(u.uPickExcludeCount, 0);
     gl.uniform1i(u.uGlassPass, 0);
     gl.uniform1i(u.uSelectionMode, 0);
@@ -2883,6 +2981,7 @@ export class ViewportRenderer {
     gl.uniform3fv(u.uGroundColor, this.scratchGhostGround);
     gl.uniform1f(u.uSelectedPick, 0);
     gl.uniform1i(u.uPickPass, 0);
+    gl.uniform1i(u.uOcclusionPass, 0);
     gl.uniform1i(u.uSelectionMode, 0);
     gl.uniform1i(u.uOutlinePass, 0);
     gl.uniform1f(u.uOpacity, 0.35);
@@ -2954,8 +3053,8 @@ export class ViewportRenderer {
    * Grid axes, GOST 21.101 / Revit style: thin neutral-grey dash-dot line with
    * a screen-stable pattern. Drawn as a CAD underlay (before solids in
    * `drawFrame`) so walls/slabs occlude them — visible in empty space only,
-   * never x-rayed through the model. Bubble heads stay screen-space HTML
-   * (`GridAxisLabels`), always upright.
+   * never x-rayed through the model. Bubble heads are HTML (`GridAxisLabels`)
+   * and depth-tested in 3D via `isWorldOccluded`.
    */
   private drawGridAxes(): void {
     if (this.gridAxisLineCount === 0) return;
