@@ -64,7 +64,7 @@ const packs = [
       { id: 'apex.fence' },
       { id: 'apex.gate' },
       { id: 'apex.site_surface' },
-      { id: 'apex.topo_pad' },
+      { id: 'apex.terrain' },
       { id: 'apex.dxf_underlay' },
     ],
   },

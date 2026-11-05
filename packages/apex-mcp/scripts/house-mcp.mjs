@@ -100,16 +100,19 @@ async function storey(level, elev, { entrance }) {
 }
 
 const s0 = await storey(L0, 0, { entrance: true });
-// Yard: graded topo pad, fence loop, gate, lawn / paved / driveway.
-const pad = await tool('place_topo_pad', {
+// Yard: terrain solid with obvious TIN grades (SE drop + east mound).
+const pad = await tool('place_terrain', {
   level: L0,
   points: [P(-3, -3), P(13, -3), P(13, 11), P(10.2, 11), P(10.2, -0.15), P(-3, -0.15)],
-  params: { thickness: 0.2, elevation: 0 },
+  params: { bottom_offset: 1.5, elevation: 0 },
 });
 await tool('set_slab_shape', {
   id: pad.id,
-  shape: { z: [-0.25, -0.9, -0.55, 0, 0, -0.15] },
-}).catch((e) => console.log('  topo pad shape:', e.message));
+  shape: {
+    z: [-0.15, -1.5, -0.35, 0.05, 0.05, -0.1],
+    points: [[12.0, 5.5, 0.85], [11.5, -1.6, -1.15], [5.0, -1.7, -0.85], [12.2, 8.5, 0.25]],
+  },
+}).catch((e) => console.log('  terrain heights:', e.message));
 const fenceLoop = [[-3, -3], [13, -3], [13, 11], [-3, 11], [-3, -3]];
 const fences = [];
 for (let i = 0; i < 4; i++) {

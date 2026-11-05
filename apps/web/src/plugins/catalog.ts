@@ -100,7 +100,7 @@ export const systemPacks: readonly SystemPack[] = [
       componentPlugin('apex.fence', { tab: ApexTabs.site }),
       hostedComponentPlugin('apex.gate', { tab: ApexTabs.site }),
       componentPlugin('apex.site_surface', { tab: ApexTabs.site }),
-      componentPlugin('apex.topo_pad', { tab: ApexTabs.site }),
+      componentPlugin('apex.terrain', { tab: ApexTabs.site }),
       dxfUnderlayPlugin,
     ],
   },

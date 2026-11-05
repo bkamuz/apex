@@ -32,7 +32,7 @@ const SHAPEABLE: [&str; 4] = [
     "apex.slab",
     "apex.roof",
     "apex.site_surface",
-    "apex.topo_pad",
+    "apex.terrain",
 ];
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -124,10 +124,21 @@ impl Project {
         Some((hi[1] as f64, (hi[1] - lo[1]) as f64))
     }
 
-    /// The shaped top surface and thickness, `None` for flat slabs.
+    fn is_topo_element(&self, element: &Element) -> bool {
+        self.registry
+            .get(&element.component_id)
+            .is_some_and(|d| d.category == "topo")
+    }
+
+    /// The shaped top surface and depth param.
+    ///
+    /// Flat building slabs stay on the plain extrude path. Terrain (`category`
+    /// `topo`) always uses the TIN solid (even when every control point shares
+    /// one height). For terrain the second value is `bottom_offset`; for slabs
+    /// it is vertical thickness.
     pub(crate) fn shaped_surface(&self, element: &Element) -> Option<(ShapedSurface, f64)> {
         let shape = self.slab_shape(element)?;
-        if shape.is_flat() {
+        if shape.is_flat() && !self.is_topo_element(element) {
             return None;
         }
         self.surface_for(element, &shape)
@@ -138,7 +149,20 @@ impl Project {
         element: &Element,
         shape: &SlabShape,
     ) -> Option<(ShapedSurface, f64)> {
-        let (top, thickness) = self.flat_top(element)?;
+        let is_topo = self.is_topo_element(element);
+        let (top, depth) = if is_topo {
+            let params = self
+                .registry
+                .eval_params(&element.component_id, &element.params)
+                .ok()?;
+            // Point elevations are offsets from the seated placement plane
+            // (level + elevation), not from a dummy extrude top.
+            let base = element.placement.anchors().first()?.y as f64;
+            let offset = params.number("bottom_offset").unwrap_or(1.0).max(0.0);
+            (base, offset)
+        } else {
+            self.flat_top(element)?
+        };
         let mut anchors = element.placement.anchors();
         if anchors.len() > 3 {
             let (f, l) = (anchors[0], anchors[anchors.len() - 1]);
@@ -168,14 +192,33 @@ impl Project {
                 interior,
                 creases: shape.creases.clone(),
             },
-            thickness,
+            depth,
         ))
     }
 
     /// Closed shaped body minus openings and stair wells.
+    ///
+    /// Terrain: TIN top + horizontal bottom at `min(top) − bottom_offset` +
+    /// vertical outer walls. Slabs/roofs: constant vertical thickness.
     pub(crate) fn shaped_slab_mesh(&self, element: &Element) -> Option<TriangleMesh> {
-        let (surface, thickness) = self.shaped_surface(element)?;
-        let mut mesh = surface.solid(Underside::Drop(thickness)).ok()?;
+        let (surface, depth) = self.shaped_surface(element)?;
+        let mut mesh = if self.is_topo_element(element) {
+            let mut ys: Vec<f64> = surface.boundary.iter().map(|p| p[1]).collect();
+            for (i, p) in surface.interior.iter().enumerate() {
+                if surface.usable_interior(i) {
+                    ys.push(p[1]);
+                }
+            }
+            let min_y = ys.into_iter().fold(f64::INFINITY, f64::min);
+            if !min_y.is_finite() {
+                return None;
+            }
+            surface
+                .solid(Underside::Flat(min_y - depth.max(0.0)))
+                .ok()?
+        } else {
+            surface.solid(Underside::Drop(depth)).ok()?
+        };
         let (lo, hi) = mesh.aabb()?;
         let voids = self.void_solids(element);
         if voids.is_empty() {
@@ -287,9 +330,9 @@ impl Project {
         surface.height_at(x, z)
     }
 
-    /// Top of a covering topography pad at plan (x, z), if any on `level_id`.
+    /// Top of covering terrain at plan (x, z), if any on `level_id`.
     ///
-    /// When several pads overlap, the highest top wins. Used to seat
+    /// When several terrain patches overlap, the highest top wins. Used to seat
     /// fence / surface / other `seat_on_level` elements on graded ground.
     pub fn topo_height_at(
         &self,
@@ -322,9 +365,9 @@ impl Project {
 
     /// World Y used when seating a component on a level.
     ///
-    /// * Topo pads (`category == "topo"`): level elevation + optional
+    /// * Terrain (`category == "topo"`): level elevation + optional
     ///   `elevation` param (relative offset).
-    /// * Other seat-on-level components: topo pad top at the first
+    /// * Other seat-on-level components: terrain top at the first
     ///   placement anchor when one covers that plan point; else level Y.
     pub(crate) fn seat_elevation(
         &self,

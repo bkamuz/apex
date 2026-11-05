@@ -6,7 +6,7 @@ export const SHAPEABLE_COMPONENTS = new Set([
   'apex.slab',
   'apex.roof',
   'apex.site_surface',
-  'apex.topo_pad',
+  'apex.terrain',
 ]);
 /** The raw JSON param the panel edits; hidden from the generic fields. */
 export const SHAPE_PARAM = 'shape';
@@ -18,6 +18,8 @@ interface Props {
   activeHandle: number | null;
   onToggleEditing: () => void;
   onChange: (shape: SlabShapeDto) => void;
+  /** Terrain uses control-point elevation language instead of slab "shape". */
+  terrain?: boolean;
 }
 
 function cloneShape(shape: SlabShapeDto, vertices: number): SlabShapeDto {
@@ -49,7 +51,14 @@ function OffsetInput({ value, onCommit }: { value: number; onCommit: (v: number)
 }
 
 /** Inspector section: per-point Z offsets, interior points, creases, reset. */
-export function SlabShapePanel({ info, editing, activeHandle, onToggleEditing, onChange }: Props) {
+export function SlabShapePanel({
+  info,
+  editing,
+  activeHandle,
+  onToggleEditing,
+  onChange,
+  terrain = false,
+}: Props) {
   const [creaseA, setCreaseA] = useState(0);
   const [creaseB, setCreaseB] = useState(1);
   if (!info) return null;
@@ -72,15 +81,29 @@ export function SlabShapePanel({ info, editing, activeHandle, onToggleEditing, o
 
   return (
     <div className="inspector-section" data-section="slab-shape">
-      <div className="section-title">Shape (sub-elements)</div>
+      <div className="section-title">
+        {terrain ? 'Terrain heights' : 'Shape (sub-elements)'}
+      </div>
       <div className="parent-row">
         <button
           type="button"
           data-testid="slab-shape-edit"
           className={editing ? 'active' : undefined}
           onClick={onToggleEditing}
+          disabled={terrain && editing}
+          title={
+            terrain
+              ? 'Terrain heights edit in the 3D view (drag points / PgUp·PgDn / Shift+click to add)'
+              : undefined
+          }
         >
-          {editing ? 'Finish editing' : 'Edit shape'}
+          {editing
+            ? terrain
+              ? '3D points active'
+              : 'Finish editing'
+            : terrain
+              ? 'Edit heights'
+              : 'Edit shape'}
         </button>
         <button
           type="button"
@@ -88,13 +111,17 @@ export function SlabShapePanel({ info, editing, activeHandle, onToggleEditing, o
           disabled={flat}
           onClick={() => onChange({ z: [], points: [], creases: [] })}
         >
-          Reset shape
+          {terrain ? 'Reset heights' : 'Reset shape'}
         </button>
       </div>
       <div className="empty" style={{ padding: 0, margin: '4px 0' }}>
         {editing
-          ? 'Drag a point up/down in 3D, or type its offset. Thickness stays constant (vertical).'
-          : `Thickness ${info.thickness.toFixed(3)} m, measured vertically.`}
+          ? terrain
+            ? 'In 3D: drag a green point up/down, or select it and PgUp/PgDn. Shift+click the surface to add an inner point.'
+            : 'Drag a point up/down in 3D, or type its offset. Thickness stays constant (vertical).'
+          : terrain
+            ? `Bottom offset ${info.thickness.toFixed(3)} m below the lowest top point.`
+            : `Thickness ${info.thickness.toFixed(3)} m, measured vertically.`}
       </div>
       {editing ? (
         <>
@@ -106,7 +133,7 @@ export function SlabShapePanel({ info, editing, activeHandle, onToggleEditing, o
               style={activeHandle === h.crease_index ? { outline: '1px solid var(--accent, #4af)' } : undefined}
             >
               <label>
-                {label(h.crease_index)} Z offset
+                {label(h.crease_index)} {terrain ? 'Elevation' : 'Z offset'}
                 {h.kind === 'point'
                   ? ` (${h.position[0].toFixed(2)}, ${h.position[2].toFixed(2)})`
                   : ''}
@@ -150,7 +177,7 @@ export function SlabShapePanel({ info, editing, activeHandle, onToggleEditing, o
               onChange(next);
             }}
           >
-            Add point (centre)
+            {terrain ? 'Add inner point (centre)' : 'Add point (centre)'}
           </button>
           <div className="field">
             <label>Creases</label>

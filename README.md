@@ -11,7 +11,7 @@ Apex is a lightweight **BIM** app for buildings and site work — walls, opening
 ### What you get
 
 - Place building elements (walls, columns, beams, slabs, doors, windows, stairs, roofs) and **spaces**
-- **Site / landscape** tools: fence, gate, yard surfaces (lawn, paved, driveway), graded **topo pads**; link a **DXF** as a plan underlay
+- **Site / landscape** tools: fence, gate, yard surfaces (lawn, paved, driveway), **terrain** solid (TIN top from height points); link a **DXF** as a plan underlay
 - Toggle first-party **system packs** in **Settings → Extensions** (Basics, Building, Engineering, Spaces, Site, Annotate, IFC)
 - Same UI in the browser and in a **Tauri 2** desktop shell (native Open / Save)
 - UI language: English or Russian
@@ -52,7 +52,7 @@ cd ../desktop && npm install && npm run dev
 
 ### Sample project
 
-The built-in sample is a two-storey house with rooms, a pitched roof, and a **yard**: graded **topo pad** (SE slopes), joinable fence loop, gate at the entrance, and mixed site surfaces (lawn / paved / driveway). Open **Site** in the toolbar for Fence / Gate / Site surface / Topo pad.
+The built-in sample is a two-storey house with rooms, a pitched roof, and a **yard**: **terrain** solid (outer + inner height points → TIN top, flat bottom, SE slopes), joinable fence loop, gate at the entrance, and mixed site surfaces (lawn / paved / driveway). Open **Site** in the toolbar for Fence / Gate / Site surface / Terrain.
 
 ### Settings & packs
 
@@ -76,7 +76,7 @@ Apex — лёгкий **BIM**-редактор для зданий и участ
 ### Возможности
 
 - Конструкции здания (стены, колонны, балки, плиты, двери, окна, лестницы, кровли) и **пространства**
-- Вкладка **Участок / ландшафт**: забор, калитка, покрытия двора, **топоплощадки** (уклоны); **DXF** как связанная подложка плана
+- Вкладка **Участок / ландшафт**: забор, калитка, покрытия двора, **рельеф** (тело: TIN-верх по точкам с отметками); **DXF** как связанная подложка плана
 - Системные **пакеты** включаются в **Настройки → Расширения**
 - Один и тот же интерфейс в браузере и в оболочке **Tauri 2** (системные диалоги Открыть / Сохранить)
 - Язык интерфейса: русский или английский
@@ -99,7 +99,7 @@ cd apps/web && npm install && npm run dev
 
 ### Образец проекта
 
-Двухэтажный дом с помещениями, скатной кровлей и **двором**: топоплощадка с уклоном на юго-востоке, замкнутый забор, калитка у входа, покрытия (газон / мощение / проезд). Инструменты участка — вкладка **Участок** (Забор / Калитка / Покрытие / Топоплощадка).
+Двухэтажный дом с помещениями, скатной кровлей и **двором**: объёмный рельеф с уклоном на юго-востоке (внешние и внутренние точки высот), замкнутый забор, калитка у входа, покрытия (газон / мощение / проезд). Инструменты участка — вкладка **Участок** (Забор / Калитка / Покрытие / Рельеф).
 
 ### Настройки и пакеты
 
@@ -160,7 +160,7 @@ Shipped types use this structure (no bespoke per-type geometry forks in the shel
 | `apex.fence` | path (joinable) | thin profile along the path (Site pack) |
 | `apex.gate` | hosted on fence | opening cut in the host fence |
 | `apex.site_surface` | closed polyline | thin site region (lawn / paved / driveway) |
-| `apex.topo_pad` | closed polyline | graded pad; per-vertex Z via slab-shape edit |
+| `apex.terrain` | closed polyline | ground solid: TIN top from outer/inner heights, flat bottom, vertical sides |
 
 A **profile type** is the catalog object behind a `profile` parameter: draw a 2D
 section with the mouse, then assign edge dimensions. Type-level values are shared;
@@ -247,7 +247,7 @@ Each push to `main` redeploys via `.github/workflows/deploy-pages.yml`.
 
 ### Demo walkthrough
 
-1. Pick a tool. **Basics** / Architecture datums: **Level**, **Ref point** (the only point tool), **Ref plane**, **Construction line**, **Grid axis**, **Section cut**. Building tools: **Wall**, **Column**, **Beam**, **Slab**, openings, roofs. **Engineering**: Pipe / Duct / Cable tray. **Spaces**: closed **Space** polyline. **Site**: Fence / Gate / Site surface / Topo pad. With Wall or Fence active, switch **Line** / **Arc** / **Polyline** as offered.
+1. Pick a tool. **Basics** / Architecture datums: **Level**, **Ref point** (the only point tool), **Ref plane**, **Construction line**, **Grid axis**, **Section cut**. Building tools: **Wall**, **Column**, **Beam**, **Slab**, openings, roofs. **Engineering**: Pipe / Duct / Cable tray. **Spaces**: closed **Space** polyline. **Site**: Fence / Gate / Site surface / Terrain. With Wall or Fence active, switch **Line** / **Arc** / **Polyline** as offered.
 2. Click the points that mode needs; a ghost previews the result. Finish polylines with double-click or Enter.
 3. Select an element. **This element** vs **Shared type** fields; **Edit profile** for the 2D sketch. Grid axes, construction lines, section cuts, and spaces edit from the same inspector pattern.
 4. The left **Project** browser lists types, instances, references, grids, annotations, and spaces. **Save** downloads the project (also stored in the browser); **Open** loads a file; **New** starts over.
@@ -319,7 +319,7 @@ instances. Still mesh-only — no parametric round-trip.
 - Richer IFC import; optional IfcOpenShell sidecar
 - Auto-update / signed desktop releases; community plugin marketplace
 - Rotate / mirror / array transforms; richer MEP fittings
-- Full civil TIN / contour suite beyond graded topo pads
+- Full civil TIN / contour suite beyond the height-point terrain solid
 
 ## Geometry kernels
 

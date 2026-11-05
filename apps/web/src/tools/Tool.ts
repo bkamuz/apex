@@ -93,6 +93,10 @@ export interface ToolContext {
   moveShapeDrag?(clientX: number, clientY: number): void;
   /** Commit the dragged offset (one undo step). */
   endShapeDrag?(): void;
+  /** Add an interior terrain control point at the ground hit under the cursor. */
+  addShapePointAt?(clientX: number, clientY: number): boolean;
+  /** Nudge the active shape-handle elevation (m); used by PgUp/PgDn. */
+  nudgeShapeHandle?(delta: number): boolean;
   /** Anchors of the selected element, when exactly one is selected. */
   selectedAnchors(): Vec3[] | null;
   /**

@@ -252,14 +252,14 @@ const fenceParams: Record<string, ParamValue> = {
 };
 
 /**
- * Site yard on L0: graded topo pad (SE L outside the house), joinable fence
- * loop, gate opposite the entrance, lawn / paved patio / driveway on the pad.
+ * Site yard on L0: terrain solid (SE L outside the house) with outer +
+ * inner height points, joinable fence loop, gate, lawn / paved / driveway.
  */
 function buildYard(elev: number): void {
-  // Graded topo pad: south strip + east strip (L outside the 10×8 house).
-  // SE corner falls away so the yard reads as terrain under fence/driveway.
+  // Terrain solid L outside the 10×8 house (south + east). Dramatic SE drop +
+  // east mound so the TIN top reads clearly in 3D (not a flat pad).
   apexCreateElement(
-    "apex.topo_pad",
+    "apex.terrain",
     [
       xz(-3, -3, elev),
       xz(13, -3, elev),
@@ -268,24 +268,25 @@ function buildYard(elev: number): void {
       xz(10.2, -0.15, elev),
       xz(-3, -0.15, elev),
     ],
-    { thickness: 0.2, elevation: 0 },
+    { bottom_offset: 1.5, elevation: 0 },
     0,
     "polyline",
   );
-  const padId = lastId("apex.topo_pad");
-  if (padId) {
-    try {
-      // Vertices: SW, SE, NE-east, NE-inner, house-SE corner, NW-south.
-      // East/south edges drop ~0.7–0.9 m; house edge stays near level.
-      apexSetSlabShape(padId, {
-        z: [-0.25, -0.9, -0.55, 0, 0, -0.15],
-        points: [],
-        creases: [],
-      });
-    } catch {
-      /* shape edit optional if kernel rejects */
-    }
+  const terrainId = lastId("apex.terrain");
+  if (!terrainId) {
+    throw new Error("houseSample: terrain create failed");
   }
+  // Outer: SW, SE, NE-east, NE-inner, house-SE corner, NW-south.
+  apexSetSlabShape(terrainId, {
+    z: [-0.15, -1.5, -0.35, 0.05, 0.05, -0.1],
+    points: [
+      [12.0, 5.5, 0.85],
+      [11.5, -1.6, -1.15],
+      [5.0, -1.7, -0.85],
+      [12.2, 8.5, 0.25],
+    ],
+    creases: [],
+  });
 
   // Fence rectangle −3..13 × −3..11 (outside the 10×8 house).
   const fenceLoop: Array<[number, number]> = [
@@ -359,7 +360,7 @@ function buildYard(elev: number): void {
     0,
     "polyline",
   );
-  // Driveway east of the house — sits on the graded topo pad (no own shape).
+  // Driveway east of the house — sits on the graded terrain (no own shape).
   apexCreateElement(
     "apex.site_surface",
     [
@@ -376,7 +377,7 @@ function buildYard(elev: number): void {
 
 /**
  * Two-storey demo house (10×8 m footprint) with pitched roof, stair,
- * grid axes, Spaces from wall-loop detect, and a site yard (topo pad,
+ * grid axes, Spaces from wall-loop detect, and a site yard (terrain TIN,
  * fence, gate, surfaces) — same construction as `scripts/house-e2e.mjs` /
  * `packages/apex-mcp/scripts/house-mcp.mjs`.
  */

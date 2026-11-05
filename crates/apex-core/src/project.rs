@@ -3077,6 +3077,19 @@ impl Project {
         Ok(())
     }
 
+    /// Rename retired built-in ids so older snapshots keep loading.
+    fn migrate_component_id(element: &mut Element) {
+        if element.component_id == "apex.topo_pad" {
+            element.component_id = "apex.terrain".into();
+            // Old pad `thickness` was an upward extrude; map to downward bottom_offset.
+            if let Some(ParamValue::Length(t)) = element.params.remove("thickness") {
+                element
+                    .params
+                    .set("bottom_offset", ParamValue::Length(t.max(0.0)));
+            }
+        }
+    }
+
     /// Point a loaded element at a valid species: its own when it
     /// exists, else one matching its stored sizes (old projects), derived if
     /// needed. Type values then overwrite the stored copies.
@@ -3289,6 +3302,7 @@ impl Project {
         }
         let mut elements = snap.elements;
         for element in &mut elements {
+            Self::migrate_component_id(element);
             next.migrate_species(element);
         }
 
@@ -6198,10 +6212,10 @@ mod plugin_first_tests {
     }
 
     #[test]
-    fn topo_pad_grades_and_seats_fence_on_pad_top() {
+    fn terrain_solid_tin_top_flat_bottom_and_seats_fence() {
         let mut project = Project::new();
         let level = project.document().active_level_id().unwrap();
-        let pad_placement = PlacementKind::Polyline
+        let placement = PlacementKind::Polyline
             .build(
                 &[
                     Vec3::new(0.0, 0.0, 0.0),
@@ -6212,33 +6226,41 @@ mod plugin_first_tests {
                 0.0,
                 &apex_geometry::Frame::horizontal(0.0),
             )
-            .expect("pad poly");
-        let pad = project
+            .expect("terrain poly");
+        let terrain = project
             .create_element(
-                "apex.topo_pad",
-                pad_placement,
+                "apex.terrain",
+                placement,
                 ParamMap::new()
-                    .with("thickness", ParamValue::Length(0.2))
+                    .with("bottom_offset", ParamValue::Length(1.0))
                     .with("elevation", ParamValue::Length(0.0)),
             )
-            .expect("topo pad");
+            .expect("terrain");
         project
             .set_slab_shape(
-                pad,
+                terrain,
                 &crate::SlabShape {
-                    // East edge lifted so pad top at x=6 is 0.2 + 0.5.
+                    // Outer: east edge up 0.5; interior Steiner at centre up 0.8.
                     z: vec![0.0, 0.5, 0.5, 0.0],
-                    points: vec![],
+                    points: vec![[3.0, 2.0, 0.8]],
                     creases: vec![],
                 },
             )
             .expect("grade");
+        // Tops relative to placement Y=0 → east 0.5, centre 0.8; bottom = 0 − 1 = −1.
         let top_east = project
             .topo_height_at(level, 6.0, 2.0, None)
-            .expect("pad hit");
+            .expect("east hit");
         assert!(
-            (top_east - 0.7).abs() < 1e-3,
-            "graded pad top ≈ 0.7, got {top_east}"
+            (top_east - 0.5).abs() < 1e-3,
+            "east boundary ≈ 0.5, got {top_east}"
+        );
+        let top_inner = project
+            .topo_height_at(level, 3.0, 2.0, None)
+            .expect("inner hit");
+        assert!(
+            (top_inner - 0.8).abs() < 1e-3,
+            "inner control ≈ 0.8, got {top_inner}"
         );
         assert!(project.topo_height_at(level, 20.0, 2.0, None).is_none());
 
@@ -6255,10 +6277,67 @@ mod plugin_first_tests {
         let y = fe.placement.anchors()[0].y;
         assert!(
             (y - top_east as f32).abs() < 1e-3,
-            "fence should seat on pad top {top_east}, got {y}"
+            "fence should seat on terrain top {top_east}, got {y}"
         );
-        let mesh = project.document().get_mesh(pad).expect("pad mesh");
+        let mesh = project.document().get_mesh(terrain).expect("terrain mesh");
         assert!(mesh.triangle_count() > 0);
+        let (lo, hi) = mesh.aabb().expect("aabb");
+        assert!(
+            (lo[1] + 1.0).abs() < 1e-3,
+            "flat bottom at min(top)−offset = −1, got {}",
+            lo[1]
+        );
+        assert!((hi[1] - 0.8).abs() < 1e-3, "top max ≈ 0.8, got {}", hi[1]);
+        let span = hi[1] - lo[1];
+        assert!(
+            (span - 1.8).abs() < 1e-2,
+            "solid Y span ≈ 1.8 (0.8 − (−1)), got {span}"
+        );
+    }
+
+    #[test]
+    fn topo_pad_snapshot_migrates_to_terrain() {
+        let mut project = Project::new();
+        let placement = PlacementKind::Polyline
+            .build(
+                &[
+                    Vec3::new(0.0, 0.0, 0.0),
+                    Vec3::new(4.0, 0.0, 0.0),
+                    Vec3::new(4.0, 0.0, 3.0),
+                    Vec3::new(0.0, 0.0, 3.0),
+                ],
+                0.0,
+                &apex_geometry::Frame::horizontal(0.0),
+            )
+            .expect("poly");
+        let id = project
+            .create_element(
+                "apex.terrain",
+                placement,
+                ParamMap::new().with("bottom_offset", ParamValue::Length(0.8)),
+            )
+            .expect("terrain");
+        let mut snap = project.export_snapshot();
+        for el in &mut snap.elements {
+            if el.id == id {
+                el.component_id = "apex.topo_pad".into();
+                el.params.remove("bottom_offset");
+                el.params.set("thickness", ParamValue::Length(0.2));
+            }
+        }
+        let mut loaded = Project::new();
+        loaded.import_snapshot(snap).expect("load");
+        let el = loaded.document().get_element(id).expect("el");
+        assert_eq!(el.component_id, "apex.terrain");
+        assert!(
+            matches!(
+                el.params.get("bottom_offset"),
+                Some(ParamValue::Length(v)) if (*v - 0.2).abs() < 1e-9
+            ),
+            "thickness should migrate to bottom_offset"
+        );
+        assert!(el.params.get("thickness").is_none());
+        assert!(loaded.document().get_mesh(id).is_some());
     }
 
     #[test]

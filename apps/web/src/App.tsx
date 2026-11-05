@@ -504,6 +504,8 @@ export default function App() {
 
   const [shapeEditing, setShapeEditing] = useState(false);
   const [shapeHandle, setShapeHandle] = useState<number | null>(null);
+  const shapeHandleRef = useRef<number | null>(null);
+  shapeHandleRef.current = shapeHandle;
   const shapeTarget =
     selected && (scene?.selected_ids?.length ?? 0) === 1 && SHAPEABLE_COMPONENTS.has(selected.component_id)
       ? selected
@@ -519,12 +521,16 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shapeTarget, scene]);
   const shapeEditForRef = useRef<{ id: string; info: SlabShapeInfoDto } | null>(null);
-  const editingInfo = shapeEditing && shapeTarget && shapeInfo ? shapeInfo : null;
+  // Terrain: Revit-like — selecting the solid always exposes 3D height handles.
+  // Slabs/roofs still require the explicit Edit shape toggle (`shapeEditing`).
+  const terrainHeightEdit = shapeTarget?.component_id === 'apex.terrain';
+  const heightEditing = terrainHeightEdit || shapeEditing;
+  const editingInfo = heightEditing && shapeTarget && shapeInfo ? shapeInfo : null;
   shapeEditRef.current = editingInfo;
   shapeEditForRef.current = editingInfo && shapeTarget ? { id: shapeTarget.id, info: editingInfo } : null;
   useEffect(() => {
-    setShapeEditing(false);
     setShapeHandle(null);
+    setShapeEditing(false);
   }, [shapeTarget?.id]);
   useEffect(() => {
     if (editingInfo) showShapeGizmo(editingInfo);
@@ -661,6 +667,19 @@ export default function App() {
       cut: SectionCutDto | null = null,
       space: SpaceDto | null = null,
     ) => {
+      // Terrain always shows height-control gizmos (Revit sub-elements), even
+      // when called from applyScene before React re-renders shape-edit state.
+      if (el?.component_id === 'apex.terrain') {
+        try {
+          const info = apexSlabShapeInfo(el.id);
+          if (info) {
+            showShapeGizmo(info);
+            return;
+          }
+        } catch {
+          /* fall through to anchors */
+        }
+      }
       if (shapeEditRef.current && el && el.id === shapeEditForRef.current?.id) {
         showShapeGizmo(shapeEditRef.current);
         return;
@@ -1288,6 +1307,61 @@ export default function App() {
         } catch (e) {
           setError(e instanceof Error ? e.message : String(e));
           showShapeGizmo(info);
+        }
+      },
+      /** Drop an interior control point at the ground hit (terrain height edit). */
+      addShapePointAt: (clientX, clientY) => {
+        const info = shapeEditRef.current;
+        const target = shapeEditForRef.current?.id;
+        const el = selectedRef.current;
+        if (!info || !target || el?.component_id !== 'apex.terrain') return false;
+        const hit = renderer.screenToGround(
+          clientX,
+          clientY,
+          el.anchors?.[0]?.[1] ?? activeElevationRef.current,
+        );
+        if (!hit) return false;
+        const vertices = info.handles.filter((h) => h.kind === 'vertex').length;
+        const next: SlabShapeDto = {
+          z: Array.from({ length: vertices }, (_, i) => info.shape.z[i] ?? 0),
+          points: [
+            ...info.shape.points.map((p) => [...p] as [number, number, number]),
+            [hit[0], hit[2], 0],
+          ],
+          creases: info.shape.creases.map((c) => [...c] as [number, number]),
+        };
+        try {
+          applyScene(apexSetSlabShape(target, next));
+          setShapeHandle(vertices + next.points.length - 1);
+          setError(null);
+          return true;
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+          return false;
+        }
+      },
+      nudgeShapeHandle: (delta) => {
+        const info = shapeEditRef.current;
+        const target = shapeEditForRef.current?.id;
+        const index = shapeHandleRef.current;
+        if (!info || !target || index == null) return false;
+        const handle = info.handles[index];
+        if (!handle) return false;
+        const vertices = info.handles.filter((h) => h.kind === 'vertex').length;
+        const next: SlabShapeDto = {
+          z: Array.from({ length: vertices }, (_, i) => info.shape.z[i] ?? 0),
+          points: info.shape.points.map((p) => [...p] as [number, number, number]),
+          creases: info.shape.creases,
+        };
+        if (handle.kind === 'vertex') next.z[handle.index] = handle.offset + delta;
+        else next.points[handle.index][2] = handle.offset + delta;
+        try {
+          applyScene(apexSetSlabShape(target, next));
+          setError(null);
+          return true;
+        } catch (e) {
+          setError(e instanceof Error ? e.message : String(e));
+          return false;
         }
       },
       selectedAnchors: () => {
@@ -2296,10 +2370,17 @@ export default function App() {
         }
       }
       if (!typing && !mod && (e.key === 'PageUp' || e.key === 'PageDown')) {
+        const delta = e.key === 'PageUp' ? 0.5 : -0.5;
+        // Terrain/slab height handles: nudge the active control point in 3D.
+        if (shapeEditRef.current && shapeHandleRef.current != null) {
+          e.preventDefault();
+          toolContext().nudgeShapeHandle?.(delta);
+          return;
+        }
         const activeTool = toolRef.current;
         if (activeTool.nudgeElevation) {
           e.preventDefault();
-          activeTool.nudgeElevation(e.key === 'PageUp' ? 0.5 : -0.5);
+          activeTool.nudgeElevation(delta);
         }
       }
     };
@@ -3432,10 +3513,14 @@ export default function App() {
         shapeTarget && shapeInfo ? (
           <SlabShapePanel
             info={shapeInfo}
-            editing={shapeEditing}
+            editing={heightEditing}
             activeHandle={shapeHandle}
-            onToggleEditing={() => setShapeEditing((v) => !v)}
+            onToggleEditing={() => {
+              if (terrainHeightEdit) return; // always on for terrain
+              setShapeEditing((v) => !v);
+            }}
             onChange={onSetSlabShape}
+            terrain={!!terrainHeightEdit}
           />
         ) : null
       }
