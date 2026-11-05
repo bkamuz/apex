@@ -93,7 +93,11 @@ export interface ToolContext {
   moveShapeDrag?(clientX: number, clientY: number): void;
   /** Commit the dragged offset (one undo step). */
   endShapeDrag?(): void;
-  /** Add an interior terrain control point at the ground hit under the cursor. */
+  /**
+   * Add an interior terrain control point at the ground hit under the cursor.
+   * Used when the selected terrain top is clicked (or Shift+clicked) away from
+   * an existing height handle.
+   */
   addShapePointAt?(clientX: number, clientY: number): boolean;
   /** Nudge the active shape-handle elevation (m); used by PgUp/PgDn. */
   nudgeShapeHandle?(delta: number): boolean;

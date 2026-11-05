@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useI18n } from '../i18n';
 import type { SlabShapeDto, SlabShapeInfoDto } from '../types';
 
 /** Element types whose top surface can be shaped (Revit "Modify Sub Elements"). */
@@ -59,6 +60,7 @@ export function SlabShapePanel({
   onChange,
   terrain = false,
 }: Props) {
+  const { t } = useI18n();
   const [creaseA, setCreaseA] = useState(0);
   const [creaseB, setCreaseB] = useState(1);
   if (!info) return null;
@@ -82,7 +84,7 @@ export function SlabShapePanel({
   return (
     <div className="inspector-section" data-section="slab-shape">
       <div className="section-title">
-        {terrain ? 'Terrain heights' : 'Shape (sub-elements)'}
+        {terrain ? t('inspector.terrain.sectionTitle') : 'Shape (sub-elements)'}
       </div>
       <div className="parent-row">
         <button
@@ -91,18 +93,14 @@ export function SlabShapePanel({
           className={editing ? 'active' : undefined}
           onClick={onToggleEditing}
           disabled={terrain && editing}
-          title={
-            terrain
-              ? 'Terrain heights edit in the 3D view (drag points / PgUp·PgDn / Shift+click to add)'
-              : undefined
-          }
+          title={terrain ? t('inspector.terrain.editTitle') : undefined}
         >
           {editing
             ? terrain
-              ? '3D points active'
+              ? t('inspector.terrain.editActive')
               : 'Finish editing'
             : terrain
-              ? 'Edit heights'
+              ? t('inspector.terrain.editIdle')
               : 'Edit shape'}
         </button>
         <button
@@ -111,16 +109,16 @@ export function SlabShapePanel({
           disabled={flat}
           onClick={() => onChange({ z: [], points: [], creases: [] })}
         >
-          {terrain ? 'Reset heights' : 'Reset shape'}
+          {terrain ? t('inspector.terrain.reset') : 'Reset shape'}
         </button>
       </div>
       <div className="empty" style={{ padding: 0, margin: '4px 0' }}>
         {editing
           ? terrain
-            ? 'In 3D: drag a green point up/down, or select it and PgUp/PgDn. Shift+click the surface to add an inner point.'
+            ? t('inspector.terrain.hintEditing')
             : 'Drag a point up/down in 3D, or type its offset. Thickness stays constant (vertical).'
           : terrain
-            ? `Bottom offset ${info.thickness.toFixed(3)} m below the lowest top point.`
+            ? t('inspector.terrain.hintIdle', { offset: info.thickness.toFixed(3) })
             : `Thickness ${info.thickness.toFixed(3)} m, measured vertically.`}
       </div>
       {editing ? (
@@ -133,7 +131,8 @@ export function SlabShapePanel({
               style={activeHandle === h.crease_index ? { outline: '1px solid var(--accent, #4af)' } : undefined}
             >
               <label>
-                {label(h.crease_index)} {terrain ? 'Elevation' : 'Z offset'}
+                {label(h.crease_index)}{' '}
+                {terrain ? t('inspector.terrain.elevation') : 'Z offset'}
                 {h.kind === 'point'
                   ? ` (${h.position[0].toFixed(2)}, ${h.position[2].toFixed(2)})`
                   : ''}
@@ -177,7 +176,7 @@ export function SlabShapePanel({
               onChange(next);
             }}
           >
-            {terrain ? 'Add inner point (centre)' : 'Add point (centre)'}
+            {terrain ? t('inspector.terrain.addInnerCentre') : 'Add point (centre)'}
           </button>
           <div className="field">
             <label>Creases</label>

@@ -1315,6 +1315,11 @@ export default function App() {
         const target = shapeEditForRef.current?.id;
         const el = selectedRef.current;
         if (!info || !target || el?.component_id !== 'apex.terrain') return false;
+        // Keep the click on this terrain's mesh so empty space / other elements
+        // do not accidentally insert points (primary click-to-add path).
+        const pickId = renderer.pick(clientX, clientY);
+        const listPick = sceneRef.current?.elements.find((entry) => entry.id === target)?.pick_id;
+        if (pickId == null || listPick == null || pickId !== listPick) return false;
         const hit = renderer.screenToGround(
           clientX,
           clientY,
@@ -3582,7 +3587,13 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [tool.componentId, scene],
   );
-  const statusText = `${info ?? tool.hint(pending.length)}${
+  // Terrain selection always shows height-edit instructions (even over a sticky
+  // info notice like "sample loaded") so adding inner points is discoverable.
+  const selectHint =
+    terrainHeightEdit && toolId === ToolRegistry.selectId
+      ? t('tool.select.terrainHint')
+      : (info ?? tool.hint(pending.length));
+  const statusText = `${selectHint}${
     pending.length > 0 && tool.group === 'create'
       ? typedLength
         ? t('chrome.typedLength', { length: typedLength })

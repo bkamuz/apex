@@ -216,8 +216,11 @@ export function createSelectTool(): Tool {
       if (ctx.hitEditHandle(e.clientX, e.clientY) !== null) return;
       if ((ctx.hitShapeHandle?.(e.clientX, e.clientY) ?? null) !== null) return;
 
-      // Terrain height edit (Revit-like): Shift+click places an interior point.
-      if (e.shift && ctx.addShapePointAt?.(e.clientX, e.clientY)) {
+      // Terrain height edit (Revit-like): click an empty spot on the selected
+      // terrain top to add an interior control point. Shift+click is the same
+      // secondary shortcut. Ctrl/Cmd+click still multi-selects instead.
+      // addShapePointAt no-ops unless terrain is selected and the ray hits it.
+      if (!e.multi && ctx.addShapePointAt?.(e.clientX, e.clientY)) {
         return;
       }
 
