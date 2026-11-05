@@ -56,7 +56,6 @@ export interface ViewportTheme {
   contour: Rgba;
   activeContour: Rgba;
   gridAxis: Rgba;
-  gridAxisFaint: Rgba;
   sky: Rgb;
   ground: Rgb;
 }
@@ -69,7 +68,6 @@ export const VIEWPORT_THEMES: Record<ResolvedTheme, ViewportTheme> = {
     contour: [0.5, 0.56, 0.64, 0.45],
     activeContour: [0.72, 0.84, 0.98, 0.8],
     gridAxis: [0.62, 0.63, 0.65, 0.95],
-    gridAxisFaint: [0.62, 0.63, 0.65, 0.4],
     sky: [0.92, 0.94, 0.98],
     ground: [0.28, 0.3, 0.34],
   },
@@ -80,7 +78,6 @@ export const VIEWPORT_THEMES: Record<ResolvedTheme, ViewportTheme> = {
     contour: [0.45, 0.47, 0.5, 0.5],
     activeContour: [0.3, 0.42, 0.55, 0.8],
     gridAxis: [0.36, 0.37, 0.39, 0.95],
-    gridAxisFaint: [0.36, 0.37, 0.39, 0.45],
     // Neutral (not cool) lighting so walls read grey, not blue.
     sky: [0.96, 0.96, 0.95],
     ground: [0.42, 0.42, 0.41],
