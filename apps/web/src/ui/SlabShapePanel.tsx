@@ -90,8 +90,20 @@ export function SlabShapePanel({
           data-testid="slab-shape-edit"
           className={editing ? 'active' : undefined}
           onClick={onToggleEditing}
+          disabled={terrain && editing}
+          title={
+            terrain
+              ? 'Terrain heights edit in the 3D view (drag points / PgUp·PgDn / Shift+click to add)'
+              : undefined
+          }
         >
-          {editing ? 'Finish editing' : terrain ? 'Edit heights' : 'Edit shape'}
+          {editing
+            ? terrain
+              ? '3D points active'
+              : 'Finish editing'
+            : terrain
+              ? 'Edit heights'
+              : 'Edit shape'}
         </button>
         <button
           type="button"
@@ -105,10 +117,10 @@ export function SlabShapePanel({
       <div className="empty" style={{ padding: 0, margin: '4px 0' }}>
         {editing
           ? terrain
-            ? 'Drag a control point up/down in 3D, or type its elevation. Solid rebuilds: TIN top, flat bottom, vertical sides.'
+            ? 'In 3D: drag a green point up/down, or select it and PgUp/PgDn. Shift+click the surface to add an inner point.'
             : 'Drag a point up/down in 3D, or type its offset. Thickness stays constant (vertical).'
           : terrain
-            ? `Bottom offset ${info.thickness.toFixed(3)} m below the lowest top point. Edit Bottom offset in params.`
+            ? `Bottom offset ${info.thickness.toFixed(3)} m below the lowest top point.`
             : `Thickness ${info.thickness.toFixed(3)} m, measured vertically.`}
       </div>
       {editing ? (

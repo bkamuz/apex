@@ -20,10 +20,10 @@ type Candidate = { id: string; name: string; category: string; pickId: number };
  * would otherwise steal the default hover when the ray grazes the deck.
  */
 export function rankSelectCandidates(all: Candidate[]): Candidate[] {
-  return [
-    ...all.filter((c) => c.category !== 'slab'),
-    ...all.filter((c) => c.category === 'slab'),
-  ];
+  // Floors and terrain sit under everything — keep them last so walls/fence/
+  // site surfaces win the default hover (Tab still reaches topo/slab).
+  const under = (c: Candidate) => c.category === 'slab' || c.category === 'topo';
+  return [...all.filter((c) => !under(c)), ...all.filter(under)];
 }
 
 /**
@@ -216,13 +216,23 @@ export function createSelectTool(): Tool {
       if (ctx.hitEditHandle(e.clientX, e.clientY) !== null) return;
       if ((ctx.hitShapeHandle?.(e.clientX, e.clientY) ?? null) !== null) return;
 
+      // Terrain height edit (Revit-like): Shift+click places an interior point.
+      if (e.shift && ctx.addShapePointAt?.(e.clientX, e.clientY)) {
+        return;
+      }
+
       lastPointer = { x: e.clientX, y: e.clientY };
       refreshCandidates(ctx, e.clientX, e.clientY);
       const cur = current();
       // Plan: un-cycled top slab still routes through selectAt so a room
       // under the floor can be named without hunting the boundary.
-      const deferSlabToRoom = !!cur && !tabbed && index === 0 && cur.category === 'slab';
-      if (cur && !deferSlabToRoom) {
+      // Same for topo — floors/terrain underlie site work.
+      const deferUnder =
+        !!cur &&
+        !tabbed &&
+        index === 0 &&
+        (cur.category === 'slab' || cur.category === 'topo');
+      if (cur && !deferUnder) {
         ctx.selectElementId(cur.id, e.multi);
         syncHover(ctx);
         return;

@@ -256,8 +256,8 @@ const fenceParams: Record<string, ParamValue> = {
  * inner height points, joinable fence loop, gate, lawn / paved / driveway.
  */
 function buildYard(elev: number): void {
-  // Terrain solid: south strip + east strip (L outside the 10×8 house).
-  // TIN top from outer/inner elevations; flat bottom = min(top) − bottom_offset.
+  // Terrain solid L outside the 10×8 house (south + east). Dramatic SE drop +
+  // east mound so the TIN top reads clearly in 3D (not a flat pad).
   apexCreateElement(
     "apex.terrain",
     [
@@ -268,28 +268,25 @@ function buildYard(elev: number): void {
       xz(10.2, -0.15, elev),
       xz(-3, -0.15, elev),
     ],
-    { bottom_offset: 1.0, elevation: 0 },
+    { bottom_offset: 1.5, elevation: 0 },
     0,
     "polyline",
   );
   const terrainId = lastId("apex.terrain");
-  if (terrainId) {
-    try {
-      // Outer vertices: SW, SE, NE-east, NE-inner, house-SE corner, NW-south.
-      // Interior points pull the driveway and SE yard into a visible grade.
-      apexSetSlabShape(terrainId, {
-        z: [-0.25, -0.9, -0.55, 0, 0, -0.15],
-        points: [
-          [11.5, 5.5, -0.35],
-          [6.0, -1.5, -0.55],
-          [12.0, -1.5, -0.75],
-        ],
-        creases: [],
-      });
-    } catch {
-      /* shape edit optional if kernel rejects */
-    }
+  if (!terrainId) {
+    throw new Error("houseSample: terrain create failed");
   }
+  // Outer: SW, SE, NE-east, NE-inner, house-SE corner, NW-south.
+  apexSetSlabShape(terrainId, {
+    z: [-0.15, -1.5, -0.35, 0.05, 0.05, -0.1],
+    points: [
+      [12.0, 5.5, 0.85],
+      [11.5, -1.6, -1.15],
+      [5.0, -1.7, -0.85],
+      [12.2, 8.5, 0.25],
+    ],
+    creases: [],
+  });
 
   // Fence rectangle −3..13 × −3..11 (outside the 10×8 house).
   const fenceLoop: Array<[number, number]> = [
