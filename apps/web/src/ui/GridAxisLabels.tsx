@@ -9,6 +9,8 @@ interface LabelPos {
   top: number;
   kind: 'grid' | 'space';
   selected?: boolean;
+  /** World XYZ for occlusion / Playwright probes. */
+  world: [number, number, number];
 }
 
 interface Props {
@@ -47,6 +49,7 @@ export function GridAxisLabels({ axes, spaces = [], renderer, selectedIds = [] }
             top: screen[1],
             kind: 'grid',
             selected: selectedIds.includes(axis.id),
+            world: [label.position[0], label.position[1], label.position[2]],
           });
         }
       }
@@ -63,6 +66,7 @@ export function GridAxisLabels({ axes, spaces = [], renderer, selectedIds = [] }
               left: screen[0],
               top: screen[1],
               kind: 'space',
+              world: [label.position[0], label.position[1], label.position[2]],
             });
           }
         }
@@ -86,6 +90,7 @@ export function GridAxisLabels({ axes, spaces = [], renderer, selectedIds = [] }
               ? 'space-label'
               : `grid-axis-label${label.selected ? ' is-selected' : ''}`
           }
+          data-world={label.world.join(',')}
           style={{ left: label.left, top: label.top }}
         >
           {label.text}

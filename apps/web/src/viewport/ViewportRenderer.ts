@@ -2178,6 +2178,10 @@ export class ViewportRenderer {
     const pixel = new Uint8Array(4);
     gl.readPixels(px, py, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    // Pick overwrites the shared FBO colour buffer with pick ids. Invalidate the
+    // overlay-occlusion depth bake so the next isWorldOccluded re-bakes instead
+    // of reading pick ids as packed window-Z (which made every head vanish).
+    this.occlusionSig = '';
 
     const id = pixel[0] | (pixel[1] << 8) | (pixel[2] << 16) | (pixel[3] << 24);
     const uid = id >>> 0;
@@ -2720,6 +2724,8 @@ export class ViewportRenderer {
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     this.pickW = w;
     this.pickH = h;
+    // Recreated colour/depth targets — prior occlusion bake is gone.
+    this.occlusionSig = '';
   }
 
   private uploadSlabPickUniforms(u: MeshUniforms): void {
