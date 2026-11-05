@@ -1187,7 +1187,7 @@ pub fn builtin_components() -> Vec<ComponentDefinition> {
         fence(),
         gate(),
         site_surface(),
-        topo_pad(),
+        terrain(),
         boolean(),
         crate::ifc_mesh::ifc_mesh_definition(),
     ]
@@ -2000,7 +2000,7 @@ fn site_surface() -> ComponentDefinition {
             height: Expr::param("thickness"),
         },
         descriptor: Descriptor::new(
-            "Yard surface: a closed plan boundary extruded by `thickness`. Seats on a topo pad when one covers the pick, otherwise on the level. `surface_kind` selects lawn / paved / driveway. Optional slopes via set_slab_shape.",
+            "Yard surface: a closed plan boundary extruded by `thickness`. Seats on terrain when one covers the pick, otherwise on the level. `surface_kind` selects lawn / paved / driveway. Optional slopes via set_slab_shape.",
         )
         .points("polyline: 3+ boundary points, closed automatically (do not repeat the first point)")
         .constraint("boundary must be simple (non self-intersecting)")
@@ -2015,38 +2015,42 @@ fn site_surface() -> ComponentDefinition {
     }
 }
 
-/// Graded topography pad — closed plan polygon with optional per-vertex Z.
-fn topo_pad() -> ComponentDefinition {
+/// Terrain solid — outer ring + optional interior control points with
+/// elevations; TIN top, horizontal bottom, vertical side walls.
+fn terrain() -> ComponentDefinition {
     ComponentDefinition {
         opening: None,
         default_species: None,
         genus: None,
-        id: "apex.topo_pad".to_string(),
-        display_name: "Topo pad".to_string(),
+        id: "apex.terrain".to_string(),
+        display_name: "Terrain".to_string(),
         category: "topo".to_string(),
         source: ComponentSource::BuiltIn,
         placement: PlacementKind::Polyline,
         placement_options: PlacementOptions::closed_boundary(),
         params: vec![
-            // Relative to level; may be zero or negative (cut).
+            // Relative to level; may be zero or negative (cut). Base for point offsets.
             ParamSpec::length("elevation", "Elevation", 0.0).with_range(None, None),
-            ParamSpec::length("thickness", "Thickness", 0.2),
-            // Sub-element shape (JSON, see `project::slab_shape`); empty = flat.
+            // Bottom Y = min(top point elevations) − bottom_offset (downward only).
+            ParamSpec::length("bottom_offset", "Bottom offset", 1.0).with_range(Some(0.0), None),
+            // Control-point heights: outer vertex `z[]` + interior `[x, z, dz]`
+            // (JSON, see `project::slab_shape`).
             ParamSpec::text(SLAB_SHAPE, "Shape", ""),
         ],
+        // Dummy prism for registry/AABB fallback; real mesh is the TIN solid.
         recipe: GeometryRecipe::Extrude {
             profile: ProfileSpec::FromPlacement,
             frame: FrameSource::WorkPlane,
-            height: Expr::param("thickness"),
+            height: Expr::constant(0.01),
         },
         descriptor: Descriptor::new(
-            "Graded topography pad: a closed plan boundary extruded by `thickness` at level + `elevation`. Per-vertex grades via set_slab_shape (same shape model as slabs). Fence and site surfaces seat onto the pad top when placed over it.",
+            "Terrain solid: closed outer boundary plus optional interior control points, each with an elevation. Top is a TIN (constrained Delaunay in plan); bottom is a horizontal plane at min(top elevations) − bottom_offset; sides are vertical. Fence and site surfaces seat onto the top. Edit heights via set_slab_shape (`z` per outer vertex, `points` for interior [x, z, elev]).",
         )
-        .points("polyline: 3+ boundary points, closed automatically (do not repeat the first point)")
-        .constraint("boundary must be simple (non self-intersecting)")
+        .points("polyline: 3+ outer boundary points, closed automatically (do not repeat the first point)")
+        .constraint("boundary must be simple (non self-intersecting); bottom_offset ≥ 0")
         .example(
-            "East grade pad",
-            json!({"component": "apex.topo_pad", "points": [[10, 0, 0], [14, 0, 0], [14, 0, 8], [10, 0, 8]], "params": {"elevation": 0.0, "thickness": 0.2}}),
+            "Sloped yard patch",
+            json!({"component": "apex.terrain", "points": [[10, 0, 0], [14, 0, 0], [14, 0, 8], [10, 0, 8]], "params": {"elevation": 0.0, "bottom_offset": 1.0, "shape": "{\"z\":[0,-0.6,-0.4,0],\"points\":[[12,4,-0.2]]}"}}),
         ),
         host_cut: None,
         level_height_params: vec![],

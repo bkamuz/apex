@@ -62,7 +62,7 @@ let counts = await sampleCounts();
 const ready =
   counts &&
   (counts['apex.fence'] ?? 0) >= 4 &&
-  (counts['apex.topo_pad'] ?? 0) >= 1;
+  (counts['apex.terrain'] ?? 0) >= 1;
 if (!ready) {
   const loadBtn = page.getByTestId('load-sample-project');
   if ((await loadBtn.count()) > 0 && (await loadBtn.isVisible())) {
@@ -74,8 +74,8 @@ if (!ready) {
   counts = await sampleCounts();
 }
 console.log('  sample counts:', JSON.stringify(counts));
-if (!counts?.['apex.topo_pad']) {
-  console.warn('  !! expected apex.topo_pad in sample');
+if (!counts?.['apex.terrain']) {
+  console.warn('  !! expected apex.terrain in sample');
 }
 
 const publish = (name, src) => {
@@ -180,10 +180,10 @@ await shot('apex-settings-extensions');
 await page.keyboard.press('Escape');
 await page.waitForTimeout(200);
 
-// --- Bonus (media only): Site tools + topo pad selected -----------------------
+// --- Bonus (media only): Site tools + terrain selected -----------------------
 await clickTab('Site');
-await page.getByRole('button', { name: 'Topo pad', exact: true }).click().catch(async () => {
-  await page.getByRole('button', { name: /Topo/i }).first().click().catch(() => {});
+await page.getByRole('button', { name: 'Terrain', exact: true }).click().catch(async () => {
+  await page.getByRole('button', { name: /Terrain|Рельеф/i }).first().click().catch(() => {});
 });
 await page.waitForTimeout(200);
 await nav('3D');
@@ -198,13 +198,13 @@ await page.getByRole('button', { name: 'Select', exact: true }).click().catch(()
 await page.waitForTimeout(200);
 const topoItem = page
   .locator('[data-kind="instance"]')
-  .filter({ hasText: /Topo|топо/i })
+  .filter({ hasText: /Terrain|Рельеф/i })
   .first();
 if ((await topoItem.count()) > 0) {
   await topoItem.click();
   await page.waitForTimeout(400);
 }
-await shot('apex-topo-pad');
+await shot('apex-terrain');
 
 await clickTab('Site');
 await page.getByRole('button', { name: 'Fence', exact: true }).click().catch(() => {});

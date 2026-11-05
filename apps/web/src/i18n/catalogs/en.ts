@@ -188,7 +188,7 @@ export const en: MessageCatalog = {
   'component.apex.fence': 'Fence',
   'component.apex.gate': 'Gate',
   'component.apex.site_surface': 'Site surface',
-  'component.apex.topo_pad': 'Topo pad',
+  'component.apex.terrain': 'Terrain',
 
   // —— Tool labels ——
   'tool.select.label': 'Select',
@@ -551,6 +551,7 @@ export const en: MessageCatalog = {
   'param.label.depth': 'Depth',
   'param.label.diameter': 'Diameter',
   'param.label.elevation': 'Elevation',
+  'param.label.bottom_offset': 'Bottom offset',
   'param.label.extension': 'Extension',
   'param.label.fill_height': 'Fill height',
   'param.label.frame_reference': 'Frame reference',
@@ -634,7 +635,7 @@ export const en: MessageCatalog = {
   'settings.pack.spaces.desc': 'Closed room polylines and Detect rooms from wall loops.',
   'settings.pack.site': 'Site / landscape',
   'settings.pack.site.desc':
-    'Yard fencing, gates, site surfaces (lawn, paved, driveway), graded topo pads, and linked DXF plan underlays.',
+    'Yard fencing, gates, site surfaces (lawn, paved, driveway), terrain solids from height points, and linked DXF plan underlays.',
   'settings.pack.annotate': 'Annotate',
   'settings.pack.annotate.desc': 'View annotations — dimensions and notes on saved views.',
   'settings.pack.ifc': 'IFC import / export',

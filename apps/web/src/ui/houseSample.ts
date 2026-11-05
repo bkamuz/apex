@@ -252,14 +252,14 @@ const fenceParams: Record<string, ParamValue> = {
 };
 
 /**
- * Site yard on L0: graded topo pad (SE L outside the house), joinable fence
- * loop, gate opposite the entrance, lawn / paved patio / driveway on the pad.
+ * Site yard on L0: terrain solid (SE L outside the house) with outer +
+ * inner height points, joinable fence loop, gate, lawn / paved / driveway.
  */
 function buildYard(elev: number): void {
-  // Graded topo pad: south strip + east strip (L outside the 10×8 house).
-  // SE corner falls away so the yard reads as terrain under fence/driveway.
+  // Terrain solid: south strip + east strip (L outside the 10×8 house).
+  // TIN top from outer/inner elevations; flat bottom = min(top) − bottom_offset.
   apexCreateElement(
-    "apex.topo_pad",
+    "apex.terrain",
     [
       xz(-3, -3, elev),
       xz(13, -3, elev),
@@ -268,18 +268,22 @@ function buildYard(elev: number): void {
       xz(10.2, -0.15, elev),
       xz(-3, -0.15, elev),
     ],
-    { thickness: 0.2, elevation: 0 },
+    { bottom_offset: 1.0, elevation: 0 },
     0,
     "polyline",
   );
-  const padId = lastId("apex.topo_pad");
-  if (padId) {
+  const terrainId = lastId("apex.terrain");
+  if (terrainId) {
     try {
-      // Vertices: SW, SE, NE-east, NE-inner, house-SE corner, NW-south.
-      // East/south edges drop ~0.7–0.9 m; house edge stays near level.
-      apexSetSlabShape(padId, {
+      // Outer vertices: SW, SE, NE-east, NE-inner, house-SE corner, NW-south.
+      // Interior points pull the driveway and SE yard into a visible grade.
+      apexSetSlabShape(terrainId, {
         z: [-0.25, -0.9, -0.55, 0, 0, -0.15],
-        points: [],
+        points: [
+          [11.5, 5.5, -0.35],
+          [6.0, -1.5, -0.55],
+          [12.0, -1.5, -0.75],
+        ],
         creases: [],
       });
     } catch {
@@ -359,7 +363,7 @@ function buildYard(elev: number): void {
     0,
     "polyline",
   );
-  // Driveway east of the house — sits on the graded topo pad (no own shape).
+  // Driveway east of the house — sits on the graded terrain (no own shape).
   apexCreateElement(
     "apex.site_surface",
     [
@@ -376,7 +380,7 @@ function buildYard(elev: number): void {
 
 /**
  * Two-storey demo house (10×8 m footprint) with pitched roof, stair,
- * grid axes, Spaces from wall-loop detect, and a site yard (topo pad,
+ * grid axes, Spaces from wall-loop detect, and a site yard (terrain TIN,
  * fence, gate, surfaces) — same construction as `scripts/house-e2e.mjs` /
  * `packages/apex-mcp/scripts/house-mcp.mjs`.
  */

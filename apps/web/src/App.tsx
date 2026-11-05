@@ -3436,6 +3436,7 @@ export default function App() {
             activeHandle={shapeHandle}
             onToggleEditing={() => setShapeEditing((v) => !v)}
             onChange={onSetSlabShape}
+            terrain={selected?.component_id === 'apex.terrain'}
           />
         ) : null
       }

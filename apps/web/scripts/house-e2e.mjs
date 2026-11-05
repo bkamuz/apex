@@ -247,8 +247,8 @@ await useTool('Slab');
 await polyline([[0, 0], [10, 0], [10, 8], [0, 8]]);
 await page.keyboard.press('Escape');
 await checkError('slab L0');
-// Site yard: graded topo pad, fence loop, gate, lawn/paved/driveway.
-await useTool('Topo pad');
+// Site yard: terrain TIN, fence loop, gate, lawn/paved/driveway.
+await useTool('Terrain');
 await polyline([
   [-3, -3],
   [13, -3],
@@ -262,14 +262,14 @@ await clickW(11.5, -1.5, { snap: false });
 await page.waitForTimeout(200);
 if (await page.getByTestId('slab-shape-edit').isVisible().catch(() => false)) {
   await page.getByTestId('slab-shape-edit').click();
-  // Drop the SE corner (handle 1) so the pad grades away from the house.
+  // Drop the SE corner (handle 1) so the ground grades away from the house.
   const se = page.getByTestId('shape-handle-1').locator('input');
   await se.fill('-0.9');
   await se.press('Enter');
   await page.waitForTimeout(250);
-  await shot('l0-topo-pad-shape-edit-plan');
+  await shot('l0-terrain-heights-edit-plan');
   await page.getByTestId('slab-shape-edit').click();
-} else note('topo pad: no "Edit shape" button');
+} else note('terrain: no "Edit heights" button');
 await page.keyboard.press('Escape');
 await useTool('Fence');
 const fenceLoop = [[-3, -3], [13, -3], [13, 11], [-3, 11], [-3, -3]];
