@@ -28,7 +28,12 @@ use crate::registry::{RegistryError, SLAB_SHAPE};
 
 use super::Project;
 
-const SHAPEABLE: [&str; 3] = ["apex.slab", "apex.roof", "apex.site_surface"];
+const SHAPEABLE: [&str; 4] = [
+    "apex.slab",
+    "apex.roof",
+    "apex.site_surface",
+    "apex.topo_pad",
+];
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct SlabShape {
@@ -280,6 +285,66 @@ impl Project {
         let shape = self.slab_shape(element)?;
         let (surface, _) = self.surface_for(element, &shape)?;
         surface.height_at(x, z)
+    }
+
+    /// Top of a covering topography pad at plan (x, z), if any on `level_id`.
+    ///
+    /// When several pads overlap, the highest top wins. Used to seat
+    /// fence / surface / other `seat_on_level` elements on graded ground.
+    pub fn topo_height_at(
+        &self,
+        level_id: crate::level::LevelId,
+        x: f64,
+        z: f64,
+        exclude: Option<ElementId>,
+    ) -> Option<f64> {
+        let mut best: Option<f64> = None;
+        for id in self.document.elements_on_level(level_id) {
+            if exclude == Some(id) {
+                continue;
+            }
+            let Some(element) = self.document.get_element(id) else {
+                continue;
+            };
+            let Some(def) = self.registry.get(&element.component_id) else {
+                continue;
+            };
+            if def.category != "topo" {
+                continue;
+            }
+            let Some(h) = self.slab_top_at(id, x, z) else {
+                continue;
+            };
+            best = Some(best.map_or(h, |b| b.max(h)));
+        }
+        best
+    }
+
+    /// World Y used when seating a component on a level.
+    ///
+    /// * Topo pads (`category == "topo"`): level elevation + optional
+    ///   `elevation` param (relative offset).
+    /// * Other seat-on-level components: topo pad top at the first
+    ///   placement anchor when one covers that plan point; else level Y.
+    pub(crate) fn seat_elevation(
+        &self,
+        level_id: crate::level::LevelId,
+        category: &str,
+        placement: &crate::placement::Placement,
+        params: &crate::param::ParamMap,
+        exclude: Option<ElementId>,
+    ) -> f32 {
+        let level_y = self.work_plane(level_id).origin.y;
+        if category == "topo" {
+            let extra = params.number("elevation").unwrap_or(0.0) as f32;
+            return level_y + extra;
+        }
+        if let Some(p) = placement.anchors().first() {
+            if let Some(h) = self.topo_height_at(level_id, p.x as f64, p.z as f64, exclude) {
+                return h as f32;
+            }
+        }
+        level_y
     }
 }
 

@@ -38,6 +38,7 @@ export const TOOL_ICONS = {
   fence: 'fence',
   gate: 'gate',
   siteSurface: 'site-surface',
+  topoPad: 'topo-pad',
 } as const;
 
 export type ToolIconName = (typeof TOOL_ICONS)[keyof typeof TOOL_ICONS];
@@ -102,6 +103,8 @@ const CATALOG_SVG: Readonly<Record<string, string>> = {
     '<path d="M2.5 12V3h4.5v9M11.5 12V3H7v9" fill="none" stroke="currentColor" stroke-width="1.25"/><circle cx="6.2" cy="7.5" r="0.6" fill="currentColor"/><path d="M2.5 12h9" fill="none" stroke="currentColor" stroke-width="1.25"/>',
   'site-surface':
     '<path d="M2 10.5L4.5 4h5L12 10.5z" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/><path d="M3.5 8.5h7" fill="none" stroke="currentColor" stroke-width="1.1"/>',
+  'topo-pad':
+    '<path d="M1.5 10.5L4 5.5h6l2.5 5" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/><path d="M3 8.5h8M4.5 6.5h5" fill="none" stroke="currentColor" stroke-width="1.05"/>',
 };
 
 /** Map built-in component ids → catalog icon names. */
@@ -122,6 +125,7 @@ export const COMPONENT_ICON_BY_ID: Readonly<Record<string, ToolIconName>> = {
   'apex.fence': TOOL_ICONS.fence,
   'apex.gate': TOOL_ICONS.gate,
   'apex.site_surface': TOOL_ICONS.siteSurface,
+  'apex.topo_pad': TOOL_ICONS.topoPad,
 };
 
 export function catalogIconByName(name: string): string | undefined {

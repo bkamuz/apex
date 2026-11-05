@@ -247,7 +247,30 @@ await useTool('Slab');
 await polyline([[0, 0], [10, 0], [10, 8], [0, 8]]);
 await page.keyboard.press('Escape');
 await checkError('slab L0');
-// Site yard: fence loop, gate, lawn/paved/driveway (driveway slope via shape edit).
+// Site yard: graded topo pad, fence loop, gate, lawn/paved/driveway.
+await useTool('Topo pad');
+await polyline([
+  [-3, -3],
+  [13, -3],
+  [13, 11],
+  [10.2, 11],
+  [10.2, -0.15],
+  [-3, -0.15],
+]);
+await page.keyboard.press('Escape');
+await clickW(11.5, -1.5, { snap: false });
+await page.waitForTimeout(200);
+if (await page.getByTestId('slab-shape-edit').isVisible().catch(() => false)) {
+  await page.getByTestId('slab-shape-edit').click();
+  // Drop the SE corner (handle 1) so the pad grades away from the house.
+  const se = page.getByTestId('shape-handle-1').locator('input');
+  await se.fill('-0.9');
+  await se.press('Enter');
+  await page.waitForTimeout(250);
+  await shot('l0-topo-pad-shape-edit-plan');
+  await page.getByTestId('slab-shape-edit').click();
+} else note('topo pad: no "Edit shape" button');
+await page.keyboard.press('Escape');
 await useTool('Fence');
 const fenceLoop = [[-3, -3], [13, -3], [13, 11], [-3, 11], [-3, -3]];
 for (let i = 0; i < 4; i += 1) {
@@ -268,20 +291,6 @@ await polyline([[0.5, -2.5], [4.5, -2.5], [4.5, -0.2], [0.5, -0.2]]);
 await page.keyboard.press('Escape');
 await useTool('Site surface');
 await polyline([[10.2, 3.5], [12.8, 3.5], [12.8, 7.5], [10.2, 7.5]]);
-await page.keyboard.press('Escape');
-await clickW(11.5, 5.5, { snap: false });
-await page.waitForTimeout(200);
-if (await page.getByTestId('slab-shape-edit').isVisible().catch(() => false)) {
-  await page.getByTestId('slab-shape-edit').click();
-  for (const i of [1, 2]) {
-    const input = page.getByTestId(`shape-handle-${i}`).locator('input');
-    await input.fill('0.6');
-    await input.press('Enter');
-    await page.waitForTimeout(250);
-  }
-  await shot('l0-driveway-shape-edit-plan');
-  await page.getByTestId('slab-shape-edit').click();
-} else note('driveway: no "Edit shape" button');
 await page.keyboard.press('Escape');
 await checkError('site yard');
 await shot('l0-walls-openings');

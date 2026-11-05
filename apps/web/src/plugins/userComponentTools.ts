@@ -7,7 +7,7 @@ import type { ToolRegistry } from '../tools/registry';
 import { toolIdForComponent } from '../tools/Tool';
 
 const ENGINEERING_CATEGORIES = new Set(['pipe', 'duct', 'cable', 'mep']);
-const SITE_CATEGORIES = new Set(['fence', 'site', 'surface', 'landscape']);
+const SITE_CATEGORIES = new Set(['fence', 'site', 'surface', 'landscape', 'topo']);
 
 export function tabForUserComponent(component: ComponentDto): ToolTab {
   const category = component.category.toLowerCase();

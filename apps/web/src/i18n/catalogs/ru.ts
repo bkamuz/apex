@@ -183,6 +183,7 @@ export const ru: MessageCatalog = {
   'component.apex.fence': 'Забор',
   'component.apex.gate': 'Калитка',
   'component.apex.site_surface': 'Покрытие участка',
+  'component.apex.topo_pad': 'Топоплощадка',
 
   'tool.select.label': 'Выбор',
   'tool.apex.move.label': 'Переместить',
@@ -535,6 +536,7 @@ export const ru: MessageCatalog = {
   'param.label.count': 'Количество',
   'param.label.depth': 'Глубина',
   'param.label.diameter': 'Диаметр',
+  'param.label.elevation': 'Отметка',
   'param.label.extension': 'Удлинение',
   'param.label.fill_height': 'Высота заполнения',
   'param.label.frame_reference': 'Профиль рамы',
@@ -618,7 +620,7 @@ export const ru: MessageCatalog = {
   'settings.pack.spaces.desc': 'Замкнутые контуры помещений и поиск комнат по стенам.',
   'settings.pack.site': 'Участок',
   'settings.pack.site.desc':
-    'Ограждение, калитки, покрытия двора (газон, мощение, подъезд) и связанные DXF-подложки плана.',
+    'Ограждение, калитки, покрытия двора (газон, мощение, подъезд), рельефные площадки и связанные DXF-подложки плана.',
   'settings.pack.annotate': 'Аннотации',
   'settings.pack.annotate.desc': 'Аннотации видов — размеры и заметки на сохранённых видах.',
   'settings.pack.ifc': 'IFC импорт / экспорт',

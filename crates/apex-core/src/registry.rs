@@ -1187,6 +1187,7 @@ pub fn builtin_components() -> Vec<ComponentDefinition> {
         fence(),
         gate(),
         site_surface(),
+        topo_pad(),
         boolean(),
         crate::ifc_mesh::ifc_mesh_definition(),
     ]
@@ -1999,7 +2000,7 @@ fn site_surface() -> ComponentDefinition {
             height: Expr::param("thickness"),
         },
         descriptor: Descriptor::new(
-            "Yard surface: a closed plan boundary extruded by `thickness` on the level. `surface_kind` selects lawn / paved / driveway. Slopes via set_slab_shape (same as slabs) until topography pads exist.",
+            "Yard surface: a closed plan boundary extruded by `thickness`. Seats on a topo pad when one covers the pick, otherwise on the level. `surface_kind` selects lawn / paved / driveway. Optional slopes via set_slab_shape.",
         )
         .points("polyline: 3+ boundary points, closed automatically (do not repeat the first point)")
         .constraint("boundary must be simple (non self-intersecting)")
@@ -2010,6 +2011,46 @@ fn site_surface() -> ComponentDefinition {
         host_cut: None,
         level_height_params: vec![],
         ifc_entity: Some("IfcCovering".into()),
+        joinable: false,
+    }
+}
+
+/// Graded topography pad — closed plan polygon with optional per-vertex Z.
+fn topo_pad() -> ComponentDefinition {
+    ComponentDefinition {
+        opening: None,
+        default_species: None,
+        genus: None,
+        id: "apex.topo_pad".to_string(),
+        display_name: "Topo pad".to_string(),
+        category: "topo".to_string(),
+        source: ComponentSource::BuiltIn,
+        placement: PlacementKind::Polyline,
+        placement_options: PlacementOptions::closed_boundary(),
+        params: vec![
+            // Relative to level; may be zero or negative (cut).
+            ParamSpec::length("elevation", "Elevation", 0.0).with_range(None, None),
+            ParamSpec::length("thickness", "Thickness", 0.2),
+            // Sub-element shape (JSON, see `project::slab_shape`); empty = flat.
+            ParamSpec::text(SLAB_SHAPE, "Shape", ""),
+        ],
+        recipe: GeometryRecipe::Extrude {
+            profile: ProfileSpec::FromPlacement,
+            frame: FrameSource::WorkPlane,
+            height: Expr::param("thickness"),
+        },
+        descriptor: Descriptor::new(
+            "Graded topography pad: a closed plan boundary extruded by `thickness` at level + `elevation`. Per-vertex grades via set_slab_shape (same shape model as slabs). Fence and site surfaces seat onto the pad top when placed over it.",
+        )
+        .points("polyline: 3+ boundary points, closed automatically (do not repeat the first point)")
+        .constraint("boundary must be simple (non self-intersecting)")
+        .example(
+            "East grade pad",
+            json!({"component": "apex.topo_pad", "points": [[10, 0, 0], [14, 0, 0], [14, 0, 8], [10, 0, 8]], "params": {"elevation": 0.0, "thickness": 0.2}}),
+        ),
+        host_cut: None,
+        level_height_params: vec![],
+        ifc_entity: Some("IfcSite".into()),
         joinable: false,
     }
 }
