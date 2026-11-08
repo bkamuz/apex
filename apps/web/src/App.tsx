@@ -506,6 +506,8 @@ export default function App() {
   const [shapeHandle, setShapeHandle] = useState<number | null>(null);
   const shapeHandleRef = useRef<number | null>(null);
   shapeHandleRef.current = shapeHandle;
+  /** Set by double-click so edit mode survives the selection-change reset. */
+  const enterEditAfterSelectRef = useRef<string | null>(null);
   const shapeTarget =
     selected && (scene?.selected_ids?.length ?? 0) === 1 && SHAPEABLE_COMPONENTS.has(selected.component_id)
       ? selected
@@ -521,16 +523,26 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shapeTarget, scene]);
   const shapeEditForRef = useRef<{ id: string; info: SlabShapeInfoDto } | null>(null);
-  // Terrain: Revit-like — selecting the solid always exposes 3D height handles.
-  // Slabs/roofs still require the explicit Edit shape toggle (`shapeEditing`).
-  const terrainHeightEdit = shapeTarget?.component_id === 'apex.terrain';
-  const heightEditing = terrainHeightEdit || shapeEditing;
+  // Viewport sub-element edit (Terrain first via definition.viewport_edit).
+  // Single click selects; double-click / inspector toggle enters edit; Esc exits.
+  const viewportEditable =
+    !!shapeTarget &&
+    !!components.find((c) => c.id === shapeTarget.component_id)?.viewport_edit;
+  const heightEditing = shapeEditing && !!shapeTarget;
   const editingInfo = heightEditing && shapeTarget && shapeInfo ? shapeInfo : null;
+  const topoHeightEdit = heightEditing && shapeTarget?.category === 'topo';
   shapeEditRef.current = editingInfo;
   shapeEditForRef.current = editingInfo && shapeTarget ? { id: shapeTarget.id, info: editingInfo } : null;
   useEffect(() => {
     setShapeHandle(null);
-    setShapeEditing(false);
+    const pending = enterEditAfterSelectRef.current;
+    if (pending && pending === shapeTarget?.id) {
+      enterEditAfterSelectRef.current = null;
+      setShapeEditing(true);
+    } else {
+      enterEditAfterSelectRef.current = null;
+      setShapeEditing(false);
+    }
   }, [shapeTarget?.id]);
   useEffect(() => {
     if (editingInfo) showShapeGizmo(editingInfo);
@@ -667,19 +679,6 @@ export default function App() {
       cut: SectionCutDto | null = null,
       space: SpaceDto | null = null,
     ) => {
-      // Terrain always shows height-control gizmos (Revit sub-elements), even
-      // when called from applyScene before React re-renders shape-edit state.
-      if (el?.component_id === 'apex.terrain') {
-        try {
-          const info = apexSlabShapeInfo(el.id);
-          if (info) {
-            showShapeGizmo(info);
-            return;
-          }
-        } catch {
-          /* fall through to anchors */
-        }
-      }
       if (shapeEditRef.current && el && el.id === shapeEditForRef.current?.id) {
         showShapeGizmo(shapeEditRef.current);
         return;
@@ -1309,12 +1308,12 @@ export default function App() {
           showShapeGizmo(info);
         }
       },
-      /** Drop an interior control point at the ground hit (terrain height edit). */
+      /** Drop an interior control point at the ground hit (topo height edit). */
       addShapePointAt: (clientX, clientY) => {
         const info = shapeEditRef.current;
         const target = shapeEditForRef.current?.id;
         const el = selectedRef.current;
-        if (!info || !target || el?.component_id !== 'apex.terrain') return false;
+        if (!info || !target || el?.category !== 'topo') return false;
         // Keep the click on this terrain's mesh so empty space / other elements
         // do not accidentally insert points (primary click-to-add path).
         const pickId = renderer.pick(clientX, clientY);
@@ -1900,10 +1899,15 @@ export default function App() {
     }
   }, [applyScene]);
 
-  /** Escape: clear an in-progress create pick chain; otherwise fall back to Select. */
+  /** Escape: exit viewport edit, clear create picks, otherwise fall back to Select. */
   const onEscape = useCallback(() => {
     if (attachPickRef.current) {
       setAttachPick(null);
+      return;
+    }
+    if (shapeEditing) {
+      setShapeEditing(false);
+      setShapeHandle(null);
       return;
     }
     if (toolRef.current.group === 'create' && pendingRef.current.length > 0) {
@@ -1931,7 +1935,7 @@ export default function App() {
       setSelectedSectionCut(null);
       setSelectedSpace(null);
     }
-  }, [applyScene, cancelGesture]);
+  }, [applyScene, cancelGesture, shapeEditing]);
 
   const setProjectionMode = useCallback((mode: ProjectionMode) => {
     setProjection(mode);
@@ -2809,6 +2813,53 @@ export default function App() {
       }
     }
 
+    // Viewport sub-element edit: double-click an editable (viewport_edit) hit.
+    // Capability comes from the component definition — no permanent id branch.
+    // Terrain often sits under fence/walls, so scan the full pick stack; if the
+    // current selection is already editable, double-click also enters edit.
+    if (toolId === ToolRegistry.selectId || tool.group !== 'create') {
+      const stack = rendererRef.current.pickAll(e.clientX, e.clientY);
+      const byPick = new Map(
+        (sceneRef.current?.elements ?? []).map((el) => [el.pick_id, el] as const),
+      );
+      let entry =
+        stack
+          .map((pickId) => byPick.get(pickId))
+          .find((el) => {
+            if (!el || !SHAPEABLE_COMPONENTS.has(el.component_id)) return false;
+            return !!components.find((c) => c.id === el.component_id)?.viewport_edit;
+          }) ?? null;
+      if (
+        !entry &&
+        shapeTarget &&
+        components.find((c) => c.id === shapeTarget.component_id)?.viewport_edit
+      ) {
+        entry = sceneRef.current?.elements.find((el) => el.id === shapeTarget.id) ?? null;
+      }
+      if (entry) {
+        suppressClickRef.current = true;
+        window.setTimeout(() => {
+          suppressClickRef.current = false;
+        }, 0);
+        try {
+          cancelGesture();
+          activateTool(ToolRegistry.selectId);
+          // Selection change clears shapeEditing; re-enter via the pending ref
+          // (or set directly when the same element is already selected).
+          if (shapeTarget?.id === entry.id) {
+            setShapeEditing(true);
+          } else {
+            enterEditAfterSelectRef.current = entry.id;
+          }
+          applyScene(apexSelectElement(entry.id));
+          setError(null);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : String(err));
+        }
+        return;
+      }
+    }
+
     const hit = rendererRef.current.hitLevelContour(e.clientX, e.clientY);
     if (!hit) return;
     suppressClickRef.current = true;
@@ -3520,12 +3571,9 @@ export default function App() {
             info={shapeInfo}
             editing={heightEditing}
             activeHandle={shapeHandle}
-            onToggleEditing={() => {
-              if (terrainHeightEdit) return; // always on for terrain
-              setShapeEditing((v) => !v);
-            }}
+            onToggleEditing={() => setShapeEditing((v) => !v)}
             onChange={onSetSlabShape}
-            terrain={!!terrainHeightEdit}
+            terrain={shapeTarget.category === 'topo'}
           />
         ) : null
       }
@@ -3587,12 +3635,13 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [tool.componentId, scene],
   );
-  // Terrain selection always shows height-edit instructions (even over a sticky
-  // info notice like "sample loaded") so adding inner points is discoverable.
+  // Topo height-edit instructions while in viewport edit (even over sticky info).
   const selectHint =
-    terrainHeightEdit && toolId === ToolRegistry.selectId
+    topoHeightEdit && toolId === ToolRegistry.selectId
       ? t('tool.select.terrainHint')
-      : (info ?? tool.hint(pending.length));
+      : viewportEditable && !shapeEditing && toolId === ToolRegistry.selectId
+        ? t('tool.select.terrainEditHint')
+        : (info ?? tool.hint(pending.length));
   const statusText = `${selectHint}${
     pending.length > 0 && tool.group === 'create'
       ? typedLength

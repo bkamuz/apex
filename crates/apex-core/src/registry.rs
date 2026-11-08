@@ -1234,6 +1234,7 @@ fn wall() -> ComponentDefinition {
         level_height_params: vec!["height".into()],
         ifc_entity: Some("IfcWall".into()),
         joinable: true,
+        viewport_edit: false,
     }
 }
 
@@ -1277,6 +1278,7 @@ fn column() -> ComponentDefinition {
         level_height_params: vec!["height".into()],
         ifc_entity: Some("IfcColumn".into()),
         joinable: false,
+        viewport_edit: false,
     }
 }
 
@@ -1313,6 +1315,7 @@ fn beam() -> ComponentDefinition {
         level_height_params: vec![],
         ifc_entity: Some("IfcBeam".into()),
         joinable: true,
+        viewport_edit: false,
     }
 }
 
@@ -1346,6 +1349,7 @@ fn slab() -> ComponentDefinition {
         level_height_params: vec![],
         ifc_entity: Some("IfcSlab".into()),
         joinable: false,
+        viewport_edit: false,
     }
 }
 
@@ -1386,6 +1390,7 @@ fn boolean() -> ComponentDefinition {
         level_height_params: vec![],
         ifc_entity: Some("IfcBooleanResult".into()),
         joinable: false,
+        viewport_edit: false,
     }
 }
 
@@ -1572,6 +1577,7 @@ fn door() -> ComponentDefinition {
         level_height_params: vec![],
         ifc_entity: Some("IfcDoor".into()),
         joinable: false,
+        viewport_edit: false,
     }
 }
 
@@ -1611,6 +1617,7 @@ fn window() -> ComponentDefinition {
         level_height_params: vec![],
         ifc_entity: Some("IfcWindow".into()),
         joinable: false,
+        viewport_edit: false,
     }
 }
 
@@ -1645,6 +1652,7 @@ fn opening_part_genus(id: &str, name: &str, part: OpeningPartKind) -> ComponentD
         level_height_params: vec![],
         ifc_entity: None,
         joinable: false,
+        viewport_edit: false,
     }
 }
 
@@ -1676,6 +1684,7 @@ fn slab_opening() -> ComponentDefinition {
         level_height_params: vec![],
         ifc_entity: Some("IfcOpeningElement".into()),
         joinable: false,
+        viewport_edit: false,
     }
 }
 
@@ -1708,6 +1717,7 @@ fn stair() -> ComponentDefinition {
         level_height_params: vec!["height".into()],
         ifc_entity: Some("IfcStair".into()),
         joinable: false,
+        viewport_edit: false,
     }
 }
 
@@ -1738,6 +1748,7 @@ fn roof_flat() -> ComponentDefinition {
         level_height_params: vec![],
         ifc_entity: Some("IfcRoof".into()),
         joinable: false,
+        viewport_edit: false,
     }
 }
 
@@ -1782,6 +1793,7 @@ fn roof_pitched() -> ComponentDefinition {
         level_height_params: vec!["base_offset".into()],
         ifc_entity: Some("IfcRoof".into()),
         joinable: false,
+        viewport_edit: false,
     }
 }
 
@@ -1816,6 +1828,7 @@ fn pipe() -> ComponentDefinition {
         level_height_params: vec![],
         ifc_entity: Some("IfcFlowSegment".into()),
         joinable: false,
+        viewport_edit: false,
     }
 }
 
@@ -1848,6 +1861,7 @@ fn duct() -> ComponentDefinition {
         level_height_params: vec![],
         ifc_entity: Some("IfcFlowSegment".into()),
         joinable: false,
+        viewport_edit: false,
     }
 }
 
@@ -1880,6 +1894,7 @@ fn cable_tray() -> ComponentDefinition {
         level_height_params: vec![],
         ifc_entity: Some("IfcCableCarrierSegment".into()),
         joinable: false,
+        viewport_edit: false,
     }
 }
 
@@ -1923,6 +1938,7 @@ fn fence() -> ComponentDefinition {
         level_height_params: vec![],
         ifc_entity: Some("IfcWall".into()),
         joinable: true,
+        viewport_edit: false,
     }
 }
 
@@ -1968,6 +1984,7 @@ fn gate() -> ComponentDefinition {
         level_height_params: vec![],
         ifc_entity: Some("IfcDoor".into()),
         joinable: false,
+        viewport_edit: false,
     }
 }
 
@@ -2012,6 +2029,7 @@ fn site_surface() -> ComponentDefinition {
         level_height_params: vec![],
         ifc_entity: Some("IfcCovering".into()),
         joinable: false,
+        viewport_edit: false,
     }
 }
 
@@ -2033,6 +2051,9 @@ fn terrain() -> ComponentDefinition {
             ParamSpec::length("elevation", "Elevation", 0.0).with_range(None, None),
             // Bottom Y = min(top point elevations) − bottom_offset (downward only).
             ParamSpec::length("bottom_offset", "Bottom offset", 1.0).with_range(Some(0.0), None),
+            // Elevation isolines on the TIN top (always drawn; clamp tiny values).
+            ParamSpec::length("contour_interval", "Contour interval", 1.0)
+                .with_range(Some(0.05), None),
             // Control-point heights: outer vertex `z[]` + interior `[x, z, dz]`
             // (JSON, see `project::slab_shape`).
             ParamSpec::text(SLAB_SHAPE, "Shape", ""),
@@ -2044,18 +2065,19 @@ fn terrain() -> ComponentDefinition {
             height: Expr::constant(0.01),
         },
         descriptor: Descriptor::new(
-            "Terrain solid: closed outer boundary plus optional interior control points, each with an elevation. Top is a TIN (constrained Delaunay in plan); bottom is a horizontal plane at min(top elevations) − bottom_offset; sides are vertical. Fence and site surfaces seat onto the top. Edit heights via set_slab_shape (`z` per outer vertex, `points` for interior [x, z, elev]).",
+            "Terrain solid: closed outer boundary plus optional interior control points, each with an elevation. Top is a TIN (constrained Delaunay in plan); bottom is a horizontal plane at min(top elevations) − bottom_offset; sides are vertical. Fence and site surfaces seat onto the top. Contour lines are always drawn on the top at contour_interval (default 1 m; minimum 0.05 m). Double-click to edit heights; Esc exits. Edit heights via set_slab_shape (`z` per outer vertex, `points` for interior [x, z, elev]).",
         )
         .points("polyline: 3+ outer boundary points, closed automatically (do not repeat the first point)")
-        .constraint("boundary must be simple (non self-intersecting); bottom_offset ≥ 0")
+        .constraint("boundary must be simple (non self-intersecting); bottom_offset ≥ 0; contour_interval ≥ 0.05")
         .example(
             "Sloped yard patch",
-            json!({"component": "apex.terrain", "points": [[10, 0, 0], [14, 0, 0], [14, 0, 8], [10, 0, 8]], "params": {"elevation": 0.0, "bottom_offset": 1.0, "shape": "{\"z\":[0,-0.6,-0.4,0],\"points\":[[12,4,-0.2]]}"}}),
+            json!({"component": "apex.terrain", "points": [[10, 0, 0], [14, 0, 0], [14, 0, 8], [10, 0, 8]], "params": {"elevation": 0.0, "bottom_offset": 1.0, "contour_interval": 1.0, "shape": "{\"z\":[0,-0.6,-0.4,0],\"points\":[[12,4,-0.2]]}"}}),
         ),
         host_cut: None,
         level_height_params: vec![],
         ifc_entity: Some("IfcSite".into()),
         joinable: false,
+        viewport_edit: true,
     }
 }
 
@@ -2505,6 +2527,7 @@ mod tests {
             level_height_params: vec![],
             ifc_entity: None,
             joinable: false,
+            viewport_edit: false,
             params: vec![],
             recipe: GeometryRecipe::Extrude {
                 profile: ProfileSpec::Circle {
@@ -2545,6 +2568,7 @@ mod tests {
             level_height_params: vec![],
             ifc_entity: None,
             joinable: false,
+            viewport_edit: false,
             params: vec![
                 ParamSpec::length("radius", "Radius", 0.6),
                 ParamSpec::length("thickness", "Top thickness", 0.05),
@@ -2650,6 +2674,7 @@ mod tests {
                 level_height_params: vec![],
                 ifc_entity: None,
                 joinable: false,
+                viewport_edit: false,
                 params: vec![],
                 recipe: GeometryRecipe::Custom {
                     builder_id: "acme.marker".into(),

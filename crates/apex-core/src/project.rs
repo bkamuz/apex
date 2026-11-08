@@ -6293,6 +6293,45 @@ mod plugin_first_tests {
             (span - 1.8).abs() < 1e-2,
             "solid Y span ≈ 1.8 (0.8 − (−1)), got {span}"
         );
+        // Contours always on. Heights 0..0.8 → default 1 m may miss isolines;
+        // 0.25 m must add them. Tiny values clamp to the minimum (still on).
+        let edges_default = mesh.edge_count();
+        project
+            .update_element(
+                terrain,
+                Some(ParamMap::new().with("contour_interval", ParamValue::Length(0.25))),
+                None,
+                true,
+            )
+            .expect("interval");
+        let fine_edges = project
+            .document()
+            .get_mesh(terrain)
+            .expect("mesh")
+            .edge_count();
+        assert!(
+            fine_edges > edges_default,
+            "finer contour_interval should add isoline edges ({edges_default} → {fine_edges})"
+        );
+        // Always-on: setting the minimum allowed interval still produces isolines
+        // (not an off switch).
+        project
+            .update_element(
+                terrain,
+                Some(ParamMap::new().with("contour_interval", ParamValue::Length(0.05))),
+                None,
+                true,
+            )
+            .expect("min interval");
+        let min_edges = project
+            .document()
+            .get_mesh(terrain)
+            .expect("mesh")
+            .edge_count();
+        assert!(
+            min_edges >= fine_edges,
+            "minimum contour_interval stays always-on (got {min_edges} edges, 0.25 m had {fine_edges})"
+        );
     }
 
     #[test]

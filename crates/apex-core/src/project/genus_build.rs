@@ -421,6 +421,7 @@ pub(crate) fn genus_definition(
         level_height_params: vec![],
         ifc_entity: None,
         joinable: false,
+        viewport_edit: false,
         opening: None,
         default_species: None,
         genus: Some(genus),

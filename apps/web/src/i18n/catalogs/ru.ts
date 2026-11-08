@@ -205,17 +205,19 @@ export const ru: MessageCatalog = {
   'tool.select.hint':
     'Наведение — подсветка · Tab — цикл перекрытий · клик — выбор · СКМ — панорама · ПКМ — орбита',
   'tool.select.terrainHint':
-    'Рельеф: клик по свободному месту на верхе — добавить точку · перетащите или PgUp/PgDn — высота · Shift+клик тоже добавляет',
+    'Правка рельефа: клик по свободному месту на верхе — добавить точку · перетащите или PgUp/PgDn — высота · Esc — выход',
+  'tool.select.terrainEditHint':
+    'Рельеф: двойной клик — правка высот · одиночный клик — выбор',
   'inspector.terrain.sectionTitle': 'Высоты рельефа',
   'inspector.terrain.editActive': 'Точки в 3D активны',
   'inspector.terrain.editIdle': 'Править высоты',
   'inspector.terrain.editTitle':
-    'Высоты рельефа правятся в 3D (клик по свободному месту — добавить · перетаскивание / PgUp·PgDn · Shift+клик тоже добавляет)',
+    'Двойной клик по рельефу (или эта кнопка) — правка высот в 3D · Esc — выход',
   'inspector.terrain.reset': 'Сбросить высоты',
   'inspector.terrain.hintEditing':
-    'В 3D: клик по свободному месту на верхе рельефа — добавить внутреннюю точку. Перетащите зелёную точку вверх/вниз или выберите её и PgUp/PgDn. Shift+клик тоже добавляет.',
+    'В 3D: клик по свободному месту на верхе рельефа — добавить внутреннюю точку. Перетащите зелёную точку вверх/вниз или выберите её и PgUp/PgDn. Esc — выход из правки.',
   'inspector.terrain.hintIdle':
-    'Нижняя плоскость на {offset} м ниже самой низкой верхней точки.',
+    'Двойной клик по рельефу — правка высот. Горизонтали всегда видны; интервал — в поле выше. Нижняя плоскость на {offset} м ниже самой низкой верхней точки.',
   'inspector.terrain.elevation': 'Отметка',
   'inspector.terrain.addInnerCentre': 'Добавить точку (центр)',
   'tool.apex.move.hintBase': 'Выберите объекты, затем укажите базовую точку (перемещение)',
@@ -552,6 +554,7 @@ export const ru: MessageCatalog = {
   'param.label.diameter': 'Диаметр',
   'param.label.elevation': 'Отметка',
   'param.label.bottom_offset': 'Смещение низа',
+  'param.label.contour_interval': 'Интервал горизонталей',
   'param.label.extension': 'Удлинение',
   'param.label.fill_height': 'Высота заполнения',
   'param.label.frame_reference': 'Профиль рамы',

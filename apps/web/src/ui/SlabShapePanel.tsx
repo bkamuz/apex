@@ -92,7 +92,6 @@ export function SlabShapePanel({
           data-testid="slab-shape-edit"
           className={editing ? 'active' : undefined}
           onClick={onToggleEditing}
-          disabled={terrain && editing}
           title={terrain ? t('inspector.terrain.editTitle') : undefined}
         >
           {editing

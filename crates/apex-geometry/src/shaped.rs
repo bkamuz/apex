@@ -311,6 +311,81 @@ impl SurfaceMesh {
         None
     }
 
+    /// Elevation isolines on this TIN at every multiple of `interval`.
+    ///
+    /// Returns unordered segment pairs `[a, b]` in world XYZ. Interval ≤ 0
+    /// yields nothing (contours off). Flat surfaces and levels that miss the
+    /// elevation range also yield nothing. Used for topo contour display.
+    pub fn contour_segments(&self, interval: f64) -> Vec<[[f64; 3]; 2]> {
+        const EPS: f64 = 1e-9;
+        if interval <= EPS || self.triangles.is_empty() {
+            return Vec::new();
+        }
+        let mut ymin = f64::INFINITY;
+        let mut ymax = f64::NEG_INFINITY;
+        for p in &self.points {
+            ymin = ymin.min(p[1]);
+            ymax = ymax.max(p[1]);
+        }
+        if !ymin.is_finite() || ymax - ymin < EPS {
+            return Vec::new();
+        }
+        // Contour elevations strictly inside the open range (ymin, ymax), at
+        // k·interval. Endpoints alone would paint the whole rim, not topo.
+        let k0 = ((ymin + EPS) / interval).ceil() as i64;
+        let k1 = ((ymax - EPS) / interval).floor() as i64;
+        if k1 < k0 {
+            return Vec::new();
+        }
+        let mut out = Vec::new();
+        let cross = |a: [f64; 3], b: [f64; 3], level: f64| -> Option<[f64; 3]> {
+            let (ya, yb) = (a[1] - level, b[1] - level);
+            if ya.abs() < EPS && yb.abs() < EPS {
+                // Whole edge lies on the contour — skip (ambiguous).
+                return None;
+            }
+            if ya * yb > 0.0 {
+                return None;
+            }
+            if ya.abs() < EPS {
+                return Some(a);
+            }
+            if yb.abs() < EPS {
+                return Some(b);
+            }
+            let t = ya / (ya - yb);
+            Some([a[0] + t * (b[0] - a[0]), level, a[2] + t * (b[2] - a[2])])
+        };
+        let nearly =
+            |p: [f64; 3], q: [f64; 3]| (p[0] - q[0]).abs() < 1e-7 && (p[2] - q[2]).abs() < 1e-7;
+        for t in &self.triangles {
+            let pts = t.map(|i| self.points[i]);
+            let tmin = pts[0][1].min(pts[1][1]).min(pts[2][1]);
+            let tmax = pts[0][1].max(pts[1][1]).max(pts[2][1]);
+            if tmax - tmin < EPS {
+                continue;
+            }
+            for k in k0..=k1 {
+                let level = k as f64 * interval;
+                if level < tmin - EPS || level > tmax + EPS {
+                    continue;
+                }
+                let mut hits: Vec<[f64; 3]> = Vec::new();
+                for e in 0..3 {
+                    if let Some(p) = cross(pts[e], pts[(e + 1) % 3], level) {
+                        if hits.iter().all(|q| !nearly(*q, p)) {
+                            hits.push(p);
+                        }
+                    }
+                }
+                if hits.len() == 2 {
+                    out.push([hits[0], hits[1]]);
+                }
+            }
+        }
+        out
+    }
+
     /// Closed, consistently oriented solid: top surface, underside, and one
     /// side quad per boundary edge. Feature edges are where faces bend.
     pub fn solid(&self, under: Underside) -> TriangleMesh {
@@ -484,5 +559,21 @@ mod tests {
         let m = s.solid(Underside::Drop(0.3)).unwrap();
         assert!(is_watertight(&m));
         assert!((mesh_volume(&m) - 27.0 * 0.3).abs() < 1e-4);
+    }
+
+    #[test]
+    fn contour_segments_follow_interval_on_ramp() {
+        // Ramp from y=0 to y=2 across x=0..4. Contours every 1 m → y=1.
+        let s = square([0.0, 2.0, 2.0, 0.0]);
+        let mesh = s.triangulate().unwrap();
+        assert!(mesh.contour_segments(0.0).is_empty());
+        let segs = mesh.contour_segments(1.0);
+        assert!(!segs.is_empty(), "expected mid-height contour");
+        for [a, b] in &segs {
+            assert!((a[1] - 1.0).abs() < 1e-6);
+            assert!((b[1] - 1.0).abs() < 1e-6);
+        }
+        let half = mesh.contour_segments(0.5);
+        assert!(half.len() > segs.len(), "finer interval → more isolines");
     }
 }
