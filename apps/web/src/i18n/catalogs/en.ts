@@ -211,6 +211,20 @@ export const en: MessageCatalog = {
   // —— Tool hints ——
   'tool.select.hint':
     'Hover to highlight · Tab cycles stacked · click to select · MMB pan · RMB orbit · wheel zoom',
+  'tool.select.terrainHint':
+    'Terrain: click empty spot on the top to add a point · drag or PgUp/PgDn for height · Shift+click also adds',
+  'inspector.terrain.sectionTitle': 'Terrain heights',
+  'inspector.terrain.editActive': '3D points active',
+  'inspector.terrain.editIdle': 'Edit heights',
+  'inspector.terrain.editTitle':
+    'Terrain heights edit in the 3D view (click empty spot to add · drag / PgUp·PgDn · Shift+click also adds)',
+  'inspector.terrain.reset': 'Reset heights',
+  'inspector.terrain.hintEditing':
+    'In 3D: click an empty spot on the terrain top to add an inner point. Drag a green point up/down, or select it and PgUp/PgDn. Shift+click also adds.',
+  'inspector.terrain.hintIdle':
+    'Bottom offset {offset} m below the lowest top point.',
+  'inspector.terrain.elevation': 'Elevation',
+  'inspector.terrain.addInnerCentre': 'Add inner point (centre)',
   'tool.apex.move.hintBase': 'Select objects, then pick base point (move)',
   'tool.apex.move.hintTarget': 'Pick target point to move',
   'tool.apex.copy.hintBase': 'Select objects, then pick base point (copy)',
