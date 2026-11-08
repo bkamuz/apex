@@ -152,6 +152,8 @@ export interface ComponentDto {
   ifc_entity?: string | null;
   /** Opt into universal path joins (corner miters / T-junctions). */
   joinable?: boolean;
+  /** Double-click enters viewport sub-element edit (control points). */
+  viewport_edit?: boolean;
   /** Mandatory in core; what the element type is for. */
   descriptor?: import('./descriptor').Descriptor;
   /** Opening genera (doors, windows): parametric frame/sash/leaf recipe. */

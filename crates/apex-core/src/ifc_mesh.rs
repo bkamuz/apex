@@ -71,6 +71,7 @@ pub fn ifc_mesh_definition() -> ComponentDefinition {
         level_height_params: vec![],
         ifc_entity: Some("IfcBuildingElementProxy".into()),
         joinable: false,
+        viewport_edit: false,
     }
 }
 

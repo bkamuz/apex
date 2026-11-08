@@ -200,9 +200,13 @@ impl Project {
     ///
     /// Terrain: TIN top + horizontal bottom at `min(top) − bottom_offset` +
     /// vertical outer walls. Slabs/roofs: constant vertical thickness.
+    /// Topo meshes always receive elevation contour edges from
+    /// `contour_interval` (clamped to a small minimum) so every terrain reads
+    /// as topo, not bare triangulation.
     pub(crate) fn shaped_slab_mesh(&self, element: &Element) -> Option<TriangleMesh> {
         let (surface, depth) = self.shaped_surface(element)?;
-        let mut mesh = if self.is_topo_element(element) {
+        let is_topo = self.is_topo_element(element);
+        let mut mesh = if is_topo {
             let mut ys: Vec<f64> = surface.boundary.iter().map(|p| p[1]).collect();
             for (i, p) in surface.interior.iter().enumerate() {
                 if surface.usable_interior(i) {
@@ -221,27 +225,42 @@ impl Project {
         };
         let (lo, hi) = mesh.aabb()?;
         let voids = self.void_solids(element);
-        if voids.is_empty() {
-            return Some(mesh);
+        if !voids.is_empty() {
+            // Clamp voids (stair wells are effectively infinite) to the slab.
+            let (y0, y1) = (lo[1] as f64 - 0.5, hi[1] as f64 + 0.5);
+            let bound = [
+                [lo[0] as f64 - 1.0, lo[2] as f64 - 1.0],
+                [hi[0] as f64 + 1.0, lo[2] as f64 - 1.0],
+                [hi[0] as f64 + 1.0, hi[2] as f64 + 1.0],
+                [lo[0] as f64 - 1.0, hi[2] as f64 + 1.0],
+            ];
+            let clamp = LayeredSolid::polygon_prism(&bound, y0, y1);
+            let mut all = LayeredSolid::empty();
+            for v in &voids {
+                all = all.union(&v.intersect(&clamp));
+            }
+            if !all.is_empty() {
+                if let Ok(cut) = crate::kroute::kbool(&mesh, &all.to_mesh(), BooleanOp::Subtract) {
+                    mesh = cut;
+                }
+            }
         }
-        // Clamp voids (stair wells are effectively infinite) to the slab.
-        let (y0, y1) = (lo[1] as f64 - 0.5, hi[1] as f64 + 0.5);
-        let bound = [
-            [lo[0] as f64 - 1.0, lo[2] as f64 - 1.0],
-            [hi[0] as f64 + 1.0, lo[2] as f64 - 1.0],
-            [hi[0] as f64 + 1.0, hi[2] as f64 + 1.0],
-            [lo[0] as f64 - 1.0, hi[2] as f64 + 1.0],
-        ];
-        let clamp = LayeredSolid::polygon_prism(&bound, y0, y1);
-        let mut all = LayeredSolid::empty();
-        for v in &voids {
-            all = all.union(&v.intersect(&clamp));
-        }
-        if all.is_empty() {
-            return Some(mesh);
-        }
-        if let Ok(cut) = crate::kroute::kbool(&mesh, &all.to_mesh(), BooleanOp::Subtract) {
-            mesh = cut;
+        if is_topo {
+            // Always on: clamp to a sensible minimum rather than treating 0 as off.
+            const MIN_INTERVAL: f64 = 0.05;
+            let interval = self
+                .registry
+                .eval_params(&element.component_id, &element.params)
+                .ok()
+                .and_then(|p| p.number("contour_interval"))
+                .unwrap_or(1.0)
+                .max(MIN_INTERVAL);
+            if let Ok(top) = surface.triangulate() {
+                let f = |p: [f64; 3]| [p[0] as f32, p[1] as f32, p[2] as f32];
+                for [a, b] in top.contour_segments(interval) {
+                    mesh.push_edge(f(a), f(b));
+                }
+            }
         }
         Some(mesh)
     }

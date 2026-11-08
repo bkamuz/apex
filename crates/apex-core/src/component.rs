@@ -639,6 +639,13 @@ pub struct ComponentDefinition {
     /// this on their definition — no `apex.wall` branches in App or geometry.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub joinable: bool,
+    /// Double-click in the viewport enters sub-element edit (control points).
+    ///
+    /// Terrain is the first consumer (height handles). Single click still only
+    /// selects; Esc / deselect exits edit. Plugins set this on the definition —
+    /// App must not hard-code component ids forever.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub viewport_edit: bool,
     /// Machine-readable description for agents and docs. Required: a JSON
     /// definition without it fails to parse, and an empty purpose fails
     /// [`ComponentDefinition::validate`].
@@ -1389,6 +1396,7 @@ mod tests {
             level_height_params: vec![],
             ifc_entity: None,
             joinable: false,
+            viewport_edit: false,
             params: vec![ParamSpec::length("height", "Height", 3.0)],
             recipe: GeometryRecipe::Sweep {
                 profile: ProfileSpec::Rectangle {
@@ -1428,6 +1436,7 @@ mod tests {
             level_height_params: vec![],
             ifc_entity: None,
             joinable: false,
+            viewport_edit: false,
             params: vec![
                 ParamSpec::length("height", "Height", 3.0),
                 ParamSpec::length("height", "Height again", 4.0),
@@ -1475,6 +1484,7 @@ mod tests {
             level_height_params: vec![],
             ifc_entity: None,
             joinable: false,
+            viewport_edit: false,
             params: vec![ParamSpec::length("height", "Height", 0.75)],
             recipe: GeometryRecipe::Extrude {
                 profile: ProfileSpec::Circle {
@@ -1554,6 +1564,7 @@ mod tests {
             level_height_params: vec![],
             ifc_entity: None,
             joinable: false,
+            viewport_edit: false,
             params: vec![ParamSpec {
                 id: "style".into(),
                 label: "Style".into(),

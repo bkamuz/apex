@@ -212,17 +212,19 @@ export const en: MessageCatalog = {
   'tool.select.hint':
     'Hover to highlight · Tab cycles stacked · click to select · MMB pan · RMB orbit · wheel zoom',
   'tool.select.terrainHint':
-    'Terrain: click empty spot on the top to add a point · drag or PgUp/PgDn for height · Shift+click also adds',
+    'Terrain edit: click empty spot on the top to add a point · drag or PgUp/PgDn for height · Esc exits',
+  'tool.select.terrainEditHint':
+    'Terrain: double-click to edit height points · single click selects',
   'inspector.terrain.sectionTitle': 'Terrain heights',
   'inspector.terrain.editActive': '3D points active',
   'inspector.terrain.editIdle': 'Edit heights',
   'inspector.terrain.editTitle':
-    'Terrain heights edit in the 3D view (click empty spot to add · drag / PgUp·PgDn · Shift+click also adds)',
+    'Double-click the terrain (or use this button) to edit heights in 3D · Esc exits',
   'inspector.terrain.reset': 'Reset heights',
   'inspector.terrain.hintEditing':
-    'In 3D: click an empty spot on the terrain top to add an inner point. Drag a green point up/down, or select it and PgUp/PgDn. Shift+click also adds.',
+    'In 3D: click an empty spot on the terrain top to add an inner point. Drag a green point up/down, or select it and PgUp/PgDn. Esc exits edit.',
   'inspector.terrain.hintIdle':
-    'Bottom offset {offset} m below the lowest top point.',
+    'Double-click the terrain to edit height points. Contour lines are always drawn; set Contour interval above. Bottom offset {offset} m below the lowest top point.',
   'inspector.terrain.elevation': 'Elevation',
   'inspector.terrain.addInnerCentre': 'Add inner point (centre)',
   'tool.apex.move.hintBase': 'Select objects, then pick base point (move)',
@@ -566,6 +568,7 @@ export const en: MessageCatalog = {
   'param.label.diameter': 'Diameter',
   'param.label.elevation': 'Elevation',
   'param.label.bottom_offset': 'Bottom offset',
+  'param.label.contour_interval': 'Contour interval',
   'param.label.extension': 'Extension',
   'param.label.fill_height': 'Fill height',
   'param.label.frame_reference': 'Frame reference',
