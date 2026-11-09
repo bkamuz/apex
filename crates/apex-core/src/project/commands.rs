@@ -98,6 +98,8 @@ pub enum Command {
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         body: Vec<crate::genus_body::BodyItem>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        dims: Vec<crate::genus_body::GenusDim>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
         remove: Vec<String>,
     },
     /// Add a body item to a user genus, or replace the one with the same id
@@ -329,6 +331,8 @@ fn default_center_y() -> f32 {
 /// A read. Wire form: `{"op": "list_elements", ...}`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case", deny_unknown_fields)]
+// `preview_genus` carries a whole draft; queries are parsed once per call.
+#[allow(clippy::large_enum_variant)]
 pub enum Query {
     Summary,
     ListLevels,
@@ -350,6 +354,47 @@ pub enum Query {
     /// trial build with default params.
     GetGenus {
         id: String,
+    },
+    /// Trial build of an unsaved genus draft (the `define_genus` fields)
+    /// for one species / param set, in genus coordinates. Nothing is saved.
+    PreviewGenus {
+        #[serde(default = "draft_genus_id")]
+        id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        name: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        category: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        purpose: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        params: Vec<super::GenusParamInput>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        extends: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        placement: Option<crate::genus_body::GenusPlacement>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        refs: Vec<crate::genus_body::RefGeom>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        body: Vec<crate::genus_body::BodyItem>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        dims: Vec<crate::genus_body::GenusDim>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        remove: Vec<String>,
+        /// A registered species whose values to build with.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        species: Option<String>,
+        /// Unsaved species values (override `species`).
+        #[serde(default, skip_serializing_if = "ParamMap::is_empty")]
+        species_values: ParamMap,
+        /// Instance values (override both).
+        #[serde(default, skip_serializing_if = "ParamMap::is_empty")]
+        values: ParamMap,
+        /// Host thickness for host placement (default 0.2 m).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        host_depth: Option<f64>,
+        /// Line length for line placement (default 1 m).
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        length: Option<f64>,
     },
     /// Where each param of an element comes from.
     ParamProvenance {
@@ -466,6 +511,7 @@ impl Query {
             Self::ListComponents => "list_components",
             Self::ListGenusSpecies { .. } => "list_genus_species",
             Self::GetGenus { .. } => "get_genus",
+            Self::PreviewGenus { .. } => "preview_genus",
             Self::ParamProvenance { .. } => "param_provenance",
             Self::ListGridAxes => "list_grid_axes",
             Self::ListSpaces => "list_spaces",
@@ -989,6 +1035,7 @@ impl Project {
                 placement,
                 refs,
                 body,
+                dims,
                 remove,
             } => {
                 let genus = crate::genus_body::GenusDef {
@@ -996,6 +1043,7 @@ impl Project {
                     placement,
                     refs,
                     body,
+                    dims,
                     remove,
                 };
                 let def = super::genus_build::genus_definition(
@@ -1543,6 +1591,55 @@ impl Project {
                     "trial_build": trial,
                 }))
             }
+            Query::PreviewGenus {
+                id,
+                name,
+                category,
+                purpose,
+                params,
+                extends,
+                placement,
+                refs,
+                body,
+                dims,
+                remove,
+                species,
+                species_values,
+                values,
+                host_depth,
+                length,
+            } => {
+                let genus = crate::genus_body::GenusDef {
+                    extends: extends.clone(),
+                    placement: placement.clone(),
+                    refs: refs.clone(),
+                    body: body.clone(),
+                    dims: dims.clone(),
+                    remove: remove.clone(),
+                };
+                let draft = super::genus_build::genus_definition(
+                    self.registry(),
+                    id.clone(),
+                    name.clone().unwrap_or_else(|| id.clone()),
+                    category.clone(),
+                    purpose.clone(),
+                    params,
+                    genus,
+                )
+                .map_err(msg)?;
+                let mut raw = ParamMap::new();
+                if let Some(sp) = species {
+                    let found = self
+                        .registry()
+                        .species_list(None)
+                        .into_iter()
+                        .find(|t| &t.id == sp)
+                        .ok_or_else(|| msg(format!("unknown species '{sp}'")))?;
+                    raw = found.values.clone();
+                }
+                let raw = raw.merged(species_values).merged(values);
+                Ok(self.preview_genus_json(&draft, &raw, host_depth.unwrap_or(0.2), length.unwrap_or(1.0)))
+            }
             Query::ParamProvenance { id } => {
                 let id = self.resolve_element(id)?;
                 serde_json::to_value(self.param_provenance(id).map_err(e)?).map_err(e)
@@ -1989,9 +2086,11 @@ pub fn command_descriptors() -> Vec<PublishedDescriptor> {
          Descriptor::new("Create or replace a user genus (universal element format): params with formulas, reference geometry (points, lines, planes) and a body of solids, cuts and nested genera. Place it with create_element {component: id}. Re-defining rebuilds every instance. Undoable.")
             .example("Shelf with a self-cut notch and a cut through neighbouring columns", json!({"op": "define_genus", "id": "user.shelf", "name": "Shelf", "placement": {"kind": "point"}, "params": [{"id": "width", "default": 1.2}, {"id": "depth", "default": 0.4}, {"id": "height", "default": 0.9}], "body": [{"id": "board", "item": "solid", "shape": "box", "min": [0, 0, 0], "max": ["width", "height", "depth"]}, {"id": "notch", "item": "cut", "shape": "box", "min": [0.2, 0.6, -0.1], "max": [0.5, 1.0, 0.5], "targets": {"self": true}}, {"id": "chase", "item": "cut", "shape": "box", "min": [0.8, 0, -0.2], "max": [1.0, "height", 0.6], "targets": {"neighbours": ["column"]}}]}))
             .example("Wide window: extends the built-in window, overrides a default and adds a sill board", json!({"op": "define_genus", "id": "user.window.wide", "name": "Wide window", "extends": "apex.window", "params": [{"id": "width", "default": 2.4}], "body": [{"id": "sill_board", "item": "solid", "shape": "box", "min": [-0.05, "sill - 0.03", -0.15], "max": ["width + 0.05", "sill", 0.15]}]}))
-            .constraint("params: {id, label?, kind: length|number|text (default length), default, min?, max?, species?}; a child genus redeclaring a parent param overrides its default")
-            .constraint("formulas are numbers or strings over param ids (+ - * / parentheses, min, max…); `length` is injected for line placement, `host_depth` for host placement")
-            .constraint("body item: {id, item: solid|cut|nested, ...}; shapes: box {min,max}, prism {normal: x|y|z, on?, loops, depth:[a,b]}, revolve {profile, on?, segments?}, opening_part {part: frame|infill|all}")
+            .example("Handrail swept along a polyline, with a show condition, a material param, a plan symbol and a dimension", json!({"op": "define_genus", "id": "user.rail", "name": "Rail", "placement": {"kind": "point"}, "params": [{"id": "run", "default": 2.0, "min": 0.5, "max": 6.0, "group": "dimensions"}, {"id": "rise", "default": 1.0, "group": "dimensions"}, {"id": "posts", "kind": "bool", "default": true, "species": true}, {"id": "finish", "kind": "text", "default": "steel", "group": "materials"}], "refs": [{"id": "path", "ref": "polyline", "points": [[0, 0.9, 0], ["run", "rise + 0.9", 0]]}, {"id": "start", "ref": "plane", "origin": [0, 0, 0], "normal": "x"}, {"id": "end", "ref": "plane", "origin": ["run", 0, 0], "normal": "x"}], "body": [{"id": "rail", "item": "solid", "shape": "sweep", "along": "path", "profile": [[[-0.02, -0.02], [0.02, -0.02], [0.02, 0.02], [-0.02, 0.02]]], "material": "finish", "plan": {"show": "symbol", "lines": [[0, 0, "run", 0]]}}, {"id": "post", "item": "solid", "shape": "box", "min": [-0.02, 0, -0.02], "max": [0.02, 0.9, 0.02], "visible": "posts and run > 1", "material": "finish"}], "dims": [{"id": "run_dim", "from": "start", "to": "end", "param": "run"}]}))
+            .constraint("params: {id, label?, kind: length|number|text|bool (default length), default, min?, max?, species?, group?}; min > max is refused; a child genus redeclaring a parent param overrides its default")
+            .constraint("formulas are numbers or strings over param ids: + - * / parentheses, min, max, comparisons (< <= > >= == !=), and / or / not, true / false, if(cond, a, b); comparisons give 1 or 0; `length` is injected for line placement, `host_depth` for host placement")
+            .constraint("body item: {id, item: solid|cut|nested, visible?: formula (built only while non-zero), plan?: {show: auto|hidden} | {show: symbol, lines: [[x0,z0,x1,z1]...]}, ...}; solids take material?: text param id or literal name; shapes: box {min,max}, prism {normal: x|y|z, on?, loops, depth:[a,b]}, revolve {profile, on?, segments?}, sweep {profile: [loops of [x,y]], along?: line or polyline ref id, path?: [[x,y,z]...]}, opening_part {part: frame|infill|all}")
+            .constraint("dims: [{id, from: ref id, to: ref id, axis?: x|y|z, param?}] labelled dimensions between refs (along axis, else the from plane's normal, else straight)")
             .constraint("cut targets: {host: bool, neighbours: [categories] ([] = any), self: bool}; any combination; cuts are mesh booleans in a fixed order")
             .constraint("nested: {genus, species?, at?: ref id, offset:[x,y,z], rotation (deg), params: {child_param: formula}}; nesting cycles and depth > 16 are refused")
             .constraint("placement: {kind: point} | {kind: line} | {kind: host, categories: [\"wall\"]}; omitted = inherited from `extends` or point")
@@ -2005,8 +2104,9 @@ pub fn command_descriptors() -> Vec<PublishedDescriptor> {
              "extends": {"type": "string", "description": "parent genus id; body items with the same id replace the parent's"},
              "placement": {"type": "object", "description": "{kind: point|line|host, categories?}"},
              "params": {"type": "array", "items": {"type": "object"}},
-             "refs": {"type": "array", "items": {"type": "object"}, "description": "{id, ref: point {at} | line {from,to} | plane {origin, normal}}"},
+             "refs": {"type": "array", "items": {"type": "object"}, "description": "{id, ref: point {at} | line {from,to} | plane {origin, normal} | polyline {points}}"},
              "body": {"type": "array", "items": {"type": "object"}},
+             "dims": {"type": "array", "items": {"type": "object"}, "description": "{id, from, to, axis?, param?}"},
              "remove": {"type": "array", "items": {"type": "string"}, "description": "inherited item / ref ids to drop"}
          }), &["id", "name"])),
         ("set_genus_item", "Set genus body item",
@@ -2096,6 +2196,84 @@ pub fn command_descriptors() -> Vec<PublishedDescriptor> {
 }
 
 /// Descriptor and input schema for every query.
+fn draft_genus_id() -> String {
+    "draft.genus".into()
+}
+
+impl Project {
+    /// `preview_genus` result: params, refs, dims and the trial build, all
+    /// in genus coordinates, built with this project's kernel.
+    fn preview_genus_json(
+        &self,
+        draft: &crate::component::ComponentDefinition,
+        raw: &ParamMap,
+        host_depth: f64,
+        length: f64,
+    ) -> Value {
+        use crate::genus_body::{eval_dims, eval_refs, with_injected, GenusFrame};
+        let run = || -> Value {
+            let frame = GenusFrame::from_yaw(Vec3::ZERO, 0.0);
+            let pv = match self
+                .registry()
+                .preview_genus(draft, raw, frame, host_depth, length)
+            {
+                Ok(pv) => pv,
+                Err(err) => return json!({"ok": false, "error": err.to_string()}),
+            };
+            let genus = pv.definition.genus.clone().unwrap_or_default();
+            let injected = with_injected(&pv.params, host_depth, length);
+            let (refs, dims) = match eval_refs(&genus, &injected)
+                .and_then(|r| eval_dims(&genus, &r).map(|d| (r, d)))
+            {
+                Ok(v) => v,
+                Err(err) => return json!({"ok": false, "error": err.to_string()}),
+            };
+            let params: Vec<Value> = pv
+                .definition
+                .params
+                .iter()
+                .map(|spec| {
+                    let mut v = serde_json::to_value(spec).unwrap_or(Value::Null);
+                    v["value"] =
+                        serde_json::to_value(pv.params.get(&spec.id)).unwrap_or(Value::Null);
+                    v
+                })
+                .collect();
+            let b = &pv.build;
+            json!({
+                "ok": true,
+                "id": pv.definition.id,
+                "placement": genus.placement,
+                "params": params,
+                "refs": refs,
+                "dims": dims,
+                "solids": b.solids.iter().map(|s| json!({
+                    "path": s.path,
+                    "glass": s.glass,
+                    "material": s.material,
+                    "plan": if s.plan_hidden { "hidden" } else { "auto" },
+                    "mesh": s.mesh,
+                })).collect::<Vec<_>>(),
+                "cuts": b.cuts.iter().map(|c| json!({
+                    "path": c.path, "targets": c.targets, "mesh": c.mesh,
+                })).collect::<Vec<_>>(),
+                "lines": b.lines,
+                "plan_lines": b.plan_lines.iter().map(|l| [l[0].to_array(), l[1].to_array()]).collect::<Vec<_>>(),
+                "mesh": b.mesh(),
+                "warnings": b.warnings,
+            })
+        };
+        if !self.exact_kernel_selected() {
+            return run();
+        }
+        let (mut out, pending) = crate::kroute::with_kernel(self.kernel.kernel.clone(), run);
+        if !pending.is_empty() {
+            out["pending"] = json!(pending.len());
+        }
+        out
+    }
+}
+
 pub fn query_descriptors() -> Vec<PublishedDescriptor> {
     let fmt = json!({"type": "string", "enum": ["svg", "dxf", "json"]});
     let rows: Vec<(&str, &str, &str, Value)> = vec![
@@ -2107,6 +2285,24 @@ pub fn query_descriptors() -> Vec<PublishedDescriptor> {
         ("validate", "Validate model", "Check every element: known type, geometry present, watertight, parent exists. `ok` is false on any error.", simple("validate", json!({}), &[])),
         ("list_components", "List element types", "Every installed element type (plugins included) with descriptor and params JSON Schema.", simple("list_components", json!({}), &[])),
         ("get_genus", "Get genus", "One genus: authored and resolved (extends flattened) body, every param with its origin (genus or inherited from which ancestor), and a trial build with default params listing solids, cuts and warnings.", simple("get_genus", json!({"id": {"type": "string"}}), &["id"])),
+        ("preview_genus", "Preview genus draft", "Trial-build an unsaved genus draft (same fields as define_genus) without saving it: resolved params (with group, min, max, value), evaluated refs and dims, every solid (path, glass, material, plan), cut (targets) and the combined mesh, all in genus coordinates (origin at the insertion point; x along, y up, z across; metres). Pick a registered `species` and/or pass unsaved `species_values` and instance `values`. Built-in ids cannot be drafts: preview a draft that extends the built-in. Read-only. Example: {op: preview_genus, id: user.window.vent, extends: apex.window, params: [{id: vent, kind: bool, default: true, species: true}], body: [{id: vent_bar, item: solid, shape: box, min: [0, \"sill + 0.1\", -0.03], max: [0.04, \"sill + height - 0.1\", 0.03], visible: vent}], species: apex.window.double-1500x1400}.",
+         simple("preview_genus", json!({
+             "id": {"type": "string", "description": "draft id (default draft.genus); an existing user genus id previews edits to it"},
+             "name": {"type": "string"},
+             "category": {"type": "string"},
+             "extends": {"type": "string"},
+             "placement": {"type": "object"},
+             "params": {"type": "array", "items": {"type": "object"}},
+             "refs": {"type": "array", "items": {"type": "object"}},
+             "body": {"type": "array", "items": {"type": "object"}},
+             "dims": {"type": "array", "items": {"type": "object"}, "description": "{id, from: ref id, to: ref id, axis?: x|y|z, param?}"},
+             "remove": {"type": "array", "items": {"type": "string"}},
+             "species": {"type": "string", "description": "registered species id"},
+             "species_values": {"type": "object"},
+             "values": {"type": "object"},
+             "host_depth": {"type": "number"},
+             "length": {"type": "number"}
+         }), &[])),
         ("param_provenance", "Param provenance", "For one element, where each param value comes from: instance, species, genus, inherited (with the ancestor genus id) or formula (with its text; read-only).", simple("param_provenance", json!({"id": id_schema()}), &["id"])),
         ("list_genus_species", "List species", "Species of window/door (and plugin opening) genera: id, genus, name, species values, whether it is the genus default and how many instances use it. Alias: list_family_types.", simple("list_genus_species", json!({"genus": {"type": "string", "description": "component id, e.g. apex.window"}}), &[])),
         ("list_grid_axes", "List grid axes", "Grid axes with labels and end points.", simple("list_grid_axes", json!({}), &[])),

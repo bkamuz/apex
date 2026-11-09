@@ -306,7 +306,7 @@ pub struct GenusParamInput {
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
-    /// `length` (m, default), `number` or `text`.
+    /// `length` (m, default), `number`, `bool` or `text`.
     #[serde(default = "default_param_kind")]
     pub kind: String,
     pub default: serde_json::Value,
@@ -317,6 +317,9 @@ pub struct GenusParamInput {
     /// Bound on the species (type) rather than per instance.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub species: bool,
+    /// Display group (editor / inspector section), e.g. `dimensions`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
 }
 
 fn default_param_kind() -> String {
@@ -335,6 +338,13 @@ impl GenusParamInput {
         let mut spec = match self.kind.as_str() {
             "length" => ParamSpec::length(&self.id, &label, num()?),
             "number" => ParamSpec::number(&self.id, &label, num()?),
+            "bool" => ParamSpec::flag(
+                &self.id,
+                &label,
+                self.default
+                    .as_bool()
+                    .ok_or_else(|| format!("param '{}': default must be true or false", self.id))?,
+            ),
             "text" => ParamSpec::text(
                 &self.id,
                 &label,
@@ -344,7 +354,7 @@ impl GenusParamInput {
             ),
             other => {
                 return Err(format!(
-                    "param '{}': unknown kind '{other}' (length, number, text)",
+                    "param '{}': unknown kind '{other}' (length, number, bool, text)",
                     self.id
                 ))
             }
@@ -356,6 +366,7 @@ impl GenusParamInput {
         if self.species {
             spec.binding = ParamBinding::Type;
         }
+        spec.group = self.group.clone();
         Ok(spec)
     }
 }

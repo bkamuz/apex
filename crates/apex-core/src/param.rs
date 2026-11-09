@@ -237,6 +237,9 @@ pub struct ParamSpec {
     pub unit: Option<String>,
     #[serde(default, skip_serializing_if = "binding_is_instance")]
     pub binding: ParamBinding,
+    /// Display group (editor / inspector section), e.g. `dimensions`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
 }
 
 /// Wire shape of a [`ParamSpec`], before the default is typed against `kind`.
@@ -255,6 +258,8 @@ struct ParamSpecRaw {
     unit: Option<String>,
     #[serde(default)]
     binding: ParamBinding,
+    #[serde(default)]
+    group: Option<String>,
 }
 
 impl TryFrom<ParamSpecRaw> for ParamSpec {
@@ -271,6 +276,7 @@ impl TryFrom<ParamSpecRaw> for ParamSpec {
             max: raw.max,
             unit: raw.unit,
             binding: raw.binding,
+            group: raw.group,
         })
     }
 }
@@ -286,6 +292,7 @@ impl ParamSpec {
             max: None,
             unit: Some("m".to_string()),
             binding: ParamBinding::Instance,
+            group: None,
         }
     }
 
@@ -299,6 +306,7 @@ impl ParamSpec {
             max: None,
             unit: None,
             binding: ParamBinding::Instance,
+            group: None,
         }
     }
 
@@ -312,6 +320,7 @@ impl ParamSpec {
             max: None,
             unit: None,
             binding: ParamBinding::Instance,
+            group: None,
         }
     }
 
@@ -325,6 +334,7 @@ impl ParamSpec {
             max: None,
             unit: Some("rad".to_string()),
             binding: ParamBinding::Instance,
+            group: None,
         }
     }
 
@@ -340,6 +350,7 @@ impl ParamSpec {
             max: None,
             unit: None,
             binding: ParamBinding::Instance,
+            group: None,
         }
     }
 
@@ -353,6 +364,7 @@ impl ParamSpec {
             max: None,
             unit: None,
             binding: ParamBinding::Instance,
+            group: None,
         }
     }
 
@@ -368,6 +380,7 @@ impl ParamSpec {
             max: None,
             unit: None,
             binding: ParamBinding::Instance,
+            group: None,
         }
     }
 
@@ -384,6 +397,7 @@ impl ParamSpec {
             max: None,
             unit: None,
             binding: ParamBinding::Instance,
+            group: None,
         }
     }
 

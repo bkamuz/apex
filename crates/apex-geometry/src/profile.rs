@@ -19,6 +19,8 @@ pub enum Justification {
     BaseCenter,
     /// Horizontally centered, hanging below the curve. Beams.
     TopCenter,
+    /// As drawn: the profile origin sits on the curve (genus sweeps).
+    Origin,
 }
 
 /// Closed loops in profile space: the first is the outline, the rest are holes.
@@ -123,12 +125,16 @@ impl Profile {
 
     /// Reposition so the driving curve sits where `justification` says.
     pub fn justified(&self, justification: Justification) -> Self {
+        if justification == Justification::Origin {
+            return self.clone();
+        }
         let (min, max) = self.bounds();
         let center_u = -(min[0] + max[0]) * 0.5;
         let dv = match justification {
             Justification::Center => -(min[1] + max[1]) * 0.5,
             Justification::BaseCenter => -min[1],
             Justification::TopCenter => -max[1],
+            Justification::Origin => 0.0,
         };
         self.translated(center_u, dv)
     }

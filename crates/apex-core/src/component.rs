@@ -533,6 +533,11 @@ pub enum DefinitionError {
     },
     #[error("profile '{profile}' sketch needs at least 3 vertices, got {count}")]
     SketchTooSmall { profile: ProfileId, count: usize },
+    #[error("component '{component}': {reason}")]
+    Invalid {
+        component: ComponentId,
+        reason: String,
+    },
 }
 
 /// Tooling hints for a placement gesture. Keeps finish rules on the definition
@@ -690,6 +695,24 @@ impl ComponentDefinition {
             }
         }
 
+        for spec in &self.params {
+            if let (Some(lo), Some(hi)) = (spec.min, spec.max) {
+                if lo > hi {
+                    return Err(DefinitionError::Invalid {
+                        component: self.id.clone(),
+                        reason: format!("parameter '{}' has min {lo} above max {hi}", spec.id),
+                    });
+                }
+            }
+        }
+        if let Some(g) = &self.genus {
+            if let Some(reason) = g.unknown_ref() {
+                return Err(DefinitionError::Invalid {
+                    component: self.id.clone(),
+                    reason,
+                });
+            }
+        }
         let opening_params = self
             .opening
             .as_ref()
@@ -1576,6 +1599,7 @@ mod tests {
                 max: None,
                 unit: None,
                 binding: crate::param::ParamBinding::Instance,
+                group: None,
             }],
             recipe: GeometryRecipe::Custom {
                 builder_id: "x".into(),

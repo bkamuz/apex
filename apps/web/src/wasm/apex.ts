@@ -123,6 +123,7 @@ import type {
   ComponentDto,
   ConstructionLineDto,
   ElementDto,
+  GenusPreviewDto,
   MeshDto,
   ParamValue,
   PlacementKind,
@@ -937,6 +938,15 @@ export function apexCommandScene(command: Record<string, unknown>): SceneDto {
 /** Run one read-only query or export (`{op, ...}`). */
 export function apexRunQuery(query: Record<string, unknown>): unknown {
   return JSON.parse(runQuery(JSON.stringify(query)));
+}
+
+/**
+ * Trial-build an unsaved genus draft (`define_genus` fields plus optional
+ * `species`, `species_values`, `values`, `host_depth`, `length`). Nothing is
+ * saved; results are in genus coordinates.
+ */
+export function apexPreviewGenus(draft: Record<string, unknown>): GenusPreviewDto {
+  return apexRunQuery({ ...draft, op: 'preview_genus' }) as GenusPreviewDto;
 }
 
 /** Machine-readable catalog of element types, commands, queries and annotation kinds. */

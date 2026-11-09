@@ -70,6 +70,7 @@ pub fn grid_axis_param_specs() -> Vec<ParamSpec> {
             max: None,
             unit: None,
             binding: ParamBinding::Instance,
+            group: None,
         },
         ParamSpec {
             id: "show_bubble_start".to_string(),
@@ -80,6 +81,7 @@ pub fn grid_axis_param_specs() -> Vec<ParamSpec> {
             max: None,
             unit: None,
             binding: ParamBinding::Instance,
+            group: None,
         },
         ParamSpec {
             id: "show_bubble_end".to_string(),
@@ -90,6 +92,7 @@ pub fn grid_axis_param_specs() -> Vec<ParamSpec> {
             max: None,
             unit: None,
             binding: ParamBinding::Instance,
+            group: None,
         },
         ParamSpec::length("extension", "Extension", 0.5),
         ParamSpec::length("bubble_radius", "Bubble radius", 0.25),
