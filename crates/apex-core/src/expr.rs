@@ -25,15 +25,115 @@ pub enum ExprError {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "op", rename_all = "snake_case")]
 pub enum Expr {
-    Const { value: f64 },
-    Param { id: ParamId },
-    Add { lhs: Box<Expr>, rhs: Box<Expr> },
-    Sub { lhs: Box<Expr>, rhs: Box<Expr> },
-    Mul { lhs: Box<Expr>, rhs: Box<Expr> },
-    Div { lhs: Box<Expr>, rhs: Box<Expr> },
-    Neg { value: Box<Expr> },
-    Min { lhs: Box<Expr>, rhs: Box<Expr> },
-    Max { lhs: Box<Expr>, rhs: Box<Expr> },
+    Const {
+        value: f64,
+    },
+    Param {
+        id: ParamId,
+    },
+    Add {
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+    },
+    Sub {
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+    },
+    Mul {
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+    },
+    Div {
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+    },
+    Neg {
+        value: Box<Expr>,
+    },
+    Min {
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+    },
+    Max {
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+    },
+    /// Comparison: 1 when it holds, else 0.
+    Cmp {
+        cmp: CmpOp,
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+    },
+    /// Logical and / or / not over truthiness (non-zero = true); 1 or 0.
+    And {
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+    },
+    Or {
+        lhs: Box<Expr>,
+        rhs: Box<Expr>,
+    },
+    Not {
+        value: Box<Expr>,
+    },
+    /// `if(cond, then, otherwise)`: only the chosen branch is evaluated.
+    If {
+        cond: Box<Expr>,
+        then: Box<Expr>,
+        otherwise: Box<Expr>,
+    },
+}
+
+/// Comparison operator of [`Expr::Cmp`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CmpOp {
+    Lt,
+    Le,
+    Gt,
+    Ge,
+    Eq,
+    Ne,
+}
+
+/// Tolerance of `==` / `!=` (formulas run on metres).
+pub const EQ_TOLERANCE: f64 = 1e-9;
+
+impl CmpOp {
+    pub fn symbol(self) -> &'static str {
+        match self {
+            Self::Lt => "<",
+            Self::Le => "<=",
+            Self::Gt => ">",
+            Self::Ge => ">=",
+            Self::Eq => "==",
+            Self::Ne => "!=",
+        }
+    }
+
+    pub fn holds(self, a: f64, b: f64) -> bool {
+        match self {
+            Self::Lt => a < b,
+            Self::Le => a <= b + EQ_TOLERANCE,
+            Self::Gt => a > b,
+            Self::Ge => a + EQ_TOLERANCE >= b,
+            Self::Eq => (a - b).abs() <= EQ_TOLERANCE,
+            Self::Ne => (a - b).abs() > EQ_TOLERANCE,
+        }
+    }
+}
+
+/// Truthiness of a formula value: non-zero (and not NaN) is true.
+pub fn truthy(v: f64) -> bool {
+    v != 0.0 && !v.is_nan()
+}
+
+fn bit(b: bool) -> f64 {
+    if b {
+        1.0
+    } else {
+        0.0
+    }
 }
 
 impl Expr {
@@ -55,6 +155,22 @@ impl Expr {
             Self::Neg { value } => format!("-{}", wrap(value)),
             Self::Min { lhs, rhs } => format!("min({}, {})", lhs.to_formula(), rhs.to_formula()),
             Self::Max { lhs, rhs } => format!("max({}, {})", lhs.to_formula(), rhs.to_formula()),
+            Self::Cmp { cmp, lhs, rhs } => {
+                format!("{} {} {}", wrap(lhs), cmp.symbol(), wrap(rhs))
+            }
+            Self::And { lhs, rhs } => format!("({}) and ({})", lhs.to_formula(), rhs.to_formula()),
+            Self::Or { lhs, rhs } => format!("({}) or ({})", lhs.to_formula(), rhs.to_formula()),
+            Self::Not { value } => format!("not ({})", value.to_formula()),
+            Self::If {
+                cond,
+                then,
+                otherwise,
+            } => format!(
+                "if({}, {}, {})",
+                cond.to_formula(),
+                then.to_formula(),
+                otherwise.to_formula()
+            ),
         }
     }
 
@@ -74,6 +190,43 @@ impl Expr {
         Self::Min {
             lhs: Box::new(self),
             rhs: Box::new(other),
+        }
+    }
+
+    pub fn cmp(self, cmp: CmpOp, other: Expr) -> Self {
+        Self::Cmp {
+            cmp,
+            lhs: Box::new(self),
+            rhs: Box::new(other),
+        }
+    }
+
+    pub fn and(self, other: Expr) -> Self {
+        Self::And {
+            lhs: Box::new(self),
+            rhs: Box::new(other),
+        }
+    }
+
+    pub fn or(self, other: Expr) -> Self {
+        Self::Or {
+            lhs: Box::new(self),
+            rhs: Box::new(other),
+        }
+    }
+
+    #[allow(clippy::should_implement_trait)]
+    pub fn not(self) -> Self {
+        Self::Not {
+            value: Box::new(self),
+        }
+    }
+
+    pub fn if_else(cond: Expr, then: Expr, otherwise: Expr) -> Self {
+        Self::If {
+            cond: Box::new(cond),
+            then: Box::new(then),
+            otherwise: Box::new(otherwise),
         }
     }
 
@@ -105,6 +258,21 @@ impl Expr {
             Self::Neg { value } => -value.eval(params)?,
             Self::Min { lhs, rhs } => lhs.eval(params)?.min(rhs.eval(params)?),
             Self::Max { lhs, rhs } => lhs.eval(params)?.max(rhs.eval(params)?),
+            Self::Cmp { cmp, lhs, rhs } => bit(cmp.holds(lhs.eval(params)?, rhs.eval(params)?)),
+            Self::And { lhs, rhs } => bit(truthy(lhs.eval(params)?) && truthy(rhs.eval(params)?)),
+            Self::Or { lhs, rhs } => bit(truthy(lhs.eval(params)?) || truthy(rhs.eval(params)?)),
+            Self::Not { value } => bit(!truthy(value.eval(params)?)),
+            Self::If {
+                cond,
+                then,
+                otherwise,
+            } => {
+                if truthy(cond.eval(params)?) {
+                    then.eval(params)?
+                } else {
+                    otherwise.eval(params)?
+                }
+            }
         })
     }
 
@@ -126,15 +294,27 @@ impl Expr {
         match self {
             Self::Const { .. } => {}
             Self::Param { id } => out.push(id.clone()),
-            Self::Neg { value } => value.collect_params(out),
+            Self::Neg { value } | Self::Not { value } => value.collect_params(out),
             Self::Add { lhs, rhs }
             | Self::Sub { lhs, rhs }
             | Self::Mul { lhs, rhs }
             | Self::Div { lhs, rhs }
             | Self::Min { lhs, rhs }
-            | Self::Max { lhs, rhs } => {
+            | Self::Max { lhs, rhs }
+            | Self::Cmp { lhs, rhs, .. }
+            | Self::And { lhs, rhs }
+            | Self::Or { lhs, rhs } => {
                 lhs.collect_params(out);
                 rhs.collect_params(out);
+            }
+            Self::If {
+                cond,
+                then,
+                otherwise,
+            } => {
+                cond.collect_params(out);
+                then.collect_params(out);
+                otherwise.collect_params(out);
             }
         }
     }
@@ -266,6 +446,26 @@ mod tests {
             r#"{"op":"mul","lhs":{"op":"param","id":"thickness"},"rhs":{"op":"const","value":0.5}}"#
         );
         assert_eq!(serde_json::from_str::<Expr>(&json).unwrap(), e);
+    }
+
+    #[test]
+    fn comparisons_logic_and_if_evaluate() {
+        let p = params();
+        let gt = Expr::param("height").cmp(CmpOp::Gt, Expr::constant(2.0));
+        assert_eq!(gt.eval(&p).unwrap(), 1.0);
+        let eq = Expr::param("thickness").cmp(CmpOp::Eq, Expr::constant(0.4));
+        assert_eq!(eq.eval(&p).unwrap(), 1.0);
+        let both = gt.clone().and(Expr::param("visible").not());
+        assert_eq!(both.eval(&p).unwrap(), 0.0);
+        assert_eq!(gt.clone().or(Expr::constant(0.0)).eval(&p).unwrap(), 1.0);
+        // Only the chosen branch runs: the other one divides by zero.
+        let pick = Expr::if_else(
+            gt,
+            Expr::constant(5.0),
+            Expr::constant(1.0) / Expr::constant(0.0),
+        );
+        assert_eq!(pick.eval(&p).unwrap(), 5.0);
+        assert_eq!(pick.referenced_params(), vec!["height".to_string()]);
     }
 
     #[test]

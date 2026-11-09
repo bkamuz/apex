@@ -62,16 +62,17 @@ pub use dxf_import::{
     parse_dxf_r12, DxfImportError, ParsedDxf, ParsedPolyline, MAX_DXF_BYTES, MAX_UNDERLAY_SEGMENTS,
 };
 pub use element::{ComponentId, Element, ElementId};
-pub use expr::{Expr, ExprError};
+pub use expr::{truthy, CmpOp, Expr, ExprError};
 pub use genus::{
     build_opening, emit_opening, OpeningGenerator, OpeningGeometry, OpeningInfill, OpeningPart,
     OpeningPlanSymbol, OpeningRecipe, Species, SPECIES_PARAM,
 };
 pub use genus_body::{
-    build_genus, check_nesting, emit_prism, Axis, BodyItem, BodyKind, BuildInput, CutTargets,
-    GenusBuild, GenusCut, GenusDef, GenusError, GenusFrame, GenusPlacement, GenusSolid,
-    OpeningPartKind, RefGeom, RefKind, Shape, F as Formula, HOST_DEPTH_PARAM, LENGTH_PARAM,
-    MAX_NESTING, OPENING_FRAME_GENUS, OPENING_INFILL_GENUS,
+    build_genus, check_nesting, emit_prism, eval_dims, eval_refs, with_injected, Axis, BodyItem,
+    BodyKind, BuildInput, CutTargets, DimOut, GenusBuild, GenusCut, GenusDef, GenusDim, GenusError,
+    GenusFrame, GenusPlacement, GenusSolid, OpeningPartKind, PlanRep, RefGeom, RefKind, RefOut,
+    Shape, F as Formula, HOST_DEPTH_PARAM, LENGTH_PARAM, MAX_NESTING, OPENING_FRAME_GENUS,
+    OPENING_INFILL_GENUS,
 };
 pub use grid_axis::{
     grid_axis_param_specs, GridAxis, GridAxisError, GridAxisId, GridAxisLibrary, GridAxisOverlay,
@@ -115,7 +116,7 @@ pub use project::{element_build_ms, element_builds, run_job_chain};
 pub use reference::{
     RefId, Reference, ReferenceError, ReferenceFilter, ReferenceKind, ReferenceLibrary,
 };
-pub use registry::{builtin_components, ComponentRegistry, RegistryError};
+pub use registry::{builtin_components, ComponentRegistry, GenusPreview, RegistryError};
 pub use room_detect::{detect_room_polygons, wall_centerline_segments, ENDPOINT_SNAP};
 pub use section_cut::{
     section_cut_param_specs, SectionCut, SectionCutError, SectionCutId, SectionCutLibrary,

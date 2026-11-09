@@ -40,6 +40,8 @@ export interface ParamSpecDto {
   unit?: string;
   /** Omitted in JSON means instance, matching the core default. */
   binding?: ParamBinding;
+  /** Display group (editor / inspector section), e.g. `dimensions`. */
+  group?: string;
 }
 
 /** Mirrors `Expr` in apex-core. */
@@ -47,7 +49,142 @@ export type ExprDto =
   | { op: 'const'; value: number }
   | { op: 'param'; id: string }
   | { op: 'add' | 'sub' | 'mul' | 'div' | 'min' | 'max'; lhs: ExprDto; rhs: ExprDto }
-  | { op: 'neg'; value: ExprDto };
+  | { op: 'neg'; value: ExprDto }
+  | { op: 'cmp'; cmp: 'lt' | 'le' | 'gt' | 'ge' | 'eq' | 'ne'; lhs: ExprDto; rhs: ExprDto }
+  | { op: 'and' | 'or'; lhs: ExprDto; rhs: ExprDto }
+  | { op: 'not'; value: ExprDto }
+  | { op: 'if'; cond: ExprDto; then: ExprDto; otherwise: ExprDto };
+
+/**
+ * A genus formula: a number or formula text over param ids
+ * (`width / 2`, `if(vent, 0.6, 0)`, `width > 1 and not vent`).
+ */
+export type GenusFormula = number | string;
+export type GenusVec3 = [GenusFormula, GenusFormula, GenusFormula];
+export type GenusAxis = 'x' | 'y' | 'z';
+
+/** Mirrors `RefGeom` in apex-core (genus reference geometry). */
+export type GenusRefDto =
+  | { id: string; ref: 'point'; at: GenusVec3 }
+  | { id: string; ref: 'line'; from: GenusVec3; to: GenusVec3 }
+  | { id: string; ref: 'plane'; origin: GenusVec3; normal?: GenusAxis }
+  | { id: string; ref: 'polyline'; points: GenusVec3[] };
+
+/** Mirrors `Shape` in apex-core. */
+export type GenusShapeDto =
+  | { shape: 'box'; min: GenusVec3; max: GenusVec3 }
+  | {
+      shape: 'prism';
+      normal?: GenusAxis;
+      on?: string;
+      loops: [GenusFormula, GenusFormula][][];
+      depth: [GenusFormula, GenusFormula];
+    }
+  | { shape: 'revolve'; profile: [GenusFormula, GenusFormula][]; on?: string; segments?: number }
+  | {
+      shape: 'sweep';
+      /** Closed loops (outline, then holes): x across the path, y up. */
+      profile: [GenusFormula, GenusFormula][][];
+      /** A `line` / `polyline` ref, or an inline `path`. */
+      along?: string;
+      path?: GenusVec3[];
+    }
+  | { shape: 'opening_part'; part?: 'frame' | 'infill' | 'all' };
+
+/** Mirrors `CutTargets` in apex-core. */
+export interface GenusCutTargetsDto {
+  host?: boolean;
+  /** Category filter; `[]` = any neighbour. Omitted = no neighbours. */
+  neighbours?: string[];
+  self?: boolean;
+}
+
+/** Mirrors `PlanRep` in apex-core. Omitted = `auto`. */
+export type GenusPlanRepDto =
+  | { show: 'auto' }
+  | { show: 'hidden' }
+  | { show: 'symbol'; lines: [GenusFormula, GenusFormula, GenusFormula, GenusFormula][] };
+
+interface GenusItemBase {
+  id: string;
+  /** Show condition: built only while truthy. */
+  visible?: GenusFormula;
+  plan?: GenusPlanRepDto;
+}
+
+/** Mirrors `BodyItem` in apex-core. */
+export type GenusBodyItemDto =
+  | (GenusItemBase & GenusShapeDto & { item: 'solid'; glass?: boolean; material?: string })
+  | (GenusItemBase & GenusShapeDto & { item: 'cut'; targets?: GenusCutTargetsDto })
+  | (GenusItemBase & {
+      item: 'nested';
+      genus: string;
+      species?: string;
+      at?: string;
+      offset?: GenusVec3;
+      rotation?: GenusFormula;
+      params?: Record<string, GenusFormula>;
+    });
+
+/** Mirrors `GenusDim` in apex-core. */
+export interface GenusDimDto {
+  id: string;
+  from: string;
+  to: string;
+  axis?: GenusAxis;
+  param?: string;
+}
+
+/** Mirrors `GenusPlacement` in apex-core. */
+export type GenusPlacementDto =
+  | { kind: 'point' }
+  | { kind: 'line' }
+  | { kind: 'host'; categories: string[] };
+
+/** Mirrors `GenusDef` in apex-core (the universal genus body). */
+export interface GenusDefDto {
+  extends?: string;
+  placement?: GenusPlacementDto;
+  refs?: GenusRefDto[];
+  body: GenusBodyItemDto[];
+  dims?: GenusDimDto[];
+  remove?: string[];
+}
+
+/** `preview_genus` result (genus coordinates, metres). */
+export type GenusPreviewDto =
+  | { ok: false; error: string }
+  | {
+      ok: true;
+      id: string;
+      placement?: GenusPlacementDto;
+      params: (ParamSpecDto & { value: ParamValue })[];
+      refs: { id: string; kind: GenusRefDto['ref']; points: [number, number, number][]; normal?: GenusAxis }[];
+      dims: {
+        id: string;
+        from: string;
+        to: string;
+        a: [number, number, number];
+        b: [number, number, number];
+        value: number;
+        param?: string;
+      }[];
+      solids: { path: string; glass: boolean; material: string | null; plan: 'auto' | 'hidden'; mesh: GenusMeshDto }[];
+      cuts: { path: string; targets: GenusCutTargetsDto; mesh: GenusMeshDto }[];
+      lines: GenusMeshDto;
+      plan_lines: [[number, number, number], [number, number, number]][];
+      mesh: GenusMeshDto;
+      warnings: string[];
+      /** Booleans still waiting on the exact kernel (mesh stand-ins shown). */
+      pending?: number;
+    };
+
+export interface GenusMeshDto {
+  positions: number[];
+  normals: number[];
+  indices: number[];
+  edges: number[];
+}
 
 /** Mirrors `ProfileSpec` in apex-core. */
 export type ProfileSpecDto =
@@ -160,6 +297,8 @@ export interface ComponentDto {
   opening?: OpeningRecipeDto | null;
   /** Typed genera: the type new instances get. */
   default_species?: string | null;
+  /** Universal genus body (params stay in `params`). */
+  genus?: GenusDefDto | null;
 }
 
 /** Mirrors `OpeningRecipe` in apex-core; every number is an `Expr`. */

@@ -21,6 +21,19 @@ pub fn opening_plan_symbols(project: &Project, level: Option<crate::LevelId>) ->
             }
             continue;
         }
+        // Genus plan symbols (`plan: {show: symbol}`), any genus.
+        if project
+            .registry()
+            .genus_has_plan_symbols(&element.component_id)
+            && level.is_none_or(|l| project.effective_level_id(element.id) == Some(l))
+        {
+            if let Some(build) = project.element_genus_build(element) {
+                for [a, b] in build.plan_lines {
+                    out.push(a);
+                    out.push(b);
+                }
+            }
+        }
         // Driven by the genus's opening recipe, not by component id.
         let Some(recipe) = project
             .registry()

@@ -1163,6 +1163,105 @@ impl GenusSource for ComponentRegistry {
     }
 }
 
+/// The registry plus one unsaved, already flattened genus (editor drafts).
+struct DraftSource<'a> {
+    reg: &'a ComponentRegistry,
+    def: &'a ComponentDefinition,
+}
+
+impl GenusSource for DraftSource<'_> {
+    fn genus_entry(&self, id: &str) -> Option<GenusEntry<'_>> {
+        if id == self.def.id {
+            return Some(GenusEntry {
+                def: self.def,
+                genus: self.def.genus.as_ref()?,
+            });
+        }
+        self.reg.genus_entry(id)
+    }
+
+    fn opening_parts(
+        &self,
+        recipe: &OpeningRecipe,
+        params: &ParamMap,
+        host_depth: f64,
+    ) -> Result<OpeningGeometry, String> {
+        self.reg.opening_parts(recipe, params, host_depth)
+    }
+
+    fn species_values(&self, genus: &str, species: &str) -> Option<ParamMap> {
+        self.reg.species_values(genus, species)
+    }
+}
+
+/// A trial build of an unsaved genus ([`ComponentRegistry::preview_genus`]).
+#[derive(Debug, Clone)]
+pub struct GenusPreview {
+    /// The draft with `extends` flattened.
+    pub definition: ComponentDefinition,
+    /// Resolved (typed, range-checked) params the build used.
+    pub params: ParamMap,
+    pub build: GenusBuild,
+}
+
+impl ComponentRegistry {
+    /// Whether genus `id` (or a genus nested in it) draws plan symbols.
+    pub fn genus_has_plan_symbols(&self, id: &str) -> bool {
+        fn walk(reg: &ComponentRegistry, id: &str, depth: usize) -> bool {
+            let Some(g) = reg.get(id).and_then(|d| d.genus.as_ref()) else {
+                return false;
+            };
+            g.body
+                .iter()
+                .any(|b| matches!(b.plan, crate::genus_body::PlanRep::Symbol { .. }))
+                || (depth < MAX_NESTING && g.nested_ids().iter().any(|c| walk(reg, c, depth + 1)))
+        }
+        walk(self, id, 0)
+    }
+
+    /// Build `draft` (not registered, not cached) with `raw` params in
+    /// `frame`. The draft may extend and nest registered genera; nothing in
+    /// the registry changes.
+    pub fn preview_genus(
+        &self,
+        draft: &ComponentDefinition,
+        raw: &ParamMap,
+        frame: GenusFrame,
+        host_depth: f64,
+        length: f64,
+    ) -> Result<GenusPreview, RegistryError> {
+        let (definition, _) = self.flatten(draft)?;
+        definition.validate()?;
+        if definition.genus.is_none() {
+            return Err(RegistryError::Unknown(format!(
+                "'{}' has no genus body",
+                definition.id
+            )));
+        }
+        let src = DraftSource {
+            reg: self,
+            def: &definition,
+        };
+        check_nesting(&src, &definition.id)?;
+        let params = self.eval_params_for_definition(&definition, raw)?;
+        let build = build_genus(
+            &src,
+            &BuildInput {
+                genus_id: &definition.id,
+                params: &params,
+                frame,
+                host_depth,
+                length,
+            },
+        )?;
+        Ok(GenusPreview {
+            definition,
+            params,
+            build,
+        })
+    }
+}
+
 pub fn builtin_components() -> Vec<ComponentDefinition> {
     vec![
         opening_part_genus(OPENING_FRAME_GENUS, "Opening frame", OpeningPartKind::Frame),

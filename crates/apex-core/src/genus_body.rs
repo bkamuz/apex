@@ -90,32 +90,22 @@ impl From<&str> for F {
 }
 
 fn collect_params(e: &Expr, out: &mut Vec<String>) {
-    match e {
-        Expr::Const { .. } => {}
-        Expr::Param { id } => {
-            if !out.contains(id) {
-                out.push(id.clone());
-            }
-        }
-        Expr::Neg { value } => collect_params(value, out),
-        Expr::Add { lhs, rhs }
-        | Expr::Sub { lhs, rhs }
-        | Expr::Mul { lhs, rhs }
-        | Expr::Div { lhs, rhs }
-        | Expr::Min { lhs, rhs }
-        | Expr::Max { lhs, rhs } => {
-            collect_params(lhs, out);
-            collect_params(rhs, out);
+    for id in e.referenced_params() {
+        if !out.contains(&id) {
+            out.push(id);
         }
     }
 }
 
 fn prec(e: &Expr) -> u8 {
     match e {
-        Expr::Add { .. } | Expr::Sub { .. } => 1,
-        Expr::Mul { .. } | Expr::Div { .. } => 2,
-        Expr::Neg { .. } => 3,
-        _ => 4,
+        Expr::Or { .. } => 1,
+        Expr::And { .. } => 2,
+        Expr::Cmp { .. } => 3,
+        Expr::Add { .. } | Expr::Sub { .. } => 4,
+        Expr::Mul { .. } | Expr::Div { .. } => 5,
+        Expr::Neg { .. } | Expr::Not { .. } => 6,
+        _ => 7,
     }
 }
 
@@ -129,45 +119,70 @@ fn write_expr(e: &Expr, f: &mut fmt::Formatter<'_>) -> fmt::Result {
             write_expr(x, f)
         }
     };
+    let call = |name: &str, args: &[&Expr], f: &mut fmt::Formatter<'_>| -> fmt::Result {
+        write!(f, "{name}(")?;
+        for (i, a) in args.iter().enumerate() {
+            if i > 0 {
+                write!(f, ", ")?;
+            }
+            write_expr(a, f)?;
+        }
+        write!(f, ")")
+    };
     match e {
         Expr::Const { value } => write!(f, "{value}"),
         Expr::Param { id } => write!(f, "{id}"),
         Expr::Neg { value } => {
             write!(f, "-")?;
-            sub(value, 4, f)
+            sub(value, 7, f)
+        }
+        Expr::Not { value } => {
+            write!(f, "not ")?;
+            sub(value, 6, f)
         }
         Expr::Add { lhs, rhs } => {
-            sub(lhs, 1, f)?;
+            sub(lhs, 4, f)?;
             write!(f, " + ")?;
-            sub(rhs, 2, f)
+            sub(rhs, 5, f)
         }
         Expr::Sub { lhs, rhs } => {
-            sub(lhs, 1, f)?;
+            sub(lhs, 4, f)?;
             write!(f, " - ")?;
-            sub(rhs, 2, f)
+            sub(rhs, 5, f)
         }
         Expr::Mul { lhs, rhs } => {
-            sub(lhs, 2, f)?;
+            sub(lhs, 5, f)?;
             write!(f, " * ")?;
-            sub(rhs, 3, f)
+            sub(rhs, 6, f)
         }
         Expr::Div { lhs, rhs } => {
-            sub(lhs, 2, f)?;
+            sub(lhs, 5, f)?;
             write!(f, " / ")?;
+            sub(rhs, 6, f)
+        }
+        Expr::Cmp { cmp, lhs, rhs } => {
+            // Non-associative: both sides bind tighter.
+            sub(lhs, 4, f)?;
+            write!(f, " {} ", cmp.symbol())?;
+            sub(rhs, 4, f)
+        }
+        Expr::And { lhs, rhs } => {
+            sub(lhs, 2, f)?;
+            write!(f, " and ")?;
             sub(rhs, 3, f)
         }
-        Expr::Min { lhs, rhs } | Expr::Max { lhs, rhs } => {
-            let name = if matches!(e, Expr::Min { .. }) {
-                "min"
-            } else {
-                "max"
-            };
-            write!(f, "{name}(")?;
-            write_expr(lhs, f)?;
-            write!(f, ", ")?;
-            write_expr(rhs, f)?;
-            write!(f, ")")
+        Expr::Or { lhs, rhs } => {
+            sub(lhs, 1, f)?;
+            write!(f, " or ")?;
+            sub(rhs, 2, f)
         }
+        Expr::Min { lhs, rhs } => call("min", &[lhs, rhs], f),
+        Expr::Max { lhs, rhs } => call("max", &[lhs, rhs], f),
+        Expr::If {
+            cond,
+            then,
+            otherwise,
+        } => call("if", &[cond, then, otherwise], f),
     }
 }
 
@@ -230,12 +245,69 @@ impl<'a> Parser<'a> {
         }
     }
     fn parse_all(&mut self) -> Result<Expr, String> {
-        let e = self.sum()?;
+        let e = self.or()?;
         self.ws();
         if self.i != self.s.len() {
             return Err(format!("unexpected input at {}", self.i));
         }
         Ok(e)
+    }
+    /// Eat `tok` when it is next (after whitespace).
+    fn eat_str(&mut self, tok: &str) -> bool {
+        self.ws();
+        if self.s[self.i..].starts_with(tok.as_bytes()) {
+            self.i += tok.len();
+            true
+        } else {
+            false
+        }
+    }
+    /// Eat keyword `kw` when it is next and not the start of a longer name.
+    fn eat_kw(&mut self, kw: &str) -> bool {
+        self.ws();
+        let rest = &self.s[self.i..];
+        let boundary = rest
+            .get(kw.len())
+            .is_none_or(|c| !(c.is_ascii_alphanumeric() || *c == b'_' || *c == b'.'));
+        if rest.starts_with(kw.as_bytes()) && boundary {
+            self.i += kw.len();
+            true
+        } else {
+            false
+        }
+    }
+    fn or(&mut self) -> Result<Expr, String> {
+        let mut e = self.and()?;
+        while self.eat_kw("or") || self.eat_str("||") {
+            e = e.or(self.and()?);
+        }
+        Ok(e)
+    }
+    fn and(&mut self) -> Result<Expr, String> {
+        let mut e = self.cmp()?;
+        while self.eat_kw("and") || self.eat_str("&&") {
+            e = e.and(self.cmp()?);
+        }
+        Ok(e)
+    }
+    fn cmp(&mut self) -> Result<Expr, String> {
+        use crate::expr::CmpOp;
+        let e = self.sum()?;
+        let op = [
+            ("<=", CmpOp::Le),
+            (">=", CmpOp::Ge),
+            ("==", CmpOp::Eq),
+            ("!=", CmpOp::Ne),
+            ("<", CmpOp::Lt),
+            (">", CmpOp::Gt),
+            ("=", CmpOp::Eq),
+        ]
+        .into_iter()
+        .find(|(t, _)| self.eat_str(t));
+        match op {
+            Some((_, op)) => Ok(e.cmp(op, self.sum()?)),
+            None => Ok(e),
+        }
     }
     fn sum(&mut self) -> Result<Expr, String> {
         let mut e = self.product()?;
@@ -265,12 +337,33 @@ impl<'a> Parser<'a> {
         if self.eat(b'-') {
             return Ok(-self.unary()?);
         }
+        self.ws();
+        if self.s.get(self.i) == Some(&b'!') && self.s.get(self.i + 1) != Some(&b'=') {
+            self.i += 1;
+            return Ok(self.unary()?.not());
+        }
+        if self.eat_kw("not") {
+            return Ok(self.unary()?.not());
+        }
         self.atom()
+    }
+    fn args(&mut self, name: &str, n: usize) -> Result<Vec<Expr>, String> {
+        let mut out = vec![self.or()?];
+        while out.len() < n {
+            if !self.eat(b',') {
+                return Err(format!("{name}() needs {n} arguments"));
+            }
+            out.push(self.or()?);
+        }
+        if !self.eat(b')') {
+            return Err(format!("{name}() takes {n} arguments; missing ')'"));
+        }
+        Ok(out)
     }
     fn atom(&mut self) -> Result<Expr, String> {
         self.ws();
         if self.eat(b'(') {
-            let e = self.sum()?;
+            let e = self.or()?;
             if !self.eat(b')') {
                 return Err("missing ')'".into());
             }
@@ -303,16 +396,20 @@ impl<'a> Parser<'a> {
             let name = std::str::from_utf8(&self.s[start..self.i])
                 .unwrap_or("")
                 .to_string();
-            if (name == "min" || name == "max") && self.eat(b'(') {
-                let a = self.sum()?;
-                if !self.eat(b',') {
-                    return Err(format!("{name}() needs two arguments"));
+            match name.as_str() {
+                "true" => return Ok(Expr::constant(1.0)),
+                "false" => return Ok(Expr::constant(0.0)),
+                "min" | "max" | "if" if self.eat(b'(') => {
+                    let n = if name == "if" { 3 } else { 2 };
+                    let mut a = self.args(&name, n)?.into_iter();
+                    let (x, y) = (a.next().unwrap(), a.next().unwrap());
+                    return Ok(match name.as_str() {
+                        "min" => x.min(y),
+                        "max" => x.max(y),
+                        _ => Expr::if_else(x, y, a.next().unwrap()),
+                    });
                 }
-                let b = self.sum()?;
-                if !self.eat(b')') {
-                    return Err("missing ')'".into());
-                }
-                return Ok(if name == "min" { a.min(b) } else { a.max(b) });
+                _ => {}
             }
             return Ok(Expr::param(name));
         }
@@ -369,6 +466,22 @@ pub enum RefKind {
         #[serde(default)]
         normal: Axis,
     },
+    /// An open polyline (sweep paths); anchors at its first point.
+    Polyline {
+        points: Vec<[F; 3]>,
+    },
+}
+
+impl RefKind {
+    /// Every point of this ref (plane: its origin), as formulas.
+    pub fn points(&self) -> Vec<&[F; 3]> {
+        match self {
+            RefKind::Point { at } => vec![at],
+            RefKind::Line { from, to } => vec![from, to],
+            RefKind::Plane { origin, .. } => vec![origin],
+            RefKind::Polyline { points } => points.iter().collect(),
+        }
+    }
 }
 
 /// Which elements a cut subtracts from. Any combination may be set.
@@ -437,6 +550,17 @@ pub enum Shape {
         #[serde(default = "default_segments")]
         segments: u32,
     },
+    /// Closed profile loops (outline, then holes) swept along a path: a
+    /// `line` / `polyline` ref (`along`) or an inline `path` of local
+    /// points. Profile axes: x across the path (horizontal), y up; the
+    /// profile is placed as drawn (its origin on the path).
+    Sweep {
+        profile: Vec<Vec<[F; 2]>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        along: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        path: Vec<[F; 3]>,
+    },
     /// Parts of the opening recipe in scope (the nearest genus with an
     /// `opening` recipe), or of its plugin generator.
     OpeningPart {
@@ -454,6 +578,59 @@ pub struct BodyItem {
     pub id: String,
     #[serde(flatten)]
     pub kind: BodyKind,
+    /// Show condition: the item is built only while this formula is truthy
+    /// (non-zero), e.g. `"vent"` (a bool param) or `"width > 1"`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visible: Option<F>,
+    /// How the item reads in plan views.
+    #[serde(default, skip_serializing_if = "PlanRep::is_auto")]
+    pub plan: PlanRep,
+}
+
+impl BodyItem {
+    pub fn new(id: impl Into<String>, kind: BodyKind) -> Self {
+        Self {
+            id: id.into(),
+            kind,
+            visible: None,
+            plan: PlanRep::Auto,
+        }
+    }
+}
+
+/// Plan representation of a body item.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(tag = "show", rename_all = "snake_case")]
+pub enum PlanRep {
+    /// Cut / projected like any solid (the default).
+    #[default]
+    Auto,
+    /// Not drawn in plan (still built in 3D).
+    Hidden,
+    /// Not drawn as geometry; these symbol lines are drawn instead, as
+    /// `[x0, z0, x1, z1]` in the genus's local plan (x along, z across).
+    Symbol { lines: Vec<[F; 4]> },
+}
+
+impl PlanRep {
+    pub fn is_auto(&self) -> bool {
+        matches!(self, PlanRep::Auto)
+    }
+}
+
+/// A dimension between two refs, shown by editors and returned by
+/// `preview_genus`. Optional `param` names the param it displays / drives.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct GenusDim {
+    pub id: String,
+    pub from: String,
+    pub to: String,
+    /// Measure along this local axis; default: the `from` plane's normal,
+    /// else the straight distance.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub axis: Option<Axis>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub param: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -464,6 +641,9 @@ pub enum BodyKind {
         shape: Shape,
         #[serde(default, skip_serializing_if = "std::ops::Not::not")]
         glass: bool,
+        /// Material name, or the id of a text param holding it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        material: Option<String>,
     },
     Cut {
         #[serde(flatten)]
@@ -504,7 +684,10 @@ pub struct GenusDef {
     pub refs: Vec<RefGeom>,
     #[serde(default)]
     pub body: Vec<BodyItem>,
-    /// Inherited body item / ref ids to drop.
+    /// Dimensions between refs (editor / preview annotation).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dims: Vec<GenusDim>,
+    /// Inherited body item / ref / dim ids to drop.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub remove: Vec<String>,
 }
@@ -531,9 +714,9 @@ impl GenusDef {
                 },
             }],
             body: vec![
-                BodyItem {
-                    id: "frame".into(),
-                    kind: BodyKind::Nested {
+                BodyItem::new(
+                    "frame",
+                    BodyKind::Nested {
                         genus: OPENING_FRAME_GENUS.into(),
                         species: None,
                         at: None,
@@ -541,10 +724,10 @@ impl GenusDef {
                         rotation: F::c(0.0),
                         params: BTreeMap::new(),
                     },
-                },
-                BodyItem {
-                    id: "infill".into(),
-                    kind: BodyKind::Nested {
+                ),
+                BodyItem::new(
+                    "infill",
+                    BodyKind::Nested {
                         genus: OPENING_INFILL_GENUS.into(),
                         species: None,
                         at: None,
@@ -552,18 +735,19 @@ impl GenusDef {
                         rotation: F::c(0.0),
                         params: BTreeMap::new(),
                     },
-                },
-                BodyItem {
-                    id: "opening".into(),
-                    kind: BodyKind::Cut {
+                ),
+                BodyItem::new(
+                    "opening",
+                    BodyKind::Cut {
                         shape: Shape::Box {
                             min: ["-width / 2".into(), "sill - 0.02".into(), F::c(-0.6)],
                             max: ["width / 2".into(), "sill + height + 0.02".into(), F::c(0.6)],
                         },
                         targets: CutTargets::host(),
                     },
-                },
+                ),
             ],
+            dims: Vec::new(),
             remove: Vec::new(),
         }
     }
@@ -571,13 +755,14 @@ impl GenusDef {
     /// One-item body emitting the given opening part (frame / infill genera).
     pub fn opening_part(part: OpeningPartKind) -> Self {
         Self {
-            body: vec![BodyItem {
-                id: "part".into(),
-                kind: BodyKind::Solid {
+            body: vec![BodyItem::new(
+                "part",
+                BodyKind::Solid {
                     shape: Shape::OpeningPart { part },
                     glass: false,
+                    material: None,
                 },
-            }],
+            )],
             ..Self::default()
         }
     }
@@ -614,13 +799,22 @@ impl GenusDef {
                 None => body.push(b.clone()),
             }
         }
+        let mut dims = parent.dims.clone();
+        for d in &self.dims {
+            match dims.iter_mut().find(|x| x.id == d.id) {
+                Some(slot) => *slot = d.clone(),
+                None => dims.push(d.clone()),
+            }
+        }
         refs.retain(|r| !self.remove.contains(&r.id));
         body.retain(|b| !self.remove.contains(&b.id));
+        dims.retain(|d| !self.remove.contains(&d.id));
         GenusDef {
             extends: self.extends.clone(),
             placement: self.placement.clone().or_else(|| parent.placement.clone()),
             refs,
             body,
+            dims,
             remove: Vec::new(),
         }
     }
@@ -630,14 +824,7 @@ impl GenusDef {
         let mut out = Vec::new();
         let p3 = |a: &[F; 3], out: &mut Vec<String>| a.iter().for_each(|f| f.params(out));
         for r in &self.refs {
-            match &r.kind {
-                RefKind::Point { at } => p3(at, &mut out),
-                RefKind::Line { from, to } => {
-                    p3(from, &mut out);
-                    p3(to, &mut out);
-                }
-                RefKind::Plane { origin, .. } => p3(origin, &mut out),
-            }
+            r.kind.points().into_iter().for_each(|a| p3(a, &mut out));
         }
         let shape = |s: &Shape, out: &mut Vec<String>| match s {
             Shape::Box { min, max } => {
@@ -651,9 +838,23 @@ impl GenusDef {
             Shape::Revolve { profile, .. } => {
                 profile.iter().flatten().for_each(|f| f.params(out));
             }
+            Shape::Sweep { profile, path, .. } => {
+                profile
+                    .iter()
+                    .flatten()
+                    .flatten()
+                    .for_each(|f| f.params(out));
+                path.iter().for_each(|a| p3(a, out));
+            }
             Shape::OpeningPart { .. } => {}
         };
         for b in &self.body {
+            if let Some(v) = &b.visible {
+                v.params(&mut out);
+            }
+            if let PlanRep::Symbol { lines } = &b.plan {
+                lines.iter().flatten().for_each(|f| f.params(&mut out));
+            }
             match &b.kind {
                 BodyKind::Solid { shape: s, .. } | BodyKind::Cut { shape: s, .. } => {
                     shape(s, &mut out)
@@ -672,6 +873,40 @@ impl GenusDef {
         }
         out.retain(|p| p != HOST_DEPTH_PARAM && p != LENGTH_PARAM);
         out
+    }
+
+    /// A dim or sweep naming a ref this genus does not have (message).
+    pub fn unknown_ref(&self) -> Option<String> {
+        let has = |id: &str| self.refs.iter().any(|r| r.id == id);
+        for d in &self.dims {
+            for r in [&d.from, &d.to] {
+                if !has(r) {
+                    return Some(format!("dimension '{}' uses unknown ref '{r}'", d.id));
+                }
+            }
+        }
+        for b in &self.body {
+            if let BodyKind::Solid {
+                shape: Shape::Sweep { along: Some(r), .. },
+                ..
+            }
+            | BodyKind::Cut {
+                shape: Shape::Sweep { along: Some(r), .. },
+                ..
+            } = &b.kind
+            {
+                let ok = self.refs.iter().any(|x| {
+                    x.id == *r && matches!(x.kind, RefKind::Line { .. } | RefKind::Polyline { .. })
+                });
+                if !ok {
+                    return Some(format!(
+                        "sweep '{}' needs a line or polyline ref '{r}'",
+                        b.id
+                    ));
+                }
+            }
+        }
+        None
     }
 
     pub fn has_cuts(&self, pred: impl Fn(&CutTargets) -> bool) -> bool {
@@ -758,6 +993,10 @@ pub struct GenusSolid {
     pub path: String,
     pub mesh: TriangleMesh,
     pub glass: bool,
+    /// Resolved material name (`material` on the solid), if any.
+    pub material: Option<String>,
+    /// Plan representation is not `auto` (hidden, or a symbol instead).
+    pub plan_hidden: bool,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -768,6 +1007,9 @@ pub struct GenusBuild {
     pub cuts: Vec<GenusCut>,
     /// Self cuts that failed as booleans (reported, not fatal).
     pub warnings: Vec<String>,
+    /// Plan symbol lines (`plan: {show: symbol}`), world space, at the
+    /// genus origin height.
+    pub plan_lines: Vec<[Vec3; 2]>,
 }
 
 impl GenusBuild {
@@ -872,7 +1114,97 @@ fn eval3(a: &[F; 3], p: &ParamMap) -> Result<[f64; 3], GenusError> {
     Ok([a[0].eval(p)?, a[1].eval(p)?, a[2].eval(p)?])
 }
 
-fn with_injected(params: &ParamMap, host_depth: f64, length: f64) -> ParamMap {
+/// One evaluated ref, in genus coordinates (`preview_genus`).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct RefOut {
+    pub id: String,
+    /// `point` | `line` | `plane` | `polyline`.
+    pub kind: &'static str,
+    pub points: Vec<[f64; 3]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub normal: Option<Axis>,
+}
+
+/// One evaluated dimension, in genus coordinates (`preview_genus`).
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct DimOut {
+    pub id: String,
+    pub from: String,
+    pub to: String,
+    /// Anchor points on `from` / `to` (ref origins).
+    pub a: [f64; 3],
+    pub b: [f64; 3],
+    /// Measured distance (m).
+    pub value: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub param: Option<String>,
+}
+
+/// Evaluate every ref of `genus` with `params` (injected values included).
+pub fn eval_refs(genus: &GenusDef, params: &ParamMap) -> Result<Vec<RefOut>, GenusError> {
+    genus
+        .refs
+        .iter()
+        .map(|r| {
+            let points = r
+                .kind
+                .points()
+                .into_iter()
+                .map(|a| eval3(a, params))
+                .collect::<Result<Vec<_>, _>>()?;
+            let (kind, normal) = match &r.kind {
+                RefKind::Point { .. } => ("point", None),
+                RefKind::Line { .. } => ("line", None),
+                RefKind::Plane { normal, .. } => ("plane", Some(*normal)),
+                RefKind::Polyline { .. } => ("polyline", None),
+            };
+            Ok(RefOut {
+                id: r.id.clone(),
+                kind,
+                points,
+                normal,
+            })
+        })
+        .collect()
+}
+
+/// Measure every dim of `genus` against evaluated `refs`.
+pub fn eval_dims(genus: &GenusDef, refs: &[RefOut]) -> Result<Vec<DimOut>, GenusError> {
+    let find = |id: &str| {
+        refs.iter()
+            .find(|r| r.id == id)
+            .ok_or_else(|| GenusError::UnknownRef(id.into()))
+    };
+    genus
+        .dims
+        .iter()
+        .map(|d| {
+            let (fa, fb) = (find(&d.from)?, find(&d.to)?);
+            let a = fa.points.first().copied().unwrap_or([0.0; 3]);
+            let b = fb.points.first().copied().unwrap_or([0.0; 3]);
+            let delta = [b[0] - a[0], b[1] - a[1], b[2] - a[2]];
+            let axis = d.axis.or(fa.normal);
+            let value = match axis {
+                Some(Axis::X) => delta[0].abs(),
+                Some(Axis::Y) => delta[1].abs(),
+                Some(Axis::Z) => delta[2].abs(),
+                None => (delta[0] * delta[0] + delta[1] * delta[1] + delta[2] * delta[2]).sqrt(),
+            };
+            Ok(DimOut {
+                id: d.id.clone(),
+                from: d.from.clone(),
+                to: d.to.clone(),
+                a,
+                b,
+                value,
+                param: d.param.clone(),
+            })
+        })
+        .collect()
+}
+
+/// `params` plus the build-injected `host_depth` / `length` when absent.
+pub fn with_injected(params: &ParamMap, host_depth: f64, length: f64) -> ParamMap {
     let mut p = params.clone();
     if p.get(HOST_DEPTH_PARAM).is_none() {
         p.set(HOST_DEPTH_PARAM, ParamValue::Length(host_depth));
@@ -922,9 +1254,23 @@ fn build_level(
             RefKind::Point { at } => (eval3(at, &p)?, Axis::Y),
             RefKind::Line { from, .. } => (eval3(from, &p)?, Axis::Y),
             RefKind::Plane { origin, normal } => (eval3(origin, &p)?, *normal),
+            RefKind::Polyline { points } => match points.first() {
+                Some(a) => (eval3(a, &p)?, Axis::Y),
+                None => ([0.0; 3], Axis::Y),
+            },
         };
         refs.insert(r.id.as_str(), v);
     }
+    // Full point lists of line / polyline refs, evaluated on demand (sweeps).
+    let ref_points = |id: &str| -> Result<Vec<[f64; 3]>, GenusError> {
+        let r = entry
+            .genus
+            .refs
+            .iter()
+            .find(|r| r.id == id)
+            .ok_or_else(|| GenusError::UnknownRef(id.into()))?;
+        r.kind.points().into_iter().map(|a| eval3(a, &p)).collect()
+    };
     let ref_origin = |r: &Option<String>| -> Result<[f64; 3], GenusError> {
         match r {
             None => Ok([0.0; 3]),
@@ -938,9 +1284,32 @@ fn build_level(
     let mut out = GenusBuild::default();
     let mut self_cuts: Vec<(String, TriangleMesh)> = Vec::new();
     for item in &entry.genus.body {
+        if let Some(cond) = &item.visible {
+            if !crate::expr::truthy(cond.eval(&p)?) {
+                continue;
+            }
+        }
         let path = format!("{prefix}{}", item.id);
+        if let PlanRep::Symbol { lines } = &item.plan {
+            for l in lines {
+                let (x0, z0, x1, z1) = (
+                    l[0].eval(&p)?,
+                    l[1].eval(&p)?,
+                    l[2].eval(&p)?,
+                    l[3].eval(&p)?,
+                );
+                out.plan_lines
+                    .push([frame.point([x0, 0.0, z0]), frame.point([x1, 0.0, z1])]);
+            }
+        }
+        let plan_hidden = !item.plan.is_auto();
+        let first_solid = out.solids.len();
         match &item.kind {
-            BodyKind::Solid { shape, glass } => {
+            BodyKind::Solid {
+                shape,
+                glass,
+                material,
+            } => {
                 if let Shape::OpeningPart { part } = shape {
                     let Some(recipe) = opening else {
                         continue;
@@ -967,6 +1336,8 @@ fn build_level(
                             path: format!("{path}#{k}"),
                             mesh,
                             glass: op.glass,
+                            material: None,
+                            plan_hidden,
                         });
                     }
                     if *part != OpeningPartKind::Frame {
@@ -984,18 +1355,24 @@ fn build_level(
                     }
                     continue;
                 }
-                let (mut mesh, _) = shape_mesh(shape, &p, &frame, &ref_origin)?;
+                let (mut mesh, _) = shape_mesh(shape, &p, &frame, &ref_origin, &ref_points)?;
                 if *glass {
                     tag(&mut mesh, GLASS_NORMAL_TAG);
                 }
+                // A text param of that id holds the material; else it is a name.
+                let material = material
+                    .as_ref()
+                    .map(|m| p.text(m).map(str::to_string).unwrap_or_else(|| m.clone()));
                 out.solids.push(GenusSolid {
                     path,
                     mesh,
                     glass: *glass,
+                    material,
+                    plan_hidden,
                 });
             }
             BodyKind::Cut { shape, targets } => {
-                let (mesh, prism) = shape_mesh(shape, &p, &frame, &ref_origin)?;
+                let (mesh, prism) = shape_mesh(shape, &p, &frame, &ref_origin, &ref_points)?;
                 if targets.own {
                     self_cuts.push((path.clone(), mesh.clone()));
                 }
@@ -1062,6 +1439,12 @@ fn build_level(
                 out.lines.append(&sub.lines);
                 out.cuts.extend(sub.cuts);
                 out.warnings.extend(sub.warnings);
+                out.plan_lines.extend(sub.plan_lines);
+            }
+        }
+        if plan_hidden {
+            for solid in &mut out.solids[first_solid..] {
+                solid.plan_hidden = true;
             }
         }
     }
@@ -1095,11 +1478,14 @@ fn tag(mesh: &mut TriangleMesh, t: f32) {
 
 type Prism = Option<(Vec<[f64; 2]>, f64, f64)>;
 
+type RefPoints<'a> = dyn Fn(&str) -> Result<Vec<[f64; 3]>, GenusError> + 'a;
+
 fn shape_mesh(
     shape: &Shape,
     p: &ParamMap,
     frame: &GenusFrame,
     ref_origin: &RefOrigin,
+    ref_points: &RefPoints,
 ) -> Result<(TriangleMesh, Prism), GenusError> {
     let mut mesh = TriangleMesh::empty();
     match shape {
@@ -1195,8 +1581,54 @@ fn shape_mesh(
             );
             Ok((mesh, None))
         }
+        Shape::Sweep {
+            profile,
+            along,
+            path,
+        } => {
+            let pts: Vec<[f64; 3]> = match along {
+                Some(r) => ref_points(r)?,
+                None => path.iter().map(|a| eval3(a, p)).collect::<Result<_, _>>()?,
+            };
+            let loops: Vec<Vec<[f32; 2]>> = profile
+                .iter()
+                .map(|l| {
+                    l.iter()
+                        .map(|q| Ok([q[0].eval(p)? as f32, q[1].eval(p)? as f32]))
+                        .collect::<Result<Vec<_>, GenusError>>()
+                })
+                .collect::<Result<_, _>>()?;
+            Ok((sweep_mesh(&loops, &pts, frame)?, None))
+        }
         Shape::OpeningPart { .. } => Ok((mesh, None)),
     }
+}
+
+/// Sweep closed `loops` (outline first) along local `pts`, profile as drawn.
+fn sweep_mesh(
+    loops: &[Vec<[f32; 2]>],
+    pts: &[[f64; 3]],
+    frame: &GenusFrame,
+) -> Result<TriangleMesh, GenusError> {
+    use apex_geometry::{Curve, Justification, Profile, SweepOptions};
+    let err = |e: apex_geometry::GeometryError| GenusError::Other(format!("sweep: {e}"));
+    let world: Vec<Vec3> = pts.iter().map(|q| frame.point(*q)).collect();
+    if world.len() < 2 {
+        return Err(GenusError::Other(
+            "sweep: path needs at least two points".into(),
+        ));
+    }
+    let (outer, holes) = loops
+        .split_first()
+        .ok_or_else(|| GenusError::Other("sweep: empty profile".into()))?;
+    let profile = Profile::new(outer.clone(), holes.to_vec()).map_err(err)?;
+    let curve = if world.len() == 2 {
+        Curve::line(world[0], world[1])
+    } else {
+        Curve::Polyline { points: world }
+    };
+    let opts = SweepOptions::with_justification(Justification::Origin);
+    apex_geometry::sweep(&profile, &curve, &opts).map_err(err)
 }
 
 fn signed_area(ring: &[[f64; 2]]) -> f64 {

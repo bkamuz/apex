@@ -30,11 +30,23 @@ frame genus, a nested infill genus and a host cut); there is no special code pat
   "id": "user.shelf", "name": "Shelf", "category": "furniture",
   "extends": "user.base",                       // optional parent genus
   "placement": {"kind": "point"},               // point | line | host {categories}
-  "params": [{"id": "width", "default": 1.2},   // kind: length (default) | number | text
-             {"id": "finish", "kind": "text", "default": "oak", "species": true}],
-  "refs": [{"id": "top", "ref": "plane", "origin": [0, "height", 0], "normal": "y"}],
+  "params": [{"id": "width", "default": 1.2,    // kind: length (default) | number | text | bool
+              "min": 0.4, "max": 3, "group": "dimensions"},
+             {"id": "finish", "kind": "text", "default": "oak", "species": true},
+             {"id": "back", "kind": "bool", "default": true}],
+  "refs": [{"id": "top", "ref": "plane", "origin": [0, "height", 0], "normal": "y"},
+           {"id": "left", "ref": "plane", "origin": [0, 0, 0], "normal": "x"},
+           {"id": "right", "ref": "plane", "origin": ["width", 0, 0], "normal": "x"},
+           {"id": "edge", "ref": "polyline", "points": [[0, "height", 0.4], ["width", "height", 0.4]]}],
   "body": [
-    {"id": "board", "item": "solid", "shape": "box", "min": [0,0,0], "max": ["width","height",0.4]},
+    {"id": "board", "item": "solid", "shape": "box", "min": [0,0,0], "max": ["width","height",0.4],
+     "material": "finish"},                     // text param id or a literal name
+    {"id": "back",  "item": "solid", "shape": "box", "min": [0,0,0], "max": ["width","height + 0.3",0.02],
+     "visible": "back and width > 0.8",         // show condition
+     "plan": {"show": "hidden"}},               // auto (default) | hidden | symbol {lines}
+    {"id": "trim",  "item": "solid", "shape": "sweep", "along": "edge",
+     "profile": [[[-0.01,0],[0.01,0],[0.01,0.02],[-0.01,0.02]]],
+     "plan": {"show": "symbol", "lines": [[0, 0.4, "width", 0.4]]}},
     {"id": "notch", "item": "cut",   "shape": "box", "min": [0.2,0.6,-0.1], "max": [0.5,1,0.5],
      "targets": {"self": true}},
     {"id": "chase", "item": "cut",   "shape": "box", "min": [0.8,0,-0.2], "max": [1,"height",0.6],
@@ -42,20 +54,44 @@ frame genus, a nested infill genus and a host cut); there is no special code pat
     {"id": "leg",   "item": "nested", "genus": "user.leg", "at": "top",
      "offset": [0.05, 0, 0.05], "rotation": 0, "params": {"height": "height - 0.04"}}
   ],
-  "remove": ["old_item"]                        // inherited ids to drop
+  "dims": [{"id": "w", "from": "left", "to": "right", "param": "width"}],
+  "remove": ["old_item"]                        // inherited ids and dims to drop
 }
 ```
 
 - **Local frame**: x along the element (the line, or the host wall), y up, z across.
   Formulas are numbers or strings over param ids. `length` is injected for line
   placement and `host_depth` (host thickness) for host placement.
+- **Formulas**: `+ - * /`, parentheses, `min`, `max`, comparisons (`< <= > >= == !=`,
+  which give 1 or 0), `and`, `or`, `not`, `true`, `false` and `if(cond, a, b)`.
+  For example `if(width > 1.2, 3, 2)`. Any non-zero value counts as true.
 - **Params** carry formulas everywhere a number goes. `species: true` binds the param
-  to the species ("Shared type") instead of the instance.
-- **Reference geometry** (`point`, `line`, `plane`) gives nested items and shapes
-  (`on`) a named anchor.
-- **Body**: `solid` and `cut` take a shape: `box {min,max}`, `prism {normal, on?,
-  loops, depth}`, `revolve {profile, on?, segments?}` or `opening_part {part:
-  frame|infill|all}` (the opening recipe in scope). `nested` places another genus.
+  to the species ("Shared type") instead of the instance. `kind: bool` is a yes/no
+  switch (1 or 0). `min`/`max` set a range: a value outside it is refused, and so
+  is `min > max`. `group` is a display section for the editor and inspector.
+- **Reference geometry** (`point`, `line`, `plane`, `polyline {points}`) gives nested
+  items, shapes (`on`) and sweeps (`along`) a named anchor.
+- **Body**: `solid` and `cut` take a shape:
+  - `box {min,max}`;
+  - `prism {normal, on?, loops, depth}`;
+  - `revolve {profile, on?, segments?}`;
+  - `sweep {profile, along? | path?}`: closed profile loops (x across the path, y
+    up) swept along a `line`/`polyline` ref or an inline list of points;
+  - `opening_part {part: frame|infill|all}` (the opening recipe in scope).
+
+  `nested` places another genus.
+- **Show condition**: `visible` is a formula. The item, or the whole nested genus, is
+  built only while it is true.
+- **Material**: `material` on a solid names a text param (so a species or instance
+  can switch it) or a literal material name. It is reported in builds and previews
+  but not rendered yet.
+- **Plan representation**: `plan` on an item is `auto` (the default: the solid as
+  seen from above), `hidden`, or `symbol {lines}`, where lines are `[x0, z0, x1,
+  z1]` in local coordinates. Symbol lines are drawn in plan views. `hidden` is
+  recorded in builds and `preview_genus`, but project plan views don't apply it yet.
+- **Dimensions**: `dims` are labelled dimensions between two refs. They measure along
+  `axis`, else along the `from` plane's normal, else straight. `param` names the param
+  that the dimension drives.
 - **Cut targets** can be combined: `host` (the element it is inserted into),
   `neighbours` (other intersecting elements, filtered by category; `[]` = any) and
   `self` (this genus's own solids). Cuts are mesh booleans applied in a fixed order,
@@ -76,17 +112,19 @@ frame genus, a nested infill genus and a host cut); there is no special code pat
   the editor, host genera get the hosted placement tool.
 - Built-in genera are read-only. Extend them instead (for example
   `"extends": "apex.window"`).
-- Old projects load unchanged. A saved genus without a `genus` body (an opening
+- `list_components` returns each genus's body as `genus` (the web `ComponentDto.genus`).
+- Old projects load unchanged, and new fields are left out of a save until they are used. A saved genus without a `genus` body (an opening
   recipe only) is adapted to the standard opening body.
 
 ## MCP / command API
 
 | Command / query | Purpose |
 | --- | --- |
-| `define_genus { id, name, category?, purpose?, extends?, placement?, params?, refs?, body?, remove? }` | Create or replace a user genus; instances rebuild |
+| `define_genus { id, name, category?, purpose?, extends?, placement?, params?, refs?, body?, dims?, remove? }` | Create or replace a user genus; instances rebuild |
 | `set_genus_item { genus, item }` | Add a body item, or replace the one with the same id (an inherited id overrides the parent's) |
 | `remove_genus_item { genus, id }` | Remove an item or ref; an inherited one is listed in `remove` |
 | `get_genus { id }` | Authored and resolved body, params with provenance, trial build (solids, cuts, warnings) |
+| `preview_genus { ...define_genus fields, species?, species_values?, values?, host_depth?, length? }` | Trial build of an unsaved draft: params with values, refs, dims, solids (material, plan), cuts, meshes, plan lines; in genus coordinates; nothing is saved |
 | `param_provenance { id }` | Where each param of an element comes from |
 
 Place a genus with `create_element { component: <genus id>, points, parent? }`.

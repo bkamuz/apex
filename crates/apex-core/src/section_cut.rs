@@ -69,6 +69,7 @@ pub fn section_cut_param_specs() -> Vec<ParamSpec> {
             max: None,
             unit: None,
             binding: ParamBinding::Instance,
+            group: None,
         },
         ParamSpec::length("extension", "Extension", 0.5),
         ParamSpec::length("fill_height", "Fill height", 2.5),
@@ -81,6 +82,7 @@ pub fn section_cut_param_specs() -> Vec<ParamSpec> {
             max: None,
             unit: None,
             binding: ParamBinding::Instance,
+            group: None,
         },
     ]
 }

@@ -147,7 +147,7 @@ test('genus tools: define, place, edit, provenance', async () => {
   await call('new_project');
   const { tools } = await client.listTools();
   const names = tools.map((t) => t.name);
-  for (const n of ['define_genus', 'set_genus_item', 'remove_genus_item', 'get_genus', 'param_provenance']) {
+  for (const n of ['define_genus', 'set_genus_item', 'remove_genus_item', 'get_genus', 'preview_genus', 'param_provenance']) {
     assert.ok(names.includes(n), `${n} tool exists`);
   }
   await call('define_genus', {
@@ -170,4 +170,15 @@ test('genus tools: define, place, edit, provenance', async () => {
   assert.equal(prov.find((p) => p.id === 'size').source, 'genus');
   const info = await call('get_genus', { id: 'user.big' });
   assert.deepEqual(info.authored.remove, ['n']);
+  const draft = await call('preview_genus', {
+    id: 'user.draft',
+    extends: 'user.block',
+    params: [{ id: 'lid', kind: 'bool', default: false }],
+    body: [{ id: 'lid', item: 'solid', shape: 'box', min: [0, 'size', 0], max: ['size', 'size + 0.1', 'size'], visible: 'lid' }],
+    values: { lid: true },
+  });
+  assert.equal(draft.ok, true);
+  assert.deepEqual(draft.solids.map((s) => s.path), ['b', 'lid']);
+  const comps = await call('list_components', {});
+  assert.ok(!JSON.stringify(comps).includes('user.draft'), 'preview registers nothing');
 });
