@@ -19,7 +19,7 @@
 //! subtractions. Edits go through the param, so they are ordinary undoable
 //! element updates.
 
-use apex_geometry::{BooleanOp, LayeredSolid, ShapedSurface, TriangleMesh, Underside};
+use apex_geometry::{BooleanOp, LayeredSolid, ShapedSurface, SurfaceMesh, TriangleMesh, Underside};
 use serde::{Deserialize, Serialize};
 
 use crate::element::{Element, ElementId};
@@ -90,6 +90,14 @@ pub struct ShapeInfo {
     pub thickness: f64,
 }
 
+/// Edge split count for a smooth terrain top: 4 for small sites, coarser for
+/// big surveys (dense points are smooth already) so the refined top stays
+/// near 6k triangles — scene-wide previews scan every triangle.
+fn topo_subdivision(triangles: usize) -> usize {
+    const BUDGET: f64 = 6_000.0;
+    ((BUDGET / triangles.max(1) as f64).sqrt().floor() as usize).clamp(1, 4)
+}
+
 impl Project {
     pub(crate) fn is_shapeable(&self, element: &Element) -> bool {
         SHAPEABLE.contains(&element.component_id.as_str())
@@ -124,7 +132,7 @@ impl Project {
         Some((hi[1] as f64, (hi[1] - lo[1]) as f64))
     }
 
-    fn is_topo_element(&self, element: &Element) -> bool {
+    pub(crate) fn is_topo_element(&self, element: &Element) -> bool {
         self.registry
             .get(&element.component_id)
             .is_some_and(|d| d.category == "topo")
@@ -196,32 +204,77 @@ impl Project {
         ))
     }
 
+    /// Terrain top as drawn: the TIN through the control points, refined
+    /// into a smooth surface unless `smooth` is off. Exact at every point.
+    pub(crate) fn topo_top(
+        &self,
+        element: &Element,
+        surface: &ShapedSurface,
+    ) -> Option<SurfaceMesh> {
+        let tin = surface.triangulate().ok()?;
+        let smooth = self
+            .registry
+            .eval_params(&element.component_id, &element.params)
+            .ok()
+            .and_then(|p| p.bool("smooth"))
+            .unwrap_or(true);
+        if !smooth {
+            return Some(tin);
+        }
+        Some(tin.smoothed(topo_subdivision(tin.triangles.len())))
+    }
+
+    /// (minor, major) contour intervals. Minor is always on (clamped to a
+    /// small minimum); a major interval below the minor draws no heavy lines.
+    fn contour_intervals(&self, element: &Element) -> (f64, f64) {
+        const MIN_INTERVAL: f64 = 0.05;
+        let params = self
+            .registry
+            .eval_params(&element.component_id, &element.params)
+            .ok();
+        let minor = params
+            .as_ref()
+            .and_then(|p| p.number("contour_interval"))
+            .unwrap_or(1.0)
+            .max(MIN_INTERVAL);
+        let major = params
+            .as_ref()
+            .and_then(|p| p.number("major_contour_interval"))
+            .unwrap_or(5.0);
+        (minor, if major + 1e-9 < minor { 0.0 } else { major })
+    }
+
     /// Closed shaped body minus openings and stair wells.
     ///
-    /// Terrain: TIN top + horizontal bottom at `min(top) − bottom_offset` +
-    /// vertical outer walls. Slabs/roofs: constant vertical thickness.
-    /// Topo meshes always receive elevation contour edges from
-    /// `contour_interval` (clamped to a small minimum) so every terrain reads
-    /// as topo, not bare triangulation.
+    /// Terrain (Revit toposurface): smooth-shaded top through the control
+    /// points, horizontal bottom at `min(top) − bottom_offset`, vertical outer
+    /// walls. No triangle edges are drawn; lines are the outline plus
+    /// contours — every `major_contour_interval` in `edges` (heavy), the rest
+    /// at `contour_interval` in `minor_edges` (light).
+    /// Slabs/roofs: constant vertical thickness.
     pub(crate) fn shaped_slab_mesh(&self, element: &Element) -> Option<TriangleMesh> {
         let (surface, depth) = self.shaped_surface(element)?;
         let is_topo = self.is_topo_element(element);
-        let mut mesh = if is_topo {
-            let mut ys: Vec<f64> = surface.boundary.iter().map(|p| p[1]).collect();
-            for (i, p) in surface.interior.iter().enumerate() {
-                if surface.usable_interior(i) {
-                    ys.push(p[1]);
-                }
-            }
-            let min_y = ys.into_iter().fold(f64::INFINITY, f64::min);
-            if !min_y.is_finite() {
-                return None;
-            }
-            surface
-                .solid(Underside::Flat(min_y - depth.max(0.0)))
-                .ok()?
+        let topo_top = if is_topo {
+            Some(self.topo_top(element, &surface)?)
         } else {
-            surface.solid(Underside::Drop(depth)).ok()?
+            None
+        };
+        let mut mesh = match &topo_top {
+            Some(top) => {
+                // Flat bottom below the lowest point of the drawn top (the
+                // smoothed surface is clamped to the control-point range).
+                let min_y = top
+                    .points
+                    .iter()
+                    .map(|p| p[1])
+                    .fold(f64::INFINITY, f64::min);
+                if !min_y.is_finite() {
+                    return None;
+                }
+                top.terrain_solid(min_y - depth.max(0.0))
+            }
+            None => surface.solid(Underside::Drop(depth)).ok()?,
         };
         let (lo, hi) = mesh.aabb()?;
         let voids = self.void_solids(element);
@@ -245,21 +298,15 @@ impl Project {
                 }
             }
         }
-        if is_topo {
-            // Always on: clamp to a sensible minimum rather than treating 0 as off.
-            const MIN_INTERVAL: f64 = 0.05;
-            let interval = self
-                .registry
-                .eval_params(&element.component_id, &element.params)
-                .ok()
-                .and_then(|p| p.number("contour_interval"))
-                .unwrap_or(1.0)
-                .max(MIN_INTERVAL);
-            if let Ok(top) = surface.triangulate() {
-                let f = |p: [f64; 3]| [p[0] as f32, p[1] as f32, p[2] as f32];
-                for [a, b] in top.contour_segments(interval) {
-                    mesh.push_edge(f(a), f(b));
-                }
+        if let Some(top) = &topo_top {
+            let (minor, major) = self.contour_intervals(element);
+            let lines = top.contour_lines(minor, major);
+            let f = |p: [f64; 3]| [p[0] as f32, p[1] as f32, p[2] as f32];
+            for [a, b] in lines.major {
+                mesh.push_edge(f(a), f(b));
+            }
+            for [a, b] in lines.minor {
+                mesh.push_minor_edge(f(a), f(b));
             }
         }
         Some(mesh)
@@ -346,6 +393,10 @@ impl Project {
         let element = self.document.get_element(id)?;
         let shape = self.slab_shape(element)?;
         let (surface, _) = self.surface_for(element, &shape)?;
+        if self.is_topo_element(element) {
+            // Seat on the surface as drawn (smoothed), not the raw TIN.
+            return self.topo_top(element, &surface)?.height_at(x, z);
+        }
         surface.height_at(x, z)
     }
 

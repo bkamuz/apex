@@ -485,6 +485,8 @@ export interface SceneDto {
   indices: Uint32Array | number[];
   pick_ids: Float64Array | number[];
   edge_positions?: Float32Array | number[];
+  /** Light secondary lines (terrain minor contours). */
+  minor_edge_positions?: Float32Array | number[];
   elements: ElementListDto[];
   references?: ReferenceDto[];
   grid_axes?: GridAxisDto[];

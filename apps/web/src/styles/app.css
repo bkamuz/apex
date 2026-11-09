@@ -3540,7 +3540,10 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
   .inspector-body .field-bool > input[type='checkbox'] { grid-column: 2; grid-row: 1; }
   .inspector-header .inspector-title { font-size: 16px; }
 }
-.inspector-body .field-label-text { white-space: normal; overflow-wrap: anywhere; line-height: 1.25; }
+/* Long labels wrap between words; the unit / binding chip / reset move to the
+   next line rather than splitting a word letter by letter. */
+.inspector-body .field label { flex-wrap: wrap; row-gap: 0; }
+.inspector-body .field-label-text { white-space: normal; overflow-wrap: break-word; line-height: 1.25; }
 
 /* Mobile: ribbon tabs, tool strip and context bar stay within the viewport and
    scroll sideways by touch (a swipe scrolls, a tap still activates a tool). */

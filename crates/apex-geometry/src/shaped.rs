@@ -37,6 +37,15 @@ pub enum Underside {
     Flat(f64),
 }
 
+/// Terrain contour segments, split by weight.
+#[derive(Debug, Clone, Default)]
+pub struct ContourLines {
+    /// Every `major` interval: drawn heavier.
+    pub major: Vec<[[f64; 3]; 2]>,
+    /// The remaining `minor` interval lines: drawn light.
+    pub minor: Vec<[[f64; 3]; 2]>,
+}
+
 /// A triangulated surface: points and plan-CCW triangles (normal +Y).
 #[derive(Debug, Clone)]
 pub struct SurfaceMesh {
@@ -386,6 +395,379 @@ impl SurfaceMesh {
         out
     }
 
+    /// Elevation levels `k·minor` (and `k·major`) strictly inside the
+    /// surface's height range, each flagged major when it is a multiple of
+    /// `major`. `major ≤ 0` means no major contours.
+    pub fn contour_levels(&self, minor: f64, major: f64) -> Vec<(f64, bool)> {
+        const EPS: f64 = 1e-9;
+        let mut ymin = f64::INFINITY;
+        let mut ymax = f64::NEG_INFINITY;
+        for p in &self.points {
+            ymin = ymin.min(p[1]);
+            ymax = ymax.max(p[1]);
+        }
+        if !ymin.is_finite() || ymax - ymin < EPS {
+            return Vec::new();
+        }
+        let is_multiple = |level: f64, step: f64| {
+            step > EPS && {
+                let q = level / step;
+                (q - q.round()).abs() * step < 1e-6
+            }
+        };
+        let mut out: Vec<(f64, bool)> = Vec::new();
+        for step in [minor, major] {
+            if step <= EPS {
+                continue;
+            }
+            let k0 = ((ymin + EPS) / step).ceil() as i64;
+            let k1 = ((ymax - EPS) / step).floor() as i64;
+            // Guard against absurd counts (1 mm interval on a mountain).
+            if k1 < k0 || k1 - k0 > 20_000 {
+                continue;
+            }
+            for k in k0..=k1 {
+                let level = k as f64 * step;
+                if out.iter().all(|(l, _)| (l - level).abs() > 1e-6) {
+                    out.push((level, is_multiple(level, major)));
+                }
+            }
+        }
+        out.sort_by(|a, b| a.0.total_cmp(&b.0));
+        out
+    }
+
+    /// Contour segments split into (major, minor) at the given intervals.
+    pub fn contour_lines(&self, minor: f64, major: f64) -> ContourLines {
+        let mut lines = ContourLines::default();
+        for (level, is_major) in self.contour_levels(minor, major) {
+            let segs = self.level_segments(level);
+            if is_major {
+                lines.major.extend(segs);
+            } else {
+                lines.minor.extend(segs);
+            }
+        }
+        lines
+    }
+
+    /// Isoline segments of one elevation.
+    fn level_segments(&self, level: f64) -> Vec<[[f64; 3]; 2]> {
+        const EPS: f64 = 1e-9;
+        let cross = |a: [f64; 3], b: [f64; 3]| -> Option<[f64; 3]> {
+            let (ya, yb) = (a[1] - level, b[1] - level);
+            if ya.abs() < EPS && yb.abs() < EPS {
+                return None;
+            }
+            if ya * yb > 0.0 {
+                return None;
+            }
+            if ya.abs() < EPS {
+                return Some(a);
+            }
+            if yb.abs() < EPS {
+                return Some(b);
+            }
+            let t = ya / (ya - yb);
+            Some([a[0] + t * (b[0] - a[0]), level, a[2] + t * (b[2] - a[2])])
+        };
+        let nearly =
+            |p: [f64; 3], q: [f64; 3]| (p[0] - q[0]).abs() < 1e-7 && (p[2] - q[2]).abs() < 1e-7;
+        let mut out = Vec::new();
+        for t in &self.triangles {
+            let pts = t.map(|i| self.points[i]);
+            let tmin = pts[0][1].min(pts[1][1]).min(pts[2][1]);
+            let tmax = pts[0][1].max(pts[1][1]).max(pts[2][1]);
+            if tmax - tmin < EPS || level < tmin - EPS || level > tmax + EPS {
+                continue;
+            }
+            let mut hits: Vec<[f64; 3]> = Vec::new();
+            for e in 0..3 {
+                if let Some(p) = cross(pts[e], pts[(e + 1) % 3]) {
+                    if hits.iter().all(|q| !nearly(*q, p)) {
+                        hits.push(p);
+                    }
+                }
+            }
+            if hits.len() == 2 {
+                out.push([hits[0], hits[1]]);
+            }
+        }
+        out
+    }
+
+    /// Plan gradient (dh/dx, dh/dz) and plan area of each triangle.
+    fn face_gradients(&self) -> Vec<([f64; 2], f64)> {
+        self.triangles
+            .iter()
+            .map(|t| {
+                let [a, b, c] = t.map(|i| self.points[i]);
+                let (ux, uz, uh) = (b[0] - a[0], b[2] - a[2], b[1] - a[1]);
+                let (vx, vz, vh) = (c[0] - a[0], c[2] - a[2], c[1] - a[1]);
+                let det = ux * vz - uz * vx;
+                if det.abs() < 1e-14 {
+                    return ([0.0, 0.0], 0.0);
+                }
+                let gx = (uh * vz - uz * vh) / det;
+                let gz = (ux * vh - uh * vx) / det;
+                ([gx, gz], det.abs() * 0.5)
+            })
+            .collect()
+    }
+
+    /// Area-weighted plan gradient at every point (zero for unused points).
+    fn vertex_gradients(&self) -> Vec<[f64; 2]> {
+        let mut acc = vec![[0.0f64; 3]; self.points.len()];
+        for (t, (g, area)) in self.triangles.iter().zip(self.face_gradients()) {
+            for &i in t {
+                acc[i][0] += g[0] * area;
+                acc[i][1] += g[1] * area;
+                acc[i][2] += area;
+            }
+        }
+        acc.iter()
+            .map(|a| {
+                if a[2] > 1e-14 {
+                    [a[0] / a[2], a[1] / a[2]]
+                } else {
+                    [0.0, 0.0]
+                }
+            })
+            .collect()
+    }
+
+    /// Smooth (area-weighted) unit normal at every point, from the top
+    /// triangles only. Used for Gouraud shading of terrain.
+    pub fn vertex_normals(&self) -> Vec<[f64; 3]> {
+        self.vertex_gradients()
+            .iter()
+            .map(|g| {
+                // Height field h(x, z): normal ∝ (−h_x, 1, −h_z).
+                let n = [-g[0], 1.0, -g[1]];
+                let l = (n[0] * n[0] + n[1] * n[1] + n[2] * n[2]).sqrt();
+                [n[0] / l, n[1] / l, n[2] / l]
+            })
+            .collect()
+    }
+
+    /// A finer surface through the same points with smooth, gently curved
+    /// faces (Revit-like toposurface instead of a faceted TIN).
+    ///
+    /// Each triangle becomes a cubic Bézier height patch built from per-point
+    /// gradients; every original point keeps its exact height, a planar
+    /// region stays planar, and edge curves are limited to be monotone
+    /// between their two ends (no ripples along an edge). Patches share
+    /// their edge curves, so the result has no cracks. `subdiv` splits each
+    /// edge into that many pieces (1 = unchanged); heights are clamped to the
+    /// input range.
+    pub fn smoothed(&self, subdiv: usize) -> SurfaceMesh {
+        let n = subdiv.clamp(1, 16);
+        if n == 1 || self.triangles.is_empty() {
+            return self.clone();
+        }
+        let grads = self.vertex_gradients();
+        let (mut ymin, mut ymax) = (f64::INFINITY, f64::NEG_INFINITY);
+        for t in &self.triangles {
+            for &i in t {
+                ymin = ymin.min(self.points[i][1]);
+                ymax = ymax.max(self.points[i][1]);
+            }
+        }
+        // Edge controls: Bézier point one third from `i` towards `j`.
+        let ctrl = |i: usize, j: usize| -> f64 {
+            let (a, b) = (self.points[i], self.points[j]);
+            let d = [b[0] - a[0], b[2] - a[2]];
+            let delta = b[1] - a[1];
+            if delta.abs() < 1e-12 {
+                return a[1];
+            }
+            let mi = grads[i][0] * d[0] + grads[i][1] * d[1];
+            let mj = grads[j][0] * d[0] + grads[j][1] * d[1];
+            // Fritsch–Carlson: slopes share the chord's sign and stay small
+            // enough that the cubic is monotone between the two heights.
+            let mut alpha = (mi / delta).max(0.0);
+            let beta = (mj / delta).max(0.0);
+            let r2 = alpha * alpha + beta * beta;
+            if r2 > 9.0 {
+                alpha *= 3.0 / r2.sqrt();
+            }
+            a[1] + alpha * delta / 3.0
+        };
+        let mut points: Vec<[f64; 3]> = Vec::new();
+        let mut index_of: HashMap<(i64, i64), usize> = HashMap::new();
+        let mut id_for = |p: [f64; 3], points: &mut Vec<[f64; 3]>| -> usize {
+            *index_of.entry(key(p[0], p[2])).or_insert_with(|| {
+                points.push(p);
+                points.len() - 1
+            })
+        };
+        // Original points first, so their indices (and heights) are exact.
+        for t in &self.triangles {
+            for &i in t {
+                id_for(self.points[i], &mut points);
+            }
+        }
+        let mut triangles = Vec::with_capacity(self.triangles.len() * n * n);
+        let nf = n as f64;
+        for t in &self.triangles {
+            let [ia, ib, ic] = *t;
+            let [pa, pb, pc] = t.map(|i| self.points[i]);
+            let (ha, hb, hc) = (pa[1], pb[1], pc[1]);
+            let (eab, eba) = (ctrl(ia, ib), ctrl(ib, ia));
+            let (ebc, ecb) = (ctrl(ib, ic), ctrl(ic, ib));
+            let (eca, eac) = (ctrl(ic, ia), ctrl(ia, ic));
+            let e = (eab + eba + ebc + ecb + eca + eac) / 6.0;
+            let v = (ha + hb + hc) / 3.0;
+            let c111 = e + (e - v) * 0.5;
+            let height = |u: f64, v: f64, w: f64| -> f64 {
+                ha * u * u * u
+                    + hb * v * v * v
+                    + hc * w * w * w
+                    + 3.0 * (eab * u * u * v + eba * u * v * v)
+                    + 3.0 * (ebc * v * v * w + ecb * v * w * w)
+                    + 3.0 * (eca * w * w * u + eac * w * u * u)
+                    + 6.0 * c111 * u * v * w
+            };
+            // Grid point (i, j): barycentric u = 1 − (i + j)/n, v = i/n, w = j/n.
+            let mut grid = vec![usize::MAX; (n + 1) * (n + 1)];
+            for i in 0..=n {
+                for j in 0..=(n - i) {
+                    let (v, w) = (i as f64 / nf, j as f64 / nf);
+                    let u = 1.0 - v - w;
+                    let p = if i == 0 && j == 0 {
+                        pa
+                    } else if i == n {
+                        pb
+                    } else if j == n {
+                        pc
+                    } else {
+                        let h = height(u, v, w).clamp(ymin, ymax);
+                        [
+                            u * pa[0] + v * pb[0] + w * pc[0],
+                            h,
+                            u * pa[2] + v * pb[2] + w * pc[2],
+                        ]
+                    };
+                    grid[i * (n + 1) + j] = id_for(p, &mut points);
+                }
+            }
+            let g = |i: usize, j: usize| grid[i * (n + 1) + j];
+            for i in 0..n {
+                for j in 0..(n - i) {
+                    triangles.push([g(i, j), g(i + 1, j), g(i, j + 1)]);
+                    if i + j + 1 < n {
+                        triangles.push([g(i + 1, j), g(i + 1, j + 1), g(i, j + 1)]);
+                    }
+                }
+            }
+        }
+        // Boundary: each original edge gains its n − 1 inner grid points.
+        let m = self.boundary.len();
+        let mut boundary = Vec::with_capacity(m * n);
+        for k in 0..m {
+            let (a, b) = (
+                self.points[self.boundary[k]],
+                self.points[self.boundary[(k + 1) % m]],
+            );
+            boundary.push(index_of[&key(a[0], a[2])]);
+            for s in 1..n {
+                let t = s as f64 / nf;
+                let x = a[0] + t * (b[0] - a[0]);
+                let z = a[2] + t * (b[2] - a[2]);
+                if let Some(&id) = index_of.get(&key(x, z)) {
+                    boundary.push(id);
+                }
+            }
+        }
+        SurfaceMesh {
+            points,
+            triangles,
+            boundary,
+        }
+    }
+
+    /// Terrain solid (Revit toposurface look): smooth-shaded top with no
+    /// triangle edges, vertical sides, flat bottom at `bottom_y`. Lines are
+    /// only the outline: top and bottom rims plus vertical corners.
+    pub fn terrain_solid(&self, bottom_y: f64) -> TriangleMesh {
+        let f = |p: [f64; 3]| [p[0] as f32, p[1] as f32, p[2] as f32];
+        let mut mesh = TriangleMesh::empty();
+        let normals = self.vertex_normals();
+        for t in &self.triangles {
+            mesh.push_triangle_smooth(t.map(|i| f(self.points[i])), t.map(|i| f(normals[i])));
+        }
+        let bot = |p: [f64; 3]| [p[0], bottom_y, p[2]];
+        let down = [0.0, -1.0, 0.0];
+        for t in &self.triangles {
+            mesh.push_triangle(
+                f(bot(self.points[t[0]])),
+                f(bot(self.points[t[2]])),
+                f(bot(self.points[t[1]])),
+                down,
+            );
+        }
+        let m = self.boundary.len();
+        // Outward side normal of boundary edge k (top boundary runs CCW in plan
+        // seen from +Y, so outward is to the right of i → j).
+        let side_normal = |k: usize| -> [f64; 3] {
+            let (a, b) = (
+                self.points[self.boundary[k]],
+                self.points[self.boundary[(k + 1) % m]],
+            );
+            let (dx, dz) = (b[0] - a[0], b[2] - a[2]);
+            let l = (dx * dx + dz * dz).sqrt().max(1e-30);
+            [-dz / l, 0.0, dx / l]
+        };
+        for k in 0..m {
+            let (ti, tj) = (
+                self.points[self.boundary[k]],
+                self.points[self.boundary[(k + 1) % m]],
+            );
+            let (bi, bj) = (bot(ti), bot(tj));
+            let nrm = side_normal(k);
+            let mut tri = |p: [[f64; 3]; 3]| {
+                // Keep the winding consistent with the outward normal.
+                let u = [p[1][0] - p[0][0], p[1][1] - p[0][1], p[1][2] - p[0][2]];
+                let v = [p[2][0] - p[0][0], p[2][1] - p[0][1], p[2][2] - p[0][2]];
+                let c = [
+                    u[1] * v[2] - u[2] * v[1],
+                    u[2] * v[0] - u[0] * v[2],
+                    u[0] * v[1] - u[1] * v[0],
+                ];
+                if c[0].abs() + c[1].abs() + c[2].abs() < 1e-14 {
+                    return;
+                }
+                let p = if c[0] * nrm[0] + c[2] * nrm[2] < 0.0 {
+                    [p[0], p[2], p[1]]
+                } else {
+                    p
+                };
+                mesh.push_triangle(f(p[0]), f(p[1]), f(p[2]), f(nrm));
+            };
+            if (ti[1] - bi[1]).abs() > 1e-9 {
+                tri([tj, ti, bi]);
+            }
+            if (tj[1] - bj[1]).abs() > 1e-9 {
+                tri([tj, bi, bj]);
+            }
+        }
+        // Outline: top and bottom rims, plus vertical lines where the side
+        // turns a corner (collinear refined boundary points get none).
+        for k in 0..m {
+            let (ti, tj) = (
+                self.points[self.boundary[k]],
+                self.points[self.boundary[(k + 1) % m]],
+            );
+            mesh.push_edge(f(ti), f(tj));
+            mesh.push_edge(f(bot(ti)), f(bot(tj)));
+            let (n0, n1) = (side_normal((k + m - 1) % m), side_normal(k));
+            if n0[0] * n1[0] + n0[2] * n1[2] < 0.9998 && (ti[1] - bottom_y).abs() > 1e-9 {
+                mesh.push_edge(f(ti), f(bot(ti)));
+            }
+        }
+        mesh
+    }
+
     /// Closed, consistently oriented solid: top surface, underside, and one
     /// side quad per boundary edge. Feature edges are where faces bend.
     pub fn solid(&self, under: Underside) -> TriangleMesh {
@@ -575,5 +957,80 @@ mod tests {
         }
         let half = mesh.contour_segments(0.5);
         assert!(half.len() > segs.len(), "finer interval → more isolines");
+    }
+
+    fn bumpy() -> ShapedSurface {
+        let mut s = ShapedSurface::new(vec![
+            [0.0, 0.0, 0.0],
+            [10.0, 1.0, 0.0],
+            [10.0, 3.0, 8.0],
+            [0.0, 0.5, 8.0],
+        ]);
+        s.interior = vec![[4.0, 2.4, 3.0], [7.0, 0.2, 5.0]];
+        s
+    }
+
+    #[test]
+    fn smoothed_surface_passes_through_points_without_overshoot() {
+        let s = bumpy();
+        let tin = s.triangulate().unwrap();
+        let fine = tin.smoothed(5);
+        assert_eq!(fine.triangles.len(), tin.triangles.len() * 25);
+        for p in s.boundary.iter().chain(s.interior.iter()) {
+            let h = fine.height_at(p[0], p[2]).unwrap();
+            assert!((h - p[1]).abs() < 1e-9, "{h} vs {}", p[1]);
+        }
+        for p in &fine.points {
+            assert!(p[1] >= -1e-9 && p[1] <= 3.0 + 1e-9);
+        }
+        // Closed solid with a flat base, and the boundary follows the
+        // refined rim (4 edges × 5 pieces).
+        assert_eq!(fine.boundary.len(), 20);
+        let m = fine.terrain_solid(-1.0);
+        assert!(is_watertight(&m));
+        // Lines: top rim + bottom rim (20 each) and 4 vertical corners only.
+        assert_eq!(m.edge_count(), 44);
+        // Actually curved: a refined point between the TIN facets differs.
+        let off = fine
+            .points
+            .iter()
+            .any(|p| (tin.height_at(p[0], p[2]).unwrap() - p[1]).abs() > 1e-3);
+        assert!(off, "smoothing should bend the facets");
+    }
+
+    #[test]
+    fn smoothing_keeps_a_plane_planar() {
+        let s = square([0.0, 1.0, 1.0, 0.0]);
+        let fine = s.triangulate().unwrap().smoothed(4);
+        for p in &fine.points {
+            assert!((p[1] - p[0] / 4.0).abs() < 1e-9, "{p:?}");
+        }
+        let m = fine.terrain_solid(-0.5);
+        assert!(is_watertight(&m));
+        assert!((mesh_volume(&m) - 16.0 * 1.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn contour_lines_split_major_and_minor() {
+        let s = square([0.0, 4.0, 4.0, 0.0]);
+        let tin = s.triangulate().unwrap();
+        let lines = tin.contour_lines(0.5, 2.0);
+        assert!(lines
+            .major
+            .iter()
+            .all(|[a, b]| (a[1] - 2.0).abs() < 1e-9 && (b[1] - 2.0).abs() < 1e-9));
+        assert!(!lines.major.is_empty());
+        let levels: std::collections::BTreeSet<i64> = lines
+            .minor
+            .iter()
+            .map(|[a, _]| (a[1] * 1000.0).round() as i64)
+            .collect();
+        assert_eq!(
+            levels.into_iter().collect::<Vec<_>>(),
+            vec![500, 1000, 1500, 2500, 3000, 3500]
+        );
+        // Major off: everything is minor.
+        let lines = tin.contour_lines(1.0, 0.0);
+        assert!(lines.major.is_empty() && !lines.minor.is_empty());
     }
 }

@@ -348,6 +348,8 @@ struct SceneDto {
     /// Pick id per triangle.
     pick_ids: Vec<f64>,
     edge_positions: Vec<f32>,
+    /// Light secondary lines (terrain minor contours).
+    minor_edge_positions: Vec<f32>,
     elements: Vec<ElementListDto>,
     references: Vec<ReferenceDto>,
     grid_axes: Vec<GridAxisDto>,
@@ -775,6 +777,7 @@ fn scene_dto(project: &Project) -> SceneDto {
         indices: buffers.indices,
         pick_ids: buffers.pick_ids.iter().map(|id| *id as f64).collect(),
         edge_positions: project.hide_buried_edges(&buffers.edge_positions),
+        minor_edge_positions: buffers.minor_edge_positions,
         elements: buffers
             .elements
             .iter()
@@ -1036,6 +1039,7 @@ fn scene(project: &Project) -> Result<JsValue, JsValue> {
     let indices = std::mem::take(&mut dto.indices);
     let pick_ids = std::mem::take(&mut dto.pick_ids);
     let edges = std::mem::take(&mut dto.edge_positions);
+    let minor_edges = std::mem::take(&mut dto.minor_edge_positions);
     let obj = to_js(&dto)?;
     let set =
         |k: &str, v: JsValue| js_sys::Reflect::set(&obj, &JsValue::from_str(k), &v).map(|_| ());
@@ -1049,6 +1053,10 @@ fn scene(project: &Project) -> Result<JsValue, JsValue> {
     set(
         "edge_positions",
         js_sys::Float32Array::from(&edges[..]).into(),
+    )?;
+    set(
+        "minor_edge_positions",
+        js_sys::Float32Array::from(&minor_edges[..]).into(),
     )?;
     Ok(obj)
 }

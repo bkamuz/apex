@@ -36,5 +36,5 @@ pub use prism::{
     region_subtract, region_union, triangulate_shape, BooleanOp, LayeredSolid, Region, Ring,
 };
 pub use profile::{Justification, Point2, Profile};
-pub use shaped::{ShapedSurface, SurfaceMesh, Underside};
+pub use shaped::{ContourLines, ShapedSurface, SurfaceMesh, Underside};
 pub use sweep::{extrude, sweep, SweepOptions};

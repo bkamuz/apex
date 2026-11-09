@@ -653,6 +653,7 @@ mod tests {
             normals: vec![0.0; 24],
             indices,
             edges: Vec::new(),
+            minor_edges: Vec::new(),
         }
     }
 

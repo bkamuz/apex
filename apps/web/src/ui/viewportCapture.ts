@@ -38,6 +38,9 @@ export function captureViewImage(
       indices: toUint32Array(scene.indices),
       pickIds: filterPickIdsForCategories(scene, hidden),
       edgePositions: scene.edge_positions ? toFloatArray(scene.edge_positions) : [],
+      minorEdgePositions: scene.minor_edge_positions
+        ? toFloatArray(scene.minor_edge_positions)
+        : [],
       selectedPickIds: selectedPickIds(scene),
       fitCamera: false,
     });

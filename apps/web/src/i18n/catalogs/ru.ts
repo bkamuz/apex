@@ -217,7 +217,7 @@ export const ru: MessageCatalog = {
   'inspector.terrain.hintEditing':
     'В 3D: клик по свободному месту на верхе рельефа — добавить внутреннюю точку. Перетащите зелёную точку вверх/вниз или выберите её и PgUp/PgDn. Esc — выход из правки.',
   'inspector.terrain.hintIdle':
-    'Двойной клик по рельефу — правка высот. Горизонтали всегда видны; интервал — в поле выше. Нижняя плоскость на {offset} м ниже самой низкой верхней точки.',
+    'Двойной клик по рельефу — правка высот. Рисуется как топоповерхность: гладкая поверхность, только контур и горизонтали (тонкие — с шагом «Горизонтали», жирные — с шагом «Основные»). Нижняя плоскость на {offset} м ниже самой низкой верхней точки.',
   'inspector.terrain.elevation': 'Отметка',
   'inspector.terrain.addInnerCentre': 'Добавить точку (центр)',
   'tool.apex.move.hintBase': 'Выберите объекты, затем укажите базовую точку (перемещение)',
@@ -554,7 +554,9 @@ export const ru: MessageCatalog = {
   'param.label.diameter': 'Диаметр',
   'param.label.elevation': 'Отметка',
   'param.label.bottom_offset': 'Смещение низа',
-  'param.label.contour_interval': 'Интервал горизонталей',
+  'param.label.contour_interval': 'Горизонтали',
+  'param.label.major_contour_interval': 'Основные',
+  'param.label.smooth_surface': 'Сглаживание',
   'param.label.extension': 'Удлинение',
   'param.label.fill_height': 'Высота заполнения',
   'param.label.frame_reference': 'Профиль рамы',
