@@ -2054,6 +2054,11 @@ fn terrain() -> ComponentDefinition {
             // Elevation isolines on the TIN top (always drawn; clamp tiny values).
             ParamSpec::length("contour_interval", "Contour interval", 1.0)
                 .with_range(Some(0.05), None),
+            // Heavy contours every this many metres (Revit "primary contours").
+            ParamSpec::length("major_contour_interval", "Major contour interval", 5.0)
+                .with_range(Some(0.05), None),
+            // Smooth surface through the points (off = raw TIN facets).
+            ParamSpec::flag("smooth", "Smooth surface", true),
             // Control-point heights: outer vertex `z[]` + interior `[x, z, dz]`
             // (JSON, see `project::slab_shape`).
             ParamSpec::text(SLAB_SHAPE, "Shape", ""),
@@ -2065,13 +2070,13 @@ fn terrain() -> ComponentDefinition {
             height: Expr::constant(0.01),
         },
         descriptor: Descriptor::new(
-            "Terrain solid: closed outer boundary plus optional interior control points, each with an elevation. Top is a TIN (constrained Delaunay in plan); bottom is a horizontal plane at min(top elevations) − bottom_offset; sides are vertical. Fence and site surfaces seat onto the top. Contour lines are always drawn on the top at contour_interval (default 1 m; minimum 0.05 m). Double-click to edit heights; Esc exits. Edit heights via set_slab_shape (`z` per outer vertex, `points` for interior [x, z, elev]).",
+            "Terrain solid: closed outer boundary plus optional interior control points, each with an elevation. Top is a TIN (constrained Delaunay in plan); bottom is a horizontal plane at min(top elevations) − bottom_offset; sides are vertical. Fence and site surfaces seat onto the top. The top is drawn like a Revit toposurface: a smooth surface through every point (smooth = false shows the raw TIN facets), no triangle edges, only the outline and contour lines. Light contours every contour_interval (default 1 m; minimum 0.05 m), heavy ones every major_contour_interval (default 5 m). Double-click to edit heights; Esc exits. Edit heights via set_slab_shape (`z` per outer vertex, `points` for interior [x, z, elev]).",
         )
         .points("polyline: 3+ outer boundary points, closed automatically (do not repeat the first point)")
-        .constraint("boundary must be simple (non self-intersecting); bottom_offset ≥ 0; contour_interval ≥ 0.05")
+        .constraint("boundary must be simple (non self-intersecting); bottom_offset ≥ 0; contour_interval ≥ 0.05; major_contour_interval ≥ 0.05")
         .example(
             "Sloped yard patch",
-            json!({"component": "apex.terrain", "points": [[10, 0, 0], [14, 0, 0], [14, 0, 8], [10, 0, 8]], "params": {"elevation": 0.0, "bottom_offset": 1.0, "contour_interval": 1.0, "shape": "{\"z\":[0,-0.6,-0.4,0],\"points\":[[12,4,-0.2]]}"}}),
+            json!({"component": "apex.terrain", "points": [[10, 0, 0], [14, 0, 0], [14, 0, 8], [10, 0, 8]], "params": {"elevation": 0.0, "bottom_offset": 1.0, "contour_interval": 1.0, "major_contour_interval": 5.0, "smooth": true, "shape": "{\"z\":[0,-0.6,-0.4,0],\"points\":[[12,4,-0.2]]}"}}),
         ),
         host_cut: None,
         level_height_params: vec![],

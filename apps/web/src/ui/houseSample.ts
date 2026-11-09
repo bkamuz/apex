@@ -268,7 +268,7 @@ function buildYard(elev: number): void {
       xz(10.2, -0.15, elev),
       xz(-3, -0.15, elev),
     ],
-    { bottom_offset: 1.5, elevation: 0 },
+    { bottom_offset: 1.5, elevation: 0, contour_interval: 0.25, major_contour_interval: 1 },
     0,
     "polyline",
   );

@@ -229,5 +229,24 @@ pub(crate) fn canonical(mesh: TriangleMesh) -> TriangleMesh {
         out.edges.extend_from_slice(a);
         out.edges.extend_from_slice(b);
     }
+    // Secondary lines (terrain minor contours) keep their own stream.
+    let mut minor: Vec<[[f32; 3]; 2]> = mesh
+        .minor_edges
+        .chunks(6)
+        .filter(|e| e.len() == 6)
+        .map(|e| {
+            let (a, b) = (v(e, 0), v(e, 1));
+            if b < a {
+                [b, a]
+            } else {
+                [a, b]
+            }
+        })
+        .collect();
+    minor.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    for [a, b] in &minor {
+        out.minor_edges.extend_from_slice(a);
+        out.minor_edges.extend_from_slice(b);
+    }
     out
 }

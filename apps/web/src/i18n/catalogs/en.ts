@@ -224,7 +224,7 @@ export const en: MessageCatalog = {
   'inspector.terrain.hintEditing':
     'In 3D: click an empty spot on the terrain top to add an inner point. Drag a green point up/down, or select it and PgUp/PgDn. Esc exits edit.',
   'inspector.terrain.hintIdle':
-    'Double-click the terrain to edit height points. Contour lines are always drawn; set Contour interval above. Bottom offset {offset} m below the lowest top point.',
+    'Double-click the terrain to edit height points. Drawn like a toposurface: smooth surface, outline and contour lines only (thin at the Contours step, bold at the Major contours step). Bottom offset {offset} m below the lowest top point.',
   'inspector.terrain.elevation': 'Elevation',
   'inspector.terrain.addInnerCentre': 'Add inner point (centre)',
   'tool.apex.move.hintBase': 'Select objects, then pick base point (move)',
@@ -568,7 +568,9 @@ export const en: MessageCatalog = {
   'param.label.diameter': 'Diameter',
   'param.label.elevation': 'Elevation',
   'param.label.bottom_offset': 'Bottom offset',
-  'param.label.contour_interval': 'Contour interval',
+  'param.label.contour_interval': 'Contours',
+  'param.label.major_contour_interval': 'Major contours',
+  'param.label.smooth_surface': 'Smooth surface',
   'param.label.extension': 'Extension',
   'param.label.fill_height': 'Fill height',
   'param.label.frame_reference': 'Frame reference',

@@ -563,6 +563,7 @@ impl Document {
         let mut indices = Vec::new();
         let mut pick_ids = Vec::new();
         let mut edge_positions = Vec::new();
+        let mut minor_edge_positions = Vec::new();
         let mut element_index = Vec::new();
 
         let elements: Vec<_> = self.elements().collect();
@@ -578,6 +579,7 @@ impl Document {
             positions.extend_from_slice(&mesh.positions);
             normals.extend_from_slice(&mesh.normals);
             edge_positions.extend_from_slice(&mesh.edges);
+            minor_edge_positions.extend_from_slice(&mesh.minor_edges);
 
             for tri in mesh.indices.as_chunks::<3>().0 {
                 indices.push(base + tri[0]);
@@ -602,6 +604,7 @@ impl Document {
             indices,
             pick_ids,
             edge_positions,
+            minor_edge_positions,
             elements: element_index,
             version: self.version,
         }
@@ -689,6 +692,9 @@ pub struct SceneBuffers {
     pub pick_ids: Vec<u64>,
     /// CAD edge segments: consecutive xyz pairs.
     pub edge_positions: Vec<f32>,
+    /// Light secondary lines (terrain minor contours), same layout.
+    #[serde(default)]
+    pub minor_edge_positions: Vec<f32>,
     pub elements: Vec<ElementSceneEntry>,
     pub version: u64,
 }

@@ -185,7 +185,7 @@ await go3dTerrain();
 await selectTerrain();
 await page.waitForTimeout(300);
 const hasContourLabel = await page.evaluate(() =>
-  /Contour interval/i.test(document.body.innerText),
+  /Contours/i.test(document.body.innerText),
 );
 console.log('interval label EN present', hasContourLabel);
 if (!hasContourLabel) throw new Error('Contour interval label missing in inspector');

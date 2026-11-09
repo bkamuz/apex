@@ -28,12 +28,18 @@ function flatten(points: Vec3[]): Float32Array {
   return data;
 }
 
+/** Minor (secondary) line weight vs. outlines/major contours at 2 px. */
+const MINOR_EDGE_WIDTH = 1.0;
+const MINOR_EDGE_ALPHA = 0.38;
+
 export interface SceneMeshData {
   positions: ArrayLike<number>;
   normals: ArrayLike<number>;
   indices: ArrayLike<number>;
   pickIds: ArrayLike<number>;
   edgePositions?: ArrayLike<number>;
+  /** Light secondary lines (terrain minor contours): thinner, fainter. */
+  minorEdgePositions?: ArrayLike<number>;
   selectedPickIds: number[];
   /** Model-element bounds from the core (ignores huge helpers). */
   fitBounds?: { min: Vec3; max: Vec3 } | null;
@@ -946,6 +952,10 @@ export class ViewportRenderer {
   private edgeVao: WebGLVertexArrayObject;
   private edgeBuf: WebGLBuffer;
   private edgeCount = 0;
+  private minorEdgeVao: WebGLVertexArrayObject;
+  private minorEdgeBuf: WebGLBuffer;
+  private minorEdgeCount = 0;
+  private savedMinorEdgeCount = 0;
   private gridVao: WebGLVertexArrayObject;
   private gridBuf: WebGLBuffer;
   private gridCount = 0;
@@ -1146,6 +1156,10 @@ export class ViewportRenderer {
     this.edgeVao = gl.createVertexArray()!;
     this.edgeBuf = gl.createBuffer()!;
     this.bindThickLineVao(this.edgeVao, this.edgeBuf);
+
+    this.minorEdgeVao = gl.createVertexArray()!;
+    this.minorEdgeBuf = gl.createBuffer()!;
+    this.bindThickLineVao(this.minorEdgeVao, this.minorEdgeBuf);
 
     this.gridVao = gl.createVertexArray()!;
     this.gridBuf = gl.createBuffer()!;
@@ -1461,11 +1475,18 @@ export class ViewportRenderer {
     this.indexCount = indices.length;
 
     const uploadedEdges = this.uploadThickLines(this.edgeBuf, edges);
+    const minorRaw = data.minorEdgePositions ?? [];
+    const minor =
+      minorRaw instanceof Float32Array ? minorRaw : new Float32Array(minorRaw as ArrayLike<number>);
+    const uploadedMinor = minor.length > 0 ? this.uploadThickLines(this.minorEdgeBuf, minor) : 0;
     if (this.edgesSuppressedForHide) {
       this.savedEdgeCount = uploadedEdges;
+      this.savedMinorEdgeCount = uploadedMinor;
       this.edgeCount = 0;
+      this.minorEdgeCount = 0;
     } else {
       this.edgeCount = uploadedEdges;
+      this.minorEdgeCount = uploadedMinor;
     }
 
     this.selectedPickIds = data.selectedPickIds.slice(0, 32);
@@ -1520,13 +1541,17 @@ export class ViewportRenderer {
     if (this.hiddenPickIds.length > 0) {
       if (!this.edgesSuppressedForHide) {
         this.savedEdgeCount = this.edgeCount;
+        this.savedMinorEdgeCount = this.minorEdgeCount;
         this.edgesSuppressedForHide = true;
       }
       this.edgeCount = 0;
+      this.minorEdgeCount = 0;
     } else if (this.edgesSuppressedForHide) {
       this.edgeCount = this.savedEdgeCount;
+      this.minorEdgeCount = this.savedMinorEdgeCount;
       this.edgesSuppressedForHide = false;
       this.savedEdgeCount = 0;
+      this.savedMinorEdgeCount = 0;
     }
   }
 
@@ -3242,6 +3267,13 @@ export class ViewportRenderer {
       gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       const lineColor: [number, number, number, number] = [0.15, 0.15, 0.15, 1];
       this.drawLines(this.edgeVao, this.edgeCount, lineColor, 2.2, { overlay: true });
+      this.drawLines(
+        this.minorEdgeVao,
+        this.minorEdgeCount,
+        [lineColor[0], lineColor[1], lineColor[2], MINOR_EDGE_ALPHA],
+        MINOR_EDGE_WIDTH,
+        { overlay: true },
+      );
       this.drawLines(this.viewAnnotationLineVao, this.viewAnnotationLineCount, lineColor, 2.0, {
         overlay: true,
       });
@@ -3269,6 +3301,14 @@ export class ViewportRenderer {
     const edgeWidth = plan ? 2.0 : 2.0;
     const edgeColor: Rgba = plan ? this.ps.edge : this.vt.edge;
     this.drawLines(this.edgeVao, this.edgeCount, edgeColor, edgeWidth);
+    // Terrain minor contours: same ink, thinner and faint (Revit secondary
+    // contours); major contours ride in the edge stream above.
+    this.drawLines(
+      this.minorEdgeVao,
+      this.minorEdgeCount,
+      [edgeColor[0], edgeColor[1], edgeColor[2], MINOR_EDGE_ALPHA],
+      MINOR_EDGE_WIDTH,
+    );
     this.drawGhost();
     // Level contours (inactive dim, active brighter) — double-click to activate.
     this.drawLines(

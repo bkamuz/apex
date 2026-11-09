@@ -759,6 +759,7 @@ export default function App() {
         indices: toUint32Array(next.indices),
         pickIds: filterPickIdsForCategories(next, hidden),
         edgePositions: next.edge_positions ? toFloatArray(next.edge_positions) : [],
+        minorEdgePositions: next.minor_edge_positions ? toFloatArray(next.minor_edge_positions) : [],
         selectedPickIds: selectedPickIds(next),
         fitBounds: sceneFitBounds(next),
         slabPickIds: slabPickIds(next),
@@ -801,6 +802,7 @@ export default function App() {
         indices: toUint32Array(next.indices),
         pickIds: filterPickIdsForCategories(next, hidden),
         edgePositions: next.edge_positions ? toFloatArray(next.edge_positions) : [],
+        minorEdgePositions: next.minor_edge_positions ? toFloatArray(next.minor_edge_positions) : [],
         selectedPickIds: [],
         slabPickIds: slabPickIds(next),
         fitCamera: false,
@@ -1403,6 +1405,7 @@ export default function App() {
             indices: toUint32Array(next.indices),
             pickIds: next.pick_ids,
             edgePositions: next.edge_positions ? toFloatArray(next.edge_positions) : [],
+            minorEdgePositions: next.minor_edge_positions ? toFloatArray(next.minor_edge_positions) : [],
             selectedPickIds: selectedPickIds(next),
             fitCamera: false,
           });

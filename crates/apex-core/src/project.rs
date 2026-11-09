@@ -2614,6 +2614,12 @@ impl Project {
             // Genus bodies are unioned per solid in `GenusBuild::mesh`.
             return Ok(mesh);
         }
+        if self.is_topo_element(element) {
+            // Terrain is already one closed shell. Re-stitching it through
+            // the exact kernel turns every TIN triangle into a B-rep face:
+            // flat shading and a drawn edge per triangle (not a toposurface).
+            return Ok(mesh);
+        }
         Ok(crate::kroute::solidify(mesh))
     }
 
@@ -6295,7 +6301,8 @@ mod plugin_first_tests {
         );
         // Contours always on. Heights 0..0.8 → default 1 m may miss isolines;
         // 0.25 m must add them. Tiny values clamp to the minimum (still on).
-        let edges_default = mesh.edge_count();
+        let lines = |m: &apex_geometry::TriangleMesh| m.edge_count() + m.minor_edge_count();
+        let edges_default = lines(mesh);
         project
             .update_element(
                 terrain,
@@ -6304,11 +6311,7 @@ mod plugin_first_tests {
                 true,
             )
             .expect("interval");
-        let fine_edges = project
-            .document()
-            .get_mesh(terrain)
-            .expect("mesh")
-            .edge_count();
+        let fine_edges = lines(project.document().get_mesh(terrain).expect("mesh"));
         assert!(
             fine_edges > edges_default,
             "finer contour_interval should add isoline edges ({edges_default} → {fine_edges})"
@@ -6323,15 +6326,115 @@ mod plugin_first_tests {
                 true,
             )
             .expect("min interval");
-        let min_edges = project
-            .document()
-            .get_mesh(terrain)
-            .expect("mesh")
-            .edge_count();
+        let min_edges = lines(project.document().get_mesh(terrain).expect("mesh"));
         assert!(
             min_edges >= fine_edges,
             "minimum contour_interval stays always-on (got {min_edges} edges, 0.25 m had {fine_edges})"
         );
+    }
+
+    #[test]
+    fn terrain_draws_like_a_toposurface_not_a_tin() {
+        // Revit toposurface: no triangle edges on the top, smooth shading,
+        // light minor contours and heavy major ones.
+        let mut project = Project::new();
+        let placement = PlacementKind::Polyline
+            .build(
+                &[
+                    Vec3::new(0.0, 0.0, 0.0),
+                    Vec3::new(20.0, 0.0, 0.0),
+                    Vec3::new(20.0, 0.0, 16.0),
+                    Vec3::new(0.0, 0.0, 16.0),
+                ],
+                0.0,
+                &apex_geometry::Frame::horizontal(0.0),
+            )
+            .expect("terrain poly");
+        let terrain = project
+            .create_element(
+                "apex.terrain",
+                placement,
+                ParamMap::new()
+                    .with("bottom_offset", ParamValue::Length(1.0))
+                    .with("contour_interval", ParamValue::Length(0.5))
+                    .with("major_contour_interval", ParamValue::Length(2.5)),
+            )
+            .expect("terrain");
+        project
+            .set_slab_shape(
+                terrain,
+                &crate::SlabShape {
+                    z: vec![0.0, 1.0, 6.0, 2.0],
+                    points: vec![[8.0, 7.0, 4.2], [14.0, 4.0, 0.6]],
+                    creases: vec![],
+                },
+            )
+            .expect("grade");
+        let mesh = project.document().get_mesh(terrain).expect("mesh").clone();
+        assert!(apex_geometry::is_watertight(&mesh));
+        let on_outline = |x: f32, z: f32| {
+            x.abs() < 1e-3 || (x - 20.0).abs() < 1e-3 || z.abs() < 1e-3 || (z - 16.0).abs() < 1e-3
+        };
+        let multiple = |y: f32, step: f32| {
+            let q = y / step;
+            (q - q.round()).abs() * step < 1e-3
+        };
+        let (mut outline, mut major) = (0, 0);
+        for e in mesh.edges.chunks(6) {
+            let (a, b) = ([e[0], e[1], e[2]], [e[3], e[4], e[5]]);
+            if on_outline(a[0], a[2]) && on_outline(b[0], b[2]) {
+                outline += 1;
+                continue;
+            }
+            // Anything else in the heavy channel must be a major contour.
+            assert!(
+                (a[1] - b[1]).abs() < 1e-4 && multiple(a[1], 2.5),
+                "triangle edge drawn on the terrain top: {a:?} → {b:?}"
+            );
+            major += 1;
+        }
+        assert!(outline >= 12, "outline drawn ({outline})");
+        assert!(major > 0, "major contours at 2.5 m");
+        assert!(mesh.minor_edge_count() > major, "light minor contours");
+        for e in mesh.minor_edges.chunks(6) {
+            assert!((e[1] - e[4]).abs() < 1e-4 && multiple(e[1], 0.5));
+            assert!(
+                !multiple(e[1], 2.5),
+                "major levels are not repeated as minor"
+            );
+        }
+        // Smooth shading: some top triangle has differing corner normals.
+        let smooth = mesh.indices.chunks(3).any(|t| {
+            let n = |i: u32| {
+                let k = i as usize * 3;
+                [mesh.normals[k], mesh.normals[k + 1], mesh.normals[k + 2]]
+            };
+            let (a, b) = (n(t[0]), n(t[1]));
+            a[1] > 0.1 && (a[0] - b[0]).abs() + (a[2] - b[2]).abs() > 1e-3
+        });
+        assert!(smooth, "terrain top uses per-vertex normals");
+        // Exact at control points (seat height = point elevation).
+        let level = project.document().active_level_id().unwrap();
+        let h = project.topo_height_at(level, 8.0, 7.0, None).unwrap();
+        assert!((h - 4.2).abs() < 1e-4, "{h}");
+        let h = project.topo_height_at(level, 20.0, 16.0, None).unwrap();
+        assert!((h - 6.0).abs() < 1e-4, "{h}");
+        // smooth = false: the plain TIN (fewer triangles), still no TIN edges.
+        let smooth_tris = mesh.triangle_count();
+        project
+            .update_element(
+                terrain,
+                Some(ParamMap::new().with("smooth", ParamValue::Bool(false))),
+                None,
+                true,
+            )
+            .expect("smooth off");
+        let tin = project.document().get_mesh(terrain).expect("mesh");
+        assert!(tin.triangle_count() < smooth_tris);
+        for e in tin.edges.chunks(6) {
+            let on = on_outline(e[0], e[2]) && on_outline(e[3], e[5]);
+            assert!(on || ((e[1] - e[4]).abs() < 1e-4 && multiple(e[1], 2.5)));
+        }
     }
 
     #[test]

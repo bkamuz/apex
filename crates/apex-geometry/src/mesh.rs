@@ -11,6 +11,11 @@ pub struct TriangleMesh {
     pub indices: Vec<u32>,
     /// Unique edge segments as consecutive point pairs (xyz, xyz, ...).
     pub edges: Vec<f32>,
+    /// Secondary (light) line segments, same layout as `edges`: drawn thinner
+    /// and fainter than outlines. Terrain minor contours live here; major
+    /// contours and outlines stay in `edges`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub minor_edges: Vec<f32>,
 }
 
 impl TriangleMesh {
@@ -39,9 +44,29 @@ impl TriangleMesh {
         self.indices.extend_from_slice(&[base, base + 1, base + 2]);
     }
 
+    /// One triangle with its own normal per corner (smooth shading).
+    pub fn push_triangle_smooth(&mut self, p: [[f32; 3]; 3], n: [[f32; 3]; 3]) {
+        let base = self.vertex_count() as u32;
+        for k in 0..3 {
+            self.positions.extend_from_slice(&p[k]);
+            self.normals.extend_from_slice(&n[k]);
+        }
+        self.indices.extend_from_slice(&[base, base + 1, base + 2]);
+    }
+
     pub fn push_edge(&mut self, a: [f32; 3], b: [f32; 3]) {
         self.edges.extend_from_slice(&a);
         self.edges.extend_from_slice(&b);
+    }
+
+    /// A secondary (light) line segment, e.g. a minor contour.
+    pub fn push_minor_edge(&mut self, a: [f32; 3], b: [f32; 3]) {
+        self.minor_edges.extend_from_slice(&a);
+        self.minor_edges.extend_from_slice(&b);
+    }
+
+    pub fn minor_edge_count(&self) -> usize {
+        self.minor_edges.len() / 6
     }
 
     /// Append another mesh, rebasing its indices.
@@ -51,6 +76,7 @@ impl TriangleMesh {
         self.normals.extend_from_slice(&other.normals);
         self.indices.extend(other.indices.iter().map(|i| i + base));
         self.edges.extend_from_slice(&other.edges);
+        self.minor_edges.extend_from_slice(&other.minor_edges);
     }
 
     pub fn is_empty(&self) -> bool {
