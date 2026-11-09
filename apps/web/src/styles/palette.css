@@ -80,6 +80,16 @@
   --view-cube-edge: var(--chrome-bg-hint); /* #12141a */
   --view-cube-label: var(--chrome-text); /* #e7e9ee */
   --view-cube-label-halo: var(--chrome-overlay-strong);
+
+  /* Genus editor: references, solids, cuts, nested genera, selection. */
+  --genus-ref: #6aa8f0;
+  --genus-solid: #9aa3b2;
+  --genus-cut: #f0a04b;
+  --genus-nested: #b294f0;
+  --genus-sel: #8fc1ff;
+  --genus-solid-fill: #2a303b;
+  --genus-glass-fill: rgba(120, 170, 220, 0.22);
+  --genus-sel-fill: rgba(143, 193, 255, 0.22);
 }
 
 :root[data-theme='light'] {
@@ -140,4 +150,13 @@
   --view-cube-edge: var(--chrome-border);
   --view-cube-label: var(--chrome-text); /* #1b1f27 */
   --view-cube-label-halo: var(--chrome-overlay-strong);
+
+  --genus-ref: #2f7fd6;
+  --genus-solid: #5d6575;
+  --genus-cut: #c46a10;
+  --genus-nested: #7a4fd0;
+  --genus-sel: #1d5fb8;
+  --genus-solid-fill: #e3e7ed;
+  --genus-glass-fill: rgba(120, 170, 220, 0.2);
+  --genus-sel-fill: rgba(29, 95, 184, 0.14);
 }

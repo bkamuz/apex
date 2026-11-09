@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from 'react';
 import type {
   ComponentDto,
   ConstructionLineDto,
@@ -13,6 +13,8 @@ import type {
 import { t, useI18n } from '../i18n';
 import { categoryDisplayLabel } from './categoryLabels';
 import { isUserAuthoredComponent } from './componentModel';
+import { componentDisplayName } from '../i18n';
+import { isGenusComponent } from '../genusEditor/model';
 import { profileLabel } from './profileModel';
 import { ViewsSheetsPanel } from './ViewsSheetsPanel';
 import type { SheetDto, ViewDto } from '../types';
@@ -76,7 +78,23 @@ interface Props {
   ) => void;
   onRenameSheet?: (id: string, number: string, name: string) => void;
   onDeleteSheet?: (id: string) => void;
+  /** Open a user genus in the genus editor mode. */
+  onOpenGenus?: (id: string) => void;
+  /** «Create based on» a built-in genus (a new genus that extends it). */
+  onDeriveGenus?: (id: string) => void;
+  /** The previous (modal) component editor. */
+  onLegacyEditComponent?: (id: string) => void;
 }
+
+/** Роды rows with a genus body: click selects, double-click / actions open. */
+interface GenusRowActions {
+  activeId: string | null;
+  setActiveId: (id: string | null) => void;
+  onOpenGenus?: (id: string) => void;
+  onDeriveGenus?: (id: string) => void;
+  onLegacyEditComponent?: (id: string) => void;
+}
+const GenusRowContext = createContext<GenusRowActions | null>(null);
 
 interface BrowserItem {
   key: string;
@@ -93,6 +111,10 @@ interface BrowserItem {
   name: string;
   category: string;
   levelName: string;
+  /** component_def: a built-in genus (read-only; «Create based on»). */
+  builtIn?: boolean;
+  /** component_def: has a universal genus body (opens in the genus editor). */
+  hasGenus?: boolean;
   profileName: string;
   /** Element parent id when this row is a child instance. */
   parentId?: string | null;
@@ -292,6 +314,14 @@ function BrowserTreeItem({
 }: BrowserTreeItemProps) {
   const isType = item.kind === 'type';
   const isComponentDef = item.kind === 'component_def';
+  const genusRows = useContext(GenusRowContext);
+  const genusRow = isComponentDef && (item.hasGenus || item.builtIn) && genusRows !== null;
+  const genusActive = genusRow && genusRows?.activeId === item.id;
+  const openGenus = () => {
+    if (!genusRows) return;
+    if (item.builtIn) genusRows.onDeriveGenus?.(item.id);
+    else genusRows.onOpenGenus?.(item.id);
+  };
   const isDatum =
     item.kind === 'reference' ||
     item.kind === 'grid_axis' ||
@@ -305,9 +335,16 @@ function BrowserTreeItem({
       data-id={item.id}
       data-parent-id={item.parentId ?? undefined}
       data-depth={depth}
-      className={isSelected ? 'selected' : ''}
+      data-builtin={item.builtIn ? 'true' : undefined}
+      className={isSelected || genusActive ? 'selected' : ''}
       style={depth > 0 ? { paddingLeft: 10 + depth * 14 } : undefined}
+      onDoubleClick={genusRow ? openGenus : undefined}
       onClick={(event) => {
+        if (genusRow) {
+          if ((event.target as HTMLElement).closest('.browser-genus-actions')) return;
+          genusRows?.setActiveId(genusActive ? null : item.id);
+          return;
+        }
         if (isType) onSelectType(item.id);
         else if (isComponentDef) onSelectComponent(item.id);
         else if (item.kind === 'reference') onSelectReference(item.id);
@@ -321,6 +358,7 @@ function BrowserTreeItem({
       <span>
         {item.name}
         <span className={`kind-badge kind-${item.kind}`}>{kindBadge(item.kind, depth)}</span>
+        {item.builtIn ? <span className="kind-badge kind-builtin">{t('browser.badge.builtIn')}</span> : null}
       </span>
       <span className="cat">
         {isType || isComponentDef
@@ -329,6 +367,42 @@ function BrowserTreeItem({
             ? item.levelName
             : item.profileName}
       </span>
+      {genusActive ? (
+        <span className="browser-genus-actions" data-testid={`browser-genus-actions-${item.id}`}>
+          {item.builtIn ? (
+            <button
+              type="button"
+              className="panel-action"
+              data-testid="browser-genus-derive"
+              title={t('browser.genus.deriveTitle')}
+              onClick={() => genusRows?.onDeriveGenus?.(item.id)}
+            >
+              {t('browser.genus.derive')}
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="panel-action"
+                data-testid="browser-genus-edit"
+                title={t('browser.genus.editTitle')}
+                onClick={() => genusRows?.onOpenGenus?.(item.id)}
+              >
+                {t('browser.genus.edit')}
+              </button>
+              <button
+                type="button"
+                className="panel-action"
+                data-testid="browser-genus-legacy"
+                title={t('browser.genus.legacyTitle')}
+                onClick={() => genusRows?.onLegacyEditComponent?.(item.id)}
+              >
+                {t('browser.genus.legacy')}
+              </button>
+            </>
+          )}
+        </span>
+      ) : null}
     </li>
   );
 }
@@ -508,12 +582,23 @@ export function ProjectBrowser({
   onCreateSheetWithLayout,
   onRenameSheet,
   onDeleteSheet,
+  onOpenGenus,
+  onDeriveGenus,
+  onLegacyEditComponent,
   tab,
   onTabChange,
   onCollapse,
   levelsSlot,
 }: Props) {
   const { t: tx, locale } = useI18n();
+  const [activeGenusId, setActiveGenusId] = useState<string | null>(null);
+  const genusRowActions = useMemo<GenusRowActions | null>(
+    () =>
+      onOpenGenus || onDeriveGenus
+        ? { activeId: activeGenusId, setActiveId: setActiveGenusId, onOpenGenus, onDeriveGenus, onLegacyEditComponent }
+        : null,
+    [activeGenusId, onOpenGenus, onDeriveGenus, onLegacyEditComponent],
+  );
   const initial = loadPrefs();
   const [groupBy, setGroupBy] = useState<BrowserGroupBy>(initial.groupBy);
   const [sortBy, setSortBy] = useState<BrowserSortBy>(initial.sortBy);
@@ -570,11 +655,15 @@ export function ProjectBrowser({
       levelName: '',
       profileName: profile.display_name,
     }));
-    const componentDefs: BrowserItem[] = components.filter(isUserAuthoredComponent).map((def) => ({
+    const componentDefs: BrowserItem[] = components
+      .filter((def) => isUserAuthoredComponent(def) || (onDeriveGenus && isGenusComponent(def)))
+      .map((def) => ({
       key: `component:${def.id}`,
       kind: 'component_def' as const,
       id: def.id,
-      name: def.display_name,
+      name: isUserAuthoredComponent(def) ? def.display_name : componentDisplayName(def.id, def.display_name),
+      builtIn: !isUserAuthoredComponent(def),
+      hasGenus: isGenusComponent(def),
       category: def.category,
       levelName: '',
       profileName: def.placement,
@@ -673,6 +762,7 @@ export function ProjectBrowser({
     query,
     sortBy,
     locale,
+    onDeriveGenus,
   ]);
 
   const groups = useMemo(() => {
@@ -695,10 +785,12 @@ export function ProjectBrowser({
   ];
   const totalInTab =
     tab === 'genera'
-      ? profiles.length + components.filter(isUserAuthoredComponent).length
+      ? profiles.length +
+        components.filter((def) => isUserAuthoredComponent(def) || (onDeriveGenus && isGenusComponent(def))).length
       : elements.length + references.length + gridAxes.length + constructionLines.length + sectionCuts.length + spaces.length;
 
   return (
+    <GenusRowContext.Provider value={genusRowActions}>
     <div className="project-browser" data-testid="project-browser" data-tab={tab}>
       <div className="browser-tabs" role="tablist" aria-label={tx('sidebar.tabsLabel')}>
         {tabs.map(({ id, key }) => (
@@ -906,5 +998,6 @@ export function ProjectBrowser({
         </>
       )}
     </div>
+    </GenusRowContext.Provider>
   );
 }

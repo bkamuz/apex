@@ -1218,6 +1218,27 @@ input[type="radio"] {
   background: transparent;
 }
 
+/* Роды: actions under a selected genus row (Edit / Create based on / Old editor). */
+.browser-tree-items li[data-kind='component_def'] {
+  flex-wrap: wrap;
+}
+.browser-genus-actions {
+  flex-basis: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 4px;
+}
+.browser-genus-actions .panel-action {
+  background: var(--chrome-bg);
+  color: var(--chrome-text);
+}
+.kind-badge.kind-builtin {
+  background: transparent;
+  border: 1px solid currentColor;
+  opacity: 0.7;
+}
+
 .grid-axis-labels {
   position: absolute;
   inset: 0;

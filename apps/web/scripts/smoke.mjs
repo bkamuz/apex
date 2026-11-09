@@ -1064,6 +1064,53 @@ check('sample has terrain', (houseCounts?.terrains ?? 0) >= 1);
 await page.screenshot({ path: `${OUT}/apex-sample-house.png`, fullPage: true });
 
 
+// --- Genus editor mode (same window; the project state survives) ----------
+console.log('\n[13] genus editor mode');
+{
+  const camera = () =>
+    page.evaluate(() => JSON.stringify(document.querySelector('[data-testid="viewport-canvas"]')?.__apexRenderer?.getCamera() ?? null));
+  await page.getByTestId('browser-tab-model').click();
+  await page.locator('[data-kind="instance"]').filter({ hasText: /^Wall/ }).first().click();
+  await page.waitForTimeout(200);
+  const before = {
+    cam: await camera(),
+    selected: await page.locator('[data-kind="instance"].selected').count(),
+    undo: await page.getByTestId('undo').isDisabled(),
+    elements: await elementCount(),
+  };
+  await page.getByTestId('browser-tab-genera').click();
+  const winRow = page.locator('[data-kind="component_def"][data-id="apex.window"]');
+  check('built-in window listed in Роды', (await winRow.count()) === 1);
+  await winRow.click();
+  await page.getByTestId('browser-genus-derive').click();
+  await page.waitForSelector('[data-testid="genus-editor"]');
+  await page.waitForTimeout(800);
+  check('genus editor opens in the same window', (await page.getByTestId('genus-mode-badge').count()) === 1);
+  check('new genus is marked unsaved', (await page.getByTestId('genus-dirty').count()) === 1);
+  check(
+    'genus views show the window',
+    (await page.locator('[data-testid="genus-view-front"] [data-item="frame"]').count()) >= 1 &&
+      (await page.locator('[data-testid="genus-view-plan"] [data-item="infill"]').count()) >= 1 &&
+      (await page.getByTestId('genus-host').count()) >= 1,
+  );
+  check('structure lists inherited window items', (await page.getByTestId('genus-tree-opening').count()) === 1);
+  check('build time in the status bar', /\d/.test((await page.getByTestId('genus-build-time').textContent()) ?? ''));
+  check('authoring tools disabled for now', await page.getByTestId('genus-tool-extrude').isDisabled());
+  await page.keyboard.press('Delete');
+  await page.keyboard.press('Control+z');
+  await page.getByTestId('genus-exit').click();
+  check('exit asks about unsaved changes', (await page.getByTestId('genus-exit-dialog').count()) === 1);
+  await page.getByTestId('genus-exit-discard').click();
+  await page.waitForTimeout(400);
+  check('genus editor closed', (await page.getByTestId('genus-editor').count()) === 0);
+  check('project camera kept', (await camera()) === before.cam);
+  check('project undo state kept', (await page.getByTestId('undo').isDisabled()) === before.undo);
+  await page.getByTestId('browser-tab-model').click();
+  check('project selection kept', before.selected > 0 && (await page.locator('[data-kind="instance"].selected').count()) === before.selected);
+  check('project untouched by editor keys', (await elementCount()) === before.elements);
+  await page.screenshot({ path: `${OUT}/apex-genus-editor-return.png`, fullPage: true });
+}
+
 // Mobile: the ribbon tool strip scrolls sideways by touch.
 {
   const mctx = await browser.newContext({ ...devices['iPhone 13'], viewport: { width: 390, height: 780 } });

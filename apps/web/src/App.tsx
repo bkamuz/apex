@@ -155,6 +155,9 @@ import { SettingsMenu } from './ui/SettingsMenu';
 import { LevelList } from './ui/LevelList';
 import { MobileMenuSheet, type MobileMenuTab } from './ui/MobileMenuSheet';
 import { ComponentEditor } from './ui/ComponentEditor';
+import { GenusEditorMode } from './genusEditor/GenusEditorMode';
+import { isGenusEditorOpen } from './genusEditor/session';
+import type { GenusEditorTarget } from './genusEditor/model';
 import { ProfileEditor } from './ui/ProfileEditor';
 import { defaultNewComponent, isUserAuthoredComponent, nextComponentId } from './ui/componentModel';
 import { ProjectBrowser } from './ui/ProjectBrowser';
@@ -418,6 +421,8 @@ export default function App() {
     profile: ProfileTypeDto;
     originalId: string | null;
   } | null>(null);
+  /** Genus editor mode (same window; the project stays mounted underneath). */
+  const [genusEditor, setGenusEditor] = useState<GenusEditorTarget | null>(null);
   const [componentEditor, setComponentEditor] = useState<{
     component: ComponentDto;
     originalId: string | null;
@@ -2159,6 +2164,8 @@ export default function App() {
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
+      // The genus editor mode owns the keyboard while it is open.
+      if (isGenusEditorOpen()) return;
       if (e.key === 'Escape' || e.code === 'Escape') {
         e.preventDefault();
         if (profileEditor) {
@@ -2687,6 +2694,18 @@ export default function App() {
   );
 
   const browserViewsProps = {
+    onOpenGenus: (id: string) => {
+      closeMobileMenu();
+      setGenusEditor({ kind: 'edit', genusId: id });
+    },
+    onDeriveGenus: (id: string) => {
+      closeMobileMenu();
+      setGenusEditor({ kind: 'derive', baseId: id });
+    },
+    onLegacyEditComponent: (id: string) => {
+      closeMobileMenu();
+      onEditComponent(id);
+    },
     views: scene?.views ?? [],
     sheets: scene?.sheets ?? [],
     activeLevelId: scene?.active_level_id ?? null,
@@ -3363,6 +3382,7 @@ export default function App() {
 
   useEffect(() => {
     const onFileKeyDown = (e: KeyboardEvent) => {
+      if (isGenusEditorOpen()) return;
       const active = document.activeElement;
       const typing =
         active instanceof HTMLElement &&
@@ -4222,6 +4242,23 @@ export default function App() {
           originalId={profileEditor.originalId}
           onSave={onSaveProfile}
           onClose={() => setProfileEditor(null)}
+        />
+      ) : null}
+      {genusEditor ? (
+        <GenusEditorMode
+          key={genusEditor.kind === 'edit' ? `edit:${genusEditor.genusId}` : `derive:${genusEditor.baseId}`}
+          target={genusEditor}
+          components={components}
+          isMobile={isMobile}
+          projectName={projectFileName}
+          onExit={() => {
+            setGenusEditor(null);
+            queueMicrotask(() => focusViewportCanvas());
+          }}
+          onSaved={() => {
+            applyScene(apexGetScene());
+            syncCatalog();
+          }}
         />
       ) : null}
       {componentEditor ? (
