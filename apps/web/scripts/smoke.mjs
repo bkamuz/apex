@@ -1115,8 +1115,10 @@ console.log('\n[13] genus editor mode');
 {
   const mctx = await browser.newContext({ ...devices['iPhone 13'], viewport: { width: 390, height: 780 } });
   const mp = await mctx.newPage();
-  await mp.goto(BASE, { waitUntil: 'networkidle' });
-  await mp.waitForSelector('.tools button');
+  // `load`, not `networkidle`: kernel workers of the first page can keep the
+  // dev server busy on slow runners.
+  await mp.goto(BASE, { waitUntil: 'load', timeout: 90000 });
+  await mp.waitForSelector('.tools button', { timeout: 90000 });
   const dims = await mp.evaluate(() => {
     const t = document.querySelector('.tools');
     return { sw: t.scrollWidth, cw: t.clientWidth, doc: document.documentElement.scrollWidth };
