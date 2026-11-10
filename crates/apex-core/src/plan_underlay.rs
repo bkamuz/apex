@@ -107,6 +107,7 @@ pub fn plan_underlay_param_specs() -> Vec<ParamSpec> {
             unit: None,
             binding: ParamBinding::Instance,
             group: None,
+            formula: None,
         },
         ParamSpec {
             id: "opacity".to_string(),
@@ -118,6 +119,7 @@ pub fn plan_underlay_param_specs() -> Vec<ParamSpec> {
             unit: None,
             binding: ParamBinding::Instance,
             group: None,
+            formula: None,
         },
         ParamSpec {
             id: "locked".to_string(),
@@ -129,6 +131,7 @@ pub fn plan_underlay_param_specs() -> Vec<ParamSpec> {
             unit: None,
             binding: ParamBinding::Instance,
             group: None,
+            formula: None,
         },
         ParamSpec {
             id: "visible".to_string(),
@@ -140,6 +143,7 @@ pub fn plan_underlay_param_specs() -> Vec<ParamSpec> {
             unit: None,
             binding: ParamBinding::Instance,
             group: None,
+            formula: None,
         },
         ParamSpec::length("origin_x", "Origin X", 0.0),
         ParamSpec::length("origin_z", "Origin Z", 0.0),
@@ -153,6 +157,7 @@ pub fn plan_underlay_param_specs() -> Vec<ParamSpec> {
             unit: Some("°".into()),
             binding: ParamBinding::Instance,
             group: None,
+            formula: None,
         },
         ParamSpec {
             id: "scale".to_string(),
@@ -164,6 +169,7 @@ pub fn plan_underlay_param_specs() -> Vec<ParamSpec> {
             unit: None,
             binding: ParamBinding::Instance,
             group: None,
+            formula: None,
         },
     ]
 }

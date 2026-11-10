@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { componentDisplayName, useI18n } from '../i18n';
+import { componentDisplayName, speciesDisplayName, useI18n } from '../i18n';
 import { Section } from './inspector/Section';
 import type { ComponentDto, ElementDto, SpeciesDto, ParamValue, SceneDto } from '../types';
 import { apexExecuteCommand, apexRunQuery, apexSelectElement } from '../wasm/apex';
@@ -66,7 +66,7 @@ export function GenusSpeciesSection({
   const duplicate = () => {
     const name = window.prompt(
       t('inspector.promptNewSpecies'),
-      t('inspector.copyName', { name: current?.name ?? component.display_name }),
+      t('inspector.copyName', { name: current ? speciesDisplayName(current) : component.display_name }),
     );
     if (!name) return;
     try {
@@ -85,14 +85,14 @@ export function GenusSpeciesSection({
 
   const rename = () => {
     if (!current) return;
-    const name = window.prompt(t('inspector.promptRenameSpecies'), current.name);
+    const name = window.prompt(t('inspector.promptRenameSpecies'), speciesDisplayName(current));
     if (!name || name === current.name) return;
     run({ op: 'update_species', id: current.id, name });
     extensions.notifyCatalogChanged();
   };
   const remove = () => {
     if (!current || !component.default_species) return;
-    if (!window.confirm(t('inspector.confirmDeleteSpecies', { name: current.name }))) return;
+    if (!window.confirm(t('inspector.confirmDeleteSpecies', { name: speciesDisplayName(current) }))) return;
     const doomed = current.id;
     try {
       apexExecuteCommand({ op: 'set_element_species', id: element.id, species: component.default_species });
@@ -126,7 +126,7 @@ export function GenusSpeciesSection({
               id: spec.id,
               value: draft[spec.id] ?? spec.default,
               source: spec.id in current.values ? 'species' : 'genus',
-              from: spec.id in current.values ? current.name : component.id,
+              from: spec.id in current.values ? speciesDisplayName(current) : component.id,
             }}
             value={draft[spec.id] ?? spec.default}
             onChange={(value) => setDraft((prev) => ({ ...prev, [spec.id]: value }))}
@@ -164,7 +164,7 @@ export function GenusSpeciesSection({
         <select data-testid="genus-species-select" value={speciesId} onChange={(e) => swap(e.target.value)}>
           {ownSpecies.map((row) => (
             <option key={row.id} value={row.id}>
-              {row.name}
+              {speciesDisplayName(row)}
             </option>
           ))}
         </select>

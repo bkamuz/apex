@@ -1111,6 +1111,83 @@ console.log('\n[13] genus editor mode');
   await page.screenshot({ path: `${OUT}/apex-genus-editor-return.png`, fullPage: true });
 }
 
+// --- Genus parameters & species (in-editor edits, Save writes them) -------
+console.log('\n[14] genus parameters and species');
+{
+  const listSpecies = (genus) =>
+    page.evaluate(async (g) => {
+      const m = await import('/src/wasm/apex.ts');
+      return m.apexRunQuery({ op: 'list_genus_species', genus: g }).map((r) => ({ id: r.id, name: r.name, width: r.values.width }));
+    }, genus);
+  await page.getByTestId('browser-tab-genera').click();
+  await page.locator('[data-kind="component_def"][data-id="apex.window"]').click();
+  await page.getByTestId('browser-genus-derive').click();
+  await page.waitForSelector('[data-testid="genus-params-dock"]');
+  await page.waitForTimeout(800);
+  const genusId = (await page.getByTestId('genus-status').textContent()).match(/user\.window[\w.]*/)?.[0];
+  const cols = () => page.locator('[data-testid^="genus-species-col-"]').count();
+  const startCols = await cols();
+  check('species copied from the base genus', startCols >= 2, String(startCols));
+  const sp = await page.getByTestId('genus-species').inputValue();
+  await page.getByTestId(`genus-cell-width-${sp}`).fill('1500');
+  await page.waitForTimeout(900);
+  check('species value rebuilds the views', /1500/.test(await page.getByTestId('genus-view-front').textContent()));
+  await page.getByTestId('genus-add-param').click();
+  check('new param opens its form', (await page.getByTestId('genus-param-form').count()) === 1);
+  await page.getByTestId('genus-param-source-genus').click();
+  await page.getByTestId('genus-param-formula').fill('width +');
+  await page.waitForTimeout(200);
+  check('bad formula explained', (await page.getByTestId('genus-param-error-formula').count()) >= 1);
+  check('build paused on errors', (await page.getByTestId('genus-build-paused').count()) === 1);
+  await page.getByTestId('genus-param-formula').fill('width / 2');
+  await page.waitForTimeout(600);
+  check('computed value per species', (await page.getByTestId(`genus-computed-param_1-${sp}`).textContent()).trim() === '750');
+  check('build resumes', (await page.getByTestId('genus-build-status').count()) === 1);
+  await page.getByTestId('genus-source-sill').click();
+  check('binding toggles to species', (await page.getByTestId('genus-param-row-sill').getAttribute('data-source')) === 'species');
+  await page.getByTestId('genus-add-species').click();
+  await page.waitForTimeout(200);
+  check('species added', (await cols()) === startCols + 1);
+  await page.getByTestId('genus-rename-species').click();
+  await page.getByTestId('genus-species-name-input').fill('Wide 2100');
+  await page.keyboard.press('Enter');
+  const wide = await page.getByTestId('genus-species').inputValue();
+  await page.getByTestId(`genus-cell-width-${wide}`).fill('2100');
+  await page.getByTestId('genus-save').click();
+  await page.waitForTimeout(400);
+  check('saved: not dirty', (await page.getByTestId('genus-dirty').count()) === 0);
+  const saved = await listSpecies(genusId);
+  check(
+    'species registered with their values',
+    saved.length === startCols + 1 && saved.some((r) => r.name === 'Wide 2100' && r.width === 2.1) && saved.some((r) => r.id === sp && r.width === 1.5),
+    JSON.stringify(saved),
+  );
+  await page.getByTestId('genus-exit').click();
+  await page.waitForTimeout(300);
+  check('saved genus exits without a prompt', (await page.getByTestId('genus-editor').count()) === 0);
+  await page.locator(`[data-kind="component_def"][data-id="${genusId}"]`).click();
+  await page.getByTestId('browser-genus-edit').click();
+  await page.waitForSelector('[data-testid="genus-params-dock"]');
+  await page.waitForTimeout(600);
+  check('reopened: clean, species and computed param kept', (await page.getByTestId('genus-dirty').count()) === 0 && (await cols()) === startCols + 1 && (await page.getByTestId('genus-param-row-param_1').getAttribute('data-source')) === 'genus');
+  await page.getByTestId(`genus-species-col-${wide}`).click();
+  await page.getByTestId('genus-delete-species').click();
+  await page.getByTestId('genus-save').click();
+  await page.waitForTimeout(300);
+  check('deleted species removed on save', (await listSpecies(genusId)).length === startCols);
+  await page.getByTestId('genus-exit').click();
+  const ruName = await page.evaluate(async () => {
+    const i = await import('/src/i18n/index.ts');
+    const prev = i.getLocale();
+    i.setLocale('ru');
+    const n = i.speciesDisplayName({ id: 'apex.window.single-1200x1400', name: 'Window 1200×1400 single sash' });
+    const d = i.speciesDisplayName({ id: 'apex.window.t-1000x1400', name: 'Window 1000×1400 (Window 1200×1400 single sash)' });
+    i.setLocale(prev);
+    return [n, d];
+  });
+  check('species names localized in RU', ruName.every((n) => /[а-яё]/i.test(n) && !/Window|sash/.test(n)), ruName.join(' | '));
+}
+
 // Mobile: the ribbon tool strip scrolls sideways by touch.
 {
   const mctx = await browser.newContext({ ...devices['iPhone 13'], viewport: { width: 390, height: 780 } });

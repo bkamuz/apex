@@ -33,6 +33,8 @@ export interface GenusParamInput {
   max?: number;
   species?: boolean;
   group?: string;
+  /** Computed param: its value is this formula over other params. */
+  formula?: string;
 }
 
 /** The define_genus payload being edited (no `op`). */
@@ -58,6 +60,8 @@ export interface GetGenusDto {
   built_in?: boolean;
   authored?: GenusDefDto | null;
   resolved?: GenusDefDto | null;
+  /** Param provenance: `from` = the genus that declares it. */
+  params?: { id: string; from?: string; source?: string }[];
 }
 
 /** Built-in genera are read-only; their `genus` body can still be viewed. */
@@ -82,12 +86,24 @@ export function paramInputFromSpec(spec: ParamSpecDto): GenusParamInput {
   if (typeof spec.max === 'number') out.max = spec.max;
   if (spec.binding === 'type') out.species = true;
   if (spec.group) out.group = spec.group;
+  if (spec.formula) {
+    out.formula = spec.formula;
+    delete out.species;
+  }
   return out;
 }
 
-/** Draft for an existing user genus: its authored body and declared params. */
-export function draftFromGenus(component: ComponentDto, authored: GenusDefDto | null | undefined): GenusDraft {
+/**
+ * Draft for an existing user genus: its authored body and the params it
+ * declares itself (`own`: ids from get_genus provenance; all when unknown).
+ */
+export function draftFromGenus(
+  component: ComponentDto,
+  authored: GenusDefDto | null | undefined,
+  own?: Iterable<string>,
+): GenusDraft {
   const g = authored ?? component.genus ?? { body: [] };
+  const ownIds = own ? new Set(own) : null;
   return {
     id: component.id,
     name: component.display_name,
@@ -96,7 +112,9 @@ export function draftFromGenus(component: ComponentDto, authored: GenusDefDto | 
     extends: g.extends,
     placement: g.placement,
     // `species` is the choice param the core adds to typed genera.
-    params: component.params.filter((p) => p.id !== 'species').map(paramInputFromSpec),
+    params: component.params
+      .filter((p) => p.id !== 'species' && (!ownIds || ownIds.has(p.id)))
+      .map(paramInputFromSpec),
     refs: [...(g.refs ?? [])],
     body: [...(g.body ?? [])],
     dims: [...(g.dims ?? [])],
@@ -147,6 +165,8 @@ export function defineGenusCommand(draft: GenusDraft): Record<string, unknown> {
 
 export interface PreviewOptions {
   species?: string | null;
+  /** Unsaved species values (the species matrix column being previewed). */
+  speciesValues?: Record<string, ParamValue> | null;
   hostDepth?: number;
   length?: number;
 }
@@ -157,6 +177,7 @@ export function previewRequest(draft: GenusDraft, opts: PreviewOptions = {}): Re
   void _op;
   const out: Record<string, unknown> = { ...fields };
   if (opts.species) out.species = opts.species;
+  if (opts.speciesValues && Object.keys(opts.speciesValues).length) out.species_values = opts.speciesValues;
   if (opts.hostDepth !== undefined) out.host_depth = opts.hostDepth;
   if (opts.length !== undefined) out.length = opts.length;
   return out;

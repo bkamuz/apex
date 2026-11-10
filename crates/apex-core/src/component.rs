@@ -1600,6 +1600,7 @@ mod tests {
                 unit: None,
                 binding: crate::param::ParamBinding::Instance,
                 group: None,
+                formula: None,
             }],
             recipe: GeometryRecipe::Custom {
                 builder_id: "x".into(),

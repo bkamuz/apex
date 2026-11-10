@@ -1,15 +1,37 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { componentDisplayName, useI18n } from '../i18n';
+import { componentDisplayName, speciesDisplayName, useI18n } from '../i18n';
 import { useTheme } from '../theme/useTheme';
 import { THEME_PREFERENCES } from '../theme/theme';
-import type { ComponentDto, GenusDefDto, GenusPreviewDto } from '../types';
+import type { ComponentDto, GenusDefDto, GenusPreviewDto, ParamSpecDto, ParamValue } from '../types';
 import { currentKernel, pumpKernelJobs } from '../kernel/geometryKernel';
 import { apexExecuteCommand, apexPreviewGenus, apexRunQuery } from '../wasm/apex';
 import { Genus3DView } from './Genus3DView';
 import { GenusOrthoView } from './GenusOrthoView';
 import { GenusStructureTree } from './GenusStructureTree';
 import { GenusIcon } from './icons';
+import { GenusParamForm } from './GenusParamForm';
+import { GenusParamsDock } from './GenusParamsDock';
+import {
+  addParam,
+  addSpecies,
+  copySpecies,
+  deleteParam,
+  deleteSpecies,
+  kindOf,
+  paramRows,
+  renameParam,
+  renameSpecies,
+  setParam,
+  setSpeciesValue,
+  speciesCommands,
+  speciesKey,
+  speciesValues,
+  usedByGeometry,
+  validateParams,
+  type DraftSpecies,
+  type ParamSource,
+} from './params';
 import {
   buildTree,
   defineGenusCommand,
@@ -21,6 +43,7 @@ import {
   testHostFor,
   type GenusDraft,
   type GenusEditorTarget,
+  type GenusParamInput,
   type GetGenusDto,
 } from './model';
 import { buildView, type OrthoView } from './projection';
@@ -31,14 +54,18 @@ type OkPreview = Extract<GenusPreviewDto, { ok: true }>;
 type RibbonTab = 'create' | 'modify' | 'params' | 'view';
 type Layout = 'all' | OrthoView | '3d';
 type PaneView = OrthoView | '3d';
-type SidePanel = 'properties' | 'params';
 
 interface SpeciesRow {
   id: string;
   name: string;
+  genus?: string;
   default?: boolean;
+  instances?: number;
   values?: Record<string, unknown>;
 }
+
+/** Rebuild this long after the last edit (typing a formula, a value). */
+const REBUILD_DEBOUNCE_MS = 180;
 
 export interface GenusEditorModeProps {
   target: GenusEditorTarget;
@@ -73,16 +100,48 @@ interface Session {
   /** draftKey of the saved state; null = never saved (new genus). */
   savedKey: string | null;
   parent: GenusDefDto | null;
+  /** The parent's (merged) param specs, for inherited rows. */
+  parentSpecs: ParamSpecDto[];
+  /** Species being edited, and as registered (written on Save). */
+  species: DraftSpecies[];
+  savedSpecies: DraftSpecies[];
+  /** Species with instances in the project (not deletable). */
+  usedSpecies: Set<string>;
+}
+
+function toDraftSpecies(rows: SpeciesRow[]): DraftSpecies[] {
+  return rows.map((r) => ({
+    id: r.id,
+    name: r.name,
+    values: Object.fromEntries(
+      Object.entries(r.values ?? {}).filter(([, v]) => typeof v === 'number' || typeof v === 'boolean' || typeof v === 'string'),
+    ) as Record<string, ParamValue>,
+  }));
 }
 
 function openSession(target: GenusEditorTarget, components: ComponentDto[], copyName: (base: string) => string): Session | null {
+  const specsOf = (id: string | undefined) => (id ? (components.find((c) => c.id === id)?.params ?? []) : []);
   if (target.kind === 'edit') {
     const component = components.find((c) => c.id === target.genusId);
     if (!component) return null;
     const info = getGenus(component.id);
-    const draft = draftFromGenus(component, info?.authored);
+    const extendsId = (info?.authored ?? component.genus)?.extends;
+    const own = extendsId && info?.params ? info.params.filter((p) => p.from === component.id).map((p) => p.id) : undefined;
+    const draft = draftFromGenus(component, info?.authored, own);
     const parent = draft.extends ? (getGenus(draft.extends)?.resolved ?? null) : null;
-    return { draft, savedKey: draftKey(draft), parent };
+    const rows = listSpecies(component.id);
+    // Open on the species copied from the parent's default, if there is one.
+    const parentDefault = draft.extends ? listSpecies(draft.extends).find((r) => r.default)?.id.split('.').pop() : undefined;
+    const species = toDraftSpecies(rows).sort((a, b) => Number(b.id.split('.').pop() === parentDefault) - Number(a.id.split('.').pop() === parentDefault));
+    return {
+      draft,
+      savedKey: draftKey(draft),
+      parent,
+      parentSpecs: specsOf(draft.extends),
+      species,
+      savedSpecies: species,
+      usedSpecies: new Set(rows.filter((r) => (r.instances ?? 0) > 0).map((r) => r.id)),
+    };
   }
   const base = components.find((c) => c.id === target.baseId);
   if (!base) return null;
@@ -91,7 +150,27 @@ function openSession(target: GenusEditorTarget, components: ComponentDto[], copy
     components.map((c) => c.id),
     copyName(componentDisplayName(base.id, base.display_name)),
   );
-  return { draft, savedKey: null, parent: getGenus(base.id)?.resolved ?? null };
+  // A new genus starts with copies of its parent's species.
+  const species = copySpecies(draft.id, listSpecies(base.id), speciesDisplayName);
+  return {
+    draft,
+    savedKey: null,
+    parent: getGenus(base.id)?.resolved ?? null,
+    parentSpecs: base.params,
+    species,
+    savedSpecies: [],
+    usedSpecies: new Set(),
+  };
+}
+
+/** `value`, once it has stopped changing for `ms`. */
+function useDebounced<T>(value: T, ms: number): T {
+  const [out, setOut] = useState(value);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setOut(value), ms);
+    return () => window.clearTimeout(timer);
+  }, [value, ms]);
+  return out;
 }
 
 /**
@@ -110,12 +189,16 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
     openSession(target, components, (base) => t('genusEditor.copyName', { name: base })),
   );
   const draft = session?.draft ?? null;
-  const dirty = session ? session.savedKey === null || session.savedKey !== draftKey(session.draft) : false;
+  const dirty = session
+    ? session.savedKey === null || session.savedKey !== draftKey(session.draft) || speciesKey(session.species) !== speciesKey(session.savedSpecies)
+    : false;
+  const patchSession = useCallback((fn: (s: Session) => Partial<Session>) => {
+    setSession((s) => (s ? { ...s, ...fn(s) } : s));
+  }, []);
 
   const [tab, setTab] = useState<RibbonTab>('create');
   const [layout, setLayout] = useState<Layout>('all');
   const [mobileView, setMobileView] = useState<PaneView>('front');
-  const [sidePanel, setSidePanel] = useState<SidePanel>('properties');
   const [mobileTree, setMobileTree] = useState(false);
   const [showHost, setShowHost] = useState(true);
   const [showRefs, setShowRefs] = useState(true);
@@ -124,6 +207,9 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
   const [fitEpoch, setFitEpoch] = useState(0);
   const [confirmExit, setConfirmExit] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [dockOpen, setDockOpen] = useState(true);
+  const [selectedParam, setSelectedParam] = useState<string | null>(null);
+  const [mobileParams, setMobileParams] = useState(false);
 
   // Mark the project inert while the mode is up; restore on exit.
   useEffect(() => {
@@ -137,20 +223,68 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
     };
   }, []);
 
-  // Own species, else the parent's (a genus based on a window previews as
-  // the window's species until it gets its own).
-  const species = useMemo(() => {
-    if (!draft) return [];
-    const own = listSpecies(draft.id);
-    return own.length || !draft.extends ? own : listSpecies(draft.extends);
-  }, [draft?.id, draft?.extends]);
+  // —— Params & species ——————————————————————————————————————
+  const species = session?.species ?? [];
+  const rows = useMemo(() => (session ? paramRows(session.draft, session.parentSpecs) : []), [session?.draft, session?.parentSpecs]);
+  const issues = useMemo(() => validateParams(rows), [rows]);
+  const geometryNames = useMemo(() => (draft ? usedByGeometry(draft) : new Set<string>()), [draft?.body, draft?.refs, draft?.dims]);
   const [speciesId, setSpeciesId] = useState<string | null>(null);
   useEffect(() => {
     if (species.length === 0) setSpeciesId(null);
-    else if (!speciesId || !species.some((s) => s.id === speciesId)) {
-      setSpeciesId((species.find((s) => s.default) ?? species[0]).id);
-    }
+    else if (!speciesId || !species.some((s) => s.id === speciesId)) setSpeciesId(species[0].id);
   }, [species, speciesId]);
+  const activeSpecies = species.find((s) => s.id === speciesId) ?? null;
+  useEffect(() => {
+    if (selectedParam && !rows.some((r) => r.id === selectedParam)) setSelectedParam(null);
+  }, [rows, selectedParam]);
+
+  const editDraft = (fn: (d: GenusDraft) => GenusDraft) => patchSession((s) => ({ draft: fn(s.draft) }));
+  const onPatchParam = (id: string, patch: Partial<GenusParamInput>) =>
+    patchSession((s) => ({ draft: setParam(s.draft, paramRows(s.draft, s.parentSpecs), id, patch) }));
+  const onSource = (id: string, source: ParamSource) => {
+    const row = rows.find((r) => r.id === id);
+    if (!row) return;
+    if (source === 'genus') {
+      const d = row.input.default;
+      const seed = typeof d === 'boolean' ? (d ? 'true' : 'false') : String(d);
+      onPatchParam(id, { formula: row.input.formula || seed, species: false });
+    } else {
+      onPatchParam(id, { formula: undefined, species: source === 'species' });
+    }
+  };
+  const onAddParam = () => {
+    let added = '';
+    patchSession((s) => {
+      const r = addParam(s.draft, paramRows(s.draft, s.parentSpecs), 'length', t('genusEditor.param.newLabel'));
+      added = r.id;
+      return { draft: r.draft };
+    });
+    window.setTimeout(() => setSelectedParam(added), 0);
+  };
+  const onDeleteParam = (id: string) => {
+    editDraft((d) => deleteParam(d, id));
+    setSelectedParam(null);
+  };
+  const onRenameParam = (from: string, to: string) => {
+    patchSession((s) => renameParam(s.draft, s.species, paramRows(s.draft, s.parentSpecs), from, to));
+    setSelectedParam(to);
+  };
+  const onAddSpecies = (copy: boolean) => {
+    let added = '';
+    patchSession((s) => {
+      const from = copy ? s.species.find((x) => x.id === speciesId) : undefined;
+      const name = from ? t('genusEditor.copyName', { name: from.name }) : t('genusEditor.species.newName', { n: s.species.length + 1 });
+      const r = addSpecies(s.draft.id, s.species, paramRows(s.draft, s.parentSpecs), name, from);
+      added = r.id;
+      return { species: r.species };
+    });
+    window.setTimeout(() => setSpeciesId(added), 0);
+  };
+  const onDeleteSpecies = () => {
+    if (!speciesId) return;
+    patchSession((s) => ({ species: deleteSpecies(s.species, speciesId) }));
+    setSpeciesId(null);
+  };
 
   const placement = draft ? effectivePlacement(draft, session?.parent) : { kind: 'point' as const };
   const host = useMemo(() => testHostFor(placement), [JSON.stringify(placement)]);
@@ -161,17 +295,25 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
   const [buildMs, setBuildMs] = useState<number | null>(null);
   const [pending, setPending] = useState(0);
   const [buildEpoch, setBuildEpoch] = useState(0);
-  const request = useMemo(
+  const liveRequest = useMemo(
     () =>
-      draft
+      draft && issues.size === 0
         ? previewRequest(draft, {
-            species: speciesId,
+            speciesValues: speciesValues(rows, activeSpecies),
             hostDepth: host?.depth,
             length: placement.kind === 'line' ? 2 : undefined,
           })
         : null,
-    [draft, speciesId, host, placement.kind],
+    [draft, rows, issues, activeSpecies, host, placement.kind],
   );
+  // Rebuild once edits pause; the first build runs at once.
+  const debounced = useDebounced(liveRequest, REBUILD_DEBOUNCE_MS);
+  const [first, setFirst] = useState(true);
+  const request = first ? liveRequest : debounced;
+  useEffect(() => {
+    if (first && liveRequest) setFirst(false);
+  }, [first, liveRequest]);
+  const stale = JSON.stringify(liveRequest) !== JSON.stringify(request);
 
   useEffect(() => {
     if (!request) return;
@@ -241,9 +383,18 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
   // —— Save / exit ——————————————————————————————————————————
   const save = (): boolean => {
     if (!session) return false;
+    if (issues.size > 0) {
+      setSaveError(t('genusEditor.saveBlocked', { n: issues.size }));
+      return false;
+    }
     try {
-      apexExecuteCommand(defineGenusCommand(session.draft));
-      setSession({ ...session, savedKey: draftKey(session.draft) });
+      // One undo step in the project: the genus and its species together.
+      const steps = [
+        defineGenusCommand(session.draft),
+        ...speciesCommands(session.draft.id, session.savedSpecies, session.species, rows),
+      ];
+      apexExecuteCommand(steps.length === 1 ? steps[0] : { op: 'batch', commands: steps });
+      setSession({ ...session, savedKey: draftKey(session.draft), savedSpecies: session.species });
       setSaveError(null);
       props.onSaved(session.draft.id);
       setBuildEpoch((n) => n + 1);
@@ -263,13 +414,15 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
       if (e.key === 'Escape') {
         if (confirmExit) setConfirmExit(false);
         else if (mobileTree) setMobileTree(false);
+        else if (mobileParams) setMobileParams(false);
+        else if (selectedParam) setSelectedParam(null);
         else setSelected(null);
         e.preventDefault();
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [confirmExit, mobileTree]);
+  }, [confirmExit, mobileTree, mobileParams, selectedParam]);
 
   if (!session || !draft || !tree) {
     return createPortal(
@@ -286,6 +439,7 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
   }
 
   const soon = t('genusEditor.soon');
+  const selectedRow = selectedParam ? (rows.find((r) => r.id === selectedParam) ?? null) : null;
   type Tool = { id: string; icon: string; label: string; title?: string; on?: boolean; disabled?: boolean; run?: () => void };
   type Group = { id: string; label: string; tools: Tool[] };
   const disabledTool = (id: string, icon: string): Tool => ({
@@ -336,14 +490,29 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
             icon: 'params',
             label: t('genusEditor.tool.paramsList'),
             title: t('genusEditor.tool.paramsList.title'),
-            on: sidePanel === 'params',
-            run: () => setSidePanel((p) => (p === 'params' ? 'properties' : 'params')),
+            on: dockOpen,
+            run: () => setDockOpen((v) => !v),
           },
-          disabledTool('addParam', 'addParam'),
-          disabledTool('formula', 'formula'),
+          { id: 'addParam', icon: 'addParam', label: t('genusEditor.tool.addParam'), title: t('genusEditor.tool.addParam.title'), run: onAddParam },
+          {
+            id: 'formula',
+            icon: 'formula',
+            label: t('genusEditor.tool.formula'),
+            title: t('genusEditor.tool.formula.title'),
+            disabled: !selectedRow || selectedRow.locked || kindOf(selectedRow.input) === 'text',
+            on: Boolean(selectedRow?.input.formula),
+            run: () => selectedRow && onSource(selectedRow.id, selectedRow.input.formula ? 'instance' : 'genus'),
+          },
         ],
       },
-      { id: 'species', label: t('genusEditor.group.species'), tools: [disabledTool('addSpecies', 'addSpecies')] },
+      {
+        id: 'species',
+        label: t('genusEditor.group.species'),
+        tools: [
+          { id: 'addSpecies', icon: 'addSpecies', label: t('genusEditor.tool.addSpecies'), title: t('genusEditor.tool.addSpecies.title'), run: () => onAddSpecies(false) },
+          { id: 'copySpecies', icon: 'copy', label: t('genusEditor.tool.copySpecies'), title: t('genusEditor.tool.copySpecies.title'), disabled: !activeSpecies, run: () => onAddSpecies(true) },
+        ],
+      },
     ],
     view: [
       {
@@ -373,10 +542,10 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
         disabled={species.length === 0}
         onChange={(e) => setSpeciesId(e.target.value || null)}
       >
-        {species.length === 0 ? <option value="">{t('genusEditor.species.none')}</option> : null}
+        {species.length === 0 ? <option value="">{t('genusEditor.species.defaults')}</option> : null}
         {species.map((s) => (
           <option key={s.id} value={s.id}>
-            {s.name}
+            {s.name || s.id}
           </option>
         ))}
       </select>
@@ -528,38 +697,45 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
     </div>
   );
 
-  const paramsPanel = (
-    <div className="genus-params" data-testid="genus-params">
-      <div className="genus-props-head">
-        <small>{t('genusEditor.group.params')}</small>
-        <div>{draft.name}</div>
-      </div>
-      <table className="genus-params-table">
-        <thead>
-          <tr>
-            <th>{t('genusEditor.param.id')}</th>
-            <th>{t('genusEditor.param.value')}</th>
-            <th>{t('genusEditor.param.binding')}</th>
-          </tr>
-        </thead>
-        <tbody>
-          {(preview?.params ?? []).filter((p) => p.id !== 'species').map((p) => (
-            <tr key={p.id}>
-              <td className="is-mono" title={p.label}>
-                {p.id}
-              </td>
-              <td className="is-mono">{fmt(p.value)}</td>
-              <td>
-                <span className={`genus-chip is-${p.binding === 'type' ? 'species' : 'instance'}`}>
-                  {t(p.binding === 'type' ? 'genusEditor.binding.species' : 'genusEditor.binding.instance')}
-                </span>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+  const dock = (compact = false) => (
+    <GenusParamsDock
+      rows={rows}
+      issues={issues}
+      species={species}
+      speciesId={speciesId}
+      selectedParam={selectedParam}
+      usedSpecies={session.usedSpecies}
+      compact={compact}
+      onSelectParam={setSelectedParam}
+      onSelectSpecies={setSpeciesId}
+      onAddParam={onAddParam}
+      onSetFormula={(id, formula) => onPatchParam(id, { formula, species: false })}
+      onSetDefault={(id, value) => onPatchParam(id, { default: value })}
+      onSetSpeciesValue={(sp, param, value) => patchSession((s) => ({ species: setSpeciesValue(s.species, sp, param, value) }))}
+      onToggleBinding={(id) => {
+        const row = rows.find((r) => r.id === id);
+        if (row) onSource(id, row.input.species ? 'instance' : 'species');
+      }}
+      onAddSpecies={() => onAddSpecies(false)}
+      onDuplicateSpecies={() => onAddSpecies(true)}
+      onRenameSpecies={(id, name) => patchSession((s) => ({ species: renameSpecies(s.species, id, name) }))}
+      onDeleteSpecies={onDeleteSpecies}
+    />
   );
+  const paramForm = selectedRow ? (
+    <GenusParamForm
+      key={selectedRow.id}
+      row={selectedRow}
+      issues={issues.get(selectedRow.id) ?? []}
+      usedBy={geometryNames.has(selectedRow.id)}
+      baseName={baseName}
+      onPatch={(patch) => onPatchParam(selectedRow.id, patch)}
+      onRename={(to) => onRenameParam(selectedRow.id, to)}
+      onSource={(src) => onSource(selectedRow.id, src)}
+      onDelete={() => onDeleteParam(selectedRow.id)}
+      onClose={() => setSelectedParam(null)}
+    />
+  ) : null;
 
   const nextTheme = THEME_PREFERENCES[(THEME_PREFERENCES.indexOf(preference) + 1) % THEME_PREFERENCES.length];
   const nextLocale = locales[(locales.indexOf(locale) + 1) % locales.length];
@@ -574,7 +750,11 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
         {t('genusEditor.status.genus')} <b>{draft.id}</b>
         {draft.extends ? ` · ${t('genusEditor.status.extends', { id: draft.extends })}` : ''}
       </span>
-      {buildError ? (
+      {issues.size > 0 ? (
+        <span className="genus-status-warn" data-testid="genus-build-paused">
+          ⚠ {t('genusEditor.status.paused', { n: issues.size })}
+        </span>
+      ) : buildError ? (
         <span className="genus-status-err" data-testid="genus-build-error">
           ✕ {buildError}
         </span>
@@ -587,6 +767,7 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
       <span data-testid="genus-build-time">
         {t('genusEditor.status.build', { ms: buildMs === null ? '—' : buildMs.toLocaleString(locale, { maximumFractionDigits: 1, minimumFractionDigits: 1 }) })}
         {pending > 0 ? ` · ${t('genusEditor.status.pending', { n: pending })}` : ''}
+        {stale && issues.size === 0 ? ` · ${t('genusEditor.status.updating')}` : ''}
       </span>
       <span className="genus-status-spacer" />
       <span className="genus-status-chip" title={t('genusEditor.status.kernelTitle')}>
@@ -702,12 +883,22 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
         <div className="genus-mobile-main">{pane(mobileView, 'is-single')}</div>
         <div className="genus-mobile-foot">
           {speciesSelect}
+          <button type="button" className="genus-btn" data-testid="genus-mobile-params" onClick={() => setMobileParams(true)}>
+            <GenusIcon name="params" /> {t('genusEditor.paramsShort')}
+            {issues.size ? <span className="genus-badge-err">{issues.size}</span> : null}
+          </button>
           <button type="button" className="genus-btn" data-testid="genus-mobile-structure" onClick={() => setMobileTree(true)}>
             <GenusIcon name="structure" /> {t('genusEditor.structure')}
           </button>
         </div>
         <div className="genus-mobile-status">
-          {buildError ? <span className="genus-status-err">✕ {buildError}</span> : <span className="genus-status-ok">✓ {t('genusEditor.status.solids', { solids: solidsCount, cuts: cutsCount })}</span>}
+          {issues.size > 0 ? (
+            <span className="genus-status-warn">⚠ {t('genusEditor.status.paused', { n: issues.size })}</span>
+          ) : buildError ? (
+            <span className="genus-status-err">✕ {buildError}</span>
+          ) : (
+            <span className="genus-status-ok">✓ {t('genusEditor.status.solids', { solids: solidsCount, cuts: cutsCount })}</span>
+          )}
           <span>{t('genusEditor.status.build', { ms: buildMs === null ? '—' : buildMs.toLocaleString(locale, { maximumFractionDigits: 1, minimumFractionDigits: 1 }) })}</span>
         </div>
         {mobileTree ? (
@@ -721,6 +912,26 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
               </div>
               <GenusStructureTree tree={tree} host={host} selected={selected} onSelect={setSelected} nameOf={nameOf} baseName={baseName} />
               {properties}
+            </div>
+          </div>
+        ) : null}
+        {mobileParams ? (
+          <div className="genus-sheet-backdrop" onClick={() => setMobileParams(false)} role="presentation">
+            <div className="genus-sheet is-tall" role="dialog" aria-label={t('genusEditor.paramsAndSpecies')} data-testid="genus-mobile-params-sheet" onClick={(e) => e.stopPropagation()}>
+              <div className="genus-sheet-head">
+                <b>{t('genusEditor.paramsAndSpecies')}</b>
+                {dirty ? (
+                  <button type="button" className="genus-btn is-primary" data-testid="genus-mobile-save" onClick={() => save()}>
+                    {t('genusEditor.save')}
+                  </button>
+                ) : null}
+                <button type="button" className="genus-btn" onClick={() => setMobileParams(false)}>
+                  {t('genusEditor.close')}
+                </button>
+              </div>
+              {dock(true)}
+              {paramForm}
+              {saveError ? <div className="genus-error-bar">{saveError}</div> : null}
             </div>
           </div>
         ) : null}
@@ -808,8 +1019,9 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
           <div className={`genus-views${layout === 'all' ? ' is-grid' : ''}`} data-testid="genus-views" data-layout={layout}>
             {panes.map((v) => pane(v))}
           </div>
+          {dockOpen ? dock() : null}
         </section>
-        <aside className="genus-right">{sidePanel === 'params' ? paramsPanel : properties}</aside>
+        <aside className="genus-right">{paramForm ?? properties}</aside>
       </div>
       {saveError && !confirmExit ? <div className="genus-error-bar">{saveError}</div> : null}
       {statusBar}

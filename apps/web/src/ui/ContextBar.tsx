@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import type { Tool } from '../tools/Tool';
 import type { ComponentDto, ParamValue, ProfileTypeDto, SpeciesDto } from '../types';
-import { modeDisplayLabel, toolDisplayLabel, useI18n } from '../i18n';
+import { modeDisplayLabel, speciesDisplayName, toolDisplayLabel, useI18n } from '../i18n';
 import { ToolIconGlyph } from './ToolIcon';
 
 export interface ContextBarProps {
@@ -65,7 +65,7 @@ export function ContextBar({
     const v = draft[id] ?? sp?.values[id] ?? profile?.type_values[id] ?? own?.default ?? prof?.default;
     return fmtLen(v, t('ctx.mm'));
   };
-  const speciesName = sp?.name ?? profile?.display_name;
+  const speciesName = sp ? speciesDisplayName(sp) : profile?.display_name;
   const height = sizeOf('height');
   const thickness = sizeOf('thickness');
   const width = thickness ? null : sizeOf('width');
