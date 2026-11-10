@@ -18,6 +18,7 @@ import {
 import {
   componentDisplayName,
   useI18n,
+  speciesDisplayName,
 } from '../i18n';
 import type {
   ComponentDto,
@@ -107,8 +108,9 @@ interface Props {
 /** Readable name for a species id (tool dropdowns list species by id). */
 function speciesName(id: string): string {
   try {
-    const rows = apexRunQuery({ op: 'list_genus_species' }) as { id: string; name: string }[];
-    return rows.find((row) => row.id === id)?.name ?? id;
+    const rows = apexRunQuery({ op: 'list_genus_species' }) as { id: string; name: string; genus?: string }[];
+    const row = rows.find((r) => r.id === id);
+    return row ? speciesDisplayName(row) : id;
   } catch {
     return id;
   }

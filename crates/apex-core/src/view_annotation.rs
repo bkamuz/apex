@@ -132,6 +132,7 @@ pub fn view_annotation_param_specs(kind: &ViewAnnotationKind) -> Vec<ParamSpec> 
                 unit: None,
                 binding: crate::param::ParamBinding::Instance,
                 group: None,
+                formula: None,
             }]
         }
     }

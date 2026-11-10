@@ -70,6 +70,7 @@ pub fn space_param_specs() -> Vec<ParamSpec> {
             unit: None,
             binding: ParamBinding::Instance,
             group: None,
+            formula: None,
         },
         // Stored for a future 3D volume; unused for mesh / solid fill this phase.
         ParamSpec::length("height", "Height", 2.5),
@@ -84,6 +85,7 @@ pub fn space_param_specs() -> Vec<ParamSpec> {
             unit: None,
             binding: ParamBinding::Instance,
             group: None,
+            formula: None,
         },
     ]
 }

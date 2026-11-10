@@ -320,6 +320,10 @@ pub struct GenusParamInput {
     /// Display group (editor / inspector section), e.g. `dimensions`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group: Option<String>,
+    /// Computed param: formula over other params; never set per species or
+    /// instance (`(width - 2 * frame_width) / 2`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub formula: Option<String>,
 }
 
 fn default_param_kind() -> String {
@@ -367,6 +371,28 @@ impl GenusParamInput {
             spec.binding = ParamBinding::Type;
         }
         spec.group = self.group.clone();
+        if let Some(src) = self
+            .formula
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+        {
+            if self.species {
+                return Err(format!(
+                    "param '{}': a computed param cannot be set per species",
+                    self.id
+                ));
+            }
+            if self.kind == "text" {
+                return Err(format!(
+                    "param '{}': a text param cannot have a formula",
+                    self.id
+                ));
+            }
+            let f = crate::genus_body::F::parse(src)
+                .map_err(|e| format!("param '{}': formula {e}", self.id))?;
+            spec.formula = Some(f.to_string());
+        }
         Ok(spec)
     }
 }
@@ -413,6 +439,15 @@ pub(crate) fn genus_definition(
         .iter()
         .map(GenusParamInput::to_spec)
         .collect::<Result<Vec<_>, _>>()?;
+    // Formulas may read inherited params: check against the merged schema.
+    let mut merged = parent.map(|p| p.params.clone()).unwrap_or_default();
+    for spec in &specs {
+        match merged.iter_mut().find(|p| p.id == spec.id) {
+            Some(slot) => *slot = spec.clone(),
+            None => merged.push(spec.clone()),
+        }
+    }
+    crate::param::check_formulas(&merged).map_err(|e| e.to_string())?;
     let category = category
         .or_else(|| parent.map(|p| p.category.clone()))
         .unwrap_or_else(|| "generic".into());

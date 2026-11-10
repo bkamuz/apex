@@ -42,6 +42,8 @@ export interface ParamSpecDto {
   binding?: ParamBinding;
   /** Display group (editor / inspector section), e.g. `dimensions`. */
   group?: string;
+  /** Computed param: the formula its value always follows. */
+  formula?: string;
 }
 
 /** Mirrors `Expr` in apex-core. */

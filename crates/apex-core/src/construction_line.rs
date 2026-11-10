@@ -69,6 +69,7 @@ pub fn construction_line_param_specs() -> Vec<ParamSpec> {
             unit: None,
             binding: ParamBinding::Instance,
             group: None,
+            formula: None,
         },
         ParamSpec::length("extension", "Extension", 1.0),
     ]

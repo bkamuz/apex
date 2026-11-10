@@ -968,19 +968,21 @@ impl Project {
                     .registry()
                     .get(&genus)
                     .ok_or_else(|| msg(format!("unknown genus '{genus}' (see list_components)")))?;
-                let base = base
-                    .or_else(|| def.default_species.clone())
-                    .ok_or_else(|| msg(format!("{genus} has no types")))?;
-                let base_type = self
-                    .registry()
-                    .species(&base)
-                    .filter(|t| t.genus == genus)
-                    .cloned()
-                    .ok_or_else(|| {
-                        msg(format!(
-                            "unknown base species '{base}' for {genus} (see list_genus_species)"
-                        ))
-                    })?;
+                // No base and no default (a new user genus): start from the
+                // param defaults.
+                let base_values = match base.or_else(|| def.default_species.clone()) {
+                    Some(base) => self
+                        .registry()
+                        .species(&base)
+                        .filter(|t| t.genus == genus)
+                        .map(|t| t.values.clone())
+                        .ok_or_else(|| {
+                            msg(format!(
+                                "unknown base species '{base}' for {genus} (see list_genus_species)"
+                            ))
+                        })?,
+                    None => ParamMap::new(),
+                };
                 let id = match id {
                     Some(id) => id,
                     None => {
@@ -997,7 +999,7 @@ impl Project {
                         format!("user.{genus}.{slug}")
                     }
                 };
-                let values = base_type.values.merged(&params);
+                let values = base_values.merged(&params);
                 self.upsert_species(crate::genus::Species {
                     id: id.clone(),
                     genus,
@@ -2087,7 +2089,7 @@ pub fn command_descriptors() -> Vec<PublishedDescriptor> {
             .example("Shelf with a self-cut notch and a cut through neighbouring columns", json!({"op": "define_genus", "id": "user.shelf", "name": "Shelf", "placement": {"kind": "point"}, "params": [{"id": "width", "default": 1.2}, {"id": "depth", "default": 0.4}, {"id": "height", "default": 0.9}], "body": [{"id": "board", "item": "solid", "shape": "box", "min": [0, 0, 0], "max": ["width", "height", "depth"]}, {"id": "notch", "item": "cut", "shape": "box", "min": [0.2, 0.6, -0.1], "max": [0.5, 1.0, 0.5], "targets": {"self": true}}, {"id": "chase", "item": "cut", "shape": "box", "min": [0.8, 0, -0.2], "max": [1.0, "height", 0.6], "targets": {"neighbours": ["column"]}}]}))
             .example("Wide window: extends the built-in window, overrides a default and adds a sill board", json!({"op": "define_genus", "id": "user.window.wide", "name": "Wide window", "extends": "apex.window", "params": [{"id": "width", "default": 2.4}], "body": [{"id": "sill_board", "item": "solid", "shape": "box", "min": [-0.05, "sill - 0.03", -0.15], "max": ["width + 0.05", "sill", 0.15]}]}))
             .example("Handrail swept along a polyline, with a show condition, a material param, a plan symbol and a dimension", json!({"op": "define_genus", "id": "user.rail", "name": "Rail", "placement": {"kind": "point"}, "params": [{"id": "run", "default": 2.0, "min": 0.5, "max": 6.0, "group": "dimensions"}, {"id": "rise", "default": 1.0, "group": "dimensions"}, {"id": "posts", "kind": "bool", "default": true, "species": true}, {"id": "finish", "kind": "text", "default": "steel", "group": "materials"}], "refs": [{"id": "path", "ref": "polyline", "points": [[0, 0.9, 0], ["run", "rise + 0.9", 0]]}, {"id": "start", "ref": "plane", "origin": [0, 0, 0], "normal": "x"}, {"id": "end", "ref": "plane", "origin": ["run", 0, 0], "normal": "x"}], "body": [{"id": "rail", "item": "solid", "shape": "sweep", "along": "path", "profile": [[[-0.02, -0.02], [0.02, -0.02], [0.02, 0.02], [-0.02, 0.02]]], "material": "finish", "plan": {"show": "symbol", "lines": [[0, 0, "run", 0]]}}, {"id": "post", "item": "solid", "shape": "box", "min": [-0.02, 0, -0.02], "max": [0.02, 0.9, 0.02], "visible": "posts and run > 1", "material": "finish"}], "dims": [{"id": "run_dim", "from": "start", "to": "end", "param": "run"}]}))
-            .constraint("params: {id, label?, kind: length|number|text|bool (default length), default, min?, max?, species?, group?}; min > max is refused; a child genus redeclaring a parent param overrides its default")
+            .constraint("params: {id, label?, kind: length|number|text|bool (default length), default, min?, max?, species?, group?, formula?}; min > max is refused; a child genus redeclaring a parent param overrides its default; `formula` makes a computed param (its value is the formula over other params, never set per species or instance; no cycles)")
             .constraint("formulas are numbers or strings over param ids: + - * / parentheses, min, max, comparisons (< <= > >= == !=), and / or / not, true / false, if(cond, a, b); comparisons give 1 or 0; `length` is injected for line placement, `host_depth` for host placement")
             .constraint("body item: {id, item: solid|cut|nested, visible?: formula (built only while non-zero), plan?: {show: auto|hidden} | {show: symbol, lines: [[x0,z0,x1,z1]...]}, ...}; solids take material?: text param id or literal name; shapes: box {min,max}, prism {normal: x|y|z, on?, loops, depth:[a,b]}, revolve {profile, on?, segments?}, sweep {profile: [loops of [x,y]], along?: line or polyline ref id, path?: [[x,y,z]...]}, opening_part {part: frame|infill|all}")
             .constraint("dims: [{id, from: ref id, to: ref id, axis?: x|y|z, param?}] labelled dimensions between refs (along axis, else the from plane's normal, else straight)")

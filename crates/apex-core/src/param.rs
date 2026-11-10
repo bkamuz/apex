@@ -20,6 +20,8 @@ pub enum ParamError {
     OutOfRange { id: ParamId },
     #[error("parameter '{id}' is not one of the allowed options")]
     BadChoice { id: ParamId },
+    #[error("parameter '{id}': formula {message}")]
+    Formula { id: ParamId, message: String },
 }
 
 /// Whether a parameter belongs to a profile/component type or to one element.
@@ -240,6 +242,10 @@ pub struct ParamSpec {
     /// Display group (editor / inspector section), e.g. `dimensions`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group: Option<String>,
+    /// Computed param: a formula over other params (`(width - 2 * frame_w) / 2`).
+    /// Its value is always the formula's; raw / species values are ignored.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub formula: Option<String>,
 }
 
 /// Wire shape of a [`ParamSpec`], before the default is typed against `kind`.
@@ -260,6 +266,8 @@ struct ParamSpecRaw {
     binding: ParamBinding,
     #[serde(default)]
     group: Option<String>,
+    #[serde(default)]
+    formula: Option<String>,
 }
 
 impl TryFrom<ParamSpecRaw> for ParamSpec {
@@ -277,6 +285,7 @@ impl TryFrom<ParamSpecRaw> for ParamSpec {
             unit: raw.unit,
             binding: raw.binding,
             group: raw.group,
+            formula: raw.formula,
         })
     }
 }
@@ -293,6 +302,7 @@ impl ParamSpec {
             unit: Some("m".to_string()),
             binding: ParamBinding::Instance,
             group: None,
+            formula: None,
         }
     }
 
@@ -307,6 +317,7 @@ impl ParamSpec {
             unit: None,
             binding: ParamBinding::Instance,
             group: None,
+            formula: None,
         }
     }
 
@@ -321,6 +332,7 @@ impl ParamSpec {
             unit: None,
             binding: ParamBinding::Instance,
             group: None,
+            formula: None,
         }
     }
 
@@ -335,6 +347,7 @@ impl ParamSpec {
             unit: Some("rad".to_string()),
             binding: ParamBinding::Instance,
             group: None,
+            formula: None,
         }
     }
 
@@ -351,6 +364,7 @@ impl ParamSpec {
             unit: None,
             binding: ParamBinding::Instance,
             group: None,
+            formula: None,
         }
     }
 
@@ -365,6 +379,7 @@ impl ParamSpec {
             unit: None,
             binding: ParamBinding::Instance,
             group: None,
+            formula: None,
         }
     }
 
@@ -381,6 +396,7 @@ impl ParamSpec {
             unit: None,
             binding: ParamBinding::Instance,
             group: None,
+            formula: None,
         }
     }
 
@@ -398,6 +414,7 @@ impl ParamSpec {
             unit: None,
             binding: ParamBinding::Instance,
             group: None,
+            formula: None,
         }
     }
 
@@ -511,8 +528,113 @@ impl ParamMap {
             spec.check_range(&value)?;
             out.set(spec.id.clone(), value);
         }
+        if specs.iter().any(|s| s.formula.is_some()) {
+            eval_formulas(specs, &mut out)?;
+        }
         Ok(out)
     }
+}
+
+/// Parsed formulas of computed params, in dependency order (a formula is
+/// evaluated after the computed params it reads). Errors name the param.
+fn ordered_formulas(
+    specs: &[ParamSpec],
+) -> Result<Vec<(&ParamSpec, crate::genus_body::F)>, ParamError> {
+    let mut pending: Vec<(&ParamSpec, crate::genus_body::F, Vec<String>)> = Vec::new();
+    for spec in specs {
+        let Some(src) = spec.formula.as_deref() else {
+            continue;
+        };
+        let f = crate::genus_body::F::parse(src).map_err(|message| ParamError::Formula {
+            id: spec.id.clone(),
+            message,
+        })?;
+        let mut deps = Vec::new();
+        f.params(&mut deps);
+        pending.push((spec, f, deps));
+    }
+    let mut out = Vec::with_capacity(pending.len());
+    while !pending.is_empty() {
+        let ready = pending.iter().position(|(_, _, deps)| {
+            !deps
+                .iter()
+                .any(|d| pending.iter().any(|(s, _, _)| &s.id == d))
+        });
+        match ready {
+            Some(i) => {
+                let (spec, f, _) = pending.remove(i);
+                out.push((spec, f));
+            }
+            None => {
+                let ids: Vec<&str> = pending.iter().map(|(s, _, _)| s.id.as_str()).collect();
+                return Err(ParamError::Formula {
+                    id: pending[0].0.id.clone(),
+                    message: format!("is circular ({})", ids.join(", ")),
+                });
+            }
+        }
+    }
+    Ok(out)
+}
+
+/// Overwrite computed params in `values` with their formulas' results.
+fn eval_formulas(specs: &[ParamSpec], values: &mut ParamMap) -> Result<(), ParamError> {
+    for (spec, f) in ordered_formulas(specs)? {
+        let v = f.eval(values).map_err(|e| ParamError::Formula {
+            id: spec.id.clone(),
+            message: e.to_string(),
+        })?;
+        let value = match spec.kind {
+            ParamKind::Length => ParamValue::Length(v),
+            ParamKind::Angle => ParamValue::Angle(v),
+            ParamKind::Number => ParamValue::Number(v),
+            ParamKind::Bool => ParamValue::Bool(crate::expr::truthy(v)),
+            _ => {
+                return Err(ParamError::Formula {
+                    id: spec.id.clone(),
+                    message: "needs a length, number or yes/no param".into(),
+                })
+            }
+        };
+        values.set(spec.id.clone(), value);
+    }
+    Ok(())
+}
+
+/// Check computed params of a schema: formulas parse, read only declared
+/// numeric / yes-no params, and do not depend on themselves.
+pub fn check_formulas(specs: &[ParamSpec]) -> Result<(), ParamError> {
+    let ordered = ordered_formulas(specs)?;
+    for (spec, f) in &ordered {
+        let mut deps = Vec::new();
+        f.params(&mut deps);
+        for d in deps {
+            match specs.iter().find(|s| s.id == d) {
+                None => {
+                    return Err(ParamError::Formula {
+                        id: spec.id.clone(),
+                        message: format!("reads unknown param '{d}'"),
+                    })
+                }
+                Some(s)
+                    if matches!(
+                        s.kind,
+                        ParamKind::Text
+                            | ParamKind::Choice { .. }
+                            | ParamKind::Profile { .. }
+                            | ParamKind::Reference { .. }
+                    ) =>
+                {
+                    return Err(ParamError::Formula {
+                        id: spec.id.clone(),
+                        message: format!("reads text param '{d}'"),
+                    })
+                }
+                _ => {}
+            }
+        }
+    }
+    Ok(())
 }
 
 impl FromIterator<(ParamId, ParamValue)> for ParamMap {
