@@ -1130,8 +1130,10 @@ console.log('\n[14] genus parameters and species');
   check('species copied from the base genus', startCols >= 2, String(startCols));
   const sp = await page.getByTestId('genus-species').inputValue();
   await page.getByTestId(`genus-cell-width-${sp}`).fill('1500');
-  await page.waitForTimeout(900);
-  check('species value rebuilds the views', /1500/.test(await page.getByTestId('genus-view-front').textContent()));
+  const rebuilt = await page
+    .waitForFunction(() => /1500/.test(document.querySelector('[data-testid="genus-view-front"]')?.textContent ?? ''), null, { timeout: 20000 })
+    .then(() => true, () => false);
+  check('species value rebuilds the views', rebuilt);
   await page.getByTestId('genus-add-param').click();
   check('new param opens its form', (await page.getByTestId('genus-param-form').count()) === 1);
   await page.getByTestId('genus-param-source-genus').click();
