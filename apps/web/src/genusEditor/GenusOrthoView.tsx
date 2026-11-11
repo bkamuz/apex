@@ -229,9 +229,25 @@ export function GenusOrthoView(props: GenusOrthoViewProps) {
     const s = 3 * k;
     return <path className="genus-dim-lock" d={`M${x - s} ${y - s}h${2 * s}v${2 * s}h${-2 * s}zM${x - s * 0.6} ${y - s}v${-s * 0.8}a${s * 0.6} ${s * 0.6} 0 0 1 ${s * 1.2} 0v${s * 0.8}`} />;
   };
+  // Dims between planes stack outside the genus (above / right), one row each.
+  const freeRow = new Map<string, number>();
+  {
+    let h = 0;
+    let v = 0;
+    for (const d of model.dims) if (d.free) freeRow.set(d.id, d.dir === 'h' ? h++ : v++);
+  }
   const dimEls = (dims: DimShape[], cls: string, live: boolean) =>
     dims.map((d) => {
       const off = 22 * k;
+      const row = live ? freeRow.get(d.id) : undefined;
+      const ext = model.extents;
+      if (row !== undefined && ext) {
+        const gap = (44 + row * 20) * k;
+        d =
+          d.dir === 'h'
+            ? { ...d, a: [d.a[0], ext.max[1] + gap - off], b: [d.b[0], ext.max[1] + gap - off] }
+            : { ...d, a: [ext.max[0] + gap - off, d.a[1]], b: [ext.max[0] + gap - off, d.b[1]] };
+      }
       const sel = live && selected === `dim:${d.id}`;
       const klass = `${cls}${sel ? ' is-selected' : ''}${d.locked ? ' is-locked' : ''}${d.param ? ' is-labelled' : ''}`;
       const grip = (x: number, y: number, end: 'from' | 'to') =>

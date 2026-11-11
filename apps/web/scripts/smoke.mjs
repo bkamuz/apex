@@ -1190,6 +1190,90 @@ console.log('\n[14] genus parameters and species');
   check('species names localized in RU', ruName.every((n) => /[а-яё]/i.test(n) && !/Window|sash/.test(n)), ruName.join(' | '));
 }
 
+// --- Genus references & dimensions: place, label, flex by drag ----------
+console.log('\n[15] genus references and dimensions');
+{
+  const at = (view, u, v) =>
+    page.evaluate(([view, u, v]) => {
+      const m = document.querySelector(`[data-testid="genus-view-${view}"] svg`).getScreenCTM();
+      const p = new DOMPoint(u, -v).matrixTransform(m);
+      return { x: p.x, y: p.y };
+    }, [view, u, v]);
+  const clickAt = async (view, u, v) => {
+    const p = await at(view, u, v);
+    await page.mouse.click(p.x, p.y);
+    await page.waitForTimeout(500);
+  };
+  const clickRef = async (id) => {
+    const bb = await page.locator(`[data-testid="genus-ref-front-${id}"] .genus-hit`).first().boundingBox();
+    await page.mouse.click(bb.x + bb.width / 2, bb.y + bb.height * 0.3);
+    await page.waitForTimeout(500);
+  };
+  await page.getByTestId('browser-tab-genera').click();
+  await page.locator('[data-kind="component_def"][data-id="apex.window"]').click();
+  await page.getByTestId('browser-genus-derive').click();
+  await page.waitForSelector('[data-testid="genus-params-dock"]');
+  await page.waitForTimeout(800);
+  const genusId = (await page.getByTestId('genus-status').textContent()).match(/user\.window[\w.]*/)?.[0];
+  const sp = await page.getByTestId('genus-species').inputValue();
+  check('ref tools enabled', !(await page.getByTestId('genus-tool-plane').isDisabled()) && !(await page.getByTestId('genus-tool-point').isDisabled()));
+  await page.getByTestId('genus-tool-plane').click();
+  for (const x of [-0.6, 0.6]) await clickAt('front', x, 1.2);
+  check('planes placed', (await page.locator('[data-testid^="genus-ref-front-plane_"]').count()) === 2);
+  await page.getByTestId('genus-tool-dim').click();
+  await clickRef('plane_1');
+  await clickRef('plane_2');
+  await page.keyboard.press('Escape');
+  check('dim between planes', (await page.getByTestId('genus-dim-value').inputValue()) === '1200');
+  await page.getByTestId('genus-dim-param').selectOption('width');
+  await page.waitForTimeout(400);
+  check('label shows the param', /= 1200/.test(await page.locator('[data-testid="genus-view-front"] [data-testid="genus-dim-dim_1"]').textContent()));
+  const grip = await page.locator('[data-testid="genus-view-front"] [data-testid="genus-dim-dim_1"] .genus-dim-grip[data-end="to"]').boundingBox();
+  await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(grip.x + grip.width / 2 + 20, grip.y + grip.height / 2, { steps: 5 });
+  await page.mouse.up();
+  await page.waitForTimeout(600);
+  const widened = Number(await page.getByTestId(`genus-cell-width-${sp}`).inputValue());
+  check('drag flexes the species width', widened > 1200, String(widened));
+  await page.getByTestId('genus-dim-value').fill('1500');
+  await page.waitForTimeout(400);
+  check('typed dim value writes the param', (await page.getByTestId(`genus-cell-width-${sp}`).inputValue()) === '1500');
+  const rebuilt = await page
+    .waitForFunction(() => /1500/.test(document.querySelector('[data-testid="genus-view-front"]')?.textContent ?? ''), null, { timeout: 20000 })
+    .then(() => true, () => false);
+  check('views rebuild after flex', rebuilt);
+  await page.getByTestId('genus-dim-locked').check();
+  const lbl = await page.locator('[data-testid="genus-view-front"] [data-testid="genus-dim-dim_1"] text').boundingBox();
+  await page.mouse.move(lbl.x + lbl.width / 2, lbl.y + lbl.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(lbl.x + lbl.width / 2 + 30, lbl.y + lbl.height / 2, { steps: 4 });
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  check('locked dim does not flex', (await page.getByTestId('genus-flex-note').count()) === 1 && (await page.getByTestId(`genus-cell-width-${sp}`).inputValue()) === '1500');
+  await page.getByTestId('genus-tool-point').click();
+  await clickAt('front', 0.2, 1.5);
+  await page.keyboard.press('Escape');
+  check('point placed and selected', (await page.getByTestId('genus-ref-form').count()) === 1);
+  await page.keyboard.press('Delete');
+  await page.waitForTimeout(300);
+  check('Delete removes the selected ref', (await page.locator('[data-testid^="genus-ref-front-point_"]').count()) === 0);
+  await page.getByTestId('genus-save').click();
+  await page.waitForTimeout(400);
+  const saved = await page.evaluate(async (id) => {
+    const m = await import('/src/wasm/apex.ts');
+    const g = m.apexRunQuery({ op: 'get_genus', id });
+    return { refs: g.authored.refs?.map((r) => [r.id, r.origin?.[0]]), dims: g.authored.dims };
+  }, genusId);
+  check(
+    'refs and locked labelled dim saved',
+    saved.refs?.length === 2 && saved.refs[1][1] === '-0.6 + width' && saved.dims?.[0]?.param === 'width' && saved.dims[0].locked === true,
+    JSON.stringify(saved),
+  );
+  await page.getByTestId('genus-exit').click();
+  await page.waitForTimeout(300);
+}
+
 // Mobile: the ribbon tool strip scrolls sideways by touch.
 {
   const mctx = await browser.newContext({ ...devices['iPhone 13'], viewport: { width: 390, height: 780 } });
