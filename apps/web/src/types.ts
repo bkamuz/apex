@@ -135,6 +135,8 @@ export interface GenusDimDto {
   to: string;
   axis?: GenusAxis;
   param?: string;
+  /** Not changed by dragging; its params are held while others flex. */
+  locked?: boolean;
 }
 
 /** Mirrors `GenusPlacement` in apex-core. */
@@ -170,6 +172,7 @@ export type GenusPreviewDto =
         b: [number, number, number];
         value: number;
         param?: string;
+        locked?: boolean;
       }[];
       solids: { path: string; glass: boolean; material: string | null; plan: 'auto' | 'hidden'; mesh: GenusMeshDto }[];
       cuts: { path: string; targets: GenusCutTargetsDto; mesh: GenusMeshDto }[];
