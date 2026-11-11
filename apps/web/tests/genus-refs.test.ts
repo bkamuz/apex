@@ -118,3 +118,21 @@ test('new dims pick their axis from planes or the screen direction', () => {
   assert.equal(newDimAxis('plan', a, { ...b, points: [[0.1, 0, 0.5]] }), 'z');
   assert.equal(newDimAxis('front', { ...a, kind: 'plane', normal: 'x' }, b), 'x');
 });
+
+test('equal dims: a second dim bound to the same param chains off the first', () => {
+  let d = putRef(draft(), { id: 'p1', ref: 'plane', origin: [-0.6, 0, 0], normal: 'x' });
+  d = putRef(d, { id: 'p2', ref: 'plane', origin: [0.6, 0, 0], normal: 'x' });
+  d = putRef(d, { id: 'p3', ref: 'plane', origin: [0.9, 0, 0], normal: 'x' });
+  d = putDim(d, { id: 'a', from: 'p1', to: 'p2', axis: 'x' });
+  d = putDim(d, { id: 'b', from: 'p2', to: 'p3', axis: 'x' });
+  const rows = paramRows(d, parentSpecs);
+  const vals = flexValues(flexContext(d, parent, rows, { ...sp, values: { width: 1.2 } }));
+  d = bindDim(d, parent, 'a', 'width', vals).draft;
+  const second = bindDim(d, parent, 'b', 'width', vals);
+  assert.ok(second.driving);
+  assert.equal((second.draft.refs.find((r) => r.id === 'p3') as { origin: unknown[] }).origin[0], '-0.6 + width + width');
+  // Binding again changes nothing.
+  const again = bindDim(second.draft, parent, 'b', 'width', vals);
+  assert.ok(again.driving);
+  assert.deepEqual(again.draft.refs, second.draft.refs);
+});

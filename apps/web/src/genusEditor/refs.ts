@@ -556,6 +556,14 @@ export function applyToContext(ctx: FlexContext, r: FlexResult): FlexContext {
 
 // —— Labels (dims driven by params) ——————————————————————————————————————
 
+/** The distance between `a` and `b` changes one to one with `param`. */
+export function dimFollows(a: GenusRefDto, b: GenusRefDto, axis: number | null, param: string, values: Record<string, unknown>): boolean {
+  const x = Number(values[param]);
+  if (!Number.isFinite(x)) return false;
+  const at = (v: number) => measure(evalRef(a, { ...values, [param]: v }), evalRef(b, { ...values, [param]: v }), axis);
+  return Math.abs((at(x + 0.01) - at(x)) / 0.01 - 1) < 1e-3;
+}
+
 /**
  * Bind `dim` to `param` so the param drives the distance: the end ref with
  * a constant coordinate along the dim's axis is rewritten as the other
@@ -581,15 +589,17 @@ export function bindDim(
   if (!a || !b || axis === null || a.ref === 'line' || a.ref === 'polyline' || b.ref === 'line' || b.ref === 'polyline') return { draft: out, driving: false };
   const fa = refPoints(a)[0][axis];
   const fb = refPoints(b)[0][axis];
+  // Already driven (the distance follows the param one to one): nothing to rewrite.
+  if (dimFollows(a, b, axis, param, values)) return { draft: out, driving: true };
   const sign: 1 | -1 = evalFormula(fb, values) >= evalFormula(fa, values) ? 1 : -1;
   const set = (ref: GenusRefDto, f: GenusFormula) => {
     const p = [...refPoints(ref)[0]] as GenusVec3;
     p[axis] = f;
     out = putRef(out, withPoints(ref, [p]));
   };
-  if (constValue(fb) !== null && !formulaNames(fa).includes(param)) set(b, addTerm(fa, param, sign));
-  else if (constValue(fa) !== null && !formulaNames(fb).includes(param)) set(a, addTerm(fb, param, sign > 0 ? -1 : 1));
-  else return { draft: out, driving: formulaNames(fa).includes(param) || formulaNames(fb).includes(param) };
+  if (constValue(fb) !== null) set(b, addTerm(fa, param, sign));
+  else if (constValue(fa) !== null) set(a, addTerm(fb, param, sign > 0 ? -1 : 1));
+  else return { draft: out, driving: false };
   return { draft: out, driving: true };
 }
 

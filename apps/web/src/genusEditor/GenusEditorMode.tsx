@@ -14,7 +14,7 @@ import { GenusParamForm } from './GenusParamForm';
 import { GenusParamsDock } from './GenusParamsDock';
 import { GenusDimForm, GenusRefForm } from './GenusRefPanel';
 import { useRefTools } from './useRefTools';
-import { bindDim, dimAxis, evalRef, measure, paramDeps, putDim, putRef, refPoints, renameRef, takenIds, formulaNames } from './refs';
+import { bindDim, dimAxis, dimFollows, evalRef, measure, putDim, putRef, renameRef, takenIds } from './refs';
 import { localizedParamLabel } from '../ui/paramLabels';
 import {
   addParam,
@@ -868,8 +868,7 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
     const b = refTools.refs.find((r) => r.ref.id === sd.dim.to)?.ref;
     const axis = dimAxis(sd.dim, a);
     const value = a && b ? measure(evalRef(a, refTools.values), evalRef(b, refTools.values), axis) : NaN;
-    const reads = [a, b].flatMap((r) => (r && axis !== null ? refPoints(r).flatMap((p) => formulaNames(p[axis])) : []));
-    const driving = Boolean(sd.dim.param && (reads.includes(sd.dim.param) || paramDeps(reads, rows).includes(sd.dim.param)));
+    const driving = Boolean(sd.dim.param && a && b && dimFollows(a, b, axis, sd.dim.param, refTools.values));
     return { axis, value, driving };
   })();
   /** A new length param seeded with `value`, set per species when the genus has species. */
