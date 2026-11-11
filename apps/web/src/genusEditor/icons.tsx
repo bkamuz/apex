@@ -3,6 +3,7 @@ const ICONS: Record<string, string> = {
   select: '<path d="M5 3l10 6-5 1 3 6-2 1-3-6-3 3z"/>',
   plane: '<path d="M3 15L15 3" stroke-dasharray="3 2"/><path d="M3 3h4M3 3v4"/>',
   line: '<path d="M3 15L15 3"/><circle cx="3" cy="15" r="1.5"/><circle cx="15" cy="3" r="1.5"/>',
+  polyline: '<path d="M2 15l4-9 5 5 5-9"/><circle cx="2" cy="15" r="1.3"/><circle cx="16" cy="2" r="1.3"/>',
   point: '<path d="M9 3v12M3 9h12"/><circle cx="9" cy="9" r="2.5"/>',
   extrude: '<path d="M3 12l4-3h8l-4 3z"/><path d="M3 12v3h8v-3M15 9v3l-4 3"/><path d="M9 7V2M7 4l2-2 2 2"/>',
   sweep: '<path d="M3 15c3-8 7-10 12-12"/><rect x="2" y="12" width="4" height="4"/>',

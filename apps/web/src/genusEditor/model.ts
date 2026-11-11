@@ -190,7 +190,7 @@ export function draftKey(draft: GenusDraft): string {
 
 // —— Structure tree ——————————————————————————————————————————————
 
-export type TreeItemKind = 'ref' | 'solid' | 'cut' | 'nested' | 'host';
+export type TreeItemKind = 'ref' | 'dim' | 'solid' | 'cut' | 'nested' | 'host';
 
 export interface TreeItem {
   /** Item / ref id (unique within its section). */
@@ -212,6 +212,8 @@ export interface TreeItem {
 
 export interface GenusTree {
   refs: TreeItem[];
+  /** Dims, own and inherited; ids are `dim:<id>` (the selection key). */
+  dims: TreeItem[];
   body: TreeItem[];
   inherited: TreeItem[];
   /** Genus the inherited section comes from. */
@@ -262,12 +264,26 @@ export function buildTree(draft: GenusDraft, parentResolved: GenusDefDto | null 
       .filter((r) => !ownRefIds.has(r.id))
       .map((r) => ({ ...refItem(r, true), removed: removed.has(r.id) })),
   ];
+  const ownDimIds = new Set(draft.dims.map((d) => d.id));
+  const parentDims = parentResolved?.dims ?? [];
+  const parentDimIds = new Set(parentDims.map((d) => d.id));
+  const dimItem = (d: GenusDimDto, inherited: boolean): TreeItem => ({
+    id: `dim:${d.id}`,
+    kind: 'dim',
+    detail: `${d.from} → ${d.to}`,
+    inherited,
+  });
+  const dims = [
+    ...draft.dims.map((d) => ({ ...dimItem(d, false), overrides: parentDimIds.has(d.id) })),
+    ...parentDims.filter((d) => !ownDimIds.has(d.id)).map((d) => ({ ...dimItem(d, true), removed: removed.has(d.id) })),
+  ];
   const body = draft.body.map((b) => ({ ...bodyItem(b, false), overrides: parentIds.has(b.id) }));
   const inherited = parentBody
     .filter((b) => !ownBodyIds.has(b.id))
     .map((b) => ({ ...bodyItem(b, true), removed: removed.has(b.id) }));
   return {
     refs,
+    dims,
     body,
     inherited,
     inheritedFrom: draft.extends ?? null,

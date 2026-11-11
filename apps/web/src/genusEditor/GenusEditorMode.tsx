@@ -12,6 +12,10 @@ import { GenusStructureTree } from './GenusStructureTree';
 import { GenusIcon } from './icons';
 import { GenusParamForm } from './GenusParamForm';
 import { GenusParamsDock } from './GenusParamsDock';
+import { GenusDimForm, GenusRefForm } from './GenusRefPanel';
+import { useRefTools } from './useRefTools';
+import { bindDim, dimAxis, dimFollows, evalRef, measure, putDim, putRef, renameRef, takenIds } from './refs';
+import { localizedParamLabel } from '../ui/paramLabels';
 import {
   addParam,
   addSpecies,
@@ -237,6 +241,10 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
   useEffect(() => {
     if (selectedParam && !rows.some((r) => r.id === selectedParam)) setSelectedParam(null);
   }, [rows, selectedParam]);
+  // One thing in the right panel: picking a ref / dim / item closes the param form.
+  useEffect(() => {
+    if (selected) setSelectedParam(null);
+  }, [selected]);
 
   const editDraft = (fn: (d: GenusDraft) => GenusDraft) => patchSession((s) => ({ draft: fn(s.draft) }));
   const onPatchParam = (id: string, patch: Partial<GenusParamInput>) =>
@@ -289,6 +297,25 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
   const placement = draft ? effectivePlacement(draft, session?.parent) : { kind: 'point' as const };
   const host = useMemo(() => testHostFor(placement), [JSON.stringify(placement)]);
 
+  // —— Refs & dims (desktop authoring; phones only view them) ————————————
+  const flexExtra = useMemo(() => ({ host_depth: host?.depth ?? 0.2, length: 2 }), [host]);
+  const patchDraftSpecies = useCallback(
+    (fn: (s: { draft: GenusDraft; species: DraftSpecies[] }) => { draft?: GenusDraft; species?: DraftSpecies[] }) =>
+      patchSession((s) => fn({ draft: s.draft, species: s.species })),
+    [patchSession],
+  );
+  const refTools = useRefTools({
+    draft,
+    parent: session?.parent ?? null,
+    rows,
+    species: activeSpecies,
+    extra: flexExtra,
+    patch: patchDraftSpecies,
+    selected,
+    setSelected,
+    enabled: !props.isMobile,
+  });
+
   // —— Build ————————————————————————————————————————————————
   const [preview, setPreview] = useState<OkPreview | null>(null);
   const [buildError, setBuildError] = useState<string | null>(null);
@@ -309,7 +336,8 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
   // Rebuild once edits pause; the first build runs at once.
   const debounced = useDebounced(liveRequest, REBUILD_DEBOUNCE_MS);
   const [first, setFirst] = useState(true);
-  const request = first ? liveRequest : debounced;
+  // While dragging, rebuild on every step (no debounce).
+  const request = first || refTools.dragging ? liveRequest : debounced;
   useEffect(() => {
     if (first && liveRequest) setFirst(false);
   }, [first, liveRequest]);
@@ -365,13 +393,24 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
 
   const tree = useMemo(() => (draft ? buildTree(draft, session?.parent) : null), [draft, session?.parent]);
 
+  const paramLabel = useCallback(
+    (id: string) => {
+      const row = rows.find((r) => r.id === id);
+      return row ? localizedParamLabel({ label: row.input.label ?? row.id }, t) : id;
+    },
+    [rows, t],
+  );
   const nameOf = useCallback(
     (id: string) => {
+      if (id.startsWith('dim:')) {
+        const dim = refTools.dims.find((d) => d.dim.id === id.slice(4))?.dim;
+        return dim?.param ? paramLabel(dim.param) : id.slice(4);
+      }
       const comp = components.find((c) => c.id === id);
       if (comp) return componentDisplayName(comp.id, comp.display_name);
       return t(`genusItem.${id}`, undefined, id);
     },
-    [components, t, locale],
+    [components, t, locale, refTools.dims, paramLabel],
   );
 
   const baseComp = draft?.extends ? components.find((c) => c.id === draft.extends) : null;
@@ -411,8 +450,22 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      const typing = e.target instanceof HTMLElement && e.target.closest('input, textarea, select, [contenteditable="true"]');
+      if (!typing && !confirmExit && (e.key === 'Delete' || e.key === 'Backspace') && (refTools.selectedRef || refTools.selectedDim)) {
+        refTools.remove();
+        e.preventDefault();
+        return;
+      }
+      if (!typing && e.key === 'Enter' && refTools.pending) {
+        refTools.finish();
+        e.preventDefault();
+        return;
+      }
       if (e.key === 'Escape') {
         if (confirmExit) setConfirmExit(false);
+        else if (refTools.cancel()) {
+          /* tool / pick cancelled */
+        }
         else if (mobileTree) setMobileTree(false);
         else if (mobileParams) setMobileParams(false);
         else if (selectedParam) setSelectedParam(null);
@@ -422,7 +475,7 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [confirmExit, mobileTree, mobileParams, selectedParam]);
+  }, [confirmExit, mobileTree, mobileParams, selectedParam, refTools]);
 
   if (!session || !draft || !tree) {
     return createPortal(
@@ -449,7 +502,32 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
     title: `${t(`genusEditor.tool.${id}.title`)} — ${soon}`,
     disabled: true,
   });
-  const selectTool: Tool = { id: 'select', icon: 'select', label: t('genusEditor.tool.select'), title: t('genusEditor.tool.select.title'), on: true, run: () => {} };
+  const selectTool: Tool = {
+    id: 'select',
+    icon: 'select',
+    label: t('genusEditor.tool.select'),
+    title: t('genusEditor.tool.select.title'),
+    on: !refTools.tool,
+    run: () => refTools.tool && refTools.setTool(refTools.tool),
+  };
+  const placeTool = (id: 'plane' | 'line' | 'point' | 'polyline' | 'dim' | 'move', icon: string, disabled = false): Tool => ({
+    id,
+    icon,
+    label: t(`genusEditor.tool.${id}`),
+    title: t(`genusEditor.tool.${id}.title`),
+    on: refTools.tool === id,
+    disabled,
+    run: () => refTools.setTool(id),
+  });
+  const hasRefs = refTools.refs.length > 0;
+  const actionTool = (id: string, icon: string, enabled: boolean, run: () => void): Tool => ({
+    id,
+    icon,
+    label: t(`genusEditor.tool.${id}`),
+    title: t(`genusEditor.tool.${id}.title`),
+    disabled: !enabled,
+    run,
+  });
   const layoutTool = (id: Layout, icon: string): Tool => ({
     id: `layout-${id}`,
     icon,
@@ -461,7 +539,11 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
   const ribbon: Record<RibbonTab, Group[]> = {
     create: [
       { id: 'select', label: t('genusEditor.group.select'), tools: [selectTool] },
-      { id: 'refs', label: t('genusEditor.group.refs'), tools: [disabledTool('plane', 'plane'), disabledTool('line', 'line'), disabledTool('point', 'point')] },
+      {
+        id: 'refs',
+        label: t('genusEditor.group.refs'),
+        tools: [placeTool('plane', 'plane'), placeTool('line', 'line'), placeTool('polyline', 'polyline'), placeTool('point', 'point')],
+      },
       {
         id: 'body',
         label: t('genusEditor.group.body'),
@@ -469,14 +551,28 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
       },
       { id: 'cuts', label: t('genusEditor.group.cuts'), tools: [disabledTool('cut', 'cut')] },
       { id: 'nested', label: t('genusEditor.group.nested'), tools: [disabledTool('nest', 'nest')] },
-      { id: 'constraints', label: t('genusEditor.group.constraints'), tools: [disabledTool('dim', 'dim'), disabledTool('label', 'label')] },
+      {
+        id: 'constraints',
+        label: t('genusEditor.group.constraints'),
+        tools: [
+          placeTool('dim', 'dim', refTools.refs.length < 2),
+          actionTool('label', 'label', Boolean(refTools.selectedDim), () =>
+            window.setTimeout(() => (document.querySelector('[data-testid="genus-dim-param"]') as HTMLElement | null)?.focus(), 0),
+          ),
+        ],
+      },
     ],
     modify: [
       { id: 'select', label: t('genusEditor.group.select'), tools: [selectTool] },
       {
         id: 'modify',
         label: t('genusEditor.group.modify'),
-        tools: [disabledTool('move', 'move'), disabledTool('copy', 'copy'), disabledTool('mirror', 'mirror'), disabledTool('delete', 'delete')],
+        tools: [
+          placeTool('move', 'move', !hasRefs),
+          actionTool('copy', 'copy', Boolean(refTools.selectedRef), refTools.copy),
+          disabledTool('mirror', 'mirror'),
+          actionTool('delete', 'delete', Boolean(refTools.selectedRef || refTools.selectedDim), refTools.remove),
+        ],
       },
       { id: 'item', label: t('genusEditor.group.item'), tools: [disabledTool('visibility', 'visibility'), disabledTool('material', 'material')] },
     ],
@@ -585,6 +681,8 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
             hostLabel={hostLabel}
             levelLabel={t('genusEditor.level')}
             fitKey={fitKey}
+            paramLabel={paramLabel}
+            interact={refTools.interact(view)}
           />
         ) : (
           <div className="genus-view genus-view--empty">{buildError ?? t('genusEditor.building')}</div>
@@ -706,7 +804,10 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
       selectedParam={selectedParam}
       usedSpecies={session.usedSpecies}
       compact={compact}
-      onSelectParam={setSelectedParam}
+      onSelectParam={(id) => {
+        setSelectedParam(id);
+        if (id) setSelected(null);
+      }}
       onSelectSpecies={setSpeciesId}
       onAddParam={onAddParam}
       onSetFormula={(id, formula) => onPatchParam(id, { formula, species: false })}
@@ -736,6 +837,133 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
       onClose={() => setSelectedParam(null)}
     />
   ) : null;
+
+  const knownNames = new Set([...rows.map((r) => r.id), 'host_depth', 'length']);
+  const sr = refTools.selectedRef;
+  const refForm =
+    sr && !props.isMobile ? (
+      <GenusRefForm
+        key={sr.ref.id}
+        item={sr}
+        known={knownNames}
+        values={refTools.values}
+        users={refTools.usersOf(sr.ref.id)}
+        baseName={baseName}
+        nameOf={nameOf}
+        onChange={(ref) => editDraft((d) => putRef(d, ref))}
+        onRename={(to) => {
+          if (takenIds(draft, session.parent).includes(to)) return;
+          editDraft((d) => renameRef(d, sr.ref.id, to));
+          setSelected(to);
+        }}
+        onDelete={refTools.remove}
+        onReset={() => editDraft((d) => ({ ...d, refs: d.refs.filter((r) => r.id !== sr.ref.id) }))}
+        onClose={() => setSelected(null)}
+      />
+    ) : null;
+  const sd = refTools.selectedDim;
+  const dimInfo = (() => {
+    if (!sd) return null;
+    const a = refTools.refs.find((r) => r.ref.id === sd.dim.from)?.ref;
+    const b = refTools.refs.find((r) => r.ref.id === sd.dim.to)?.ref;
+    const axis = dimAxis(sd.dim, a);
+    const value = a && b ? measure(evalRef(a, refTools.values), evalRef(b, refTools.values), axis) : NaN;
+    const driving = Boolean(sd.dim.param && a && b && dimFollows(a, b, axis, sd.dim.param, refTools.values));
+    return { axis, value, driving };
+  })();
+  /** A new length param seeded with `value`, set per species when the genus has species. */
+  const newParamFor = (d: GenusDraft, value: number): { draft: GenusDraft; id: string } => {
+    const r = addParam(d, paramRows(d, session.parentSpecs), 'length', t('genusEditor.dim.newParamLabel'));
+    const next = setParam(r.draft, paramRows(r.draft, session.parentSpecs), r.id, {
+      default: Math.round(value * 1000) / 1000,
+      species: species.length > 0,
+      group: 'dimensions',
+    });
+    return { draft: next, id: r.id };
+  };
+  const dimForm =
+    sd && dimInfo && !props.isMobile ? (
+      <GenusDimForm
+        key={sd.dim.id}
+        item={sd}
+        value={dimInfo.value}
+        axis={dimInfo.axis === null ? null : (['x', 'y', 'z'] as const)[dimInfo.axis]}
+        rows={rows}
+        others={refTools.dims.filter((d) => d.dim.id !== sd.dim.id)}
+        baseName={baseName}
+        nameOf={nameOf}
+        driving={dimInfo.driving}
+        onAxis={(axis) => editDraft((d) => putDim(d, { ...sd.dim, axis }))}
+        onValue={(v) => refTools.setDimValue(sd.dim.id, v)}
+        onBind={(param) => refTools.bind(sd.dim.id, param)}
+        onNewParam={() =>
+          editDraft((d) => {
+            const r = newParamFor(d, dimInfo.value);
+            return bindDim(r.draft, session.parent, sd.dim.id, r.id, { ...refTools.values, [r.id]: dimInfo.value }).draft;
+          })
+        }
+        onEqual={(otherId) => {
+          const other = refTools.dims.find((d) => d.dim.id === otherId)?.dim;
+          if (!other) return;
+          if (other.param) {
+            refTools.bind(sd.dim.id, other.param);
+            return;
+          }
+          const oa = refTools.refs.find((r) => r.ref.id === other.from)?.ref;
+          const ob = refTools.refs.find((r) => r.ref.id === other.to)?.ref;
+          const ov = oa && ob ? measure(evalRef(oa, refTools.values), evalRef(ob, refTools.values), dimAxis(other, oa)) : dimInfo.value;
+          editDraft((d) => {
+            const r = newParamFor(d, ov);
+            const vals = { ...refTools.values, [r.id]: ov };
+            const first = bindDim(r.draft, session.parent, other.id, r.id, vals).draft;
+            return bindDim(first, session.parent, sd.dim.id, r.id, vals).draft;
+          });
+        }}
+        onLocked={(locked) => editDraft((d) => putDim(d, { ...sd.dim, locked }))}
+        onDelete={refTools.remove}
+        onClose={() => setSelected(null)}
+      />
+    ) : null;
+
+  const toolHint = refTools.tool ? (
+    <div className="genus-tool-hint" data-testid="genus-tool-hint" data-tool={refTools.tool}>
+      <b>{t(`genusEditor.tool.${refTools.tool}`)}</b>
+      <span>{t(`genusEditor.hint.${refTools.tool}${refTools.tool === 'dim' && refTools.picked ? '2' : ''}`)}</span>
+      {refTools.tool === 'plane' ? (
+        <span className="genus-seg-mini" role="radiogroup" aria-label={t('genusEditor.hint.trace')}>
+          {(['v', 'h'] as const).map((tr) => (
+            <button
+              key={tr}
+              type="button"
+              role="radio"
+              aria-checked={refTools.trace === tr}
+              className={refTools.trace === tr ? 'is-active' : ''}
+              data-testid={`genus-plane-trace-${tr}`}
+              onClick={() => refTools.setTrace(tr)}
+            >
+              {t(`genusEditor.hint.trace.${tr}`)}
+            </button>
+          ))}
+        </span>
+      ) : null}
+      <span className="genus-status-spacer" />
+      <button type="button" className="genus-btn is-small" onClick={() => refTools.setTool(refTools.tool)}>
+        {t('genusEditor.hint.done')}
+      </button>
+    </div>
+  ) : refTools.note ? (
+    <div className="genus-tool-hint is-warn" data-testid="genus-flex-note">
+      <span>⚠ {t(`genusEditor.flex.${refTools.note}`)}</span>
+      <span className="genus-status-spacer" />
+      <button type="button" className="genus-btn is-small" onClick={() => refTools.setNote(null)}>
+        ✕
+      </button>
+    </div>
+  ) : (
+    <div className="genus-tool-hint is-idle" data-testid="genus-tool-hint-idle">
+      <span>{t('genusEditor.hint.select')}</span>
+    </div>
+  );
 
   const nextTheme = THEME_PREFERENCES[(THEME_PREFERENCES.indexOf(preference) + 1) % THEME_PREFERENCES.length];
   const nextLocale = locales[(locales.indexOf(locale) + 1) % locales.length];
@@ -1016,12 +1244,13 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
             <span className="genus-vtabs-spacer" />
             {tab !== 'params' ? speciesSelect : null}
           </div>
+          {toolHint}
           <div className={`genus-views${layout === 'all' ? ' is-grid' : ''}`} data-testid="genus-views" data-layout={layout}>
             {panes.map((v) => pane(v))}
           </div>
           {dockOpen ? dock() : null}
         </section>
-        <aside className="genus-right">{paramForm ?? properties}</aside>
+        <aside className="genus-right">{paramForm ?? refForm ?? dimForm ?? properties}</aside>
       </div>
       {saveError && !confirmExit ? <div className="genus-error-bar">{saveError}</div> : null}
       {statusBar}

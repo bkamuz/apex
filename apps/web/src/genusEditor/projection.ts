@@ -52,6 +52,9 @@ export interface DimShape {
   dir: 'h' | 'v';
   value: number;
   param?: string;
+  locked?: boolean;
+  /** Both ends are planes seen edge-on: the dim line may sit anywhere along them. */
+  free?: boolean;
   /** Vertical dims: draw left of the points instead of right. */
   before?: boolean;
 }
@@ -242,6 +245,7 @@ function refShapes(view: OrthoView, preview: OkPreview): RefShape[] {
 
 function dimShapes(view: OrthoView, preview: OkPreview): DimShape[] {
   const out: DimShape[] = [];
+  const planes = new Set(preview.refs.filter((r) => r.kind === 'plane').map((r) => r.id));
   for (const dim of preview.dims) {
     const a = project(view, dim.a);
     const b = project(view, dim.b);
@@ -251,7 +255,7 @@ function dimShapes(view: OrthoView, preview: OkPreview): DimShape[] {
     // Shown only where the measured distance lies in the view plane.
     const value = Math.abs(dim.value);
     if (Math.abs(Math.max(du, dv) - value) > 1e-4 && Math.abs(Math.hypot(du, dv) - value) > 1e-4) continue;
-    out.push({ id: dim.id, a, b, dir: du >= dv ? 'h' : 'v', value: dim.value, param: dim.param });
+    out.push({ id: dim.id, a, b, dir: du >= dv ? 'h' : 'v', value: dim.value, param: dim.param, locked: dim.locked, free: planes.has(dim.from) && planes.has(dim.to) });
   }
   return out;
 }

@@ -23,7 +23,10 @@ function Row({
 }) {
   const { t } = useI18n();
   let detail = '';
-  if (item.kind === 'ref') detail = t(`genusEditor.refKind.${item.detail.split(' ')[0]}`, undefined, item.detail);
+  if (item.kind === 'dim') {
+    const [from, to] = item.detail.split(' → ');
+    detail = `${nameOf(from)} → ${nameOf(to)}`;
+  } else if (item.kind === 'ref') detail = t(`genusEditor.refKind.${item.detail.split(' ')[0]}`, undefined, item.detail);
   else if (item.kind === 'nested') detail = `↳ ${nameOf(item.detail)}`;
   else if (item.kind === 'cut')
     detail = `${t('genusEditor.cutArrow')} ${(item.targets ?? []).map((x) => t(`genusEditor.target.${x}`)).join(', ') || t('genusEditor.target.none')}`;
@@ -81,6 +84,7 @@ export function GenusStructureTree(props: GenusStructureTreeProps) {
   return (
     <div className="genus-tree" data-testid="genus-structure">
       {section('refs', t('genusEditor.tree.refs'), tree.refs, t('genusEditor.tree.noRefs'))}
+      {tree.dims.length ? section('dims', t('genusEditor.tree.dims'), tree.dims, '') : null}
       {section('body', t('genusEditor.tree.body'), tree.body, tree.inheritedFrom ? t('genusEditor.tree.bodyEmptyInherited') : t('genusEditor.tree.noBody'))}
       {tree.inheritedFrom
         ? section(

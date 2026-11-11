@@ -1081,3 +1081,146 @@
   top: 0;
   background: var(--chrome-bg);
 }
+
+/* —— References & dimensions: picking, dragging, placing —— */
+.genus-view.is-placing .genus-view-svg {
+  cursor: crosshair;
+}
+.genus-hit {
+  stroke: transparent !important;
+  stroke-width: 10px !important;
+  stroke-dasharray: none !important;
+  fill: none;
+  pointer-events: stroke;
+}
+.genus-hit-area {
+  fill: transparent;
+  stroke: none;
+  pointer-events: fill;
+}
+.genus-ref.is-live,
+.genus-dim[data-dim] {
+  cursor: grab;
+}
+.genus-view.is-placing .genus-ref.is-live {
+  cursor: pointer;
+}
+.genus-ref.is-picked line,
+.genus-ref.is-picked polyline,
+.genus-ref.is-picked path {
+  stroke: var(--genus-sel);
+  stroke-width: 2;
+}
+.genus-ref.is-selected text,
+.genus-ref.is-picked text {
+  font-weight: 600;
+}
+.genus-dim-ext {
+  stroke: var(--chrome-muted) !important;
+  stroke-width: 0.5 !important;
+  stroke-dasharray: 2 2;
+}
+.genus-dim.is-labelled text {
+  fill: var(--genus-ref);
+}
+.genus-dim.is-selected path {
+  stroke: var(--genus-sel);
+  stroke-width: 1.6;
+}
+.genus-dim.is-selected text {
+  fill: var(--genus-sel);
+  font-weight: 600;
+}
+.genus-dim-grip {
+  fill: var(--chrome-bg);
+  stroke: var(--genus-sel);
+  stroke-width: 1.4;
+  vector-effect: non-scaling-stroke;
+  cursor: ew-resize;
+}
+.genus-dim-lock {
+  fill: none;
+  stroke: var(--chrome-muted) !important;
+  stroke-width: 1 !important;
+}
+.genus-dim.is-locked text {
+  fill: var(--chrome-muted);
+}
+.genus-pending polyline {
+  fill: none;
+  stroke: var(--genus-sel);
+  stroke-width: 1.2;
+  stroke-dasharray: 4 3;
+}
+.genus-pending circle {
+  fill: var(--genus-sel);
+}
+.genus-tool-hint {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 10px;
+  height: 30px;
+  flex: none;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: 12px;
+  border-bottom: 1px solid var(--chrome-line);
+  background: var(--chrome-overlay);
+}
+.genus-tool-hint.is-idle {
+  color: var(--chrome-muted);
+}
+.genus-tool-hint b {
+  font-weight: 600;
+}
+.genus-tool-hint .genus-seg-mini {
+  min-width: 220px;
+}
+.genus-tool-hint .genus-btn.is-small {
+  padding-top: 1px;
+  padding-bottom: 1px;
+}
+.genus-tool-hint.is-warn {
+  color: var(--warn);
+}
+.genus-coords {
+  display: grid;
+  gap: 3px;
+}
+.genus-coord-row {
+  display: grid;
+  grid-template-columns: 14px minmax(0, 1fr);
+  align-items: start;
+  gap: 4px;
+}
+.genus-coord-axis {
+  color: var(--chrome-muted);
+  font-size: 11px;
+  padding-top: 4px;
+}
+.genus-coord {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 6px;
+  align-items: center;
+}
+.genus-coord .genus-cell-input {
+  width: 100%;
+}
+.genus-coord-mm {
+  color: var(--chrome-muted);
+  font-size: 11px;
+  font-family: ui-monospace, monospace;
+  min-width: 56px;
+  text-align: right;
+}
+.genus-coord > .genus-field-err {
+  grid-column: 1 / span 2;
+}
+.genus-dim-ext,
+.genus-dim-lock,
+.genus-ref text,
+.genus-dim.is-overall {
+  pointer-events: none;
+}
