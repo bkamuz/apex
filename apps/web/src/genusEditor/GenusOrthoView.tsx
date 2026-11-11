@@ -117,7 +117,7 @@ export function GenusOrthoView(props: GenusOrthoViewProps) {
   const flexing = useRef(false);
   const [size, setSize] = useState({ w: 400, h: 300 });
   const [box, setBox] = useState<Box | null>(null);
-  const drag = useRef<{ x: number; y: number; box: Box; moved: boolean } | null>(null);
+  const drag = useRef<{ x: number; y: number; box: Box; moved: boolean; hit: ViewHit; p: P2 } | null>(null);
 
   useLayoutEffect(() => {
     const el = wrapRef.current;
@@ -167,17 +167,16 @@ export function GenusOrthoView(props: GenusOrthoViewProps) {
 
   const onPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0 && e.pointerType === 'mouse') return;
+    // Hit-test before capturing: captured pointer events target the svg.
+    const p = toView(e);
+    const hit = hitOf(e.target as Element, p, model.dims);
     (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
-    if (interact && !interact.placing) {
-      const p = toView(e);
-      const hit = hitOf(e.target as Element, p, model.dims);
-      if ((hit.kind === 'ref' || hit.kind === 'dim') && interact.onDragStart(hit, p)) {
-        flexing.current = true;
-        drag.current = null;
-        return;
-      }
+    if (interact && !interact.placing && (hit.kind === 'ref' || hit.kind === 'dim') && interact.onDragStart(hit, p)) {
+      flexing.current = true;
+      drag.current = null;
+      return;
     }
-    drag.current = { x: e.clientX, y: e.clientY, box: vb, moved: false };
+    drag.current = { x: e.clientX, y: e.clientY, box: vb, moved: false, hit, p };
   };
   const onPointerMove = (e: React.PointerEvent) => {
     if (flexing.current) {
@@ -201,8 +200,8 @@ export function GenusOrthoView(props: GenusOrthoViewProps) {
     const d = drag.current;
     drag.current = null;
     if (d && !d.moved) {
+      const { hit } = d;
       const p = toView(e);
-      const hit = hitOf(e.target as Element, p, model.dims);
       if (interact?.placing) {
         interact.onPlace(hit, p);
         return;
