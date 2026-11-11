@@ -52,6 +52,7 @@ export interface DimShape {
   dir: 'h' | 'v';
   value: number;
   param?: string;
+  locked?: boolean;
   /** Vertical dims: draw left of the points instead of right. */
   before?: boolean;
 }
@@ -251,7 +252,7 @@ function dimShapes(view: OrthoView, preview: OkPreview): DimShape[] {
     // Shown only where the measured distance lies in the view plane.
     const value = Math.abs(dim.value);
     if (Math.abs(Math.max(du, dv) - value) > 1e-4 && Math.abs(Math.hypot(du, dv) - value) > 1e-4) continue;
-    out.push({ id: dim.id, a, b, dir: du >= dv ? 'h' : 'v', value: dim.value, param: dim.param });
+    out.push({ id: dim.id, a, b, dir: du >= dv ? 'h' : 'v', value: dim.value, param: dim.param, locked: dim.locked });
   }
   return out;
 }

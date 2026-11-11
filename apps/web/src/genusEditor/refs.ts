@@ -463,9 +463,7 @@ function candidates(names: string[], ctx: FlexContext, prefer: string[] = []): s
 
 function solveFirst(ctx: FlexContext, names: string[], fn: (v: Record<string, unknown>) => number, target: number, prefer: string[] = []): FlexResult | null {
   for (const p of candidates(names, ctx, prefer)) {
-    const before = Number(flexValues(ctx)[p]);
     const v = solveParam(ctx, p, fn, target);
-    if (v !== null && Math.abs(v - before) > 1e-9) return { kind: 'param', id: p, value: v };
     if (v !== null) return { kind: 'param', id: p, value: v };
   }
   return null;
@@ -593,4 +591,24 @@ export function bindDim(
   else if (constValue(fa) !== null && !formulaNames(fb).includes(param)) set(a, addTerm(fb, param, sign > 0 ? -1 : 1));
   else return { draft: out, driving: formulaNames(fa).includes(param) || formulaNames(fb).includes(param) };
   return { draft: out, driving: true };
+}
+
+/** Set a dim's distance to `value` (typed in the dim form): solve its param, else what it reads, else move its `to` ref. */
+export function flexDimValue(ctx: FlexContext, dimId: string, value: number): FlexResult {
+  const dim = ctx.dims.find((d) => d.id === dimId);
+  if (!dim) return { kind: 'blocked', reason: 'formula' };
+  if (dim.locked) return { kind: 'blocked', reason: 'locked' };
+  const fromRef = ctx.refs.get(dim.from);
+  const toRef = ctx.refs.get(dim.to);
+  const axis = dimAxis(dim, fromRef);
+  if (!fromRef || !toRef || axis === null) return { kind: 'blocked', reason: 'formula' };
+  const prefer = dim.param ? [dim.param] : [];
+  const names = [...prefer, ...coordNames(fromRef, axis), ...coordNames(toRef, axis)];
+  const dist = (v: Record<string, unknown>) => measure(evalRef(fromRef, v), evalRef(toRef, v), axis);
+  const solved = solveFirst(ctx, names, dist, Math.max(0, value), prefer);
+  if (solved) return solved;
+  const values = flexValues(ctx);
+  const a = evalFormula(refPoints(fromRef)[0]?.[axis], values);
+  const b = evalFormula(refPoints(toRef)[0]?.[axis], values);
+  return moveRef(ctx, toRef, axis, a + (b >= a ? 1 : -1) * Math.max(0, value) - b);
 }
