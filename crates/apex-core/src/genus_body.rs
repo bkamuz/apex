@@ -631,6 +631,10 @@ pub struct GenusDim {
     pub axis: Option<Axis>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub param: Option<String>,
+    /// Locked: editors must not change this distance by dragging (its
+    /// param is held while other dims / refs flex the genus).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub locked: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -1138,6 +1142,8 @@ pub struct DimOut {
     pub value: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub param: Option<String>,
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub locked: bool,
 }
 
 /// Evaluate every ref of `genus` with `params` (injected values included).
@@ -1198,6 +1204,7 @@ pub fn eval_dims(genus: &GenusDef, refs: &[RefOut]) -> Result<Vec<DimOut>, Genus
                 b,
                 value,
                 param: d.param.clone(),
+                locked: d.locked,
             })
         })
         .collect()
