@@ -1219,7 +1219,7 @@ console.log('\n[15] genus references and dimensions');
   check('ref tools enabled', !(await page.getByTestId('genus-tool-plane').isDisabled()) && !(await page.getByTestId('genus-tool-point').isDisabled()));
   await page.getByTestId('genus-tool-plane').click();
   for (const x of [-0.6, 0.6]) await clickAt('front', x, 1.2);
-  check('planes placed', (await page.locator('[data-testid^="genus-ref-front-plane_"]').count()) === 2);
+  check('planes placed', await page.waitForFunction(() => document.querySelectorAll('[data-testid^="genus-ref-front-plane_"]').length === 2, null, { timeout: 5000 }).then(() => true, () => false), `${await page.locator('[data-testid^="genus-ref-front-plane_"]').count()} planes`);
   await page.getByTestId('genus-tool-dim').click();
   await clickRef('plane_1');
   await clickRef('plane_2');
