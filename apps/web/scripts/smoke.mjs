@@ -1227,7 +1227,7 @@ console.log('\n[15] genus references and dimensions');
   check('dim between planes', (await page.getByTestId('genus-dim-value').inputValue()) === '1200');
   await page.getByTestId('genus-dim-param').selectOption('width');
   await page.waitForTimeout(400);
-  check('label shows the param', /= 1200/.test(await page.locator('[data-testid="genus-view-front"] [data-testid="genus-dim-dim_1"]').textContent()));
+  check('label shows the param', await page.waitForFunction(() => /= 1200/.test(document.querySelector('[data-testid="genus-view-front"] [data-testid="genus-dim-dim_1"]')?.textContent ?? ''), null, { timeout: 5000 }).then(() => true, () => false));
   const grip = await page.locator('[data-testid="genus-view-front"] [data-testid="genus-dim-dim_1"] .genus-dim-grip[data-end="to"]').boundingBox();
   await page.mouse.move(grip.x + grip.width / 2, grip.y + grip.height / 2);
   await page.mouse.down();
@@ -1256,8 +1256,7 @@ console.log('\n[15] genus references and dimensions');
   await page.keyboard.press('Escape');
   check('point placed and selected', (await page.getByTestId('genus-ref-form').count()) === 1);
   await page.keyboard.press('Delete');
-  await page.waitForTimeout(300);
-  check('Delete removes the selected ref', (await page.locator('[data-testid^="genus-ref-front-point_"]').count()) === 0);
+  check('Delete removes the selected ref', await page.waitForFunction(() => !document.querySelector('[data-testid^="genus-ref-front-point_"]'), null, { timeout: 5000 }).then(() => true, () => false));
   await page.getByTestId('genus-save').click();
   await page.waitForTimeout(400);
   const saved = await page.evaluate(async (id) => {
