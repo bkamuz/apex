@@ -1096,7 +1096,7 @@
 .genus-hit-area {
   fill: transparent;
   stroke: none;
-  pointer-events: all;
+  pointer-events: fill;
 }
 .genus-ref.is-live,
 .genus-dim[data-dim] {
@@ -1159,16 +1159,27 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 4px 10px;
+  padding: 0 10px;
+  height: 30px;
+  flex: none;
+  overflow: hidden;
+  white-space: nowrap;
   font-size: 12px;
   border-bottom: 1px solid var(--chrome-line);
   background: var(--chrome-overlay);
+}
+.genus-tool-hint.is-idle {
+  color: var(--chrome-muted);
 }
 .genus-tool-hint b {
   font-weight: 600;
 }
 .genus-tool-hint .genus-seg-mini {
   min-width: 220px;
+}
+.genus-tool-hint .genus-btn.is-small {
+  padding-top: 1px;
+  padding-bottom: 1px;
 }
 .genus-tool-hint.is-warn {
   color: var(--warn);
@@ -1206,4 +1217,10 @@
 }
 .genus-coord > .genus-field-err {
   grid-column: 1 / span 2;
+}
+.genus-dim-ext,
+.genus-dim-lock,
+.genus-ref text,
+.genus-dim.is-overall {
+  pointer-events: none;
 }

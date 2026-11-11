@@ -960,7 +960,11 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
         ✕
       </button>
     </div>
-  ) : null;
+  ) : (
+    <div className="genus-tool-hint is-idle" data-testid="genus-tool-hint-idle">
+      <span>{t('genusEditor.hint.select')}</span>
+    </div>
+  );
 
   const nextTheme = THEME_PREFERENCES[(THEME_PREFERENCES.indexOf(preference) + 1) % THEME_PREFERENCES.length];
   const nextLocale = locales[(locales.indexOf(locale) + 1) % locales.length];

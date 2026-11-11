@@ -988,6 +988,7 @@ export const en: MessageCatalog = {
   "genusEditor.hint.trace": "Plane orientation",
   "genusEditor.hint.trace.v": "Vertical",
   "genusEditor.hint.trace.h": "Horizontal",
+  "genusEditor.hint.select": "Click a reference or dimension to select it; drag it to flex the genus. Hold Alt for finer steps.",
   "genusEditor.hint.done": "Done",
   "genusEditor.flex.locked": "This dimension is locked — clear “Lock” to change it.",
   "genusEditor.flex.formula": "This reference is driven by params that cannot change here (computed or locked).",

@@ -974,6 +974,7 @@ export const ru: MessageCatalog = {
   "genusEditor.hint.trace": "Положение плоскости",
   "genusEditor.hint.trace.v": "Вертикальная",
   "genusEditor.hint.trace.h": "Горизонтальная",
+  "genusEditor.hint.select": "Щёлкните опору или размер, чтобы выбрать; перетащите их — род перестроится. Alt — точнее.",
   "genusEditor.hint.done": "Готово",
   "genusEditor.flex.locked": "Размер закреплён — снимите «Закрепить», чтобы менять его.",
   "genusEditor.flex.formula": "Опора задана формулой из параметров, которые здесь не меняются (вычисляемые или закреплённые).",
