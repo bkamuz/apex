@@ -364,21 +364,79 @@ export function boxMesh(min: V3, max: V3, out: BoxMesh = { positions: [], normal
   return out;
 }
 
-/** The sample host as up to four boxes framing the opening. */
+/** Flat quad `a b c d` (counter-clockwise seen from `n`). */
+function quad(out: BoxMesh, n: V3, a: V3, b: V3, c: V3, d: V3): void {
+  const base = out.positions.length / 3;
+  for (const v of [a, b, c, d]) {
+    out.positions.push(...v);
+    out.normals.push(...n);
+  }
+  out.indices.push(base, base + 1, base + 2, base, base + 2, base + 3);
+}
+
+/**
+ * The sample host: one wall slab with the opening cut through it. Faces
+ * are split only where the hole needs it, and edges are drawn only on the
+ * real outlines (outer box, hole, reveals), so no seams or strips show.
+ */
 export function hostMesh(preview: OkPreview, host: TestHost): BoxMesh {
   const [x0, x1] = hostSpan(preview);
   const d = host.depth / 2;
   const h = host.height;
   const hole = hostOpening(preview);
   const out: BoxMesh = { positions: [], normals: [], indices: [], edges: [] };
-  if (!hole) return boxMesh([x0, 0, -d], [x1, h, d], out);
-  const hx0 = Math.max(x0, hole.min[0]);
-  const hx1 = Math.min(x1, hole.max[0]);
-  const hy0 = Math.max(0, hole.min[1]);
-  const hy1 = Math.min(h, hole.max[1]);
-  if (hx0 > x0) boxMesh([x0, 0, -d], [hx0, h, d], out);
-  if (x1 > hx1) boxMesh([hx1, 0, -d], [x1, h, d], out);
-  if (hy0 > 1e-6) boxMesh([hx0, 0, -d], [hx1, hy0, d], out);
-  if (h - hy1 > 1e-6) boxMesh([hx0, hy1, -d], [hx1, h, d], out);
+  const eps = 1e-6;
+  const hx0 = hole ? Math.max(x0, hole.min[0]) : 0;
+  const hx1 = hole ? Math.min(x1, hole.max[0]) : 0;
+  const hy0 = hole ? Math.max(0, hole.min[1]) : 0;
+  const hy1 = hole ? Math.min(h, hole.max[1]) : 0;
+  if (!hole || hx1 - hx0 < eps || hy1 - hy0 < eps) return boxMesh([x0, 0, -d], [x1, h, d], out);
+  const edge = (a: V3, b: V3) => out.edges.push(...a, ...b);
+  // Front (+z) and back (-z): the face ring around the hole, as up to four quads.
+  for (const z of [d, -d]) {
+    const n: V3 = [0, 0, Math.sign(z)];
+    const rect = (ax: number, ay: number, bx: number, by: number) => {
+      if (bx - ax < eps || by - ay < eps) return;
+      const q: [V3, V3, V3, V3] = [[ax, ay, z], [bx, ay, z], [bx, by, z], [ax, by, z]];
+      if (z > 0) quad(out, n, ...q);
+      else quad(out, n, q[0], q[3], q[2], q[1]);
+    };
+    rect(x0, 0, hx0, h);
+    rect(hx1, 0, x1, h);
+    rect(hx0, 0, hx1, hy0);
+    rect(hx0, hy1, hx1, h);
+    // Outer outline (bottom split where a door reaches the floor) and the hole.
+    edge([x0, 0, z], [x0, h, z]);
+    edge([x1, 0, z], [x1, h, z]);
+    edge([x0, h, z], [x1, h, z]);
+    if (hy0 > eps) edge([x0, 0, z], [x1, 0, z]);
+    else {
+      edge([x0, 0, z], [hx0, 0, z]);
+      edge([hx1, 0, z], [x1, 0, z]);
+    }
+    if (hx0 - x0 > eps) edge([hx0, hy0, z], [hx0, hy1, z]);
+    if (x1 - hx1 > eps) edge([hx1, hy0, z], [hx1, hy1, z]);
+    if (hy0 > eps) edge([hx0, hy0, z], [hx1, hy0, z]);
+    if (h - hy1 > eps) edge([hx0, hy1, z], [hx1, hy1, z]);
+  }
+  // Outer sides.
+  quad(out, [-1, 0, 0], [x0, 0, d], [x0, h, d], [x0, h, -d], [x0, 0, -d]);
+  quad(out, [1, 0, 0], [x1, 0, -d], [x1, h, -d], [x1, h, d], [x1, 0, d]);
+  quad(out, [0, 1, 0], [x0, h, -d], [x0, h, d], [x1, h, d], [x1, h, -d]);
+  const bottom = (ax: number, bx: number) => {
+    if (bx - ax > eps) quad(out, [0, -1, 0], [ax, 0, d], [ax, 0, -d], [bx, 0, -d], [bx, 0, d]);
+  };
+  if (hy0 > eps) bottom(x0, x1);
+  else {
+    bottom(x0, hx0);
+    bottom(hx1, x1);
+  }
+  for (const [x, y] of [[x0, 0], [x1, 0], [x0, h], [x1, h]] as const) edge([x, y, -d], [x, y, d]);
+  // Reveals inside the hole, facing into it.
+  if (hx0 - x0 > eps) quad(out, [1, 0, 0], [hx0, hy0, -d], [hx0, hy1, -d], [hx0, hy1, d], [hx0, hy0, d]);
+  if (x1 - hx1 > eps) quad(out, [-1, 0, 0], [hx1, hy0, d], [hx1, hy1, d], [hx1, hy1, -d], [hx1, hy0, -d]);
+  if (hy0 > eps) quad(out, [0, 1, 0], [hx0, hy0, -d], [hx0, hy0, d], [hx1, hy0, d], [hx1, hy0, -d]);
+  if (h - hy1 > eps) quad(out, [0, -1, 0], [hx0, hy1, d], [hx0, hy1, -d], [hx1, hy1, -d], [hx1, hy1, d]);
+  for (const x of [hx0, hx1]) for (const y of [hy0, hy1]) edge([x, y, -d], [x, y, d]);
   return out;
 }
