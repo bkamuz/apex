@@ -1306,3 +1306,13 @@
 .genus-field-text {
   font-size: 12px;
 }
+.genus-sketch-draw {
+  margin-bottom: 6px;
+}
+.genus-sketch-tools {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.genus-sketch-tools button {
+  white-space: nowrap;
+}

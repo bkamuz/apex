@@ -87,6 +87,10 @@ test('views project a window in a wall', () => {
   assert.ok(Math.abs(plan.extents!.max[1] - plan.extents!.min[1] - 0.1) < 1e-9);
   const side = buildView('side', preview, host);
   assert.ok(Math.abs(side.extents!.max[0] - side.extents!.min[0] - 0.1) < 1e-9);
-  // Wall around the opening: left, right, below, above.
-  assert.equal(hostMesh(preview, host).indices.length, 4 * 36);
+  // One slab with the hole (no internal seams): front and back rings of four
+  // quads, four outer sides and four reveals = 16 quads.
+  const hm = hostMesh(preview, host);
+  assert.equal(hm.indices.length, 16 * 6);
+  // Every vertex sits on the wall's faces (|z| = d) or on a reveal / outer side edge.
+  for (let i = 0; i < hm.positions.length; i += 3) assert.ok(Math.abs(Math.abs(hm.positions[i + 2]) - 0.125) < 1e-9);
 });

@@ -113,7 +113,9 @@ export function useSketchTools(a: Args) {
   const snapAt = (view: OrthoView, p: P2, k: number) => {
     const normal = viewNormal(view);
     const q = viewToPlane(view, p);
-    const pend = session?.pending ?? [];
+    // Only a line chain closes on its own pending points; a circle's radius or a
+    // rectangle's far corner snapping onto the first click would be zero-size.
+    const pend = session?.tool === 'line' ? session.pending : [];
     return snapPoint(normal, q, { vertices: [...vertices, ...pend].map((v) => ({ q: v.q, at: v.at })), refs }, 8 * k);
   };
 

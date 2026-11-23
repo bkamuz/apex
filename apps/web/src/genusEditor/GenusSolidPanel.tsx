@@ -337,9 +337,9 @@ export function GenusSketchForm(props: {
       </div>
       <div className="genus-props-sec">
       {props.kind !== 'box' ? (
-        <div className="genus-field">
-          <span className="genus-field-k">{t('genusEditor.sketch.draw')}</span>
-          <span className="genus-field-v genus-seg-mini">
+        <div className="genus-sketch-draw">
+          <div className="genus-sketch-sub">{t('genusEditor.sketch.draw')}</div>
+          <span className="genus-seg-mini genus-sketch-tools" role="group" aria-label={t('genusEditor.sketch.draw')}>
             {(['line', 'arc', 'rect', 'circle'] as SketchTool[]).map((tool) => (
               <button key={tool} type="button" className={props.tool === tool ? 'is-active' : ''} aria-pressed={props.tool === tool} data-testid={`genus-sketch-tool-${tool}`} onClick={() => props.onTool(tool)}>
                 {t(`genusEditor.sketch.tool.${tool}`)}
