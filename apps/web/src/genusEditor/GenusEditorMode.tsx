@@ -14,6 +14,9 @@ import { GenusParamForm } from './GenusParamForm';
 import { GenusParamsDock } from './GenusParamsDock';
 import { GenusDimForm, GenusRefForm } from './GenusRefPanel';
 import { useRefTools } from './useRefTools';
+import { useSketchTools } from './useSketchTools';
+import { GenusSketchForm, GenusSolidForm } from './GenusSolidPanel';
+import { isShapeItem, refNames, refValues, solidKind, viewNormal, type ShapeItem, type SolidKind } from './sketch';
 import { bindDim, dimAxis, dimFollows, evalRef, measure, putDim, putRef, renameRef, takenIds } from './refs';
 import { localizedParamLabel } from '../ui/paramLabels';
 import {
@@ -316,6 +319,23 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
     enabled: !props.isMobile,
   });
 
+  // —— Sketches and solids (desktop authoring) ———————————————————
+  const evalRefs = useMemo(() => refTools.refs.map((r) => evalRef(r.ref, refTools.values)), [refTools.refs, refTools.values]);
+  const shapeValues = useMemo(() => refValues(refTools.values, evalRefs), [refTools.values, evalRefs]);
+  const sketch = useSketchTools({
+    draft,
+    parent: session?.parent ?? null,
+    values: shapeValues,
+    refs: evalRefs,
+    patch: (fn) => patchSession((s) => ({ draft: fn(s.draft) })),
+    setSelected,
+    enabled: !props.isMobile,
+  });
+  const startSketch = (kind: SolidKind) => {
+    if (refTools.tool) refTools.setTool(null);
+    sketch.start(kind);
+  };
+
   // —— Build ————————————————————————————————————————————————
   const [preview, setPreview] = useState<OkPreview | null>(null);
   const [buildError, setBuildError] = useState<string | null>(null);
@@ -419,6 +439,20 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
     ? t(`genusEditor.host.${host.category}`, { mm: Math.round(host.depth * 1000) }, t('genusEditor.host.generic', { category: host.category, mm: Math.round(host.depth * 1000) }))
     : null;
 
+  // —— Selected solid (own shape items the editor can author) ——————————
+  const ownShape: ShapeItem | null =
+    !props.isMobile && selected && draft ? ((draft.body.find((b) => b.id === selected && isShapeItem(b) && solidKind(b)) as ShapeItem | undefined) ?? null) : null;
+  /** Drop a body item: authored ones are deleted, inherited ones listed in `remove`. */
+  const deleteBody = (id: string) => {
+    const inParent = (session?.parent?.body ?? []).some((b) => b.id === id);
+    editDraft((d) => ({
+      ...d,
+      body: d.body.filter((b) => b.id !== id),
+      remove: inParent && !d.remove.includes(id) ? [...d.remove, id] : d.remove,
+    }));
+    setSelected(null);
+  };
+
   // —— Save / exit ——————————————————————————————————————————
   const save = (): boolean => {
     if (!session) return false;
@@ -451,6 +485,24 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const typing = e.target instanceof HTMLElement && e.target.closest('input, textarea, select, [contenteditable="true"]');
+      if (sketch.active && !confirmExit) {
+        if (!typing && e.key === 'Enter') {
+          sketch.finish();
+          e.preventDefault();
+        } else if (e.key === 'Escape') {
+          sketch.cancel();
+          e.preventDefault();
+        } else if (!typing && (e.key === 'Delete' || e.key === 'Backspace')) {
+          sketch.undo();
+          e.preventDefault();
+        }
+        return;
+      }
+      if (!typing && !confirmExit && (e.key === 'Delete' || e.key === 'Backspace') && ownShape) {
+        deleteBody(ownShape.id);
+        e.preventDefault();
+        return;
+      }
       if (!typing && !confirmExit && (e.key === 'Delete' || e.key === 'Backspace') && (refTools.selectedRef || refTools.selectedDim)) {
         refTools.remove();
         e.preventDefault();
@@ -475,7 +527,7 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [confirmExit, mobileTree, mobileParams, selectedParam, refTools]);
+  }, [confirmExit, mobileTree, mobileParams, selectedParam, refTools, sketch]);
 
   if (!session || !draft || !tree) {
     return createPortal(
@@ -507,8 +559,11 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
     icon: 'select',
     label: t('genusEditor.tool.select'),
     title: t('genusEditor.tool.select.title'),
-    on: !refTools.tool,
-    run: () => refTools.tool && refTools.setTool(refTools.tool),
+    on: !refTools.tool && !sketch.active,
+    run: () => {
+      if (refTools.tool) refTools.setTool(refTools.tool);
+      if (sketch.active) sketch.close();
+    },
   };
   const placeTool = (id: 'plane' | 'line' | 'point' | 'polyline' | 'dim' | 'move', icon: string, disabled = false): Tool => ({
     id,
@@ -517,9 +572,22 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
     title: t(`genusEditor.tool.${id}.title`),
     on: refTools.tool === id,
     disabled,
-    run: () => refTools.setTool(id),
+    run: () => {
+      if (sketch.active) sketch.close();
+      refTools.setTool(id);
+    },
   });
   const hasRefs = refTools.refs.length > 0;
+  const solidTool = (id: SolidKind, icon: string): Tool => ({
+    id,
+    icon,
+    label: t(`genusEditor.tool.${id}`),
+    title: t(`genusEditor.tool.${id}.title`),
+    on: sketch.session?.kind === id,
+    run: () => startSketch(id),
+  });
+  const focusField = (testId: string) =>
+    window.setTimeout(() => (document.querySelector(`[data-testid="${testId}"]`) as HTMLElement | null)?.focus(), 0);
   const actionTool = (id: string, icon: string, enabled: boolean, run: () => void): Tool => ({
     id,
     icon,
@@ -547,7 +615,7 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
       {
         id: 'body',
         label: t('genusEditor.group.body'),
-        tools: [disabledTool('extrude', 'extrude'), disabledTool('sweep', 'sweep'), disabledTool('revolve', 'revolve'), disabledTool('box', 'box')],
+        tools: [solidTool('extrude', 'extrude'), solidTool('sweep', 'sweep'), solidTool('revolve', 'revolve'), solidTool('box', 'box')],
       },
       { id: 'cuts', label: t('genusEditor.group.cuts'), tools: [disabledTool('cut', 'cut')] },
       { id: 'nested', label: t('genusEditor.group.nested'), tools: [disabledTool('nest', 'nest')] },
@@ -571,10 +639,19 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
           placeTool('move', 'move', !hasRefs),
           actionTool('copy', 'copy', Boolean(refTools.selectedRef), refTools.copy),
           disabledTool('mirror', 'mirror'),
-          actionTool('delete', 'delete', Boolean(refTools.selectedRef || refTools.selectedDim), refTools.remove),
+          actionTool('delete', 'delete', Boolean(refTools.selectedRef || refTools.selectedDim || ownShape), () =>
+            ownShape ? deleteBody(ownShape.id) : refTools.remove(),
+          ),
         ],
       },
-      { id: 'item', label: t('genusEditor.group.item'), tools: [disabledTool('visibility', 'visibility'), disabledTool('material', 'material')] },
+      {
+        id: 'item',
+        label: t('genusEditor.group.item'),
+        tools: [
+          actionTool('visibility', 'visibility', Boolean(ownShape), () => focusField('genus-solid-visible')),
+          actionTool('material', 'material', Boolean(ownShape && ownShape.item === 'solid'), () => focusField('genus-solid-material')),
+        ],
+      },
     ],
     params: [
       {
@@ -682,7 +759,7 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
             levelLabel={t('genusEditor.level')}
             fitKey={fitKey}
             paramLabel={paramLabel}
-            interact={refTools.interact(view)}
+            interact={sketch.interact(view) ?? refTools.interact(view)}
           />
         ) : (
           <div className="genus-view genus-view--empty">{buildError ?? t('genusEditor.building')}</div>
@@ -925,7 +1002,70 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
       />
     ) : null;
 
-  const toolHint = refTools.tool ? (
+  const textParams = rows.filter((r) => kindOf(r.input) === 'text').map((r) => ({ id: r.id, label: paramLabel(r.id) }));
+  const numberParams = rows.filter((r) => ['length', 'number'].includes(kindOf(r.input))).map((r) => ({ id: r.id, label: paramLabel(r.id) }));
+  const shapeKnown = new Set([...knownNames, ...refNames(refTools.refs.map((r) => r.ref))]);
+  const ss = sketch.session;
+  const sketchForm = ss ? (
+    <GenusSketchForm
+      kind={ss.kind}
+      editing={ss.editing}
+      normal={ss.view ? viewNormal(ss.view) : null}
+      items={ss.items}
+      vertices={sketch.vertices}
+      issue={sketch.issue}
+      tried={sketch.tried}
+      known={shapeKnown}
+      values={shapeValues}
+      tool={ss.tool}
+      onTool={sketch.setTool}
+      onVertex={sketch.setVertex}
+      onItem={sketch.setItem}
+      onRemoveItem={sketch.removeItem}
+      onFinish={() => sketch.finish()}
+      onCancel={() => sketch.close()}
+    />
+  ) : null;
+  const solidForm = ownShape ? (
+    <GenusSolidForm
+      key={ownShape.id}
+      item={ownShape}
+      refs={evalRefs}
+      known={shapeKnown}
+      values={shapeValues}
+      textParams={textParams}
+      numberParams={numberParams}
+      built={solidsOf(ownShape.id).length}
+      onChange={(item) => editDraft((d) => ({ ...d, body: d.body.map((b) => (b.id === item.id ? item : b)) }))}
+      onVoid={(v) => sketch.toggleVoid(ownShape.id, v)}
+      onEditSketch={() => sketch.edit(ownShape)}
+      onDelete={() => deleteBody(ownShape.id)}
+      onClose={() => setSelected(null)}
+    />
+  ) : null;
+
+  const toolHint = ss ? (
+    <div className={`genus-tool-hint${sketch.note ? ' is-warn' : ''}`} data-testid="genus-tool-hint" data-tool={`sketch-${ss.kind}`}>
+      <b>{t(`genusEditor.tool.${ss.kind}`)}</b>
+      <span>
+        {sketch.note
+          ? `⚠ ${t(`genusEditor.sketch.note.${sketch.note}`)}`
+          : ss.kind === 'box'
+            ? t(ss.items.length || sketch.session?.view ? 'genusEditor.sketch.hint.box2' : 'genusEditor.sketch.hint.box')
+            : t(`genusEditor.sketch.hint.${ss.tool}`)}
+        {sketch.hoverLocks.length ? ` · 🔒 ${sketch.hoverLocks.join(', ')}` : ''}
+      </span>
+      <span className="genus-status-spacer" />
+      {ss.kind !== 'box' ? (
+        <button type="button" className="genus-btn is-small" data-testid="genus-sketch-done" disabled={Boolean(sketch.issue) || !ss.items.length} onClick={() => sketch.finish()}>
+          {t(ss.editing ? 'genusEditor.sketch.apply' : 'genusEditor.sketch.finish')}
+        </button>
+      ) : null}
+      <button type="button" className="genus-btn is-small" onClick={() => sketch.close()}>
+        {t('genusEditor.sketch.cancel')}
+      </button>
+    </div>
+  ) : refTools.tool ? (
     <div className="genus-tool-hint" data-testid="genus-tool-hint" data-tool={refTools.tool}>
       <b>{t(`genusEditor.tool.${refTools.tool}`)}</b>
       <span>{t(`genusEditor.hint.${refTools.tool}${refTools.tool === 'dim' && refTools.picked ? '2' : ''}`)}</span>
@@ -1250,7 +1390,7 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
           </div>
           {dockOpen ? dock() : null}
         </section>
-        <aside className="genus-right">{paramForm ?? refForm ?? dimForm ?? properties}</aside>
+        <aside className="genus-right">{sketchForm ?? paramForm ?? refForm ?? dimForm ?? solidForm ?? properties}</aside>
       </div>
       {saveError && !confirmExit ? <div className="genus-error-bar">{saveError}</div> : null}
       {statusBar}

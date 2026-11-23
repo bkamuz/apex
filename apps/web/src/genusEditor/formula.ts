@@ -267,7 +267,7 @@ export function evalAst(ast: Ast, values: Record<string, unknown>): number {
   return ev(ast);
 }
 
-const NOT_FORMULA = new Set(['id', 'item', 'shape', 'genus', 'species', 'ref', 'normal', 'show', 'part', 'axis']);
+const NOT_FORMULA = new Set(['id', 'item', 'shape', 'genus', 'species', 'ref', 'normal', 'show', 'part', 'axis', 'kind', 'along', 'on', 'at', 'material', 'targets']);
 
 /** Identifiers read by any formula text inside a JSON value (body, refs, dims). */
 export function namesInJson(value: unknown, out = new Set<string>()): Set<string> {

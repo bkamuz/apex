@@ -72,6 +72,19 @@ export type GenusRefDto =
   | { id: string; ref: 'plane'; origin: GenusVec3; normal?: GenusAxis }
   | { id: string; ref: 'polyline'; points: GenusVec3[] };
 
+export type GenusVec2 = [GenusFormula, GenusFormula];
+
+/**
+ * Mirrors `SketchItem` in apex-core: one drawn element in a sketch plane
+ * (2D plane coordinates; `ref.<id>` formulas lock a coordinate to a ref).
+ */
+export type GenusSketchItemDto =
+  | { kind: 'line'; a: GenusVec2; b: GenusVec2 }
+  /** `bulge` = tan(sweep / 4), positive counter-clockwise. */
+  | { kind: 'arc'; a: GenusVec2; b: GenusVec2; bulge: GenusFormula }
+  | { kind: 'rect'; a: GenusVec2; b: GenusVec2 }
+  | { kind: 'circle'; c: GenusVec2; r: GenusFormula };
+
 /** Mirrors `Shape` in apex-core. */
 export type GenusShapeDto =
   | { shape: 'box'; min: GenusVec3; max: GenusVec3 }
@@ -79,14 +92,31 @@ export type GenusShapeDto =
       shape: 'prism';
       normal?: GenusAxis;
       on?: string;
-      loops: [GenusFormula, GenusFormula][][];
+      loops?: GenusVec2[][];
+      /** Drawn outline (replaces `loops`). */
+      sketch?: GenusSketchItemDto[];
       depth: [GenusFormula, GenusFormula];
     }
-  | { shape: 'revolve'; profile: [GenusFormula, GenusFormula][]; on?: string; segments?: number }
+  | {
+      shape: 'revolve';
+      profile?: GenusVec2[];
+      on?: string;
+      segments?: number;
+      sketch?: GenusSketchItemDto[];
+      /** Sketch plane (with `axis`). */
+      normal?: GenusAxis;
+      /** A `line` ref to revolve about. */
+      axis?: string;
+      /** Degrees; default 360. */
+      angle?: GenusFormula;
+    }
   | {
       shape: 'sweep';
       /** Closed loops (outline, then holes): x across the path, y up. */
-      profile: [GenusFormula, GenusFormula][][];
+      profile?: GenusVec2[][];
+      /** Drawn profile in the `normal` plane, around the path start. */
+      sketch?: GenusSketchItemDto[];
+      normal?: GenusAxis;
       /** A `line` / `polyline` ref, or an inline `path`. */
       along?: string;
       path?: GenusVec3[];

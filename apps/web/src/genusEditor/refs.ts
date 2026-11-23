@@ -13,6 +13,7 @@ import { evalAst, parseFormula } from './formula.ts';
 import type { GenusDraft } from './model.ts';
 import { kindOf, resolvedValues, type DraftSpecies, type ParamRow } from './params.ts';
 import type { OrthoView } from './projection.ts';
+import { bodyRefIds, mapFormulas, renameRefInFormula } from './sketch.ts';
 
 export type RefKindName = GenusRefDto['ref'];
 export type V3 = [number, number, number];
@@ -175,17 +176,12 @@ export function putDim(draft: GenusDraft, dim: GenusDimDto): GenusDraft {
   return { ...draft, dims, remove: draft.remove.filter((x) => x !== dim.id) };
 }
 
-/** Body items that sit on a ref (sweep along, prism on, nested at). */
+/** Body items that use a ref (sweep along, prism on, nested at, revolve axis, `ref.<id>` formulas). */
 export function refUsers(draft: GenusDraft, parent: GenusDefDto | null | undefined, id: string): string[] {
   const removed = new Set(draft.remove);
   const own = new Set(draft.body.map((b) => b.id));
   const body = [...(parent?.body ?? []).filter((b) => !own.has(b.id) && !removed.has(b.id)), ...draft.body];
-  return body
-    .filter((b) => {
-      const x = b as unknown as Record<string, unknown>;
-      return x.along === id || x.on === id || x.at === id;
-    })
-    .map((b) => b.id);
+  return body.filter((b) => bodyRefIds(b).includes(id)).map((b) => b.id);
 }
 
 /** Drop a dim: authored ones are deleted, inherited ones listed in `remove`. */
@@ -220,8 +216,8 @@ export function renameRef(draft: GenusDraft, from: string, to: string): GenusDra
     refs: draft.refs.map((r) => (r.id === from ? { ...r, id: to } : r)),
     dims: draft.dims.map((d) => ({ ...d, from: d.from === from ? to : d.from, to: d.to === from ? to : d.to })),
     body: draft.body.map((b) => {
-      const x = { ...(b as unknown as Record<string, unknown>) };
-      for (const k of ['along', 'on', 'at']) if (x[k] === from) x[k] = to;
+      const x = { ...(mapFormulas(b, (f) => renameRefInFormula(f, from, to)) as unknown as Record<string, unknown>) };
+      for (const k of ['along', 'on', 'at', 'axis']) if (x[k] === from) x[k] = to;
       return x as unknown as typeof b;
     }),
   };
