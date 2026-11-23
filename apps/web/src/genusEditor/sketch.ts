@@ -379,6 +379,29 @@ export function pathRefs(refs: EvalRef[]): EvalRef[] {
   return refs.filter((r) => (r.kind === 'line' || r.kind === 'polyline') && r.points.length >= 2);
 }
 
+/**
+ * The ref a new revolve / sweep uses by default: the axis line nearest the
+ * profile, or the path whose start is nearest (both measured in the sketch
+ * plane). The solid form can switch it afterwards.
+ */
+export function nearestRef(normal: GenusAxis, outline: P2[], candidates: EvalRef[], by: 'axis' | 'start'): string | undefined {
+  if (!outline.length) return candidates[0]?.id;
+  const [i, j] = planeAxes(normal);
+  const c: P2 = [outline.reduce((s, p) => s + p[0], 0) / outline.length, outline.reduce((s, p) => s + p[1], 0) / outline.length];
+  const flat = (p: V3): P2 => [p[i], p[j]];
+  const dist = (r: EvalRef) => {
+    const a = flat(r.points[0]);
+    if (by === 'start') return Math.hypot(a[0] - c[0], a[1] - c[1]);
+    const b = flat(r.points[1] ?? r.points[0]);
+    const d: P2 = [b[0] - a[0], b[1] - a[1]];
+    const len = Math.hypot(d[0], d[1]) || 1;
+    return Math.abs((c[0] - a[0]) * d[1] - (c[1] - a[1]) * d[0]) / len;
+  };
+  let best: EvalRef | undefined;
+  for (const r of candidates) if (!best || dist(r) < dist(best) - 1e-9) best = r;
+  return best?.id;
+}
+
 export function newSketchShape(
   id: string,
   kind: Exclude<SolidKind, 'box'>,

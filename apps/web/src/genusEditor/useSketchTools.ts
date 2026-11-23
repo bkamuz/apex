@@ -25,6 +25,7 @@ import {
   sketchPaths,
   sketchVertices,
   sketchView,
+  nearestRef,
   snapPoint,
   solidKind,
   viewNormal,
@@ -200,14 +201,14 @@ export function useSketchTools(a: Args) {
     }
     let ref: string | undefined;
     if (session.kind === 'revolve') {
-      ref = axisRefs(viewNormal(view), refs)[0]?.id;
+      ref = nearestRef(viewNormal(view), check.loops[0], axisRefs(viewNormal(view), refs), 'axis');
       if (!ref) {
         setNote('noAxis');
         return false;
       }
     }
     if (session.kind === 'sweep') {
-      ref = pathRefs(refs)[0]?.id;
+      ref = nearestRef(viewNormal(view), check.loops[0], pathRefs(refs), 'start');
       if (!ref) {
         setNote('noPath');
         return false;

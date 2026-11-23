@@ -10,6 +10,7 @@ import {
   renameRefInFormula,
   setVoid,
   isVoid,
+  nearestRef,
   sketchLoops,
   snapPoint,
   solidKind,
@@ -136,4 +137,15 @@ test('ref renames reach formulas and the axis; users include locked shapes', () 
   const r2 = renameRef(draft, 'right', 'r');
   const b = r2.body[0];
   assert.ok(b.item === 'solid' && b.shape === 'box' && b.max[0] === 'ref.r');
+});
+
+test('revolve and sweep default to the nearest axis / path start', () => {
+  const lines: EvalRef[] = [
+    { id: 'far', kind: 'line', points: [[-1, 0.3, 0], [-1, 1.6, 0]] },
+    { id: 'near', kind: 'line', points: [[1.2, 0.2, 0], [1.2, 1.2, 0]] },
+  ];
+  const ring: [number, number][] = [[1.3, 0.4], [1.4, 0.4], [1.4, 0.7], [1.3, 0.7]];
+  assert.equal(nearestRef('z', ring, lines, 'axis'), 'near');
+  // A circle drawn in plan (x, z) at the start of `far`.
+  assert.equal(nearestRef('y', [[-1.04, 0], [-1, 0.04], [-0.96, 0]], lines, 'start'), 'far');
 });
