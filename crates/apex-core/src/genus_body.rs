@@ -27,6 +27,10 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::expr::Expr;
 use crate::genus::GLASS_NORMAL_TAG;
+use crate::genus_sketch::{
+    plane_coords, plane_point, ref_ids_of, ref_params, sketch_loops, sketch_params, SketchItem,
+    REF_PREFIX,
+};
 use crate::param::{ParamMap, ParamValue};
 
 /// Max nesting depth of genus instances inside genera.
@@ -539,23 +543,45 @@ pub enum Shape {
         /// Reference plane/point the outline is relative to.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         on: Option<String>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
         loops: Vec<Vec<[F; 2]>>,
+        /// Drawn outline (replaces `loops`), in the same plane axes.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sketch: Option<Vec<SketchItem>>,
         depth: [F; 2],
     },
-    /// Closed profile `(r, y)` revolved around the local y axis.
+    /// Closed profile `(r, y)` revolved around the local y axis; or, with
+    /// `axis` (a line ref), a `sketch` in the `normal` plane revolved
+    /// `angle` degrees (default 360) about that line.
     Revolve {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
         profile: Vec<[F; 2]>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         on: Option<String>,
         #[serde(default = "default_segments")]
         segments: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sketch: Option<Vec<SketchItem>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        normal: Option<Axis>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        axis: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        angle: Option<F>,
     },
     /// Closed profile loops (outline, then holes) swept along a path: a
     /// `line` / `polyline` ref (`along`) or an inline `path` of local
     /// points. Profile axes: x across the path (horizontal), y up; the
     /// profile is placed as drawn (its origin on the path).
     Sweep {
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
         profile: Vec<Vec<[F; 2]>>,
+        /// Drawn profile in the `normal` plane (replaces `profile`): placed
+        /// relative to the path start, seen along the path.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        sketch: Option<Vec<SketchItem>>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        normal: Option<Axis>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         along: Option<String>,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -825,6 +851,26 @@ impl GenusDef {
 
     /// Every param id a formula in this body / its refs reads.
     pub fn referenced_params(&self) -> Vec<String> {
+        let mut out = self.formula_names();
+        out.retain(|p| !p.starts_with(REF_PREFIX));
+        out
+    }
+
+    /// Ref ids read by body formulas through `ref.<id>` names.
+    pub fn formula_refs(&self) -> Vec<String> {
+        let mut out: Vec<String> = Vec::new();
+        for n in self.formula_names() {
+            if let Some(id) = ref_ids_of(&n) {
+                if !out.iter().any(|x| x == id) {
+                    out.push(id.to_string());
+                }
+            }
+        }
+        out
+    }
+
+    /// Every name a formula in this body / its refs reads.
+    fn formula_names(&self) -> Vec<String> {
         let mut out = Vec::new();
         let p3 = |a: &[F; 3], out: &mut Vec<String>| a.iter().for_each(|f| f.params(out));
         for r in &self.refs {
@@ -835,14 +881,35 @@ impl GenusDef {
                 p3(min, out);
                 p3(max, out);
             }
-            Shape::Prism { loops, depth, .. } => {
+            Shape::Prism {
+                loops,
+                depth,
+                sketch,
+                ..
+            } => {
                 loops.iter().flatten().flatten().for_each(|f| f.params(out));
                 depth.iter().for_each(|f| f.params(out));
+                sketch_params(sketch.as_deref().unwrap_or_default(), out);
             }
-            Shape::Revolve { profile, .. } => {
+            Shape::Revolve {
+                profile,
+                sketch,
+                angle,
+                ..
+            } => {
                 profile.iter().flatten().for_each(|f| f.params(out));
+                sketch_params(sketch.as_deref().unwrap_or_default(), out);
+                if let Some(a) = angle {
+                    a.params(out);
+                }
             }
-            Shape::Sweep { profile, path, .. } => {
+            Shape::Sweep {
+                profile,
+                path,
+                sketch,
+                ..
+            } => {
+                sketch_params(sketch.as_deref().unwrap_or_default(), out);
                 profile
                     .iter()
                     .flatten()
@@ -908,6 +975,31 @@ impl GenusDef {
                         b.id
                     ));
                 }
+            }
+            if let BodyKind::Solid {
+                shape: Shape::Revolve { axis: Some(r), .. },
+                ..
+            }
+            | BodyKind::Cut {
+                shape: Shape::Revolve { axis: Some(r), .. },
+                ..
+            } = &b.kind
+            {
+                if !self
+                    .refs
+                    .iter()
+                    .any(|x| x.id == *r && matches!(x.kind, RefKind::Line { .. }))
+                {
+                    return Some(format!(
+                        "revolve '{}' needs a line ref '{r}' as its axis",
+                        b.id
+                    ));
+                }
+            }
+        }
+        for r in self.formula_refs() {
+            if !has(&r) {
+                return Some(format!("a formula reads unknown ref '{REF_PREFIX}{r}'"));
             }
         }
         None
@@ -1288,6 +1380,28 @@ fn build_level(
         }
     };
 
+    // Shape formulas may read refs (`ref.<id>`, `ref.<id>.x|y|z`).
+    let p = ref_params(
+        &p,
+        entry.genus.refs.iter().filter_map(|r| {
+            let (at, normal) = refs.get(r.id.as_str())?;
+            let plane = matches!(r.kind, RefKind::Plane { .. }).then_some(*normal);
+            Some((r.id.as_str(), *at, plane))
+        }),
+    );
+    let ref_line = |id: &str| -> Result<[[f64; 3]; 2], GenusError> {
+        match entry
+            .genus
+            .refs
+            .iter()
+            .find(|r| r.id == id)
+            .map(|r| &r.kind)
+        {
+            Some(RefKind::Line { from, to }) => Ok([eval3(from, &p)?, eval3(to, &p)?]),
+            _ => Err(GenusError::UnknownRef(id.into())),
+        }
+    };
+
     let mut out = GenusBuild::default();
     let mut self_cuts: Vec<(String, TriangleMesh)> = Vec::new();
     for item in &entry.genus.body {
@@ -1362,7 +1476,8 @@ fn build_level(
                     }
                     continue;
                 }
-                let (mut mesh, _) = shape_mesh(shape, &p, &frame, &ref_origin, &ref_points)?;
+                let (mut mesh, _) =
+                    shape_mesh(shape, &p, &frame, &ref_origin, &ref_points, &ref_line)?;
                 if *glass {
                     tag(&mut mesh, GLASS_NORMAL_TAG);
                 }
@@ -1379,7 +1494,8 @@ fn build_level(
                 });
             }
             BodyKind::Cut { shape, targets } => {
-                let (mesh, prism) = shape_mesh(shape, &p, &frame, &ref_origin, &ref_points)?;
+                let (mesh, prism) =
+                    shape_mesh(shape, &p, &frame, &ref_origin, &ref_points, &ref_line)?;
                 if targets.own {
                     self_cuts.push((path.clone(), mesh.clone()));
                 }
@@ -1486,6 +1602,18 @@ fn tag(mesh: &mut TriangleMesh, t: f32) {
 type Prism = Option<(Vec<[f64; 2]>, f64, f64)>;
 
 type RefPoints<'a> = dyn Fn(&str) -> Result<Vec<[f64; 3]>, GenusError> + 'a;
+type RefLine<'a> = dyn Fn(&str) -> Result<[[f64; 3]; 2], GenusError> + 'a;
+
+fn eval_loops(loops: &[Vec<[F; 2]>], p: &ParamMap) -> Result<Vec<Vec<[f64; 2]>>, GenusError> {
+    loops
+        .iter()
+        .map(|l| {
+            l.iter()
+                .map(|q| Ok([q[0].eval(p)?, q[1].eval(p)?]))
+                .collect::<Result<Vec<_>, GenusError>>()
+        })
+        .collect()
+}
 
 fn shape_mesh(
     shape: &Shape,
@@ -1493,6 +1621,7 @@ fn shape_mesh(
     frame: &GenusFrame,
     ref_origin: &RefOrigin,
     ref_points: &RefPoints,
+    ref_line: &RefLine,
 ) -> Result<(TriangleMesh, Prism), GenusError> {
     let mut mesh = TriangleMesh::empty();
     match shape {
@@ -1535,18 +1664,15 @@ fn shape_mesh(
             normal,
             on,
             loops,
+            sketch,
             depth,
         } => {
             let o = ref_origin(on)?;
             let origin = frame.point(o);
-            let loops: Vec<Vec<[f64; 2]>> = loops
-                .iter()
-                .map(|l| {
-                    l.iter()
-                        .map(|q| Ok([q[0].eval(p)?, q[1].eval(p)?]))
-                        .collect::<Result<Vec<_>, GenusError>>()
-                })
-                .collect::<Result<_, _>>()?;
+            let loops = match sketch {
+                Some(items) => sketch_loops(items, p)?,
+                None => eval_loops(loops, p)?,
+            };
             let (d0, d1) = (depth[0].eval(p)?, depth[1].eval(p)?);
             let (a, b, c) = match normal {
                 Axis::Z => (frame.u, Vec3::Y, frame.n),
@@ -1572,24 +1698,59 @@ fn shape_mesh(
             profile,
             on,
             segments,
+            sketch,
+            normal,
+            axis,
+            angle,
         } => {
+            let seg = (*segments).clamp(3, 256);
+            let turn = match angle {
+                Some(a) => a.eval(p)?.clamp(-360.0, 360.0).to_radians(),
+                None => std::f64::consts::TAU,
+            };
+            if let Some(line) = axis {
+                let items = sketch
+                    .as_deref()
+                    .ok_or_else(|| GenusError::Other("revolve: the axis needs a sketch".into()))?;
+                let loops = sketch_loops(items, p)?;
+                if loops.len() > 1 {
+                    return Err(GenusError::Other(
+                        "revolve: the profile must be one loop".into(),
+                    ));
+                }
+                let [a, b] = ref_line(line)?;
+                let (prof, o, dir, radial) =
+                    revolve_about(&loops[0], normal.unwrap_or_default(), a, b)?;
+                let to_world = |v: [f64; 3]| frame.point(v) - frame.point([0.0; 3]);
+                emit_revolve(
+                    &mut mesh,
+                    &prof,
+                    frame.point(o),
+                    to_world(dir).normalize_or_zero(),
+                    to_world(radial).normalize_or_zero(),
+                    seg,
+                    turn,
+                );
+                return Ok((mesh, None));
+            }
             let o = frame.point(ref_origin(on)?);
-            let prof: Vec<[f64; 2]> = profile
-                .iter()
-                .map(|q| Ok([q[0].eval(p)?.max(0.0), q[1].eval(p)?]))
-                .collect::<Result<_, GenusError>>()?;
-            emit_revolve(
-                &mut mesh,
-                &prof,
-                o,
-                frame.u,
-                frame.n,
-                (*segments).clamp(3, 256),
-            );
+            let prof: Vec<[f64; 2]> = match sketch {
+                Some(items) => {
+                    let loops = sketch_loops(items, p)?;
+                    loops[0].iter().map(|q| [q[0].max(0.0), q[1]]).collect()
+                }
+                None => profile
+                    .iter()
+                    .map(|q| Ok([q[0].eval(p)?.max(0.0), q[1].eval(p)?]))
+                    .collect::<Result<_, GenusError>>()?,
+            };
+            emit_revolve(&mut mesh, &prof, o, Vec3::Y, frame.u, seg, turn);
             Ok((mesh, None))
         }
         Shape::Sweep {
             profile,
+            sketch,
+            normal,
             along,
             path,
         } => {
@@ -1597,14 +1758,17 @@ fn shape_mesh(
                 Some(r) => ref_points(r)?,
                 None => path.iter().map(|a| eval3(a, p)).collect::<Result<_, _>>()?,
             };
-            let loops: Vec<Vec<[f32; 2]>> = profile
+            let loops: Vec<Vec<[f64; 2]>> = match sketch {
+                Some(items) => {
+                    let loops = sketch_loops(items, p)?;
+                    profile_at_path_start(&loops, normal.unwrap_or_default(), &pts)?
+                }
+                None => eval_loops(profile, p)?,
+            };
+            let loops: Vec<Vec<[f32; 2]>> = loops
                 .iter()
-                .map(|l| {
-                    l.iter()
-                        .map(|q| Ok([q[0].eval(p)? as f32, q[1].eval(p)? as f32]))
-                        .collect::<Result<Vec<_>, GenusError>>()
-                })
-                .collect::<Result<_, _>>()?;
+                .map(|l| l.iter().map(|q| [q[0] as f32, q[1] as f32]).collect())
+                .collect();
             Ok((sweep_mesh(&loops, &pts, frame)?, None))
         }
         Shape::OpeningPart { .. } => Ok((mesh, None)),
@@ -1727,38 +1891,150 @@ pub fn emit_prism(
     }
 }
 
-/// Closed solid of revolution of a closed `(r, y)` profile about the y axis
-/// through `origin`.
+/// Profile `(r, h)` of a sketch loop about the line `a → b` (local), with
+/// the axis origin, direction and the radial start direction (local).
+#[allow(clippy::type_complexity)]
+fn revolve_about(
+    ring: &[[f64; 2]],
+    normal: Axis,
+    a: [f64; 3],
+    b: [f64; 3],
+) -> Result<(Vec<[f64; 2]>, [f64; 3], [f64; 3], [f64; 3]), GenusError> {
+    let (qa, depth) = plane_coords(normal, a);
+    let (qb, _) = plane_coords(normal, b);
+    let d = [qb[0] - qa[0], qb[1] - qa[1]];
+    let len = (d[0] * d[0] + d[1] * d[1]).sqrt();
+    if len < 1e-9 {
+        return Err(GenusError::Other(
+            "revolve: the axis must lie in the sketch plane".into(),
+        ));
+    }
+    let t = [d[0] / len, d[1] / len];
+    // Signed distance from the axis (left of a → b is positive).
+    let rh: Vec<[f64; 2]> = ring
+        .iter()
+        .map(|q| {
+            let v = [q[0] - qa[0], q[1] - qa[1]];
+            [t[0] * v[1] - t[1] * v[0], t[0] * v[0] + t[1] * v[1]]
+        })
+        .collect();
+    let left = rh.iter().any(|q| q[0] > 1e-9);
+    let right = rh.iter().any(|q| q[0] < -1e-9);
+    if left && right {
+        return Err(GenusError::Other(
+            "revolve: the profile crosses the axis".into(),
+        ));
+    }
+    let side = if right { -1.0 } else { 1.0 };
+    let prof = rh.iter().map(|q| [q[0] * side, q[1]]).collect();
+    let o = plane_point(normal, qa, depth);
+    let tip = plane_point(normal, [qa[0] + t[0], qa[1] + t[1]], depth);
+    let off = plane_point(normal, [qa[0] - t[1] * side, qa[1] + t[0] * side], depth);
+    let dir = [tip[0] - o[0], tip[1] - o[1], tip[2] - o[2]];
+    let radial = [off[0] - o[0], off[1] - o[1], off[2] - o[2]];
+    Ok((prof, o, dir, radial))
+}
+
+/// Sweep profile loops from sketch-plane coordinates: relative to the path
+/// start, in the sweep's start frame (x = up × tangent, y = tangent × x).
+fn profile_at_path_start(
+    loops: &[Vec<[f64; 2]>],
+    normal: Axis,
+    pts: &[[f64; 3]],
+) -> Result<Vec<Vec<[f64; 2]>>, GenusError> {
+    let (s, n) = match pts {
+        [s, n, ..] => (
+            Vec3::from_array(s.map(|v| v as f32)),
+            Vec3::from_array(n.map(|v| v as f32)),
+        ),
+        _ => {
+            return Err(GenusError::Other(
+                "sweep: path needs at least two points".into(),
+            ))
+        }
+    };
+    let t = (n - s).normalize_or_zero();
+    let x = Vec3::Y
+        .cross(t)
+        .try_normalize()
+        .or_else(|| Vec3::Z.cross(t).try_normalize())
+        .unwrap_or(Vec3::X);
+    let y = t.cross(x);
+    let (_, depth) = plane_coords(normal, pts[0]);
+    Ok(loops
+        .iter()
+        .map(|l| {
+            l.iter()
+                .map(|q| {
+                    let w = Vec3::from_array(plane_point(normal, *q, depth).map(|v| v as f32)) - s;
+                    [w.dot(x) as f64, w.dot(y) as f64]
+                })
+                .collect()
+        })
+        .collect())
+}
+
+/// Solid of revolution of a closed `(r, h)` profile about `axis` through
+/// `origin` (radial start `u`), turned `turn` radians; capped when partial.
 fn emit_revolve(
     mesh: &mut TriangleMesh,
     profile: &[[f64; 2]],
     origin: Vec3,
+    axis: Vec3,
     u: Vec3,
-    n: Vec3,
     seg: u32,
+    turn: f64,
 ) {
-    if profile.len() < 3 {
+    if profile.len() < 3 || turn.abs() < 1e-6 {
         return;
     }
+    let (u, turn) = if turn < 0.0 {
+        // Turning backwards = turning forwards from the end.
+        let t = turn as f32;
+        (u * t.cos() + axis.cross(u) * t.sin(), -turn)
+    } else {
+        (u, turn)
+    };
+    let n = axis.cross(u);
     let mut prof = profile.to_vec();
     if signed_area(&prof) < 0.0 {
         prof.reverse();
     }
-    let radial = |j: u32| {
-        let t = j as f32 / seg as f32 * std::f32::consts::TAU;
+    let full = turn >= std::f64::consts::TAU - 1e-9;
+    let seg = if full {
+        seg
+    } else {
+        ((seg as f64 * turn / std::f64::consts::TAU).ceil() as u32).max(1)
+    };
+    let step = turn as f32 / seg as f32;
+    let radial = |j: f32| {
+        let t = j * step;
         u * t.cos() + n * t.sin()
     };
-    let at = |q: [f64; 2], j: u32| origin + radial(j) * q[0] as f32 + Vec3::Y * q[1] as f32;
+    let at = |q: [f64; 2], j: u32| origin + radial(j as f32) * q[0] as f32 + axis * q[1] as f32;
+    if !full {
+        // End caps: the profile at the start and at the end of the turn.
+        let tris = triangulate_shape(std::slice::from_ref(&prof));
+        for (j, nn) in [(0, -n), (seg, -radial(seg as f32).cross(axis))] {
+            for t in &tris {
+                tri(mesh, at(t[0], j), at(t[1], j), at(t[2], j), nn);
+            }
+            let m = prof.len();
+            for k in 0..m {
+                mesh.push_edge(
+                    at(prof[k], j).to_array(),
+                    at(prof[(k + 1) % m], j).to_array(),
+                );
+            }
+        }
+    }
     let m = prof.len();
     for j in 0..seg {
-        let mid = {
-            let t = (j as f32 + 0.5) / seg as f32 * std::f32::consts::TAU;
-            u * t.cos() + n * t.sin()
-        };
+        let mid = radial(j as f32 + 0.5);
         for k in 0..m {
             let (q0, q1) = (prof[k], prof[(k + 1) % m]);
             let (dr, dy) = ((q1[0] - q0[0]) as f32, (q1[1] - q0[1]) as f32);
-            let nn = (mid * dy - Vec3::Y * dr).normalize_or_zero();
+            let nn = (mid * dy - axis * dr).normalize_or_zero();
             let (a, b, c, d) = (at(q0, j), at(q1, j), at(q1, j + 1), at(q0, j + 1));
             if (a - d).length() > 1e-7 {
                 tri(mesh, a, b, d, nn);
@@ -1824,10 +2100,24 @@ mod tests {
             &mut r,
             &[[0.5, 0.0], [1.0, 0.0], [1.0, 1.0], [0.5, 1.0]],
             Vec3::ZERO,
+            Vec3::Y,
             Vec3::X,
-            Vec3::Z,
             32,
+            std::f64::consts::TAU,
         );
-        assert!(apex_geometry::mesh_volume(&r) > 2.0);
+        let full = apex_geometry::mesh_volume(&r);
+        assert!(full > 2.0);
+        // A half turn is closed (capped) and holds half the volume.
+        let mut h = TriangleMesh::empty();
+        emit_revolve(
+            &mut h,
+            &[[0.5, 0.0], [1.0, 0.0], [1.0, 1.0], [0.5, 1.0]],
+            Vec3::ZERO,
+            Vec3::Y,
+            Vec3::X,
+            32,
+            std::f64::consts::PI,
+        );
+        assert!((apex_geometry::mesh_volume(&h) - full / 2.0).abs() < 1e-3);
     }
 }

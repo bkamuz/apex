@@ -44,12 +44,30 @@ export interface ViewInteract {
   pending: P2[];
   /** First ref picked by the dim tool (highlighted). */
   picked: string | null;
-  onPlace: (hit: ViewHit, p: P2) => void;
+  /** `k`: metres per screen pixel (snap distances). */
+  onPlace: (hit: ViewHit, p: P2, k?: number) => void;
   onFinish: () => void;
   /** Pointer down on a ref / dim: true when a drag starts (instead of a pan). */
   onDragStart: (hit: ViewHit, p: P2) => boolean;
   onDragMove: (p: P2, fine: boolean) => void;
   onDragEnd: () => void;
+  /** Pointer over the view while placing (null: left it). */
+  onHover?: (p: P2 | null, k: number) => void;
+  /** Sketch being drawn in this view. */
+  overlay?: ViewOverlay;
+}
+
+/** A sketch in progress, in view coordinates. */
+export interface ViewOverlay {
+  paths: { pts: P2[]; closed: boolean }[];
+  vertices: { at: P2; locked: boolean }[];
+  pending: P2[];
+  /** Rubber band from the last placed point to the pointer. */
+  rubber: P2[] | null;
+  /** Where a click would land (locked: on a reference). */
+  snap: { at: P2; locked: boolean } | null;
+  /** The sketch forms closed loops. */
+  ok: boolean;
 }
 
 function hitOf(target: Element | null, p: P2, dims: DimShape[]): ViewHit {
@@ -184,7 +202,10 @@ export function GenusOrthoView(props: GenusOrthoViewProps) {
       return;
     }
     const d = drag.current;
-    if (!d) return;
+    if (!d) {
+      if (interact?.placing) interact.onHover?.(toView(e), k);
+      return;
+    }
     const dx = e.clientX - d.x;
     const dy = e.clientY - d.y;
     if (!d.moved && Math.hypot(dx, dy) < 3) return;
@@ -203,7 +224,7 @@ export function GenusOrthoView(props: GenusOrthoViewProps) {
       const { hit } = d;
       const p = toView(e);
       if (interact?.placing) {
-        interact.onPlace(hit, p);
+        interact.onPlace(hit, p, k);
         return;
       }
       onSelect(hit.kind === 'none' ? null : hit.kind === 'dim' ? `dim:${hit.id}` : hit.id);
@@ -325,6 +346,7 @@ export function GenusOrthoView(props: GenusOrthoViewProps) {
       data-testid={`genus-view-${props.view}`}
       onWheel={onWheel}
       onDoubleClick={onDoubleClick}
+      onPointerLeave={() => interact?.onHover?.(null, k)}
     >
       <span className="genus-view-label">{props.label}</span>
       <svg
@@ -438,6 +460,42 @@ export function GenusOrthoView(props: GenusOrthoViewProps) {
           : null}
         {showDims ? dimEls(model.dims, 'genus-dim', true) : null}
         {showDims ? dimEls(overall, 'genus-dim is-overall', false) : null}
+        {interact?.overlay ? (
+          <g className={`genus-sketch${interact.overlay.ok ? ' is-closed' : ''}`} data-testid={`genus-sketch-${props.view}`}>
+            {interact.overlay.paths.map((pa, i) =>
+              pa.closed ? (
+                <polygon key={i} points={pa.pts.map(([u, v]) => `${u},${Y(v)}`).join(' ')} />
+              ) : (
+                <polyline key={i} points={pa.pts.map(([u, v]) => `${u},${Y(v)}`).join(' ')} />
+              ),
+            )}
+            {interact.overlay.rubber ? (
+              <polyline className="genus-sketch-rubber" points={interact.overlay.rubber.map(([u, v]) => `${u},${Y(v)}`).join(' ')} />
+            ) : null}
+            {interact.overlay.vertices.map((v, i) => (
+              <rect
+                key={`v${i}`}
+                className={`genus-sketch-vertex${v.locked ? ' is-locked' : ''}`}
+                x={v.at[0] - 2.5 * k}
+                y={Y(v.at[1]) - 2.5 * k}
+                width={5 * k}
+                height={5 * k}
+              />
+            ))}
+            {interact.overlay.pending.map(([u, v], i) => (
+              <circle key={`p${i}`} className="genus-sketch-pending" cx={u} cy={Y(v)} r={3 * k} />
+            ))}
+            {interact.overlay.snap ? (
+              <circle
+                className={`genus-sketch-snap${interact.overlay.snap.locked ? ' is-locked' : ''}`}
+                data-testid="genus-sketch-snap"
+                cx={interact.overlay.snap.at[0]}
+                cy={Y(interact.overlay.snap.at[1])}
+                r={5 * k}
+              />
+            ) : null}
+          </g>
+        ) : null}
         {interact?.pending.length ? (
           <g className="genus-pending" data-testid="genus-pending">
             <polyline points={interact.pending.map(([u, v]) => `${u},${Y(v)}`).join(' ')} />

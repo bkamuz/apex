@@ -83,6 +83,8 @@
 
   /* Genus editor: references, solids, cuts, nested genera, selection. */
   --genus-ref: #6aa8f0;
+  --genus-sketch: #f0b45a;
+  --genus-sketch-ok: #5fd08b;
   --genus-solid: #9aa3b2;
   --genus-cut: #f0a04b;
   --genus-nested: #b294f0;
@@ -152,6 +154,8 @@
   --view-cube-label-halo: var(--chrome-overlay-strong);
 
   --genus-ref: #2f7fd6;
+  --genus-sketch: #c8700f;
+  --genus-sketch-ok: #23854a;
   --genus-solid: #5d6575;
   --genus-cut: #c46a10;
   --genus-nested: #7a4fd0;

@@ -12,6 +12,7 @@ mod element;
 mod expr;
 mod genus;
 mod genus_body;
+mod genus_sketch;
 mod grid_axis;
 mod history;
 mod ifc_mesh;

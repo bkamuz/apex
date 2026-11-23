@@ -1224,3 +1224,95 @@
 .genus-dim.is-overall {
   pointer-events: none;
 }
+
+/* —— Sketches and solids —— */
+.genus-sketch polyline,
+.genus-sketch polygon {
+  fill: none;
+  stroke: var(--genus-sketch);
+  stroke-width: 1.6px;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+.genus-sketch.is-closed polygon,
+.genus-sketch.is-closed polyline {
+  stroke: var(--genus-sketch-ok);
+}
+.genus-sketch polyline.genus-sketch-rubber {
+  stroke-dasharray: 4 3;
+  stroke-width: 1px;
+  opacity: 0.8;
+}
+.genus-sketch-vertex {
+  fill: var(--chrome-bg, #fff);
+  stroke: var(--genus-sketch);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+.genus-sketch-vertex.is-locked {
+  fill: var(--genus-ref);
+  stroke: var(--genus-ref);
+}
+.genus-sketch-pending {
+  fill: var(--genus-sketch);
+  pointer-events: none;
+}
+.genus-sketch-snap {
+  fill: none;
+  stroke: var(--genus-sketch);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+.genus-sketch-snap.is-locked {
+  stroke: var(--genus-ref);
+  stroke-width: 2px;
+}
+.genus-refbound {
+  display: flex;
+  gap: 4px;
+  align-items: flex-start;
+  min-width: 0;
+}
+.genus-refbound > .genus-coord {
+  flex: 1;
+  min-width: 0;
+}
+.genus-field-v select.genus-refbound-ref {
+  width: auto;
+  max-width: 84px;
+  flex: none;
+}
+.genus-sketch-sub {
+  margin: 8px 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--chrome-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.genus-sketch-list .genus-field {
+  margin-bottom: 4px;
+}
+.genus-sketch-item .genus-field-v {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+}
+.genus-props-note.is-ok {
+  color: var(--genus-sketch-ok);
+}
+.genus-field-text {
+  font-size: 12px;
+}
+.genus-sketch-draw {
+  margin-bottom: 6px;
+}
+.genus-sketch-tools {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.genus-sketch-tools button {
+  white-space: nowrap;
+}

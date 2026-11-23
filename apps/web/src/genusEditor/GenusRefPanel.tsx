@@ -10,25 +10,36 @@ import { AXES, axisIndex, evalFormula, formulaString, refPoints, withPoints, typ
 
 const mm = (m: number) => (Number.isFinite(m) ? String(Math.round(m * 1000)) : '—');
 
-/** A coordinate formula (metres): kept as typed, committed once it parses and reads known params. */
-function CoordInput(props: {
-  value: GenusFormula;
+/**
+ * A formula input: kept as typed, committed once it parses and reads known
+ * names. Shows the value in mm (coordinates), degrees, or nothing; with
+ * `allowEmpty`, clearing it commits `undefined`.
+ */
+export function CoordInput(props: {
+  value: GenusFormula | undefined;
   known: Set<string>;
   values: Record<string, unknown>;
   testId: string;
   ariaLabel: string;
-  onCommit: (f: GenusFormula) => void;
+  onCommit: (f: GenusFormula | undefined) => void;
+  unit?: 'mm' | 'deg' | 'none';
+  allowEmpty?: boolean;
+  placeholder?: string;
 }) {
   const { t } = useI18n();
-  const shown = formulaString(props.value);
+  const unit = props.unit ?? 'mm';
+  const shown = props.value === undefined ? '' : formulaString(props.value);
   const [text, setText] = useState(shown);
   const focused = useRef(false);
   useEffect(() => {
     if (!focused.current) setText(shown);
   }, [shown]);
+  const empty = props.allowEmpty && !text.trim();
   const parsed = parseFormula(text.replace(',', '.'));
   const unknown = parsed.ok ? parsed.refs.find((r) => !props.known.has(r)) : undefined;
-  const error = !parsed.ok
+  const error = empty
+    ? null
+    : !parsed.ok
     ? formulaMessage({ field: 'formula', code: 'formula', formula: parsed.error }, t)
     : unknown
       ? formulaMessage({ field: 'formula', code: 'formula', formula: { code: 'unknown', detail: { id: unknown } } }, t)
@@ -39,6 +50,7 @@ function CoordInput(props: {
       <input
         className={`genus-cell-input is-mono${error ? ' is-invalid' : ''}`}
         value={text}
+        placeholder={props.placeholder}
         spellCheck={false}
         data-testid={props.testId}
         aria-label={props.ariaLabel}
@@ -53,6 +65,10 @@ function CoordInput(props: {
           const v = e.target.value;
           setText(v);
           const src = v.replace(',', '.').trim();
+          if (!src && props.allowEmpty) {
+            props.onCommit(undefined);
+            return;
+          }
           const p = parseFormula(src);
           if (src && p.ok && p.refs.every((r) => props.known.has(r))) {
             const n = Number(src);
@@ -61,14 +77,14 @@ function CoordInput(props: {
         }}
       />
       <span className="genus-coord-mm" data-testid={`${props.testId}-mm`}>
-        {error ? '' : `${mm(value)} ${t('genusEditor.mm')}`}
+        {error || empty || unit === 'none' ? '' : unit === 'deg' ? `${Number.isFinite(value) ? Math.round(value * 10) / 10 : '—'}°` : `${mm(value)} ${t('genusEditor.mm')}`}
       </span>
       {error ? <span className="genus-field-err" data-testid={`${props.testId}-error`}>{error}</span> : null}
     </span>
   );
 }
 
-const field = (label: string, control: React.ReactNode, extra?: React.ReactNode) => (
+export const field = (label: string, control: React.ReactNode, extra?: React.ReactNode) => (
   <label className="genus-field">
     <span className="genus-field-k">{label}</span>
     <span className="genus-field-v">{control}</span>
@@ -115,7 +131,7 @@ export function GenusRefForm(props: {
                 values={props.values}
                 testId={`genus-ref-coord-${i}-${AXES[k]}`}
                 ariaLabel={`${label} ${AXES[k].toUpperCase()}`}
-                onCommit={(f) => setCoord(i, k, f)}
+                onCommit={(f) => f !== undefined && setCoord(i, k, f)}
               />
             </span>
           ))}

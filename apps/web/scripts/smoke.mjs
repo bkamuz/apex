@@ -1095,7 +1095,7 @@ console.log('\n[13] genus editor mode');
   );
   check('structure lists inherited window items', (await page.getByTestId('genus-tree-opening').count()) === 1);
   check('build time in the status bar', /\d/.test((await page.getByTestId('genus-build-time').textContent()) ?? ''));
-  check('authoring tools disabled for now', await page.getByTestId('genus-tool-extrude').isDisabled());
+  check('cut / nested tools still disabled', await page.getByTestId('genus-tool-cut').isDisabled());
   await page.keyboard.press('Delete');
   await page.keyboard.press('Control+z');
   await page.getByTestId('genus-exit').click();
@@ -1267,6 +1267,131 @@ console.log('\n[15] genus references and dimensions');
   check(
     'refs and locked labelled dim saved',
     saved.refs?.length === 2 && saved.refs[1][1] === '-0.6 + width' && saved.dims?.[0]?.param === 'width' && saved.dims[0].locked === true,
+    JSON.stringify(saved),
+  );
+  await page.getByTestId('genus-exit').click();
+  await page.waitForTimeout(300);
+}
+
+console.log('\n[16] genus sketches and solids');
+{
+  const at = (view, u, v) =>
+    page.evaluate(([view, u, v]) => {
+      const m = document.querySelector(`[data-testid="genus-view-${view}"] svg`).getScreenCTM();
+      const p = new DOMPoint(u, -v).matrixTransform(m);
+      return { x: p.x, y: p.y };
+    }, [view, u, v]);
+  const clickAt = async (view, u, v) => {
+    const p = await at(view, u, v);
+    await page.mouse.click(p.x, p.y);
+    await page.waitForTimeout(350);
+  };
+  const clickRef = async (id) => {
+    const bb = await page.locator(`[data-testid="genus-ref-front-${id}"] .genus-hit`).first().boundingBox();
+    await page.mouse.click(bb.x + bb.width / 2, bb.y + bb.height * 0.3);
+    await page.waitForTimeout(400);
+  };
+  const bbox = (view, path) =>
+    page.evaluate(([view, path]) => {
+      const g = document.querySelector(`[data-testid="genus-view-${view}"] [data-path="${path}"]`);
+      if (!g) return null;
+      const b = g.getBBox();
+      return [b.x, b.x + b.width, -b.y - b.height, -b.y].map((x) => Math.round(x * 1000));
+    }, [view, path]);
+  const ok = (id) => page.getByTestId('genus-sketch-status').getAttribute('data-ok').then((v) => v === 'true', () => false);
+  await page.getByTestId('browser-tab-genera').click();
+  await page.locator('[data-kind="component_def"][data-id="apex.window"]').click();
+  await page.getByTestId('browser-genus-derive').click();
+  await page.waitForSelector('[data-testid="genus-params-dock"]');
+  await page.waitForTimeout(800);
+  const genusId = (await page.getByTestId('genus-status').textContent()).match(/user\.window[\w.]*/)?.[0];
+  const sp = await page.getByTestId('genus-species').inputValue();
+  check('shape tools enabled', !(await page.getByTestId('genus-tool-extrude').isDisabled()) && !(await page.getByTestId('genus-tool-box').isDisabled()));
+  await page.getByTestId('genus-tool-plane').click();
+  for (const x of [-0.6, 0.6]) await clickAt('front', x, 1.2);
+  await page.getByTestId('genus-tool-dim').click();
+  await clickRef('plane_1');
+  await clickRef('plane_2');
+  await page.keyboard.press('Escape');
+  await page.getByTestId('genus-dim-param').selectOption('width');
+  await page.keyboard.press('Escape');
+  await page.getByTestId('genus-tool-line').click();
+  await clickAt('front', 1.2, 0.2);
+  await clickAt('front', 1.2, 1.2);
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await page.getByTestId('genus-layout-front').click();
+  await page.waitForTimeout(400);
+  // An open profile is refused with a message; closing it on the first vertex fixes it.
+  await page.getByTestId('genus-tool-extrude').click();
+  await clickAt('front', -0.3, 2.4);
+  await clickAt('front', 0.3, 2.4);
+  await clickAt('front', 0.3, 2.6);
+  await page.keyboard.press('Enter');
+  check('open profile refused', !(await ok()) && /не замкнут|is open/.test(await page.getByTestId('genus-sketch-status').innerText()));
+  await page.keyboard.press('Escape');
+  if (await page.getByTestId('genus-sketch-form').count()) await page.keyboard.press('Escape');
+  check('Esc leaves the sketch', (await page.getByTestId('genus-sketch-form').count()) === 0);
+  // A sill board locked to the two planes and the sill.
+  await page.getByTestId('genus-tool-extrude').click();
+  await page.getByTestId('genus-sketch-tool-rect').click();
+  await clickAt('front', -0.598, 0.75);
+  await clickAt('front', 0.603, 0.898);
+  const vtx = (await page.getByTestId('genus-sketch-vertices').innerText().catch(() => '')).replace(/\s+/g, ' ');
+  check('rectangle closed and locked', (await ok()) && vtx.split('🔒').length === 3, `${await page.getByTestId('genus-sketch-status').innerText().catch(() => '-')} | ${vtx}`);
+  await page.getByTestId('genus-sketch-finish').click();
+  await page.getByTestId('genus-layout-all').click();
+  await page.waitForTimeout(1200);
+  check('extrude built', JSON.stringify(await bbox('front', 'extrude_1')) === '[-600,600,750,900]', JSON.stringify(await bbox('front', 'extrude_1')));
+  await page.getByTestId('genus-solid-material').selectOption('stone');
+  await page.getByTestId(`genus-cell-width-${sp}`).fill('1600');
+  await page.getByTestId(`genus-cell-width-${sp}`).press('Enter');
+  const flexed = await page
+    .waitForFunction(() => {
+      const g = document.querySelector('[data-testid="genus-view-front"] [data-path="extrude_1"]');
+      return g && Math.round((g.getBBox().x + g.getBBox().width) * 1000) === 1000;
+    }, null, { timeout: 20000 })
+    .then(() => true, () => false);
+  check('locked solid follows the width dim', flexed, JSON.stringify(await bbox('front', 'extrude_1')));
+  // Revolve about line_1 with an angle; visible only when wide.
+  await page.getByTestId('genus-layout-front').click();
+  await page.waitForTimeout(400);
+  await page.getByTestId('genus-tool-revolve').click();
+  await page.getByTestId('genus-sketch-tool-rect').click();
+  await clickAt('front', 1.3, 0.4);
+  await clickAt('front', 1.4, 0.7);
+  await page.getByTestId('genus-sketch-finish').click();
+  await page.waitForTimeout(600);
+  check('revolve uses the axis line', (await page.getByTestId('genus-solid-axis').inputValue()) === 'line_1');
+  await page.getByTestId('genus-solid-angle').fill('180');
+  await page.getByTestId('genus-solid-angle').press('Enter');
+  await page.getByTestId('genus-solid-visible').fill('width > 1.5');
+  await page.getByTestId('genus-solid-visible').press('Enter');
+  // A box, turned into a void.
+  await page.getByTestId('genus-tool-box').click();
+  await clickAt('front', -0.1, 0.7);
+  await clickAt('front', 0.1, 0.86);
+  await page.waitForTimeout(500);
+  await page.getByTestId('genus-solid-role-void').click();
+  await page.getByTestId('genus-layout-all').click();
+  await page.waitForTimeout(1200);
+  check('tree lists the solids', /extrude_1[\s\S]*revolve_1[\s\S]*box_1/.test(await page.getByTestId('genus-structure').innerText()));
+  await page.getByTestId(`genus-cell-width-${sp}`).fill('1200');
+  await page.getByTestId(`genus-cell-width-${sp}`).press('Enter');
+  const hidden = await page
+    .waitForFunction(() => !document.querySelector('[data-testid="genus-view-front"] [data-path="revolve_1"]'), null, { timeout: 20000 })
+    .then(() => true, () => false);
+  check('visibility condition hides the revolve', hidden);
+  await page.getByTestId('genus-save').click();
+  await page.waitForTimeout(400);
+  const saved = await page.evaluate(async (id) => {
+    const m = await import('/src/wasm/apex.ts');
+    return m.apexRunQuery({ op: 'get_genus', id }).authored.body;
+  }, genusId);
+  const [ex, rv, bx] = saved ?? [];
+  check(
+    'sketch solids saved',
+    ex?.sketch?.[0]?.b?.[0] === 'ref.plane_2' && ex.material === 'stone' && rv?.axis === 'line_1' && rv.angle === 180 && rv.visible === 'width > 1.5' && bx?.item === 'cut' && bx.targets?.self === true,
     JSON.stringify(saved),
   );
   await page.getByTestId('genus-exit').click();
