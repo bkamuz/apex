@@ -5,6 +5,7 @@
  */
 import { useI18n } from '../i18n';
 import { componentDisplayName } from '../i18n/display';
+import { localizedParamLabel } from '../ui/paramLabels';
 import type { ComponentDto, GenusFormula, GenusVec3 } from '../types';
 import { CoordInput, field } from './GenusRefPanel';
 import { bindableParams, bindingSource, setBinding, type NestedItem } from './nested';
@@ -145,7 +146,7 @@ export function GenusNestedForm(props: {
               return (
                 <tr key={p.id} data-param={p.id}>
                   <th scope="row" title={p.id}>
-                    {p.label || p.id}
+                    {p.label ? localizedParamLabel(p, t) : p.id}
                   </th>
                   <td>
                     <CoordInput
@@ -156,7 +157,7 @@ export function GenusNestedForm(props: {
                       allowEmpty
                       placeholder={placeholder}
                       testId={`genus-nested-bind-${p.id}`}
-                      ariaLabel={p.label || p.id}
+                      ariaLabel={p.label ? localizedParamLabel(p, t) : p.id}
                       onCommit={(f: GenusFormula | undefined) => props.onChange(setBinding(item, p.id, f))}
                     />
                   </td>
