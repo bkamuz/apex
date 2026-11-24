@@ -352,6 +352,27 @@ export function setVoid(b: ShapeItem, makeVoid: boolean): ShapeItem {
   return { ...rest, item: 'solid', ...(material ? { material } : {}) } as unknown as ShapeItem;
 }
 
+/** Through-depth of a new cut (either side of the host's centre plane). */
+export const CUT_DEPTH: [GenusFormula, GenusFormula] = [-0.6, 0.6];
+
+/**
+ * A new shape as a cut into the host (the Cut tool): the extent into the
+ * screen goes through the wall; targets can be changed in the form.
+ */
+export function asCut(b: ShapeItem, view: OrthoView): ShapeItem {
+  const cut = { ...setVoid(b, true), targets: { host: true } } as ShapeItem;
+  const k = axisIndex(viewNormal(view));
+  if (cut.shape === 'prism') return { ...cut, depth: [...CUT_DEPTH] } as ShapeItem;
+  if (cut.shape === 'box') {
+    const min = [...cut.min] as GenusVec3;
+    const max = [...cut.max] as GenusVec3;
+    min[k] = CUT_DEPTH[0];
+    max[k] = CUT_DEPTH[1];
+    return { ...cut, min, max } as ShapeItem;
+  }
+  return cut;
+}
+
 /** The sketch of an authored shape, if it has one. */
 export function sketchOf(b: GenusBodyItemDto): GenusSketchItemDto[] | null {
   if (!isShapeItem(b)) return null;
