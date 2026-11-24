@@ -1398,6 +1398,103 @@ console.log('\n[16] genus sketches and solids');
   await page.waitForTimeout(300);
 }
 
+console.log('\n[17] genus cuts, nested genera and mirror');
+{
+  const at = (view, u, v) =>
+    page.evaluate(([view, u, v]) => {
+      const m = document.querySelector(`[data-testid="genus-view-${view}"] svg`).getScreenCTM();
+      const p = new DOMPoint(u, -v).matrixTransform(m);
+      return { x: p.x, y: p.y };
+    }, [view, u, v]);
+  const clickAt = async (view, u, v) => {
+    const p = await at(view, u, v);
+    await page.mouse.click(p.x, p.y);
+  };
+  const fill = async (id, v) => {
+    await page.getByTestId(id).fill(String(v));
+    await page.getByTestId(id).press('Enter');
+  };
+  const status = () => page.getByTestId('genus-build-status').innerText().catch(() => '');
+  const waitStatus = (re) =>
+    page
+      .waitForFunction((src) => new RegExp(src).test(document.querySelector('[data-testid="genus-build-status"]')?.textContent ?? ''), re.source, { timeout: 20000 })
+      .then(() => true, () => false);
+  await page.getByTestId('browser-tab-genera').click();
+  await page.locator('[data-kind="component_def"][data-id="apex.door"]').click();
+  await page.getByTestId('browser-genus-derive').click();
+  await page.waitForSelector('[data-testid="genus-params-dock"]');
+  const genusId = (await page.getByTestId('genus-status').textContent()).match(/user\.door[\w.]*/)?.[0];
+  // Cut tool: a vent slot above the door, cut into the host and neighbours.
+  await page.getByTestId('genus-layout-front').click();
+  await page.waitForSelector('[data-testid="genus-views"][data-layout="front"]');
+  await page.getByTestId('genus-tool-cut').click();
+  await page.getByTestId('genus-sketch-tool-rect').click();
+  await clickAt('front', -0.2, 2.25);
+  await clickAt('front', 0.2, 2.45);
+  await page.getByTestId('genus-sketch-finish').click();
+  await page.waitForSelector('[data-testid="genus-cut-targets"]');
+  check('cut tool targets the host', await page.getByTestId('genus-cut-host').isChecked());
+  await page.getByTestId('genus-cut-neighbours').check();
+  await page.waitForSelector('[data-testid="genus-cut-cats"]');
+  await page.getByTestId('genus-cut-cat-slab').check();
+  check('cut counted', await waitStatus(/вырезов: 2|cuts: 2/), await status());
+  // Centre plane, then replace the inherited leaf by a nested half-width leaf.
+  await page.getByTestId('genus-tool-plane').click();
+  await clickAt('front', 0, 1.0);
+  await page.waitForSelector('[data-testid="genus-ref-front-plane_1"]');
+  await page.keyboard.press('Escape');
+  await page.keyboard.press('Escape');
+  await page.getByTestId('genus-tree-infill').click();
+  await page.getByTestId('genus-tab-modify').click();
+  await page.getByTestId('genus-tool-delete').click();
+  await page.getByTestId('genus-tab-create').click();
+  await page.getByTestId('genus-tool-nest').click();
+  await page.getByTestId('genus-nest-pick').selectOption('apex.opening.infill');
+  await clickAt('front', -0.3, 0.3);
+  await page.waitForSelector('[data-testid="genus-nested-form"]');
+  await fill('genus-nested-off-x', '-width / 4');
+  await fill('genus-nested-off-y', 0);
+  await fill('genus-nested-bind-width', 'width / 2');
+  check('nested binding table', (await page.locator('[data-testid="genus-nested-bindings"] [data-param]').count()) > 1);
+  // Mirror it about the centre plane.
+  await page.getByTestId('genus-tab-modify').click();
+  await page.getByTestId('genus-tool-mirror').click();
+  const bb = await page.locator('[data-testid="genus-ref-front-plane_1"] .genus-hit').first().boundingBox();
+  await page.mouse.click(bb.x + bb.width / 2, bb.y + bb.height * 0.3);
+  const mirrored = await page
+    .waitForSelector('[data-testid="genus-tree-nested_1_m_1"]', { timeout: 10000 })
+    .then(() => true, () => false);
+  check('mirror makes a reflected copy', mirrored && (await page.getByTestId('genus-nested-mirror').isChecked()));
+  await page.getByTestId('genus-tab-create').click();
+  check('double door builds', await waitStatus(/(Тел|Solids): 3/), await status());
+  await page.getByTestId('genus-save').click();
+  await page.waitForFunction(() => document.querySelector('[data-testid="genus-editor"]')?.getAttribute('data-dirty') === 'false');
+  const saved = await page.evaluate(async (id) => {
+    const m = await import('/src/wasm/apex.ts');
+    return m.apexRunQuery({ op: 'get_genus', id }).authored;
+  }, genusId);
+  const body = saved?.body ?? [];
+  const cut = body.find((b) => b.item === 'cut');
+  const nested = body.filter((b) => b.item === 'nested');
+  check(
+    'cuts, nested and mirror saved',
+    cut?.targets?.host === true && JSON.stringify(cut.targets.neighbours) === '["slab"]' &&
+      nested.length === 2 && nested[0].params?.width === 'width / 2' && nested[1].mirror === true &&
+      (saved.remove ?? []).includes('infill'),
+    JSON.stringify(saved),
+  );
+  // Open nested: the child genus opens in the editor (a copy for built-ins).
+  await page.getByTestId('genus-tree-nested_1').click();
+  await page.getByTestId('genus-nested-open').click();
+  const opened = await page
+    .waitForFunction(() => /opening\.infill|Заполнение|infill/i.test(document.querySelector('[data-testid="genus-status"]')?.textContent ?? ''), null, { timeout: 15000 })
+    .then(() => true, () => false);
+  check('open nested genus', opened, await page.getByTestId('genus-status').innerText().catch(() => '-'));
+  await page.getByTestId('genus-exit').click();
+  if (await page.getByTestId('genus-exit-dialog').count()) await page.getByTestId('genus-exit-discard').click();
+  await page.waitForFunction(() => !document.querySelector('[data-testid="genus-editor"]'));
+}
+
 // Mobile: the ribbon tool strip scrolls sideways by touch.
 {
   const mctx = await browser.newContext({ ...devices['iPhone 13'], viewport: { width: 390, height: 780 } });
