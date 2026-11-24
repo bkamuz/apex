@@ -1095,7 +1095,7 @@ console.log('\n[13] genus editor mode');
   );
   check('structure lists inherited window items', (await page.getByTestId('genus-tree-opening').count()) === 1);
   check('build time in the status bar', /\d/.test((await page.getByTestId('genus-build-time').textContent()) ?? ''));
-  check('cut / nested tools still disabled', await page.getByTestId('genus-tool-cut').isDisabled());
+  check('cut / nested tools enabled', !(await page.getByTestId('genus-tool-cut').isDisabled()) && !(await page.getByTestId('genus-tool-nest').isDisabled()));
   await page.keyboard.press('Delete');
   await page.keyboard.press('Control+z');
   await page.getByTestId('genus-exit').click();

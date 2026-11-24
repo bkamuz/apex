@@ -3,6 +3,7 @@
  * it sits (ref, offset, rotation, mirror), and the binding table that drives
  * the child's params from formulas over this genus's params.
  */
+import { Fragment } from 'react';
 import { useI18n } from '../i18n';
 import { componentDisplayName } from '../i18n/display';
 import { localizedParamLabel } from '../ui/paramLabels';
@@ -99,24 +100,26 @@ export function GenusNestedForm(props: {
             </select>
           </span>
         </label>
-        {AXES.map((a, i) =>
-          field(
-            `${t('genusEditor.nested.offset')} ${a.toUpperCase()}`,
-            <CoordInput
-              value={off[i]}
-              known={props.known}
-              values={props.values}
-              testId={`genus-nested-off-${a}`}
-              ariaLabel={`${t('genusEditor.nested.offset')} ${a}`}
-              onCommit={(f) => {
-                if (f === undefined) return;
-                const next = [...off] as GenusVec3;
-                next[i] = f;
-                set({ offset: next.every((v) => v === 0) ? undefined : next });
-              }}
-            />,
-          ),
-        )}
+        {AXES.map((a, i) => (
+          <Fragment key={a}>
+            {field(
+              `${t('genusEditor.nested.offset')} ${a.toUpperCase()}`,
+              <CoordInput
+                value={off[i]}
+                known={props.known}
+                values={props.values}
+                testId={`genus-nested-off-${a}`}
+                ariaLabel={`${t('genusEditor.nested.offset')} ${a}`}
+                onCommit={(f) => {
+                  if (f === undefined) return;
+                  const next = [...off] as GenusVec3;
+                  next[i] = f;
+                  set({ offset: next.every((v) => v === 0) ? undefined : next });
+                }}
+              />,
+            )}
+          </Fragment>
+        ))}
         {field(
           t('genusEditor.nested.rotation'),
           <CoordInput
