@@ -1,5 +1,5 @@
 import { useI18n } from '../i18n';
-import type { GenusAxis, GenusFormula, GenusSketchItemDto, GenusVec2, GenusVec3 } from '../types';
+import type { GenusAxis, GenusCutTargetsDto, GenusFormula, GenusSketchItemDto, GenusVec2, GenusVec3 } from '../types';
 import { CoordInput, field } from './GenusRefPanel';
 import { AXES, axisIndex, formulaString, type EvalRef } from './refs';
 import { axisRefs, pathRefs, planeAxes, REF_PREFIX, sketchOf, solidKind, type ShapeItem, type SketchIssue, type SketchTool, type SolidKind } from './sketch';
@@ -64,6 +64,61 @@ function RefBound(props: {
 const KIND_KEY: Record<SolidKind, string> = { extrude: 'extrude', revolve: 'revolve', sweep: 'sweep', box: 'box' };
 
 /** Properties of an authored solid / void: kind, material, visibility, shape fields, sketch, delete. */
+/**
+ * What a cut cuts: the host it is inserted into, intersecting neighbours
+ * (any, or chosen categories) and this genus's own solids.
+ */
+export function CutTargetsField(props: {
+  targets: GenusCutTargetsDto | undefined;
+  categories: { id: string; label: string }[];
+  onChange: (targets: GenusCutTargetsDto) => void;
+}) {
+  const { t } = useI18n();
+  const tg = props.targets ?? {};
+  const set = (patch: Partial<GenusCutTargetsDto>) => {
+    const next: GenusCutTargetsDto = { ...tg, ...patch };
+    if (!next.host) delete next.host;
+    if (!next.self) delete next.self;
+    if (!next.neighbours) delete next.neighbours;
+    props.onChange(next);
+  };
+  const nb = tg.neighbours;
+  const toggleCat = (id: string, on: boolean) => {
+    const cur = nb ?? [];
+    set({ neighbours: on ? [...cur.filter((c) => c !== id), id] : cur.filter((c) => c !== id) });
+  };
+  const none = !tg.host && !tg.self && !nb;
+  return (
+    <div className="genus-cut-targets" data-testid="genus-cut-targets">
+      <div className="genus-sketch-sub">{t('genusEditor.cut.targets')}</div>
+      <label className="genus-check">
+        <input type="checkbox" checked={Boolean(tg.host)} data-testid="genus-cut-host" onChange={(e) => set({ host: e.target.checked })} />
+        <span>{t('genusEditor.cut.host')}</span>
+      </label>
+      <label className="genus-check">
+        <input type="checkbox" checked={Boolean(nb)} data-testid="genus-cut-neighbours" onChange={(e) => set({ neighbours: e.target.checked ? [] : undefined })} />
+        <span>{t('genusEditor.cut.neighbours')}</span>
+      </label>
+      {nb ? (
+        <div className="genus-cut-cats" data-testid="genus-cut-cats">
+          <span className="genus-field-hint">{nb.length ? t('genusEditor.cut.onlyCats') : t('genusEditor.cut.anyCat')}</span>
+          {props.categories.map((c) => (
+            <label key={c.id} className="genus-check is-small">
+              <input type="checkbox" checked={nb.includes(c.id)} data-testid={`genus-cut-cat-${c.id}`} onChange={(e) => toggleCat(c.id, e.target.checked)} />
+              <span>{c.label}</span>
+            </label>
+          ))}
+        </div>
+      ) : null}
+      <label className="genus-check">
+        <input type="checkbox" checked={Boolean(tg.self)} data-testid="genus-cut-self" onChange={(e) => set({ self: e.target.checked })} />
+        <span>{t('genusEditor.cut.self')}</span>
+      </label>
+      {none ? <p className="genus-props-note is-warn" data-testid="genus-cut-none">{t('genusEditor.cut.none')}</p> : null}
+    </div>
+  );
+}
+
 export function GenusSolidForm(props: {
   item: ShapeItem;
   refs: EvalRef[];
@@ -72,6 +127,8 @@ export function GenusSolidForm(props: {
   textParams: { id: string; label: string }[];
   numberParams: { id: string; label: string }[];
   built: number;
+  /** Neighbour categories offered for cuts. */
+  categories: { id: string; label: string }[];
   onChange: (item: ShapeItem) => void;
   onVoid: (makeVoid: boolean) => void;
   onEditSketch: () => void;
@@ -242,7 +299,7 @@ export function GenusSolidForm(props: {
           </button>
         </span>
       </div>
-      {isVoid ? <p className="genus-props-note">{t('genusEditor.solid.voidNote')}</p> : null}
+      {item.item === 'cut' ? <CutTargetsField targets={item.targets} categories={props.categories} onChange={(targets) => set({ targets })} /> : null}
       {!isVoid ? (
         <label className="genus-field">
           <span className="genus-field-k">{t('genusEditor.prop.material')}</span>

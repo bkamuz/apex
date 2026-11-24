@@ -15,10 +15,14 @@ import { GenusParamsDock } from './GenusParamsDock';
 import { GenusDimForm, GenusRefForm } from './GenusRefPanel';
 import { useRefTools } from './useRefTools';
 import { useSketchTools } from './useSketchTools';
+import { useBodyTools } from './useBodyTools';
+import { GenusNestedForm } from './GenusNestedPanel';
+import { isNested, nestableGenera, type NestedItem } from './nested';
 import { GenusSketchForm, GenusSolidForm } from './GenusSolidPanel';
 import { isShapeItem, refNames, refValues, solidKind, viewNormal, type ShapeItem, type SolidKind } from './sketch';
 import { bindDim, dimAxis, dimFollows, evalRef, measure, putDim, putRef, renameRef, takenIds } from './refs';
 import { localizedParamLabel } from '../ui/paramLabels';
+import { categoryDisplayLabel } from '../ui/categoryLabels';
 import {
   addParam,
   addSpecies,
@@ -83,6 +87,8 @@ export interface GenusEditorModeProps {
   onExit: () => void;
   /** After define_genus ran: refresh the project's catalog / scene. */
   onSaved: (genusId: string) => void;
+  /** Switch the editor to another genus (open a nested one). */
+  onOpenGenus?: (target: GenusEditorTarget) => void;
 }
 
 function getGenus(id: string): GetGenusDto | null {
@@ -213,6 +219,8 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
   const [selected, setSelected] = useState<string | null>(null);
   const [fitEpoch, setFitEpoch] = useState(0);
   const [confirmExit, setConfirmExit] = useState(false);
+  /** What "leave" does after the exit dialog (exit, or open another genus). */
+  const leaveTo = useRef<() => void>(() => props.onExit());
   const [saveError, setSaveError] = useState<string | null>(null);
   const [dockOpen, setDockOpen] = useState(true);
   const [selectedParam, setSelectedParam] = useState<string | null>(null);
@@ -331,9 +339,18 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
     setSelected,
     enabled: !props.isMobile,
   });
-  const startSketch = (kind: SolidKind) => {
+  const bodyTools = useBodyTools({
+    draft,
+    parent: session?.parent ?? null,
+    refs: evalRefs,
+    patch: (fn) => patchSession((s) => ({ draft: fn(s.draft) })),
+    setSelected,
+    enabled: !props.isMobile,
+  });
+  const startSketch = (kind: SolidKind, cut = false) => {
     if (refTools.tool) refTools.setTool(null);
-    sketch.start(kind);
+    bodyTools.cancel();
+    sketch.start(kind, cut);
   };
 
   // —— Build ————————————————————————————————————————————————
@@ -442,6 +459,11 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
   // —— Selected solid (own shape items the editor can author) ——————————
   const ownShape: ShapeItem | null =
     !props.isMobile && selected && draft ? ((draft.body.find((b) => b.id === selected && isShapeItem(b) && solidKind(b)) as ShapeItem | undefined) ?? null) : null;
+  const ownNested: NestedItem | null =
+    !props.isMobile && selected && draft ? ((draft.body.find((b) => b.id === selected && isNested(b)) as NestedItem | undefined) ?? null) : null;
+  /** The own item the Mirror / Delete tools act on. */
+  const ownItem = ownShape ?? ownNested;
+  const nestable = useMemo(() => (draft ? nestableGenera(components, draft.id) : []), [components, draft?.id]);
   /** Drop a body item: authored ones are deleted, inherited ones listed in `remove`. */
   const deleteBody = (id: string) => {
     const inParent = (session?.parent?.body ?? []).some((b) => b.id === id);
@@ -477,9 +499,17 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
       return false;
     }
   };
-  const requestExit = () => {
+  const requestLeave = (leave: () => void) => {
+    leaveTo.current = leave;
     if (dirty) setConfirmExit(true);
-    else props.onExit();
+    else leave();
+  };
+  const requestExit = () => requestLeave(() => props.onExit());
+  /** Open a nested genus: user genera for editing, built-in ones as a copy. */
+  const openNested = (genus: string, builtIn: boolean) => {
+    if (!props.onOpenGenus) return;
+    const go = props.onOpenGenus;
+    requestLeave(() => go(builtIn ? { kind: 'derive', baseId: genus } : { kind: 'edit', genusId: genus }));
   };
 
   useEffect(() => {
@@ -498,8 +528,8 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
         }
         return;
       }
-      if (!typing && !confirmExit && (e.key === 'Delete' || e.key === 'Backspace') && ownShape) {
-        deleteBody(ownShape.id);
+      if (!typing && !confirmExit && (e.key === 'Delete' || e.key === 'Backspace') && ownItem) {
+        deleteBody(ownItem.id);
         e.preventDefault();
         return;
       }
@@ -515,7 +545,9 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
       }
       if (e.key === 'Escape') {
         if (confirmExit) setConfirmExit(false);
-        else if (refTools.cancel()) {
+        else if (bodyTools.cancel()) {
+          /* nest / mirror cancelled */
+        } else if (refTools.cancel()) {
           /* tool / pick cancelled */
         }
         else if (mobileTree) setMobileTree(false);
@@ -527,7 +559,7 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [confirmExit, mobileTree, mobileParams, selectedParam, refTools, sketch]);
+  }, [confirmExit, mobileTree, mobileParams, selectedParam, refTools, sketch, bodyTools, ownItem]);
 
   if (!session || !draft || !tree) {
     return createPortal(
@@ -543,26 +575,19 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
     );
   }
 
-  const soon = t('genusEditor.soon');
   const selectedRow = selectedParam ? (rows.find((r) => r.id === selectedParam) ?? null) : null;
   type Tool = { id: string; icon: string; label: string; title?: string; on?: boolean; disabled?: boolean; run?: () => void };
   type Group = { id: string; label: string; tools: Tool[] };
-  const disabledTool = (id: string, icon: string): Tool => ({
-    id,
-    icon,
-    label: t(`genusEditor.tool.${id}`),
-    title: `${t(`genusEditor.tool.${id}.title`)} — ${soon}`,
-    disabled: true,
-  });
   const selectTool: Tool = {
     id: 'select',
     icon: 'select',
     label: t('genusEditor.tool.select'),
     title: t('genusEditor.tool.select.title'),
-    on: !refTools.tool && !sketch.active,
+    on: !refTools.tool && !sketch.active && !bodyTools.mode,
     run: () => {
       if (refTools.tool) refTools.setTool(refTools.tool);
       if (sketch.active) sketch.close();
+      bodyTools.cancel();
     },
   };
   const placeTool = (id: 'plane' | 'line' | 'point' | 'polyline' | 'dim' | 'move', icon: string, disabled = false): Tool => ({
@@ -574,6 +599,7 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
     disabled,
     run: () => {
       if (sketch.active) sketch.close();
+      bodyTools.cancel();
       refTools.setTool(id);
     },
   });
@@ -583,9 +609,43 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
     icon,
     label: t(`genusEditor.tool.${id}`),
     title: t(`genusEditor.tool.${id}.title`),
-    on: sketch.session?.kind === id,
+    on: sketch.session?.kind === id && !sketch.session.cut,
     run: () => startSketch(id),
   });
+  const cutTool: Tool = {
+    id: 'cut',
+    icon: 'cut',
+    label: t('genusEditor.tool.cut'),
+    title: t('genusEditor.tool.cut.title'),
+    on: Boolean(sketch.session?.cut),
+    run: () => startSketch('extrude', true),
+  };
+  const nestTool: Tool = {
+    id: 'nest',
+    icon: 'nest',
+    label: t('genusEditor.tool.nest'),
+    title: t('genusEditor.tool.nest.title'),
+    on: bodyTools.mode?.kind === 'nest',
+    disabled: !nestable.length,
+    run: () => {
+      if (sketch.active) sketch.close();
+      if (refTools.tool) refTools.setTool(null);
+      bodyTools.startNest(nestable[0]?.id ?? '');
+    },
+  };
+  const mirrorTool: Tool = {
+    id: 'mirror',
+    icon: 'mirror',
+    label: t('genusEditor.tool.mirror'),
+    title: t('genusEditor.tool.mirror.title'),
+    on: bodyTools.mode?.kind === 'mirror',
+    disabled: !ownItem,
+    run: () => {
+      if (sketch.active) sketch.close();
+      if (refTools.tool) refTools.setTool(null);
+      if (ownItem) bodyTools.startMirror(ownItem.id);
+    },
+  };
   const focusField = (testId: string) =>
     window.setTimeout(() => (document.querySelector(`[data-testid="${testId}"]`) as HTMLElement | null)?.focus(), 0);
   const actionTool = (id: string, icon: string, enabled: boolean, run: () => void): Tool => ({
@@ -617,8 +677,8 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
         label: t('genusEditor.group.body'),
         tools: [solidTool('extrude', 'extrude'), solidTool('sweep', 'sweep'), solidTool('revolve', 'revolve'), solidTool('box', 'box')],
       },
-      { id: 'cuts', label: t('genusEditor.group.cuts'), tools: [disabledTool('cut', 'cut')] },
-      { id: 'nested', label: t('genusEditor.group.nested'), tools: [disabledTool('nest', 'nest')] },
+      { id: 'cuts', label: t('genusEditor.group.cuts'), tools: [cutTool] },
+      { id: 'nested', label: t('genusEditor.group.nested'), tools: [nestTool] },
       {
         id: 'constraints',
         label: t('genusEditor.group.constraints'),
@@ -638,9 +698,9 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
         tools: [
           placeTool('move', 'move', !hasRefs),
           actionTool('copy', 'copy', Boolean(refTools.selectedRef), refTools.copy),
-          disabledTool('mirror', 'mirror'),
-          actionTool('delete', 'delete', Boolean(refTools.selectedRef || refTools.selectedDim || ownShape), () =>
-            ownShape ? deleteBody(ownShape.id) : refTools.remove(),
+          mirrorTool,
+          actionTool('delete', 'delete', Boolean(refTools.selectedRef || refTools.selectedDim || ownItem), () =>
+            ownItem ? deleteBody(ownItem.id) : refTools.remove(),
           ),
         ],
       },
@@ -759,7 +819,7 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
             levelLabel={t('genusEditor.level')}
             fitKey={fitKey}
             paramLabel={paramLabel}
-            interact={sketch.interact(view) ?? refTools.interact(view)}
+            interact={sketch.interact(view) ?? bodyTools.interact(view) ?? refTools.interact(view)}
           />
         ) : (
           <div className="genus-view genus-view--empty">{buildError ?? t('genusEditor.building')}</div>
@@ -1026,6 +1086,28 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
       onCancel={() => sketch.close()}
     />
   ) : null;
+  const cutCategories = [...new Set(components.filter((c) => c.genus || c.source === 'built_in').map((c) => c.category))]
+    .filter((c) => c && c !== draft.id)
+    .sort()
+    .map((id) => ({ id, label: categoryDisplayLabel(id, components) }));
+  const nestedForm = ownNested ? (
+    <GenusNestedForm
+      key={ownNested.id}
+      item={ownNested}
+      nestable={nestable}
+      components={components}
+      species={listSpecies(ownNested.genus).map((r) => ({ id: r.id, name: speciesDisplayName({ id: r.id, name: r.name, genus: ownNested.genus }) }))}
+      refs={evalRefs}
+      known={shapeKnown}
+      values={shapeValues}
+      ownParams={rows.map((r) => r.id)}
+      built={solidsOf(ownNested.id).length}
+      onChange={(item) => editDraft((d) => ({ ...d, body: d.body.map((b) => (b.id === item.id ? item : b)) }))}
+      onOpen={openNested}
+      onDelete={() => deleteBody(ownNested.id)}
+      onClose={() => setSelected(null)}
+    />
+  ) : null;
   const solidForm = ownShape ? (
     <GenusSolidForm
       key={ownShape.id}
@@ -1036,6 +1118,7 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
       textParams={textParams}
       numberParams={numberParams}
       built={solidsOf(ownShape.id).length}
+      categories={cutCategories}
       onChange={(item) => editDraft((d) => ({ ...d, body: d.body.map((b) => (b.id === item.id ? item : b)) }))}
       onVoid={(v) => sketch.toggleVoid(ownShape.id, v)}
       onEditSketch={() => sketch.edit(ownShape)}
@@ -1044,9 +1127,32 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
     />
   ) : null;
 
-  const toolHint = ss ? (
-    <div className={`genus-tool-hint${sketch.note ? ' is-warn' : ''}`} data-testid="genus-tool-hint" data-tool={`sketch-${ss.kind}`}>
-      <b>{t(`genusEditor.tool.${ss.kind}`)}</b>
+  const bm = bodyTools.mode;
+  const bodyHint = bm ? (
+    <div className={`genus-tool-hint${bodyTools.note ? ' is-warn' : ''}`} data-testid="genus-tool-hint" data-tool={bm.kind}>
+      <b>{t(`genusEditor.tool.${bm.kind === 'nest' ? 'nest' : 'mirror'}`)}</b>
+      {bm.kind === 'nest' ? (
+        <select value={bm.genus} data-testid="genus-nest-pick" aria-label={t('genusEditor.prop.genus')} onChange={(e) => bodyTools.setNestGenus(e.target.value)}>
+          {nestable.map((c) => (
+            <option key={c.id} value={c.id}>
+              {componentDisplayName(c.id, c.display_name)}
+            </option>
+          ))}
+        </select>
+      ) : null}
+      <span>
+        {bodyTools.note ? `⚠ ${t(`genusEditor.mirror.no.${bodyTools.note}`)}` : t(bm.kind === 'nest' ? 'genusEditor.nested.hint' : 'genusEditor.mirror.hint', { id: bm.kind === 'mirror' ? bm.item : '' })}
+      </span>
+      <span className="genus-status-spacer" />
+      <button type="button" className="genus-btn is-small" onClick={() => bodyTools.cancel()}>
+        {t('genusEditor.sketch.cancel')}
+      </button>
+    </div>
+  ) : null;
+
+  const toolHint = bodyHint ?? (ss ? (
+    <div className={`genus-tool-hint${sketch.note ? ' is-warn' : ''}`} data-testid="genus-tool-hint" data-tool={ss.cut ? 'sketch-cut' : `sketch-${ss.kind}`}>
+      <b>{t(ss.cut ? 'genusEditor.tool.cut' : `genusEditor.tool.${ss.kind}`)}</b>
       <span>
         {sketch.note
           ? `⚠ ${t(`genusEditor.sketch.note.${sketch.note}`)}`
@@ -1103,7 +1209,7 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
     <div className="genus-tool-hint is-idle" data-testid="genus-tool-hint-idle">
       <span>{t('genusEditor.hint.select')}</span>
     </div>
-  );
+  ));
 
   const nextTheme = THEME_PREFERENCES[(THEME_PREFERENCES.indexOf(preference) + 1) % THEME_PREFERENCES.length];
   const nextLocale = locales[(locales.indexOf(locale) + 1) % locales.length];
@@ -1165,7 +1271,7 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
             onClick={() => {
               if (save()) {
                 setConfirmExit(false);
-                props.onExit();
+                leaveTo.current();
               }
             }}
           >
@@ -1177,7 +1283,7 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
             data-testid="genus-exit-discard"
             onClick={() => {
               setConfirmExit(false);
-              props.onExit();
+              leaveTo.current();
             }}
           >
             {t('genusEditor.exit.discard')}
@@ -1390,7 +1496,7 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
           </div>
           {dockOpen ? dock() : null}
         </section>
-        <aside className="genus-right">{sketchForm ?? paramForm ?? refForm ?? dimForm ?? solidForm ?? properties}</aside>
+        <aside className="genus-right">{sketchForm ?? paramForm ?? refForm ?? dimForm ?? nestedForm ?? solidForm ?? properties}</aside>
       </div>
       {saveError && !confirmExit ? <div className="genus-error-bar">{saveError}</div> : null}
       {statusBar}
