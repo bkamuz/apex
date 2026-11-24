@@ -45,7 +45,6 @@ import {
   apexPickById,
   apexPreviewElement,
   apexRedo,
-  apexRegisterComponent,
   apexRegisterProfile,
   apexSelectElement,
   apexSelectConstructionLine,
@@ -154,12 +153,11 @@ import { ViewPill } from './ui/ViewPill';
 import { SettingsMenu } from './ui/SettingsMenu';
 import { LevelList } from './ui/LevelList';
 import { MobileMenuSheet, type MobileMenuTab } from './ui/MobileMenuSheet';
-import { ComponentEditor } from './ui/ComponentEditor';
 import { GenusEditorMode } from './genusEditor/GenusEditorMode';
-import { isGenusEditorOpen } from './genusEditor/session';
-import type { GenusEditorTarget } from './genusEditor/model';
+import { isGenusEditorOpen, isGenusTestActive } from './genusEditor/session';
+import { genusEditorKey, type GenusEditorTarget } from './genusEditor/model';
 import { ProfileEditor } from './ui/ProfileEditor';
-import { defaultNewComponent, isUserAuthoredComponent, nextComponentId } from './ui/componentModel';
+import { isUserAuthoredComponent } from './ui/componentModel';
 import { ProjectBrowser } from './ui/ProjectBrowser';
 import {
   clampSidebarWidth,
@@ -423,10 +421,6 @@ export default function App() {
   } | null>(null);
   /** Genus editor mode (same window; the project stays mounted underneath). */
   const [genusEditor, setGenusEditor] = useState<GenusEditorTarget | null>(null);
-  const [componentEditor, setComponentEditor] = useState<{
-    component: ComponentDto;
-    originalId: string | null;
-  } | null>(null);
   const [toolId, setToolId] = useState<string>(ToolRegistry.selectId);
   const toolIdRef = useRef(toolId);
   toolIdRef.current = toolId;
@@ -1890,6 +1884,7 @@ export default function App() {
   }, [toolId, tool.componentId, components, profiles]);
 
   const onUndo = useCallback(() => {
+    if (isGenusTestActive()) return;
     try {
       applyScene(apexUndo());
       setError(null);
@@ -1899,6 +1894,7 @@ export default function App() {
   }, [applyScene]);
 
   const onRedo = useCallback(() => {
+    if (isGenusTestActive()) return;
     try {
       applyScene(apexRedo());
       setError(null);
@@ -2642,6 +2638,9 @@ export default function App() {
 
   useEffect(() => {
     if (!ready || !scene || !projectRestoreDoneRef.current) return;
+    // A test preview is not the project yet. Writing it here would survive
+    // a refresh with no Apply / Discard left to roll it back.
+    if (isGenusTestActive()) return;
     try {
       storeProject(apexExportProject());
     } catch {
@@ -2695,16 +2694,24 @@ export default function App() {
 
   const browserViewsProps = {
     onOpenGenus: (id: string) => {
+      if (isGenusTestActive()) {
+        setInfo(t('genusEditor.test.busy'));
+        return;
+      }
       closeMobileMenu();
       setGenusEditor({ kind: 'edit', genusId: id });
     },
     onDeriveGenus: (id: string) => {
+      if (isGenusTestActive()) {
+        setInfo(t('genusEditor.test.busy'));
+        return;
+      }
       closeMobileMenu();
       setGenusEditor({ kind: 'derive', baseId: id });
     },
-    onLegacyEditComponent: (id: string) => {
-      closeMobileMenu();
-      onEditComponent(id);
+    onLibraryChanged: () => {
+      applyScene(apexGetScene());
+      syncCatalog();
     },
     views: scene?.views ?? [],
     sheets: scene?.sheets ?? [],
@@ -3073,38 +3080,32 @@ export default function App() {
   const onEditType = (profileId: string) => {
     const profile = profiles.find((item) => item.id === profileId);
     if (!profile) return;
-    setComponentEditor(null);
     setProfileEditor({ profile, originalId: profile.id });
   };
 
   const onNewProfile = (category: string) => {
     const id = nextProfileId(profiles, category);
-    setComponentEditor(null);
     setProfileEditor({ profile: defaultNewProfile(category, id), originalId: null });
   };
 
   const onEditComponent = (componentId: string) => {
+    if (isGenusTestActive()) {
+      setInfo(t('genusEditor.test.busy'));
+      return;
+    }
     const component = components.find((item) => item.id === componentId);
     if (!component || !isUserAuthoredComponent(component)) return;
     setProfileEditor(null);
-    setComponentEditor({ component, originalId: component.id });
+    setGenusEditor({ kind: 'edit', genusId: component.id });
   };
 
-  const onNewComponent = (template: 'box' | 'beam' = 'box') => {
-    const id = nextComponentId(components, template === 'beam' ? 'beam' : 'custom');
+  const onNewComponent = () => {
+    if (isGenusTestActive()) {
+      setInfo(t('genusEditor.test.busy'));
+      return;
+    }
     setProfileEditor(null);
-    setComponentEditor({
-      component: defaultNewComponent(id, template),
-      originalId: null,
-    });
-  };
-
-  const onSaveComponent = (component: ComponentDto) => {
-    const next = apexRegisterComponent(component);
-    applyScene(next);
-    syncCatalog();
-    setComponentEditor(null);
-    setError(null);
+    setGenusEditor({ kind: 'create' });
   };
 
   const onSaveProfile = (profile: ProfileTypeDto) => {
@@ -3198,6 +3199,10 @@ export default function App() {
   );
 
   const onSaveProject = useCallback(() => {
+    if (isGenusTestActive()) {
+      setInfo(t('genusEditor.test.busy'));
+      return;
+    }
     void (async () => {
       try {
         await writeProjectFile({ forceDialog: false });
@@ -3205,9 +3210,13 @@ export default function App() {
         setError(err instanceof Error ? err.message : String(err));
       }
     })();
-  }, [writeProjectFile]);
+  }, [t, writeProjectFile]);
 
   const onSaveProjectAs = useCallback(() => {
+    if (isGenusTestActive()) {
+      setInfo(t('genusEditor.test.busy'));
+      return;
+    }
     void (async () => {
       try {
         if (isTauriShell()) {
@@ -3277,6 +3286,10 @@ export default function App() {
   );
 
   const onRequestOpenProject = useCallback(() => {
+    if (isGenusTestActive()) {
+      setInfo(t('genusEditor.test.busy'));
+      return;
+    }
     if (!confirmDiscardIfDirty(t('chrome.openConfirm'))) return;
     if (isTauriShell()) {
       void (async () => {
@@ -3296,6 +3309,10 @@ export default function App() {
 
   const onOpenProjectFile = useCallback(
     (file: File) => {
+      if (isGenusTestActive()) {
+        setInfo(t('genusEditor.test.busy'));
+        return;
+      }
       const reader = new FileReader();
       reader.onload = () => {
         void (async () => {
@@ -3308,7 +3325,7 @@ export default function App() {
       };
       reader.readAsText(file);
     },
-    [loadProjectFromText],
+    [loadProjectFromText, t],
   );
 
   const underlayFileRef = useRef<HTMLInputElement>(null);
@@ -3352,6 +3369,10 @@ export default function App() {
   );
 
   const onNewProject = useCallback(() => {
+    if (isGenusTestActive()) {
+      setInfo(t('genusEditor.test.busy'));
+      return;
+    }
     if (!confirmDiscardIfDirty(t('chrome.newProjectConfirm'))) return;
     try {
       const next = apexNewProject();
@@ -3382,7 +3403,7 @@ export default function App() {
 
   useEffect(() => {
     const onFileKeyDown = (e: KeyboardEvent) => {
-      if (isGenusEditorOpen()) return;
+      if (isGenusEditorOpen() || isGenusTestActive()) return;
       const active = document.activeElement;
       const typing =
         active instanceof HTMLElement &&
@@ -4010,9 +4031,7 @@ export default function App() {
             levels={levels}
             selectedIds={selectedIds}
             selectedProfileId={profileEditor?.originalId ?? profileEditor?.profile.id ?? null}
-            selectedComponentId={
-              componentEditor?.originalId ?? componentEditor?.component.id ?? null
-            }
+            selectedComponentId={genusEditor?.kind === 'edit' ? genusEditor.genusId : null}
             selectedRefId={scene?.selected_ref_id ?? null}
             selectedGridAxisId={scene?.selected_grid_axis_id ?? null}
             selectedConstructionLineId={scene?.selected_construction_line_id ?? null}
@@ -4027,7 +4046,7 @@ export default function App() {
             onSelectType={onSelectType}
             onSelectComponent={onEditComponent}
             onNewProfile={() => onNewProfile('wall')}
-            onNewComponent={() => onNewComponent('box')}
+            onNewComponent={onNewComponent}
             {...browserViewsProps}
           />
         </aside>
@@ -4169,9 +4188,7 @@ export default function App() {
                 levels={levels}
                 selectedIds={selectedIds}
                 selectedProfileId={profileEditor?.originalId ?? profileEditor?.profile.id ?? null}
-                selectedComponentId={
-                  componentEditor?.originalId ?? componentEditor?.component.id ?? null
-                }
+                selectedComponentId={genusEditor?.kind === 'edit' ? genusEditor.genusId : null}
                 selectedRefId={scene?.selected_ref_id ?? null}
                 selectedGridAxisId={scene?.selected_grid_axis_id ?? null}
                 selectedConstructionLineId={scene?.selected_construction_line_id ?? null}
@@ -4210,7 +4227,7 @@ export default function App() {
                   closeMobileMenu();
                 }}
                 onNewProfile={() => onNewProfile('wall')}
-                onNewComponent={() => onNewComponent('box')}
+                onNewComponent={onNewComponent}
                 {...browserViewsProps}
               />
             }
@@ -4246,7 +4263,7 @@ export default function App() {
       ) : null}
       {genusEditor ? (
         <GenusEditorMode
-          key={genusEditor.kind === 'edit' ? `edit:${genusEditor.genusId}` : `derive:${genusEditor.baseId}`}
+          key={genusEditorKey(genusEditor)}
           target={genusEditor}
           components={components}
           isMobile={isMobile}
@@ -4259,16 +4276,17 @@ export default function App() {
             applyScene(apexGetScene());
             syncCatalog();
           }}
-          onOpenGenus={setGenusEditor}
-        />
-      ) : null}
-      {componentEditor ? (
-        <ComponentEditor
-          initial={componentEditor.component}
-          originalId={componentEditor.originalId}
-          profiles={profiles}
-          onSave={onSaveComponent}
-          onClose={() => setComponentEditor(null)}
+          onOpenGenus={(target) => {
+            if (isGenusTestActive()) return;
+            setGenusEditor(target);
+          }}
+          onBeginTest={(genusId, place) => {
+            applyScene(apexGetScene());
+            syncCatalog();
+            const toolId = `place:${genusId}`;
+            if (place && registryRef.current.get(toolId)) activateTool(toolId);
+            else activateTool(ToolRegistry.selectId);
+          }}
         />
       ) : null}
     </div>

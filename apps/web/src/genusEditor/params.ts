@@ -410,6 +410,23 @@ export function copySpecies(
   return out;
 }
 
+/** Move a not-yet-saved genus id, and species ids that were prefixed with it. */
+export function retargetGenusId(
+  draft: GenusDraft,
+  species: DraftSpecies[],
+  id: string,
+): { draft: GenusDraft; species: DraftSpecies[] } {
+  const prev = draft.id;
+  if (prev === id) return { draft, species };
+  return {
+    draft: { ...draft, id },
+    species: species.map((s) => ({
+      ...s,
+      id: s.id.startsWith(`${prev}.`) ? `${id}${s.id.slice(prev.length)}` : s.id,
+    })),
+  };
+}
+
 /** Group key a row is listed under. */
 export function groupOf(input: GenusParamInput): string {
   if (input.group) return input.group;

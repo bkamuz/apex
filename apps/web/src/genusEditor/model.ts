@@ -21,7 +21,24 @@ import type {
 /** What the editor was opened on. */
 export type GenusEditorTarget =
   | { kind: 'edit'; genusId: string }
-  | { kind: 'derive'; baseId: string };
+  | { kind: 'derive'; baseId: string }
+  | { kind: 'create' };
+
+/** Stable React key for an editor target. */
+export function genusEditorKey(target: GenusEditorTarget): string {
+  switch (target.kind) {
+    case 'edit':
+      return `edit:${target.genusId}`;
+    case 'derive':
+      return `derive:${target.baseId}`;
+    case 'create':
+      return 'create';
+    default: {
+      const exhaustive: never = target;
+      return exhaustive;
+    }
+  }
+}
 
 /** One define_genus param (the core's `GenusParamInput`). */
 export interface GenusParamInput {
@@ -131,6 +148,36 @@ export function nextDerivedId(baseId: string, taken: Iterable<string>): string {
   let n = 2;
   while (used.has(`${prefix}.${n}`)) n += 1;
   return `${prefix}.${n}`;
+}
+
+/**
+ * A new point-placed box genus (width, depth, height). This is what
+ * "+ Component" opens, in place of the retired modal editor.
+ */
+export function blankGenusDraft(id: string, name: string): GenusDraft {
+  return {
+    id,
+    name,
+    category: 'custom',
+    placement: { kind: 'point' },
+    params: [
+      { id: 'width', default: 0.5, species: true },
+      { id: 'depth', default: 0.5, species: true },
+      { id: 'height', default: 1 },
+    ],
+    refs: [],
+    body: [
+      {
+        id: 'body',
+        item: 'solid',
+        shape: 'box',
+        min: [0, 0, 0],
+        max: ['width', 'height', 'depth'],
+      },
+    ],
+    dims: [],
+    remove: [],
+  };
 }
 
 /** Empty draft extending `base` ("Create based on"). */

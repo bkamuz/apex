@@ -5,7 +5,7 @@ import { useTheme } from '../theme/useTheme';
 import { THEME_PREFERENCES } from '../theme/theme';
 import type { ComponentDto, GenusDefDto, GenusPreviewDto, ParamSpecDto, ParamValue } from '../types';
 import { currentKernel, pumpKernelJobs } from '../kernel/geometryKernel';
-import { apexExecuteCommand, apexPreviewGenus, apexRunQuery } from '../wasm/apex';
+import { apexExecuteCommand, apexExportProject, apexImportProject, apexPreviewGenus, apexRunQuery } from '../wasm/apex';
 import { Genus3DView } from './Genus3DView';
 import { GenusOrthoView } from './GenusOrthoView';
 import { GenusStructureTree } from './GenusStructureTree';
@@ -33,6 +33,7 @@ import {
   paramRows,
   renameParam,
   renameSpecies,
+  retargetGenusId,
   setParam,
   setSpeciesValue,
   speciesCommands,
@@ -43,13 +44,19 @@ import {
   type DraftSpecies,
   type ParamSource,
 } from './params';
+import { decodeGenusFile, encodeGenusFile, isBuiltInGenusId, type GenusFileErrorCode } from './apexgenus';
+import { readGenusFile, writeGenusFile } from './genusFileIo';
+import { saveGenusToLibrary } from './library';
+import { closeProjectTest, openProjectTest } from './projectPreview';
 import {
+  blankGenusDraft,
   buildTree,
   defineGenusCommand,
   deriveDraft,
   draftFromGenus,
   draftKey,
   effectivePlacement,
+  nextDerivedId,
   previewRequest,
   testHostFor,
   type GenusDraft,
@@ -58,7 +65,7 @@ import {
   type GetGenusDto,
 } from './model';
 import { buildView, type OrthoView } from './projection';
-import { setGenusEditorOpen } from './session';
+import { setGenusEditorOpen, setGenusTestActive } from './session';
 import './genusEditor.css';
 
 type OkPreview = Extract<GenusPreviewDto, { ok: true }>;
@@ -85,10 +92,12 @@ export interface GenusEditorModeProps {
   /** Project file name for the "back to project" crumb. */
   projectName: string;
   onExit: () => void;
-  /** After define_genus ran: refresh the project's catalog / scene. */
+  /** After the project document changed: refresh the catalog / scene. */
   onSaved: (genusId: string) => void;
   /** Switch the editor to another genus (open a nested one). */
   onOpenGenus?: (target: GenusEditorTarget) => void;
+  /** Preview is in the project. `place` arms the genus placement tool. */
+  onBeginTest?: (genusId: string, place: boolean) => void;
 }
 
 function getGenus(id: string): GetGenusDto | null {
@@ -132,8 +141,17 @@ function toDraftSpecies(rows: SpeciesRow[]): DraftSpecies[] {
   }));
 }
 
-function openSession(target: GenusEditorTarget, components: ComponentDto[], copyName: (base: string) => string): Session | null {
+function openSession(
+  target: GenusEditorTarget,
+  components: ComponentDto[],
+  copyName: (base: string) => string,
+  freshName: string,
+): Session | null {
   const specsOf = (id: string | undefined) => (id ? (components.find((c) => c.id === id)?.params ?? []) : []);
+  if (target.kind === 'create') {
+    const draft = blankGenusDraft(nextDerivedId('custom', components.map((c) => c.id)), freshName);
+    return { draft, savedKey: null, parent: null, parentSpecs: [], species: [], savedSpecies: [], usedSpecies: new Set() };
+  }
   if (target.kind === 'edit') {
     const component = components.find((c) => c.id === target.genusId);
     if (!component) return null;
@@ -156,6 +174,7 @@ function openSession(target: GenusEditorTarget, components: ComponentDto[], copy
       usedSpecies: new Set(rows.filter((r) => (r.instances ?? 0) > 0).map((r) => r.id)),
     };
   }
+  if (target.kind !== 'derive') return null;
   const base = components.find((c) => c.id === target.baseId);
   if (!base) return null;
   const draft = deriveDraft(
@@ -188,10 +207,8 @@ function useDebounced<T>(value: T, ms: number): T {
 
 /**
  * Genus editor mode: replaces the project workspace in the same window.
- * The project stays mounted underneath (camera, selection, undo untouched)
- * and comes back on exit. This first version shows the genus read-only:
- * structure, four views built from `preview_genus` with a sample host, and
- * the build status. Authoring tools arrive in later versions (disabled here).
+ * The project stays mounted underneath and comes back on exit. Edits stay a
+ * draft until Apply. Test and Place write a preview that Discard rolls back.
  */
 export function GenusEditorMode(props: GenusEditorModeProps) {
   const { t, locale, setLocale, locales } = useI18n();
@@ -199,7 +216,7 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
   const { components, target } = props;
 
   const [session, setSession] = useState<Session | null>(() =>
-    openSession(target, components, (base) => t('genusEditor.copyName', { name: base })),
+    openSession(target, components, (base) => t('genusEditor.copyName', { name: base }), t('genusEditor.newName')),
   );
   const draft = session?.draft ?? null;
   const dirty = session
@@ -219,24 +236,54 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
   const [selected, setSelected] = useState<string | null>(null);
   const [fitEpoch, setFitEpoch] = useState(0);
   const [confirmExit, setConfirmExit] = useState(false);
+  const [testing, setTesting] = useState(false);
   /** What "leave" does after the exit dialog (exit, or open another genus). */
   const leaveTo = useRef<() => void>(() => props.onExit());
+  /** Project JSON from just before the current test preview. */
+  const baselineRef = useRef<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [libraryNote, setLibraryNote] = useState<string | null>(null);
+  const onSavedRef = useRef(props.onSaved);
+  onSavedRef.current = props.onSaved;
   const [dockOpen, setDockOpen] = useState(true);
   const [selectedParam, setSelectedParam] = useState<string | null>(null);
   const [mobileParams, setMobileParams] = useState(false);
 
-  // Mark the project inert while the mode is up; restore on exit.
+  // The project stays mounted underneath. It is inert while editing, and
+  // live again during a test preview. Restore on exit.
   useEffect(() => {
-    setGenusEditorOpen(true);
     const root = document.getElementById('root');
     const prevInert = root?.inert ?? false;
-    if (root) root.inert = true;
     return () => {
+      // A remount (another genus, a crash) must not keep the preview.
+      // Apply and Discard clear the snapshot before they leave.
+      const baseline = baselineRef.current;
+      if (baseline) {
+        baselineRef.current = null;
+        try {
+          apexImportProject(baseline);
+          onSavedRef.current('');
+        } catch {
+          /* leave the preview if the snapshot cannot be read */
+        }
+      }
       setGenusEditorOpen(false);
+      setGenusTestActive(false);
       if (root) root.inert = prevInert;
     };
   }, []);
+  useEffect(() => {
+    const root = document.getElementById('root');
+    if (testing) {
+      setGenusEditorOpen(false);
+      setGenusTestActive(true);
+      if (root) root.inert = false;
+    } else {
+      setGenusEditorOpen(true);
+      setGenusTestActive(false);
+      if (root) root.inert = true;
+    }
+  }, [testing]);
 
   // —— Params & species ——————————————————————————————————————
   const species = session?.species ?? [];
@@ -381,7 +428,7 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
   const stale = JSON.stringify(liveRequest) !== JSON.stringify(request);
 
   useEffect(() => {
-    if (!request) return;
+    if (testing || !request) return;
     const t0 = performance.now();
     let result: GenusPreviewDto;
     try {
@@ -398,7 +445,7 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
       setBuildError(result.error);
       setPending(0);
     }
-  }, [request, buildEpoch]);
+  }, [request, buildEpoch, testing]);
 
   // Exact-kernel booleans run in workers (mesh stand-ins meanwhile): send
   // the queued jobs and rebuild until the results are cached.
@@ -407,7 +454,7 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
     retries.current = 0;
   }, [request]);
   useEffect(() => {
-    if (pending <= 0 || retries.current >= 30) return;
+    if (testing || pending <= 0 || retries.current >= 30) return;
     pumpKernelJobs();
     // Back off: the first run also waits for the worker to load SMLib.
     const delay = Math.min(1000, 150 * 1.3 ** retries.current);
@@ -416,7 +463,7 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
       setBuildEpoch((n) => n + 1);
     }, delay);
     return () => window.clearTimeout(timer);
-  }, [pending, buildEpoch]);
+  }, [pending, buildEpoch, testing]);
 
   const fitKey = `${draft?.id ?? ''}:${fitEpoch}`;
   const views = useMemo(() => {
@@ -480,29 +527,140 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
     setSelected(null);
   };
 
-  // —— Save / exit ——————————————————————————————————————————
-  const save = (): boolean => {
+  // —— Apply / test / exit ————————————————————————————————————
+  const fileMessage = (code: GenusFileErrorCode, version?: number) =>
+    code === 'versionNewer'
+      ? t('genusFile.err.versionNewer', { version: version ?? '?', supported: 1 })
+      : t(`genusFile.err.${code}`);
+  /** Write the draft into the project. Does not mark it committed. */
+  const pushDraft = (): boolean => {
     if (!session) return false;
     if (issues.size > 0) {
       setSaveError(t('genusEditor.saveBlocked', { n: issues.size }));
       return false;
     }
+    if (isBuiltInGenusId(session.draft.id)) {
+      setSaveError(t('genusFile.err.builtIn'));
+      return false;
+    }
     try {
-      // One undo step in the project: the genus and its species together.
       const steps = [
         defineGenusCommand(session.draft),
         ...speciesCommands(session.draft.id, session.savedSpecies, session.species, rows),
       ];
       apexExecuteCommand(steps.length === 1 ? steps[0] : { op: 'batch', commands: steps });
-      setSession({ ...session, savedKey: draftKey(session.draft), savedSpecies: session.species });
       setSaveError(null);
-      props.onSaved(session.draft.id);
-      setBuildEpoch((n) => n + 1);
       return true;
     } catch (err) {
       setSaveError(err instanceof Error ? err.message : String(err));
       return false;
     }
+  };
+  const markCommitted = () => {
+    setSession((s) => (s ? { ...s, savedKey: draftKey(s.draft), savedSpecies: s.species } : s));
+    setLibraryNote(null);
+  };
+  /** Apply: the draft becomes the project. One undo step when it was not already previewed. */
+  const save = (): boolean => {
+    if (!session) return false;
+    if (baselineRef.current !== null) {
+      baselineRef.current = null;
+      markCommitted();
+      props.onSaved(session.draft.id);
+      setTesting(false);
+      return true;
+    }
+    if (!dirty) return true;
+    if (!pushDraft()) return false;
+    markCommitted();
+    props.onSaved(session.draft.id);
+    setBuildEpoch((n) => n + 1);
+    return true;
+  };
+  const beginTest = (place: boolean) => {
+    if (!session || testing) return;
+    if (issues.size > 0) {
+      setSaveError(t('genusEditor.saveBlocked', { n: issues.size }));
+      return;
+    }
+    let baseline: string;
+    try {
+      baseline = apexExportProject();
+    } catch (err) {
+      setSaveError(err instanceof Error ? err.message : String(err));
+      return;
+    }
+    baselineRef.current = baseline;
+    if (dirty && !pushDraft()) {
+      baselineRef.current = null;
+      return;
+    }
+    setTesting(true);
+    props.onBeginTest?.(session.draft.id, place);
+    props.onSaved(session.draft.id);
+  };
+  const discardTest = () => {
+    const test = baselineRef.current ? openProjectTest(baselineRef.current) : null;
+    const restore = test ? closeProjectTest(test, 'discard').restore : null;
+    baselineRef.current = null;
+    if (restore) {
+      try {
+        apexImportProject(restore);
+        props.onSaved(session?.draft.id ?? '');
+      } catch (err) {
+        setSaveError(err instanceof Error ? err.message : String(err));
+      }
+    }
+    setTesting(false);
+  };
+  const applyTest = () => {
+    if (!session) return;
+    const test = baselineRef.current ? openProjectTest(baselineRef.current) : null;
+    if (test) closeProjectTest(test, 'apply');
+    baselineRef.current = null;
+    markCommitted();
+    setTesting(false);
+    props.onSaved(session.draft.id);
+    props.onExit();
+  };
+  const importDraft = async () => {
+    const picked = await readGenusFile();
+    if (!picked) return;
+    const decoded = decodeGenusFile(picked.text);
+    if (!decoded.ok) {
+      setSaveError(fileMessage(decoded.code, decoded.version));
+      return;
+    }
+    const file = decoded.file;
+    const parent = file.genus.extends ? (getGenus(file.genus.extends)?.resolved ?? null) : null;
+    patchSession(() => ({
+      draft: file.genus,
+      species: file.species,
+      savedKey: null,
+      savedSpecies: [],
+      parent,
+      parentSpecs: file.genus.extends ? (components.find((c) => c.id === file.genus.extends)?.params ?? []) : [],
+      usedSpecies: new Set(),
+    }));
+    setSaveError(null);
+    setLibraryNote(null);
+  };
+  const exportDraft = () => {
+    if (!session) return;
+    void writeGenusFile(`${session.draft.id}.apexgenus`, encodeGenusFile(session.draft, session.species));
+  };
+  const saveToLibrary = () => {
+    if (!session) return;
+    if (isBuiltInGenusId(session.draft.id)) {
+      setSaveError(t('genusFile.err.builtIn'));
+      return;
+    }
+    void saveGenusToLibrary(session.draft, session.species)
+      .then(() => {
+        setLibraryNote(t('genusEditor.library.saved', { name: session.draft.name }));
+        setSaveError(null);
+      })
+      .catch((err: unknown) => setSaveError(err instanceof Error ? err.message : String(err)));
   };
   const requestLeave = (leave: () => void) => {
     leaveTo.current = leave;
@@ -519,6 +677,7 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if (testing) return;
       const typing = e.target instanceof HTMLElement && e.target.closest('input, textarea, select, [contenteditable="true"]');
       if (sketch.active && !confirmExit) {
         if (!typing && e.key === 'Enter') {
@@ -564,7 +723,7 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [confirmExit, mobileTree, mobileParams, selectedParam, refTools, sketch, bodyTools, deletableBody]);
+  }, [confirmExit, mobileTree, mobileParams, selectedParam, refTools, sketch, bodyTools, deletableBody, testing]);
 
   if (!session || !draft || !tree) {
     return createPortal(
@@ -1301,6 +1460,23 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
     </div>
   ) : null;
 
+  const testBanner = testing ? (
+    <div className="genus-test-banner" data-testid="genus-test-banner" role="dialog" aria-label={t('genusEditor.test.banner', { name: draft.name })}>
+      <div>
+        <p>
+          <b>{t('genusEditor.test.banner', { name: draft.name })}</b>
+        </p>
+        <p className="genus-test-note">{t('genusEditor.test.note')}</p>
+      </div>
+      <button type="button" className="genus-btn is-primary" data-testid="genus-test-apply" onClick={applyTest}>
+        {t('genusEditor.test.apply')}
+      </button>
+      <button type="button" className="genus-btn" data-testid="genus-test-discard" onClick={discardTest}>
+        {t('genusEditor.test.discard')}
+      </button>
+    </div>
+  ) : null;
+
   const topBar = (
     <header className="genus-top">
       <button type="button" className="genus-back" data-testid="genus-back" onClick={requestExit} title={t('genusEditor.backTitle')}>
@@ -1310,8 +1486,24 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
         {t('genusEditor.badge')}
       </span>
       <span className="genus-title" data-testid="genus-title">
-        {draft.name}
+        <input
+          className="genus-title-input"
+          data-testid="genus-name"
+          aria-label={t('genusEditor.prop.name')}
+          value={draft.name}
+          onChange={(e) => editDraft((d) => ({ ...d, name: e.target.value }))}
+        />
       </span>
+      {session.savedKey === null ? (
+        <input
+          className="genus-id-input"
+          data-testid="genus-id"
+          aria-label={t('genusEditor.prop.id')}
+          spellCheck={false}
+          value={draft.id}
+          onChange={(e) => patchSession((s) => retargetGenusId(s.draft, s.species, e.target.value.trim()))}
+        />
+      ) : null}
       {dirty ? (
         <span className="genus-dirty" data-testid="genus-dirty" title={t('genusEditor.dirtyTitle')}>
           ● {t(session.savedKey === null ? 'genusEditor.dirtyNew' : 'genusEditor.dirty')}
@@ -1340,7 +1532,9 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
   if (props.isMobile) {
     const order: PaneView[] = ['front', 'plan', 'side', '3d'];
     return createPortal(
-      <div className="genus-mode is-mobile" data-testid="genus-editor" data-dirty={dirty ? 'true' : 'false'}>
+      <>
+        {testBanner}
+        <div className="genus-mode is-mobile" data-testid="genus-editor" data-dirty={dirty ? 'true' : 'false'} hidden={testing}>
         {topBar}
         <div className="genus-mobile-bar">
           <div className="genus-seg" role="tablist">
@@ -1415,15 +1609,33 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
           </div>
         ) : null}
         {exitDialog}
-      </div>,
+        </div>
+      </>,
       document.body,
     );
   }
 
   const panes: PaneView[] = layout === 'all' ? ['front', '3d', 'plan', 'side'] : [layout];
 
+  const projectTool = (id: 'place' | 'test' | 'export' | 'import' | 'library', run: () => void, disabled = false) => (
+    <button
+      key={id}
+      type="button"
+      className="genus-tool"
+      data-testid={`genus-tool-${id}`}
+      disabled={disabled}
+      title={t(`genusEditor.tool.${id}.title`)}
+      onClick={run}
+    >
+      <GenusIcon name={id} />
+      <span>{t(`genusEditor.tool.${id}`)}</span>
+    </button>
+  );
+
   return createPortal(
-    <div className="genus-mode" data-testid="genus-editor" data-dirty={dirty ? 'true' : 'false'}>
+    <>
+      {testBanner}
+      <div className="genus-mode" data-testid="genus-editor" data-dirty={dirty ? 'true' : 'false'} hidden={testing}>
       {topBar}
       <div className="genus-ribbon" role="toolbar" aria-label={t(`genusEditor.tab.${tab}`)} data-testid="genus-ribbon" data-tab={tab}>
         {ribbon[tab].map((g) => (
@@ -1449,6 +1661,16 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
             <div className="genus-ribbon-cap">{g.label}</div>
           </div>
         ))}
+        <div className="genus-ribbon-group">
+          <div className="genus-ribbon-tools">
+            {projectTool('place', () => beginTest(true), issues.size > 0)}
+            {projectTool('test', () => beginTest(false), issues.size > 0)}
+            {projectTool('export', exportDraft)}
+            {projectTool('import', () => void importDraft())}
+            {projectTool('library', saveToLibrary, isBuiltInGenusId(draft.id))}
+          </div>
+          <div className="genus-ribbon-cap">{t('genusEditor.group.project')}</div>
+        </div>
         <div className="genus-ribbon-group is-mode">
           <div className="genus-ribbon-tools">
             <button
@@ -1504,9 +1726,11 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
         <aside className="genus-right">{sketchForm ?? paramForm ?? refForm ?? dimForm ?? nestedForm ?? solidForm ?? properties}</aside>
       </div>
       {saveError && !confirmExit ? <div className="genus-error-bar">{saveError}</div> : null}
+      {libraryNote && !saveError ? <div className="genus-error-bar" data-testid="genus-library-note">{libraryNote}</div> : null}
       {statusBar}
       {exitDialog}
-    </div>,
+      </div>
+    </>,
     document.body,
   );
 }
