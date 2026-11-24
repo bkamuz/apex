@@ -160,9 +160,12 @@ impl Project {
         if !self.layered_target(target) {
             return Vec::new();
         }
+        let cuts = self.neighbour_candidates(target);
+        if cuts.is_empty() {
+            return Vec::new();
+        }
         let near = self.loose_bounds(target);
-        self.neighbour_candidates(target)
-            .iter()
+        cuts.iter()
             .filter(|c| {
                 c.mesh
                     .aabb()
