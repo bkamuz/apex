@@ -698,6 +698,10 @@ pub enum BodyKind {
         /// params take this genus's same-named value, else their default.
         #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
         params: BTreeMap<String, F>,
+        /// Mirror the child across its own local YZ plane (left ↔ right),
+        /// e.g. the second leaf of a double door.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        mirror: bool,
     },
 }
 
@@ -753,6 +757,7 @@ impl GenusDef {
                         offset: Default::default(),
                         rotation: F::c(0.0),
                         params: BTreeMap::new(),
+                        mirror: false,
                     },
                 ),
                 BodyItem::new(
@@ -764,6 +769,7 @@ impl GenusDef {
                         offset: Default::default(),
                         rotation: F::c(0.0),
                         params: BTreeMap::new(),
+                        mirror: false,
                     },
                 ),
                 BodyItem::new(
@@ -1109,6 +1115,30 @@ pub struct GenusBuild {
 }
 
 impl GenusBuild {
+    /// Reflect everything across the plane through `origin` with normal `n`
+    /// (unit, horizontal): positions, normals, edges, cut footprints and
+    /// plan lines. Triangle winding is reversed so faces stay outward.
+    pub fn reflect(&mut self, origin: Vec3, n: Vec3) {
+        let point = |p: Vec3| p - n * (2.0 * (p - origin).dot(n));
+        for s in &mut self.solids {
+            reflect_mesh(&mut s.mesh, origin, n);
+        }
+        reflect_mesh(&mut self.lines, origin, n);
+        for c in &mut self.cuts {
+            reflect_mesh(&mut c.mesh, origin, n);
+            if let Some((foot, _, _)) = &mut c.prism {
+                for q in foot.iter_mut() {
+                    let w = point(Vec3::new(q[0] as f32, 0.0, q[1] as f32));
+                    *q = [w.x as f64, w.z as f64];
+                }
+                foot.reverse();
+            }
+        }
+        for l in &mut self.plan_lines {
+            *l = [point(l[0]), point(l[1])];
+        }
+    }
+
     pub fn mesh(&self) -> TriangleMesh {
         let mut out = TriangleMesh::empty();
         // With an exact kernel active, the opaque solids (frame, sashes,
@@ -1515,6 +1545,7 @@ fn build_level(
                 offset,
                 rotation,
                 params: bindings,
+                mirror,
             } => {
                 let child = src
                     .genus_entry(genus)
@@ -1547,17 +1578,21 @@ fn build_level(
                 let off = eval3(offset, &p)?;
                 let at_p = [base[0] + off[0], base[1] + off[1], base[2] + off[2]];
                 let yaw = (rotation.eval(&p)? as f32).to_radians();
-                let sub = build_level(
+                let child_frame = frame.child(at_p, yaw);
+                let mut sub = build_level(
                     src,
                     genus,
                     &child_params,
-                    frame.child(at_p, yaw),
+                    child_frame,
                     host_depth,
                     length,
                     opening.map(|r| (r, &opening_params)),
                     &format!("{path}/"),
                     stack,
                 )?;
+                if *mirror {
+                    sub.reflect(child_frame.origin, child_frame.u);
+                }
                 out.solids.extend(sub.solids);
                 out.lines.append(&sub.lines);
                 out.cuts.extend(sub.cuts);
@@ -1590,6 +1625,24 @@ fn build_level(
         }
     }
     Ok(out)
+}
+
+/// Mirror a mesh across a plane (see [`GenusBuild::reflect`]).
+fn reflect_mesh(mesh: &mut TriangleMesh, origin: Vec3, n: Vec3) {
+    let flip = |v: &mut [f32], point: bool| {
+        for c in v.chunks_mut(3) {
+            let p = Vec3::new(c[0], c[1], c[2]);
+            let d = if point { (p - origin).dot(n) } else { p.dot(n) };
+            c.copy_from_slice(&(p - n * (2.0 * d)).to_array());
+        }
+    };
+    flip(&mut mesh.positions, true);
+    flip(&mut mesh.normals, false);
+    flip(&mut mesh.edges, true);
+    flip(&mut mesh.minor_edges, true);
+    for t in mesh.indices.chunks_mut(3) {
+        t.swap(1, 2);
+    }
 }
 
 fn tag(mesh: &mut TriangleMesh, t: f32) {
