@@ -461,8 +461,13 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
     !props.isMobile && selected && draft ? ((draft.body.find((b) => b.id === selected && isShapeItem(b) && solidKind(b)) as ShapeItem | undefined) ?? null) : null;
   const ownNested: NestedItem | null =
     !props.isMobile && selected && draft ? ((draft.body.find((b) => b.id === selected && isNested(b)) as NestedItem | undefined) ?? null) : null;
-  /** The own item the Mirror / Delete tools act on. */
+  /** The own item the Mirror tool acts on. */
   const ownItem = ownShape ?? ownNested;
+  /** Body item Delete acts on: own ones are deleted, inherited ones dropped via `remove`. */
+  const deletableBody =
+    !props.isMobile && selected && draft && selected !== '#host'
+      ? (draft.body.find((b) => b.id === selected) ?? session?.parent?.body?.find((b) => b.id === selected) ?? null)
+      : null;
   const nestable = useMemo(() => (draft ? nestableGenera(components, draft.id) : []), [components, draft?.id]);
   /** Drop a body item: authored ones are deleted, inherited ones listed in `remove`. */
   const deleteBody = (id: string) => {
@@ -528,8 +533,8 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
         }
         return;
       }
-      if (!typing && !confirmExit && (e.key === 'Delete' || e.key === 'Backspace') && ownItem) {
-        deleteBody(ownItem.id);
+      if (!typing && !confirmExit && (e.key === 'Delete' || e.key === 'Backspace') && deletableBody) {
+        deleteBody(deletableBody.id);
         e.preventDefault();
         return;
       }
@@ -559,7 +564,7 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [confirmExit, mobileTree, mobileParams, selectedParam, refTools, sketch, bodyTools, ownItem]);
+  }, [confirmExit, mobileTree, mobileParams, selectedParam, refTools, sketch, bodyTools, deletableBody]);
 
   if (!session || !draft || !tree) {
     return createPortal(
@@ -699,8 +704,8 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
           placeTool('move', 'move', !hasRefs),
           actionTool('copy', 'copy', Boolean(refTools.selectedRef), refTools.copy),
           mirrorTool,
-          actionTool('delete', 'delete', Boolean(refTools.selectedRef || refTools.selectedDim || ownItem), () =>
-            ownItem ? deleteBody(ownItem.id) : refTools.remove(),
+          actionTool('delete', 'delete', Boolean(refTools.selectedRef || refTools.selectedDim || deletableBody), () =>
+            deletableBody ? deleteBody(deletableBody.id) : refTools.remove(),
           ),
         ],
       },
