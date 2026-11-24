@@ -1,10 +1,11 @@
 //! Universal genus geometry in a project: hosted (frame from the host
 //! curve) and free (point / line) placements, host cuts and neighbour cuts.
 
-use apex_geometry::{BooleanOp, TriangleMesh};
+use apex_geometry::{BooleanOp, LayeredSolid, TriangleMesh};
 use glam::Vec3;
 
 use super::{project_onto_curve_xz, Project};
+use crate::component::GeometryRecipe;
 use crate::element::{Element, ElementId};
 use crate::genus_body::{GenusBuild, GenusCut, GenusFrame};
 use crate::placement::{Placement, PlacementKind};
@@ -141,8 +142,70 @@ impl Project {
         out
     }
 
-    /// Neighbour cuts (from other elements' genera) that may hit `target`.
+    /// Neighbour cuts (from other elements' genera) that may hit `target`
+    /// and are not already subtracted as layered voids.
     fn neighbour_cuts_for(&self, target: &Element, aabb: ([f32; 3], [f32; 3])) -> Vec<GenusCut> {
+        let layered = self.layered_target(target);
+        self.neighbour_candidates(target)
+            .into_iter()
+            .filter(|c| !(layered && !c.prisms.is_empty()))
+            .filter(|c| c.mesh.aabb().is_some_and(|b| overlaps(b, aabb)))
+            .collect()
+    }
+
+    /// Neighbour cuts with a stacked-prism form near a layered `target`, as
+    /// voids its layered solid subtracts (robust on joined / roof-clipped
+    /// walls, whose meshes a mesh boolean refuses).
+    pub(crate) fn neighbour_void_solids(&self, target: &Element) -> Vec<LayeredSolid> {
+        if !self.layered_target(target) {
+            return Vec::new();
+        }
+        let near = self.loose_bounds(target);
+        self.neighbour_candidates(target)
+            .iter()
+            .filter(|c| {
+                c.mesh
+                    .aabb()
+                    .is_some_and(|b| near.is_none_or(|n| overlaps(b, n)))
+            })
+            .filter_map(cut_solid)
+            .collect()
+    }
+
+    /// Whether `target` builds as a layered solid (walls, slabs, beams …).
+    fn layered_target(&self, target: &Element) -> bool {
+        self.registry.get(&target.component_id).is_some_and(|d| {
+            d.host_cut.is_none()
+                && matches!(
+                    d.recipe,
+                    GeometryRecipe::Sweep { .. } | GeometryRecipe::Extrude { .. }
+                )
+        }) && self.shaped_surface(target).is_none()
+    }
+
+    /// Generous bounds of `target` from its anchors (2 m margin, plus its
+    /// height upward), so the void prefilter never misses a real overlap.
+    fn loose_bounds(&self, target: &Element) -> Option<([f32; 3], [f32; 3])> {
+        let pts = target.placement.anchors();
+        let first = *pts.first()?;
+        let (lo, hi) = pts
+            .iter()
+            .fold((first, first), |(lo, hi), q| (lo.min(*q), hi.max(*q)));
+        let up = self
+            .registry
+            .eval_params(&target.component_id, &target.params)
+            .ok()
+            .and_then(|p| p.number("height"))
+            .unwrap_or(20.0) as f32;
+        const M: f32 = 2.0;
+        Some((
+            [lo.x - M, lo.y - M, lo.z - M],
+            [hi.x + M, hi.y + up + M, hi.z + M],
+        ))
+    }
+
+    /// Every neighbour cut whose targets match `target` (no position test).
+    fn neighbour_candidates(&self, target: &Element) -> Vec<GenusCut> {
         let Some(def) = self.registry.get(&target.component_id) else {
             return Vec::new();
         };
@@ -162,9 +225,7 @@ impl Project {
                 if cutter.parent_id == Some(target.id) && cut.targets.host {
                     continue;
                 }
-                if cut.mesh.aabb().is_some_and(|b| overlaps(b, aabb)) {
-                    out.push(cut);
-                }
+                out.push(cut);
             }
         }
         out
@@ -210,6 +271,19 @@ impl Project {
             .map(|e| e.id)
             .collect()
     }
+}
+
+/// A cut's stacked prisms as one layered solid (`None` without that form).
+pub(crate) fn cut_solid(cut: &GenusCut) -> Option<LayeredSolid> {
+    if cut.prisms.is_empty() {
+        return None;
+    }
+    let parts: Vec<LayeredSolid> = cut
+        .prisms
+        .iter()
+        .map(|(foot, y0, y1)| LayeredSolid::polygon_prism(foot, *y0, *y1))
+        .collect();
+    Some(LayeredSolid::union_all(parts.iter()))
 }
 
 /// Subtract every cut mesh, keeping the mesh when a boolean fails.

@@ -352,11 +352,8 @@ impl Project {
             }
             if self.is_genus_child(child) {
                 if let Some(build) = self.element_genus_build(child) {
-                    for cut in build.cuts.iter().filter(|c| c.targets.host) {
-                        if let Some((poly, y0, y1)) = &cut.prism {
-                            out.push(LayeredSolid::polygon_prism(poly, *y0, *y1));
-                        }
-                    }
+                    let cuts = build.cuts.iter().filter(|c| c.targets.host);
+                    out.extend(cuts.filter_map(super::genus_build::cut_solid));
                     continue;
                 }
             }
@@ -391,6 +388,7 @@ impl Project {
         if host.component_id == SLAB {
             out.extend(self.stair_wells_for_slab(host));
         }
+        out.extend(self.neighbour_void_solids(host));
         out
     }
 
