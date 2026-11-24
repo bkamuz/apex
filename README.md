@@ -313,7 +313,6 @@ instances. Still mesh-only — no parametric round-trip.
 ## Roadmap (not in this MVP)
 
 - Full associativity when a reference moves
-- Visual component editor (build components without JSON)
 - Full CAD constraint solver (sketch is polyline + labeled edge lengths today)
 - csgrs / full CSG booleans (openings use AABB punch; SMLib worker available via `?kernel=smlib`)
 - Richer IFC import; optional IfcOpenShell sidecar

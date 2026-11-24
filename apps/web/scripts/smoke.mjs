@@ -887,49 +887,43 @@ if ((await toolHeight.count()) > 0) {
 }
 await page.screenshot({ path: `${OUT}/apex-06-profile-editor.png`, fullPage: true });
 
-// --- Visual component editor (create → place → edit → save/reload) --------
-console.log('\n[10] visual component editor');
+// --- New genus (the modal component editor is retired) ---------------------
+console.log('\n[10] new genus instead of the modal component editor');
 await page.getByTestId('browser-tab-genera').click();
+check('my library is in the genera browser', (await page.getByTestId('genus-library').count()) === 1);
+check('old component editor entry is gone', (await page.getByTestId('browser-genus-legacy').count()) === 0);
 await page.getByTestId('browser-new-component').click();
-await page.waitForSelector('[data-testid="component-editor"]');
-check('component editor opened', (await page.locator('[data-testid="component-editor"]').count()) === 1);
-await page.getByTestId('template-box').click();
-const compIdField = page.locator('[data-testid="component-editor"] input[type="text"]').first();
-await compIdField.fill('user.smoke.box');
-const compNameField = page.locator('[data-testid="component-editor"] input[type="text"]').nth(1);
-await compNameField.fill('Smoke box');
-await page.locator('[data-testid="component-param-default-height"]').fill('1.5');
-await page.waitForTimeout(400);
-check(
-  'component preview canvas rendered',
-  (await page.locator('[data-testid="component-preview"]').count()) === 1,
-);
-await page.getByTestId('save-component').click();
-await page.waitForTimeout(400);
-check(
-  'component editor closed after save',
-  (await page.locator('[data-testid="component-editor"]').count()) === 0,
-);
-check('Smoke box tool on toolbar', (await toolbarNames()).includes('Smoke box'));
+await page.waitForSelector('[data-testid="genus-editor"]');
+check('new genus opens in the genus editor', (await page.getByTestId('genus-name').count()) === 1);
+check('modal component editor is gone', (await page.locator('[data-testid="component-editor"]').count()) === 0);
+await page.getByTestId('genus-name').fill('Smoke box');
+await page.getByTestId('genus-id').fill('user.smoke.box');
+  await page.getByTestId('genus-cell-height-default').fill('1500');
+await page.getByTestId('genus-save').click();
+await page.waitForFunction(() => !document.querySelector('[data-testid="genus-dirty"]'));
+await page.getByTestId('genus-exit').click();
+await page.waitForFunction(() => !document.querySelector('[data-testid="genus-editor"]'));
+check('Smoke box tool on toolbar', await toolbarHasTool('Smoke box'));
 await page.getByTestId('browser-tab-model').click();
 const beforeSmokeBox = await elementCount();
 await useTool('Smoke box');
 await clickCanvas(0.52, 0.52);
 const afterSmokeBox = await elementCount();
-check('visual component placed', afterSmokeBox > beforeSmokeBox, `count ${afterSmokeBox}`);
+check('new genus placed', afterSmokeBox > beforeSmokeBox, `count ${afterSmokeBox}`);
 await useTool('Select');
 await page.locator('[data-kind="instance"]', { hasText: 'Smoke box' }).first().click();
-await page.waitForTimeout(250);
+await page.waitForFunction(() => document.querySelector('[data-section="instance"] input[type="number"]'));
 const smokeHeight = page.locator('[data-section="instance"] input[type="number"]').first();
-if ((await smokeHeight.count()) > 0) {
-  await smokeHeight.fill('2.0');
-  check('instance param edited on placed smoke box', Number(await smokeHeight.inputValue()) === 2);
-}
+await smokeHeight.fill('2');
+await smokeHeight.blur();
+check('instance param edited on placed smoke box', Number(await smokeHeight.inputValue()) === 2);
 await page.getByTestId('browser-tab-genera').click();
 await page.locator('[data-kind="component_def"]', { hasText: 'Smoke box' }).click();
-await page.waitForTimeout(200);
-check('user component opens in editor from browser', (await page.locator('[data-testid="component-editor"]').count()) === 1);
-await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+await page.getByTestId('browser-genus-edit').click();
+await page.waitForSelector('[data-testid="genus-editor"]');
+check('user genus opens in the genus editor', (await page.getByTestId('genus-editor').count()) === 1);
+await page.getByTestId('genus-exit').click();
+await page.waitForFunction(() => !document.querySelector('[data-testid="genus-editor"]'));
 await page.screenshot({ path: `${OUT}/apex-08-component-editor.png`, fullPage: true });
 
 // --- 9. Project browser grouping and save/load ----------------------------
@@ -1495,12 +1489,115 @@ console.log('\n[17] genus cuts, nested genera and mirror');
   await page.waitForFunction(() => !document.querySelector('[data-testid="genus-editor"]'));
 }
 
+// --- Apply / Discard, .apexgenus, My library --------------------------------
+console.log('\n[18] genus preview, file and library');
+{
+  const hasGenus = (id) =>
+    page.evaluate(async (genusId) => {
+      const m = await import('/src/wasm/apex.ts');
+      return m.apexListComponents().some((c) => c.id === genusId);
+    }, id);
+  const sceneCount = () => page.evaluate(async () => (await import('/src/wasm/apex.ts')).apexGetScene().elements.length);
+  await page.getByTestId('browser-tab-genera').click();
+  await page.getByTestId('browser-new-component').click();
+  await page.waitForSelector('[data-testid="genus-editor"]');
+  const genusId = (await page.getByTestId('genus-status').textContent()).match(/user\.custom[\w.]*/)?.[0];
+  check('new genus id', Boolean(genusId), genusId ?? '');
+  await page.getByTestId('genus-name').fill('Preview box');
+  const before = await sceneCount();
+  await page.getByTestId('genus-tool-test').click();
+  await page.waitForSelector('[data-testid="genus-test-banner"]');
+  check('test preview does not keep the editor in front', await page.getByTestId('genus-editor').isHidden());
+  check('preview genus is in the project', await hasGenus(genusId));
+  await page.getByTestId('genus-test-discard').click();
+  await page.waitForFunction(() => !document.querySelector('[data-testid="genus-test-banner"]'));
+  await page.waitForSelector('[data-testid="genus-editor"]:not([hidden])');
+  check('discard rolls the genus back out of the project', !(await hasGenus(genusId)));
+  check('discard keeps the draft', (await page.getByTestId('genus-dirty').count()) === 1);
+  check('discard restores the element count', (await sceneCount()) === before);
+  await page.getByTestId('genus-tool-place').click();
+  await page.waitForSelector('[data-testid="genus-test-banner"]');
+  await clickCanvas(0.42, 0.48);
+  await page.waitForFunction(async (n) => (await import('/src/wasm/apex.ts')).apexGetScene().elements.length > n, before);
+  check('place during the test adds an instance', (await sceneCount()) > before);
+  await page.getByTestId('genus-test-apply').click();
+  await page.waitForFunction(() => !document.querySelector('[data-testid="genus-editor"]'));
+  check('apply keeps the genus', await hasGenus(genusId));
+  check('apply keeps the placed instance', (await sceneCount()) > before);
+
+  await page.getByTestId('browser-tab-genera').click();
+  await page.waitForFunction((id) => !!document.querySelector(`[data-kind="component_def"][data-id="${id}"]`), genusId);
+  await page.locator(`[data-kind="component_def"][data-id="${genusId}"]`).click();
+  await page.getByTestId('browser-genus-edit').click();
+  await page.waitForSelector('[data-testid="genus-tool-export"]');
+  const downloadPromise = page.waitForEvent('download');
+  await page.getByTestId('genus-tool-export').click();
+  const download = await downloadPromise;
+  const filePath = await download.path();
+  const fs = await import('node:fs');
+  const exported = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  check('exported apexgenus version 1', exported.format === 'apexgenus' && exported.version === 1 && exported.genus.id === genusId);
+  const renamed = { ...exported, genus: { ...exported.genus, name: 'From file' } };
+  const goodPath = `${filePath}.good.apexgenus`;
+  fs.writeFileSync(goodPath, JSON.stringify(renamed));
+  const editorChooser = page.waitForEvent('filechooser');
+  await page.getByTestId('genus-tool-import').click();
+  await (await editorChooser).setFiles(goodPath);
+  await page.waitForFunction(() => document.querySelector('[data-testid="genus-name"]')?.value === 'From file');
+  check('import loads the draft and does not apply it yet', (await page.getByTestId('genus-dirty').count()) === 1);
+  const bad = { ...exported, version: 99 };
+  const badPath = `${filePath}.bad.apexgenus`;
+  fs.writeFileSync(badPath, JSON.stringify(bad));
+  await page.getByTestId('genus-exit').click();
+  if (await page.getByTestId('genus-exit-dialog').count()) await page.getByTestId('genus-exit-discard').click();
+  await page.waitForFunction(() => !document.querySelector('[data-testid="genus-editor"]'));
+
+  await page.getByTestId('browser-tab-genera').click();
+  const badChooser = page.waitForEvent('filechooser');
+  await page.getByTestId('genus-library-import').click();
+  (await badChooser).setFiles(badPath);
+  await page.waitForSelector('[data-testid="genus-library-error"]');
+  const badMsg = await page.getByTestId('genus-library-error').innerText();
+  check('newer genus file is refused', /version 99/i.test(badMsg) && /1/.test(badMsg), badMsg);
+
+  fs.writeFileSync(goodPath, JSON.stringify(exported));
+  const goodChooser = page.waitForEvent('filechooser');
+  await page.getByTestId('genus-library-import').click();
+  (await goodChooser).setFiles(goodPath);
+  await page.waitForFunction((id) => !!document.querySelector(`[data-kind="component_def"][data-id="${id}"]`), genusId);
+
+  await page.locator(`[data-kind="component_def"][data-id="${genusId}"]`).click();
+  await page.getByTestId('browser-genus-edit').click();
+  await page.waitForSelector('[data-testid="genus-tool-library"]');
+  await page.getByTestId('genus-tool-library').click();
+  await page.waitForSelector('[data-testid="genus-library-note"]');
+  await page.getByTestId('genus-exit').click();
+  if (await page.getByTestId('genus-exit-dialog').count()) await page.getByTestId('genus-exit-discard').click();
+  await page.waitForFunction(() => !document.querySelector('[data-testid="genus-editor"]'));
+  page.once('dialog', (d) => d.accept());
+  await page.getByTestId('file-menu-summary').click();
+  await page.getByTestId('new-project').click();
+  await page.waitForFunction((id) => !document.querySelector(`[data-kind="component_def"][data-id="${id}"]`), genusId);
+  check('library survives a new project', (await page.getByTestId(`genus-library-row-${genusId}`).count()) === 1);
+  await page.getByTestId(`genus-library-insert-${genusId}`).click();
+  await page.waitForFunction((id) => !!document.querySelector(`[data-kind="component_def"][data-id="${id}"]`), genusId);
+  check('insert from my library', await hasGenus(genusId));
+  await page.getByTestId(`genus-library-delete-${genusId}`).click();
+  await page.getByTestId(`genus-library-confirm-delete-${genusId}`).click();
+  await page.waitForFunction((id) => !document.querySelector(`[data-testid="genus-library-row-${id}"]`), genusId);
+  check('deleted from my library', (await page.getByTestId('genus-library-empty').count()) === 1);
+}
+
 // Mobile: the ribbon tool strip scrolls sideways by touch.
 {
   const mctx = await browser.newContext({ ...devices['iPhone 13'], viewport: { width: 390, height: 780 } });
   const mp = await mctx.newPage();
   // `load`, not `networkidle`: kernel workers of the first page can keep the
   // dev server busy on slow runners.
+  await mp.addInitScript(() => {
+    localStorage.removeItem('apex.project');
+    localStorage.setItem('apex.gettingStarted.dismissed', '1');
+  });
   await mp.goto(BASE, { waitUntil: 'load', timeout: 90000 });
   await mp.waitForSelector('.tools button', { timeout: 90000 });
   const dims = await mp.evaluate(() => {
@@ -1519,6 +1616,16 @@ console.log('\n[17] genus cuts, nested genera and mirror');
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   await mp.waitForTimeout(400);
   check('mobile ribbon scrolls on swipe', (await mp.evaluate(() => document.querySelector('.tools').scrollLeft)) > 0);
+  await mp.locator('.mobile-menu-fab').click();
+  await mp.getByRole('tab', { name: 'Project' }).click();
+  await mp.getByTestId('browser-tab-genera').click();
+  await mp.waitForSelector('[data-testid="genus-library"]');
+  await mp.getByTestId('browser-new-component').click();
+  await mp.waitForSelector('[data-testid="genus-mobile-params"]');
+  check('phone genus editor has no place or test tools', (await mp.getByTestId('genus-tool-place').count()) === 0 && (await mp.getByTestId('genus-tool-test').count()) === 0);
+  await mp.getByTestId('genus-mobile-params').click();
+  await mp.waitForSelector('[data-testid="genus-mobile-params-sheet"]');
+  await mp.screenshot({ path: `${OUT}/apex-phone-genus.png` });
   await mctx.close();
 }
 await browser.close();

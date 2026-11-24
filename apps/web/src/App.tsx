@@ -45,7 +45,6 @@ import {
   apexPickById,
   apexPreviewElement,
   apexRedo,
-  apexRegisterComponent,
   apexRegisterProfile,
   apexSelectElement,
   apexSelectConstructionLine,
@@ -154,12 +153,11 @@ import { ViewPill } from './ui/ViewPill';
 import { SettingsMenu } from './ui/SettingsMenu';
 import { LevelList } from './ui/LevelList';
 import { MobileMenuSheet, type MobileMenuTab } from './ui/MobileMenuSheet';
-import { ComponentEditor } from './ui/ComponentEditor';
 import { GenusEditorMode } from './genusEditor/GenusEditorMode';
-import { isGenusEditorOpen } from './genusEditor/session';
-import type { GenusEditorTarget } from './genusEditor/model';
+import { isGenusEditorOpen, isGenusTestActive } from './genusEditor/session';
+import { genusEditorKey, type GenusEditorTarget } from './genusEditor/model';
 import { ProfileEditor } from './ui/ProfileEditor';
-import { defaultNewComponent, isUserAuthoredComponent, nextComponentId } from './ui/componentModel';
+import { isUserAuthoredComponent } from './ui/componentModel';
 import { ProjectBrowser } from './ui/ProjectBrowser';
 import {
   clampSidebarWidth,
@@ -423,10 +421,6 @@ export default function App() {
   } | null>(null);
   /** Genus editor mode (same window; the project stays mounted underneath). */
   const [genusEditor, setGenusEditor] = useState<GenusEditorTarget | null>(null);
-  const [componentEditor, setComponentEditor] = useState<{
-    component: ComponentDto;
-    originalId: string | null;
-  } | null>(null);
   const [toolId, setToolId] = useState<string>(ToolRegistry.selectId);
   const toolIdRef = useRef(toolId);
   toolIdRef.current = toolId;
@@ -1890,6 +1884,7 @@ export default function App() {
   }, [toolId, tool.componentId, components, profiles]);
 
   const onUndo = useCallback(() => {
+    if (isGenusTestActive()) return;
     try {
       applyScene(apexUndo());
       setError(null);
@@ -1899,6 +1894,7 @@ export default function App() {
   }, [applyScene]);
 
   const onRedo = useCallback(() => {
+    if (isGenusTestActive()) return;
     try {
       applyScene(apexRedo());
       setError(null);
@@ -2702,9 +2698,9 @@ export default function App() {
       closeMobileMenu();
       setGenusEditor({ kind: 'derive', baseId: id });
     },
-    onLegacyEditComponent: (id: string) => {
-      closeMobileMenu();
-      onEditComponent(id);
+    onLibraryChanged: () => {
+      applyScene(apexGetScene());
+      syncCatalog();
     },
     views: scene?.views ?? [],
     sheets: scene?.sheets ?? [],
@@ -3073,13 +3069,11 @@ export default function App() {
   const onEditType = (profileId: string) => {
     const profile = profiles.find((item) => item.id === profileId);
     if (!profile) return;
-    setComponentEditor(null);
     setProfileEditor({ profile, originalId: profile.id });
   };
 
   const onNewProfile = (category: string) => {
     const id = nextProfileId(profiles, category);
-    setComponentEditor(null);
     setProfileEditor({ profile: defaultNewProfile(category, id), originalId: null });
   };
 
@@ -3087,24 +3081,12 @@ export default function App() {
     const component = components.find((item) => item.id === componentId);
     if (!component || !isUserAuthoredComponent(component)) return;
     setProfileEditor(null);
-    setComponentEditor({ component, originalId: component.id });
+    setGenusEditor({ kind: 'edit', genusId: component.id });
   };
 
-  const onNewComponent = (template: 'box' | 'beam' = 'box') => {
-    const id = nextComponentId(components, template === 'beam' ? 'beam' : 'custom');
+  const onNewComponent = () => {
     setProfileEditor(null);
-    setComponentEditor({
-      component: defaultNewComponent(id, template),
-      originalId: null,
-    });
-  };
-
-  const onSaveComponent = (component: ComponentDto) => {
-    const next = apexRegisterComponent(component);
-    applyScene(next);
-    syncCatalog();
-    setComponentEditor(null);
-    setError(null);
+    setGenusEditor({ kind: 'create' });
   };
 
   const onSaveProfile = (profile: ProfileTypeDto) => {
@@ -4010,9 +3992,7 @@ export default function App() {
             levels={levels}
             selectedIds={selectedIds}
             selectedProfileId={profileEditor?.originalId ?? profileEditor?.profile.id ?? null}
-            selectedComponentId={
-              componentEditor?.originalId ?? componentEditor?.component.id ?? null
-            }
+            selectedComponentId={genusEditor?.kind === 'edit' ? genusEditor.genusId : null}
             selectedRefId={scene?.selected_ref_id ?? null}
             selectedGridAxisId={scene?.selected_grid_axis_id ?? null}
             selectedConstructionLineId={scene?.selected_construction_line_id ?? null}
@@ -4027,7 +4007,7 @@ export default function App() {
             onSelectType={onSelectType}
             onSelectComponent={onEditComponent}
             onNewProfile={() => onNewProfile('wall')}
-            onNewComponent={() => onNewComponent('box')}
+            onNewComponent={onNewComponent}
             {...browserViewsProps}
           />
         </aside>
@@ -4169,9 +4149,7 @@ export default function App() {
                 levels={levels}
                 selectedIds={selectedIds}
                 selectedProfileId={profileEditor?.originalId ?? profileEditor?.profile.id ?? null}
-                selectedComponentId={
-                  componentEditor?.originalId ?? componentEditor?.component.id ?? null
-                }
+                selectedComponentId={genusEditor?.kind === 'edit' ? genusEditor.genusId : null}
                 selectedRefId={scene?.selected_ref_id ?? null}
                 selectedGridAxisId={scene?.selected_grid_axis_id ?? null}
                 selectedConstructionLineId={scene?.selected_construction_line_id ?? null}
@@ -4210,7 +4188,7 @@ export default function App() {
                   closeMobileMenu();
                 }}
                 onNewProfile={() => onNewProfile('wall')}
-                onNewComponent={() => onNewComponent('box')}
+                onNewComponent={onNewComponent}
                 {...browserViewsProps}
               />
             }
@@ -4246,7 +4224,7 @@ export default function App() {
       ) : null}
       {genusEditor ? (
         <GenusEditorMode
-          key={genusEditor.kind === 'edit' ? `edit:${genusEditor.genusId}` : `derive:${genusEditor.baseId}`}
+          key={genusEditorKey(genusEditor)}
           target={genusEditor}
           components={components}
           isMobile={isMobile}
@@ -4260,15 +4238,13 @@ export default function App() {
             syncCatalog();
           }}
           onOpenGenus={setGenusEditor}
-        />
-      ) : null}
-      {componentEditor ? (
-        <ComponentEditor
-          initial={componentEditor.component}
-          originalId={componentEditor.originalId}
-          profiles={profiles}
-          onSave={onSaveComponent}
-          onClose={() => setComponentEditor(null)}
+          onBeginTest={(genusId, place) => {
+            applyScene(apexGetScene());
+            syncCatalog();
+            const toolId = `place:${genusId}`;
+            if (place && registryRef.current.get(toolId)) activateTool(toolId);
+            else activateTool(ToolRegistry.selectId);
+          }}
         />
       ) : null}
     </div>

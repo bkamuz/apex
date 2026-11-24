@@ -149,11 +149,71 @@ Projects and scripts from the first release (PR #114) keep working:
 - Saves with `family_types`, `family`, `default_type` and an element param `type`
   load; the param is migrated to `species`.
 
+## Genus editor
+
+Роды → double-click, **Edit**, or **Create based on** opens the genus editor in
+the same window. **+ Component** starts a new point-placed box genus. The
+project stays mounted underneath.
+
+Edits stay a draft until **Apply** (Применить). **Test** (Проверка) and
+**Place** (Разместить) write the draft into the project as a preview so you
+can look at it and place instances. **Apply** on the banner keeps that
+preview (and anything placed during the test). **Discard** (Отменить) restores
+the project to the moment the test started. Leaving the editor with a draft
+that is not in the project yet asks Apply / Discard / Stay.
+
+Discard reloads that snapshot, which clears the undo stack. Apply leaves the
+preview's own undo steps in place.
+
+Phones open the same editor for the view and for parameters and species.
+Placement, test-in-project, file import/export and saving to the library are
+desktop actions.
+
+## `.apexgenus` files
+
+One genus per file. Version 1 is the genus body (parameters, species,
+references, dimensions, sketches, solids, cuts, nested genera, mirror):
+
+```json
+{
+  "format": "apexgenus",
+  "version": 1,
+  "genus": { "id": "user.shelf", "name": "Shelf", "params": [], "refs": [], "body": [], "dims": [], "remove": [] },
+  "species": [{ "id": "user.shelf.oak", "name": "Oak", "values": { "width": 1.2 } }]
+}
+```
+
+Export from the editor writes the current draft, including edits that are not
+applied yet. Import in the editor loads that draft and still waits for Apply.
+Import from **My library** in the Роды browser inserts the genus into the
+open project immediately.
+
+A file is refused when it is not JSON, `format` is not `apexgenus`, `version`
+is missing or below 1, or `version` is newer than this Apex. The message names
+the file version and the version this Apex reads. Built-in ids (`apex.*`) are
+refused; extend the built-in instead. Round-trip of a version-1 file is
+lossless for the fields above.
+
+## My library
+
+**My library** (Моя библиотека) is a personal list of genera kept across
+projects. It lives in the browser's IndexedDB database `apex.genusLibrary`
+(object store `genera`, one record per genus id). Every project opened in
+this browser profile shares it, including the desktop shell, which uses the
+same origin. It is not stored in the project file and it is not synced to
+other browsers or machines. Clearing the site's data deletes it.
+
+Save from the editor (**Library**). In the Роды browser: insert into the
+current project, export a `.apexgenus` file, or delete. Insert replaces a
+user genus with the same id and upserts the file's species; species that
+exist only in the project are left in place.
+
 ## Authoring a genus without JSON
 
-Component editor → **Window genus** / **Door genus** starts from the built-in
-recipe. Change the recipe fields, add parameters, mark them "Shared type" (species-bound), save.
-The genus gets a `<id>.default` species automatically.
+**+ Component** opens a box genus (width, depth, height). **Create based on**
+a window or door starts from that built-in. Change parameters, mark them
+species-bound ("Shared type"), Apply. The genus gets a `<id>.default` species
+automatically.
 
 ## Custom geometry from a plugin
 

@@ -15,6 +15,7 @@ import { categoryDisplayLabel } from './categoryLabels';
 import { isUserAuthoredComponent } from './componentModel';
 import { componentDisplayName } from '../i18n';
 import { isGenusComponent } from '../genusEditor/model';
+import { GenusLibraryPanel } from '../genusEditor/GenusLibraryPanel';
 import { profileLabel } from './profileModel';
 import { ViewsSheetsPanel } from './ViewsSheetsPanel';
 import type { SheetDto, ViewDto } from '../types';
@@ -82,8 +83,8 @@ interface Props {
   onOpenGenus?: (id: string) => void;
   /** «Create based on» a built-in genus (a new genus that extends it). */
   onDeriveGenus?: (id: string) => void;
-  /** The previous (modal) component editor. */
-  onLegacyEditComponent?: (id: string) => void;
+  /** A genus was inserted from My library or a `.apexgenus` file. */
+  onLibraryChanged?: () => void;
 }
 
 /** Роды rows with a genus body: click selects, double-click / actions open. */
@@ -92,7 +93,6 @@ interface GenusRowActions {
   setActiveId: (id: string | null) => void;
   onOpenGenus?: (id: string) => void;
   onDeriveGenus?: (id: string) => void;
-  onLegacyEditComponent?: (id: string) => void;
 }
 const GenusRowContext = createContext<GenusRowActions | null>(null);
 
@@ -390,15 +390,6 @@ function BrowserTreeItem({
               >
                 {t('browser.genus.edit')}
               </button>
-              <button
-                type="button"
-                className="panel-action"
-                data-testid="browser-genus-legacy"
-                title={t('browser.genus.legacyTitle')}
-                onClick={() => genusRows?.onLegacyEditComponent?.(item.id)}
-              >
-                {t('browser.genus.legacy')}
-              </button>
             </>
           )}
         </span>
@@ -584,7 +575,7 @@ export function ProjectBrowser({
   onDeleteSheet,
   onOpenGenus,
   onDeriveGenus,
-  onLegacyEditComponent,
+  onLibraryChanged,
   tab,
   onTabChange,
   onCollapse,
@@ -595,9 +586,9 @@ export function ProjectBrowser({
   const genusRowActions = useMemo<GenusRowActions | null>(
     () =>
       onOpenGenus || onDeriveGenus
-        ? { activeId: activeGenusId, setActiveId: setActiveGenusId, onOpenGenus, onDeriveGenus, onLegacyEditComponent }
+        ? { activeId: activeGenusId, setActiveId: setActiveGenusId, onOpenGenus, onDeriveGenus }
         : null,
-    [activeGenusId, onOpenGenus, onDeriveGenus, onLegacyEditComponent],
+    [activeGenusId, onOpenGenus, onDeriveGenus],
   );
   const initial = loadPrefs();
   const [groupBy, setGroupBy] = useState<BrowserGroupBy>(initial.groupBy);
@@ -865,6 +856,7 @@ export function ProjectBrowser({
           </button>
         </div>
       ) : null}
+      {tab === 'genera' && onLibraryChanged ? <GenusLibraryPanel onChanged={onLibraryChanged} /> : null}
       <div className="browser-search">
         <input
           type="search"
