@@ -156,6 +156,8 @@ export type GenusBodyItemDto =
       offset?: GenusVec3;
       rotation?: GenusFormula;
       params?: Record<string, GenusFormula>;
+      /** Mirror the child across its local YZ plane (left ↔ right). */
+      mirror?: boolean;
     });
 
 /** Mirrors `GenusDim` in apex-core. */

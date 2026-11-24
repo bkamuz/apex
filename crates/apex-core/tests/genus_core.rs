@@ -443,3 +443,88 @@ fn reset_element_params_returns_an_override_to_its_species() {
     exec(&mut p, json!({"op": "undo"}));
     assert_eq!(source(&p, "sill"), ("instance".to_string(), json!(1.1)));
 }
+
+#[test]
+fn front_sketched_cut_reaches_layered_host_and_neighbour_walls() {
+    let mut p = Project::new();
+    let low = id(&exec(
+        &mut p,
+        json!({"op": "create_element", "component": "apex.wall", "points": [[-3, 0, 0], [3, 0, 0]]}),
+    ));
+    exec(
+        &mut p,
+        json!({"op": "create_level", "name": "Level 1", "elevation": 3.0}),
+    );
+    exec(&mut p, json!({"op": "set_active_level", "id": "Level 1"}));
+    let high = id(&exec(
+        &mut p,
+        json!({"op": "create_element", "component": "apex.wall", "points": [[-3, 0, 0], [3, 0, 0]]}),
+    ));
+    let slab = id(&exec(
+        &mut p,
+        json!({"op": "create_element", "component": "apex.slab",
+            "points": [[-3, 0, -1], [3, 0, -1], [3, 0, 1], [-3, 0, 1]]}),
+    ));
+    let (vl, vh, vs) = (volume(&p, &low), volume(&p, &high), volume(&p, &slab));
+    // A window with a chase drawn on the front view, from the window head
+    // up through the wall top into the wall above.
+    exec(
+        &mut p,
+        json!({"op": "define_genus", "id": "user.vent", "name": "Vent window", "extends": "apex.window",
+        "body": [{"id": "chase", "item": "cut", "shape": "prism", "normal": "z",
+            "sketch": [{"kind": "rect", "a": [-0.25, 2.5], "b": [0.25, 3.5]}],
+            "depth": [-0.6, 0.6], "targets": {"host": true, "neighbours": []}}]}),
+    );
+    let win = id(&exec(
+        &mut p,
+        json!({"op": "create_element", "component": "user.vent", "points": [[0, 0, 0]], "parent": low}),
+    ));
+    let (vl1, vh1, vs1) = (volume(&p, &low), volume(&p, &high), volume(&p, &slab));
+    let gl = q(&p, json!({"op": "element_geometry", "id": low}));
+    let gh = q(&p, json!({"op": "element_geometry", "id": high}));
+    let t = gl["bbox"]["max"][2].as_f64().unwrap() - gl["bbox"]["min"][2].as_f64().unwrap();
+    // Window opening plus the 0.5 x 0.5 chase in the host; 0.5 x 0.5 above.
+    let chase = 0.5 * 0.5 * t;
+    assert!(
+        vl - vl1 > 1.2 * 1.4 * t + chase * 0.9,
+        "host loses opening + chase: {vl} -> {vl1}"
+    );
+    assert!(
+        vh - vh1 > chase * 0.5,
+        "wall above is cut: {vh} -> {vh1} (t {t})"
+    );
+    assert!(vs - vs1 > 0.05, "slab is cut: {vs} -> {vs1}");
+    assert_eq!(gl["watertight"], true, "{gl}");
+    assert_eq!(gh["watertight"], true, "{gh}");
+    // Removing the window restores the wall above.
+    exec(&mut p, json!({"op": "delete_element", "id": win}));
+    assert!((volume(&p, &high) - vh).abs() < 1e-6);
+    assert!((volume(&p, &slab) - vs).abs() < 1e-6);
+}
+
+#[test]
+fn round_front_cut_steps_closely_in_a_layered_wall() {
+    let mut p = Project::new();
+    let wall = id(&exec(
+        &mut p,
+        json!({"op": "create_element", "component": "apex.wall", "points": [[-3, 0, 0], [3, 0, 0]]}),
+    ));
+    let v0 = volume(&p, &wall);
+    exec(
+        &mut p,
+        json!({"op": "define_genus", "id": "user.porthole", "name": "Porthole", "category": "mep",
+        "body": [{"id": "hole", "item": "cut", "shape": "prism", "normal": "z",
+            "sketch": [{"kind": "circle", "c": [0, 1.5], "r": 0.4}],
+            "depth": [-0.6, 0.6], "targets": {"neighbours": ["wall"]}}]}),
+    );
+    exec(
+        &mut p,
+        json!({"op": "create_element", "component": "user.porthole", "points": [[0, 0, 0]]}),
+    );
+    let g = q(&p, json!({"op": "element_geometry", "id": wall}));
+    let t = g["bbox"]["max"][2].as_f64().unwrap() - g["bbox"]["min"][2].as_f64().unwrap();
+    let lost = v0 - volume(&p, &wall);
+    let exact = std::f64::consts::PI * 0.16 * t;
+    assert!((lost - exact).abs() < exact * 0.03, "{lost} vs {exact}");
+    assert_eq!(g["watertight"], true, "{g}");
+}

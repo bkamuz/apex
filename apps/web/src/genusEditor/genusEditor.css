@@ -1316,3 +1316,55 @@
 .genus-sketch-tools button {
   white-space: nowrap;
 }
+
+/* —— Cuts, nested genera —— */
+.genus-check {
+  display: flex;
+  gap: 6px;
+  align-items: flex-start;
+  margin: 3px 0;
+  font-size: 12px;
+  cursor: pointer;
+}
+.genus-check input {
+  margin: 2px 0 0;
+  flex: none;
+}
+.genus-check.is-small {
+  font-size: 11px;
+  margin: 1px 0;
+}
+.genus-cut-targets {
+  margin: 6px 0 8px;
+}
+.genus-cut-cats {
+  margin: 2px 0 4px 20px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  column-gap: 8px;
+}
+.genus-cut-cats .genus-field-hint {
+  grid-column: 1 / -1;
+}
+.genus-bind-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.genus-bind-table th {
+  text-align: left;
+  font-weight: 500;
+  color: var(--chrome-muted);
+  padding: 3px 6px 3px 0;
+  vertical-align: top;
+  max-width: 90px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.genus-bind-table td {
+  padding: 2px 0;
+}
+.genus-tool-hint select {
+  max-width: 220px;
+}

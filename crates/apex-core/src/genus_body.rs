@@ -698,6 +698,10 @@ pub enum BodyKind {
         /// params take this genus's same-named value, else their default.
         #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
         params: BTreeMap<String, F>,
+        /// Mirror the child across its own local YZ plane (left ↔ right),
+        /// e.g. the second leaf of a double door.
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        mirror: bool,
     },
 }
 
@@ -753,6 +757,7 @@ impl GenusDef {
                         offset: Default::default(),
                         rotation: F::c(0.0),
                         params: BTreeMap::new(),
+                        mirror: false,
                     },
                 ),
                 BodyItem::new(
@@ -764,6 +769,7 @@ impl GenusDef {
                         offset: Default::default(),
                         rotation: F::c(0.0),
                         params: BTreeMap::new(),
+                        mirror: false,
                     },
                 ),
                 BodyItem::new(
@@ -1079,8 +1085,11 @@ pub struct GenusCut {
     pub path: String,
     pub targets: CutTargets,
     pub mesh: TriangleMesh,
-    /// Plan footprint (xz) and world y range when the cut is a vertical prism.
-    pub prism: Option<(Vec<[f64; 2]>, f64, f64)>,
+    /// The cut as stacked vertical prisms (plan footprint in xz, world y
+    /// range), so layered hosts can subtract it exactly: one prism for boxes
+    /// and plan sketches, horizontal bands for front / side sketches. Empty
+    /// when the shape has no such form (revolve, sweep).
+    pub prisms: Vec<(Vec<[f64; 2]>, f64, f64)>,
 }
 
 /// One built solid (kept separate so self cuts stay robust booleans).
@@ -1109,6 +1118,30 @@ pub struct GenusBuild {
 }
 
 impl GenusBuild {
+    /// Reflect everything across the plane through `origin` with normal `n`
+    /// (unit, horizontal): positions, normals, edges, cut footprints and
+    /// plan lines. Triangle winding is reversed so faces stay outward.
+    pub fn reflect(&mut self, origin: Vec3, n: Vec3) {
+        let point = |p: Vec3| p - n * (2.0 * (p - origin).dot(n));
+        for s in &mut self.solids {
+            reflect_mesh(&mut s.mesh, origin, n);
+        }
+        reflect_mesh(&mut self.lines, origin, n);
+        for c in &mut self.cuts {
+            reflect_mesh(&mut c.mesh, origin, n);
+            for (foot, _, _) in &mut c.prisms {
+                for q in foot.iter_mut() {
+                    let w = point(Vec3::new(q[0] as f32, 0.0, q[1] as f32));
+                    *q = [w.x as f64, w.z as f64];
+                }
+                foot.reverse();
+            }
+        }
+        for l in &mut self.plan_lines {
+            *l = [point(l[0]), point(l[1])];
+        }
+    }
+
     pub fn mesh(&self) -> TriangleMesh {
         let mut out = TriangleMesh::empty();
         // With an exact kernel active, the opaque solids (frame, sashes,
@@ -1494,7 +1527,7 @@ fn build_level(
                 });
             }
             BodyKind::Cut { shape, targets } => {
-                let (mesh, prism) =
+                let (mesh, prisms) =
                     shape_mesh(shape, &p, &frame, &ref_origin, &ref_points, &ref_line)?;
                 if targets.own {
                     self_cuts.push((path.clone(), mesh.clone()));
@@ -1504,7 +1537,7 @@ fn build_level(
                         path,
                         targets: targets.clone(),
                         mesh,
-                        prism,
+                        prisms,
                     });
                 }
             }
@@ -1515,6 +1548,7 @@ fn build_level(
                 offset,
                 rotation,
                 params: bindings,
+                mirror,
             } => {
                 let child = src
                     .genus_entry(genus)
@@ -1547,17 +1581,21 @@ fn build_level(
                 let off = eval3(offset, &p)?;
                 let at_p = [base[0] + off[0], base[1] + off[1], base[2] + off[2]];
                 let yaw = (rotation.eval(&p)? as f32).to_radians();
-                let sub = build_level(
+                let child_frame = frame.child(at_p, yaw);
+                let mut sub = build_level(
                     src,
                     genus,
                     &child_params,
-                    frame.child(at_p, yaw),
+                    child_frame,
                     host_depth,
                     length,
                     opening.map(|r| (r, &opening_params)),
                     &format!("{path}/"),
                     stack,
                 )?;
+                if *mirror {
+                    sub.reflect(child_frame.origin, child_frame.u);
+                }
                 out.solids.extend(sub.solids);
                 out.lines.append(&sub.lines);
                 out.cuts.extend(sub.cuts);
@@ -1592,6 +1630,24 @@ fn build_level(
     Ok(out)
 }
 
+/// Mirror a mesh across a plane (see [`GenusBuild::reflect`]).
+fn reflect_mesh(mesh: &mut TriangleMesh, origin: Vec3, n: Vec3) {
+    let flip = |v: &mut [f32], point: bool| {
+        for c in v.chunks_mut(3) {
+            let p = Vec3::new(c[0], c[1], c[2]);
+            let d = if point { (p - origin).dot(n) } else { p.dot(n) };
+            c.copy_from_slice(&(p - n * (2.0 * d)).to_array());
+        }
+    };
+    flip(&mut mesh.positions, true);
+    flip(&mut mesh.normals, false);
+    flip(&mut mesh.edges, true);
+    flip(&mut mesh.minor_edges, true);
+    for t in mesh.indices.chunks_mut(3) {
+        t.swap(1, 2);
+    }
+}
+
 fn tag(mesh: &mut TriangleMesh, t: f32) {
     for n in mesh.normals.chunks_mut(3) {
         let v = Vec3::new(n[0], n[1], n[2]).normalize_or_zero() * t;
@@ -1599,7 +1655,70 @@ fn tag(mesh: &mut TriangleMesh, t: f32) {
     }
 }
 
-type Prism = Option<(Vec<[f64; 2]>, f64, f64)>;
+type Prism = Vec<(Vec<[f64; 2]>, f64, f64)>;
+
+/// One horizontal band: `(v0, v1, [(u0, u1)])`.
+type Band = (f64, f64, Vec<(f64, f64)>);
+
+/// Horizontal bands `(v0, v1, [(u0, u1)])` of closed loops in a vertical
+/// (u, v = up) plane, even-odd filled. Straight vertical / horizontal edges
+/// are exact; slanted ones (arches, gables) step in bands of about 2.5 cm.
+fn horizontal_bands(loops: &[Vec<[f64; 2]>]) -> Vec<Band> {
+    const STEP: f64 = 0.025;
+    const MAX_BANDS: usize = 400;
+    let edges: Vec<([f64; 2], [f64; 2])> = loops
+        .iter()
+        .filter(|l| l.len() >= 3)
+        .flat_map(|l| (0..l.len()).map(move |i| (l[i], l[(i + 1) % l.len()])))
+        .collect();
+    let mut vs: Vec<f64> = edges.iter().map(|e| e.0[1]).collect();
+    vs.sort_by(f64::total_cmp);
+    vs.dedup_by(|a, b| (*a - *b).abs() < 1e-9);
+    let spans_at = |v: f64| {
+        let mut xs: Vec<f64> = edges
+            .iter()
+            .filter(|(p, q)| (p[1] <= v) != (q[1] <= v))
+            .map(|(p, q)| p[0] + (v - p[1]) / (q[1] - p[1]) * (q[0] - p[0]))
+            .collect();
+        xs.sort_by(f64::total_cmp);
+        xs.as_chunks::<2>()
+            .0
+            .iter()
+            .map(|&[a, b]| (a, b))
+            .filter(|(a, b)| b - a > 1e-9)
+            .collect::<Vec<_>>()
+    };
+    let mut out: Vec<Band> = Vec::new();
+    for w in vs.windows(2) {
+        let (lo, hi) = (w[0], w[1]);
+        let slanted = edges.iter().any(|(p, q)| {
+            p[1].min(q[1]) < hi - 1e-9 && p[1].max(q[1]) > lo + 1e-9 && (p[0] - q[0]).abs() > 1e-9
+        });
+        let n = if slanted {
+            ((hi - lo) / STEP).ceil().clamp(1.0, 64.0) as usize
+        } else {
+            1
+        };
+        for k in 0..n {
+            let (v0, v1) = (
+                lo + (hi - lo) * k as f64 / n as f64,
+                lo + (hi - lo) * (k + 1) as f64 / n as f64,
+            );
+            let spans = spans_at((v0 + v1) * 0.5);
+            if spans.is_empty() {
+                continue;
+            }
+            match out.last_mut() {
+                Some(last) if (last.1 - v0).abs() < 1e-9 && last.2 == spans => last.1 = v1,
+                _ => out.push((v0, v1, spans)),
+            }
+        }
+        if out.len() > MAX_BANDS {
+            return Vec::new();
+        }
+    }
+    out
+}
 
 type RefPoints<'a> = dyn Fn(&str) -> Result<Vec<[f64; 3]>, GenusError> + 'a;
 type RefLine<'a> = dyn Fn(&str) -> Result<[[f64; 3]; 2], GenusError> + 'a;
@@ -1658,7 +1777,7 @@ fn shape_mesh(
                 })
                 .collect();
             let y = frame.origin.y as f64;
-            Ok((mesh, Some((foot, y + lo[1], y + hi[1]))))
+            Ok((mesh, vec![(foot, y + lo[1], y + hi[1])]))
         }
         Shape::Prism {
             normal,
@@ -1681,7 +1800,14 @@ fn shape_mesh(
             };
             let _ = frame.dir(*normal);
             emit_prism(&mut mesh, &loops, origin, a, b, c, d0, d1);
-            let prism = (*normal == Axis::Y && !loops.is_empty()).then(|| {
+            let y = origin.y as f64;
+            let plan = |u: f64, d: f64| {
+                let w = origin + a * u as f32 + c * d as f32;
+                [w.x as f64, w.z as f64]
+            };
+            let prisms = if loops.is_empty() {
+                Vec::new()
+            } else if *normal == Axis::Y {
                 let foot = loops[0]
                     .iter()
                     .map(|q| {
@@ -1689,10 +1815,20 @@ fn shape_mesh(
                         [w.x as f64, w.z as f64]
                     })
                     .collect();
-                let y = origin.y as f64;
-                (foot, y + d0.min(d1), y + d0.max(d1))
-            });
-            Ok((mesh, prism))
+                vec![(foot, y + d0.min(d1), y + d0.max(d1))]
+            } else {
+                // Sketch plane is vertical (b = up): stack horizontal bands.
+                horizontal_bands(&loops)
+                    .into_iter()
+                    .flat_map(|(v0, v1, spans)| {
+                        spans.into_iter().map(move |(u0, u1)| {
+                            let foot = vec![plan(u0, d0), plan(u1, d0), plan(u1, d1), plan(u0, d1)];
+                            (foot, y + v0, y + v1)
+                        })
+                    })
+                    .collect()
+            };
+            Ok((mesh, prisms))
         }
         Shape::Revolve {
             profile,
@@ -1731,7 +1867,7 @@ fn shape_mesh(
                     seg,
                     turn,
                 );
-                return Ok((mesh, None));
+                return Ok((mesh, Vec::new()));
             }
             let o = frame.point(ref_origin(on)?);
             let prof: Vec<[f64; 2]> = match sketch {
@@ -1745,7 +1881,7 @@ fn shape_mesh(
                     .collect::<Result<_, GenusError>>()?,
             };
             emit_revolve(&mut mesh, &prof, o, Vec3::Y, frame.u, seg, turn);
-            Ok((mesh, None))
+            Ok((mesh, Vec::new()))
         }
         Shape::Sweep {
             profile,
@@ -1769,9 +1905,9 @@ fn shape_mesh(
                 .iter()
                 .map(|l| l.iter().map(|q| [q[0] as f32, q[1] as f32]).collect())
                 .collect();
-            Ok((sweep_mesh(&loops, &pts, frame)?, None))
+            Ok((sweep_mesh(&loops, &pts, frame)?, Vec::new()))
         }
-        Shape::OpeningPart { .. } => Ok((mesh, None)),
+        Shape::OpeningPart { .. } => Ok((mesh, Vec::new())),
     }
 }
 

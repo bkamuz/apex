@@ -25,6 +25,7 @@ import {
   sketchPaths,
   sketchVertices,
   sketchView,
+  asCut,
   nearestRef,
   snapPoint,
   solidKind,
@@ -42,6 +43,8 @@ export type SketchNote = 'otherView' | 'noAxis' | 'noPath' | null;
 
 interface Session {
   kind: SolidKind;
+  /** Started from the Cut tool: the result cuts the host. */
+  cut: boolean;
   /** Body item whose sketch is being edited; null = a new item. */
   editing: string | null;
   view: OrthoView | null;
@@ -73,8 +76,12 @@ export function useSketchTools(a: Args) {
   const check = useMemo(() => (session ? sketchLoops(session.items, values) : null), [session, values]);
   const issue: SketchIssue | null = check && !check.ok ? check.issue : null;
 
-  const start = useCallback((kind: SolidKind) => {
-    setSession((cur) => (cur && cur.kind === kind && !cur.editing ? null : { kind, editing: null, view: null, items: [], tool: kind === 'box' ? 'rect' : 'line', pending: [] }));
+  const start = useCallback((kind: SolidKind, cut = false) => {
+    setSession((cur) =>
+      cur && cur.kind === kind && cur.cut === cut && !cur.editing
+        ? null
+        : { kind, cut, editing: null, view: null, items: [], tool: kind === 'box' ? 'rect' : 'line', pending: [] },
+    );
     setNote(null);
     setTried(false);
     setHover(null);
@@ -85,7 +92,7 @@ export function useSketchTools(a: Args) {
     const kind = solidKind(item);
     const sketch = sketchOf(item);
     if (!kind || kind === 'box' || !sketch) return;
-    setSession({ kind, editing: item.id, view: sketchView(item), items: sketch, tool: 'line', pending: [] });
+    setSession({ kind, cut: false, editing: item.id, view: sketchView(item), items: sketch, tool: 'line', pending: [] });
     setNote(null);
     setTried(false);
   };
@@ -122,8 +129,10 @@ export function useSketchTools(a: Args) {
 
   const commitBox = (view: OrthoView, p0: GenusVec2, p1: GenusVec2) => {
     if (!draft) return;
-    const id = nextId('box', takenIds(draft, parent));
-    patch((d) => ({ ...d, body: [...d.body, newBox(id, view, p0, p1)] }));
+    const cut = Boolean(session?.cut);
+    const id = nextId(cut ? 'cut' : 'box', takenIds(draft, parent));
+    const box = newBox(id, view, p0, p1);
+    patch((d) => ({ ...d, body: [...d.body, cut ? asCut(box, view) : box] }));
     setSession(null);
     setHover(null);
     setSelected(id);
@@ -214,8 +223,9 @@ export function useSketchTools(a: Args) {
         return false;
       }
     }
-    const id = nextId(session.kind, takenIds(draft, parent));
-    patch((d) => ({ ...d, body: [...d.body, newSketchShape(id, session.kind as Exclude<SolidKind, 'box'>, view, session.items, ref)] }));
+    const id = nextId(session.cut ? 'cut' : session.kind, takenIds(draft, parent));
+    const shape = newSketchShape(id, session.kind as Exclude<SolidKind, 'box'>, view, session.items, ref);
+    patch((d) => ({ ...d, body: [...d.body, session.cut ? asCut(shape, view) : shape] }));
     setSession(null);
     setHover(null);
     setSelected(id);

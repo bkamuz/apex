@@ -4259,6 +4259,7 @@ export default function App() {
             applyScene(apexGetScene());
             syncCatalog();
           }}
+          onOpenGenus={setGenusEditor}
         />
       ) : null}
       {componentEditor ? (

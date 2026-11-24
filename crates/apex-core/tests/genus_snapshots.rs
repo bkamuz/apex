@@ -137,7 +137,9 @@ const MESH: &[(&str, u64)] = &[
     ("apex.door.single-900x2100", 0x3c3b5d6fa39cd4a0),
     ("apex.door.double-1400x2100", 0xa0b9d633bdf0f979),
     ("apex.door.transom-1000x2500", 0x8c63e5d98d4d99fd),
-    ("column", 0x4a3e91cb34b83f82),
+    // Neighbour box cuts on layered elements subtract as layered voids since
+    // PR 6 (same volume, still watertight; triangulation differs).
+    ("column", 0x1a5c13c856d65995),
     ("user.shelf", 0x34a278a2957d6f78),
     ("plan_symbols", 0x59717f7857d6cd3c),
 ];
@@ -149,7 +151,9 @@ const SMLIB: &[(&str, u64)] = &[
     ("apex.door.single-900x2100", 0xfbaf5043ab440860),
     ("apex.door.double-1400x2100", 0x31842b45a60e39cd),
     ("apex.door.transom-1000x2500", 0x8426d03e61e6aa22),
-    ("column", 0xd9ef6ec3e502a465),
+    // Neighbour box cuts on layered elements subtract as layered voids since
+    // PR 6 (same volume, still watertight; triangulation differs).
+    ("column", 0x39482fb3f05725a5),
     ("user.shelf", 0x60b9909c6c080ff5),
     ("plan_symbols", 0x59717f7857d6cd3c),
 ];
