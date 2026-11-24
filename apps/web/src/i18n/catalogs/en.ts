@@ -797,6 +797,7 @@ export const en: MessageCatalog = {
   "genusEditor.test.note": "Placements from this test stay only if you apply.",
   "genusEditor.test.apply": "Apply",
   "genusEditor.test.discard": "Discard",
+  "genusEditor.test.busy": "Apply or Discard the test before leaving it.",
   "genusEditor.library.saved": "Saved “{name}” to My library",
   "genusEditor.exitMode": "Exit",
   "genusEditor.tree.refs": "References",

@@ -243,6 +243,8 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
   const baselineRef = useRef<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [libraryNote, setLibraryNote] = useState<string | null>(null);
+  const onSavedRef = useRef(props.onSaved);
+  onSavedRef.current = props.onSaved;
   const [dockOpen, setDockOpen] = useState(true);
   const [selectedParam, setSelectedParam] = useState<string | null>(null);
   const [mobileParams, setMobileParams] = useState(false);
@@ -253,6 +255,18 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
     const root = document.getElementById('root');
     const prevInert = root?.inert ?? false;
     return () => {
+      // A remount (another genus, a crash) must not keep the preview.
+      // Apply and Discard clear the snapshot before they leave.
+      const baseline = baselineRef.current;
+      if (baseline) {
+        baselineRef.current = null;
+        try {
+          apexImportProject(baseline);
+          onSavedRef.current('');
+        } catch {
+          /* leave the preview if the snapshot cannot be read */
+        }
+      }
       setGenusEditorOpen(false);
       setGenusTestActive(false);
       if (root) root.inert = prevInert;

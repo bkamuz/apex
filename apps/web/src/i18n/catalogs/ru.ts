@@ -783,6 +783,7 @@ export const ru: MessageCatalog = {
   "genusEditor.test.note": "Расстановка из этой проверки останется только если применить.",
   "genusEditor.test.apply": "Применить",
   "genusEditor.test.discard": "Отменить",
+  "genusEditor.test.busy": "Сначала примените или отмените проверку.",
   "genusEditor.library.saved": "«{name}» сохранён в Мою библиотеку",
   "genusEditor.exitMode": "Выйти",
   "genusEditor.tree.refs": "Опоры",

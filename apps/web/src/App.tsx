@@ -2638,6 +2638,9 @@ export default function App() {
 
   useEffect(() => {
     if (!ready || !scene || !projectRestoreDoneRef.current) return;
+    // A test preview is not the project yet. Writing it here would survive
+    // a refresh with no Apply / Discard left to roll it back.
+    if (isGenusTestActive()) return;
     try {
       storeProject(apexExportProject());
     } catch {
@@ -2691,10 +2694,18 @@ export default function App() {
 
   const browserViewsProps = {
     onOpenGenus: (id: string) => {
+      if (isGenusTestActive()) {
+        setInfo(t('genusEditor.test.busy'));
+        return;
+      }
       closeMobileMenu();
       setGenusEditor({ kind: 'edit', genusId: id });
     },
     onDeriveGenus: (id: string) => {
+      if (isGenusTestActive()) {
+        setInfo(t('genusEditor.test.busy'));
+        return;
+      }
       closeMobileMenu();
       setGenusEditor({ kind: 'derive', baseId: id });
     },
@@ -3078,6 +3089,10 @@ export default function App() {
   };
 
   const onEditComponent = (componentId: string) => {
+    if (isGenusTestActive()) {
+      setInfo(t('genusEditor.test.busy'));
+      return;
+    }
     const component = components.find((item) => item.id === componentId);
     if (!component || !isUserAuthoredComponent(component)) return;
     setProfileEditor(null);
@@ -3085,6 +3100,10 @@ export default function App() {
   };
 
   const onNewComponent = () => {
+    if (isGenusTestActive()) {
+      setInfo(t('genusEditor.test.busy'));
+      return;
+    }
     setProfileEditor(null);
     setGenusEditor({ kind: 'create' });
   };
@@ -3180,6 +3199,10 @@ export default function App() {
   );
 
   const onSaveProject = useCallback(() => {
+    if (isGenusTestActive()) {
+      setInfo(t('genusEditor.test.busy'));
+      return;
+    }
     void (async () => {
       try {
         await writeProjectFile({ forceDialog: false });
@@ -3187,9 +3210,13 @@ export default function App() {
         setError(err instanceof Error ? err.message : String(err));
       }
     })();
-  }, [writeProjectFile]);
+  }, [t, writeProjectFile]);
 
   const onSaveProjectAs = useCallback(() => {
+    if (isGenusTestActive()) {
+      setInfo(t('genusEditor.test.busy'));
+      return;
+    }
     void (async () => {
       try {
         if (isTauriShell()) {
@@ -3259,6 +3286,10 @@ export default function App() {
   );
 
   const onRequestOpenProject = useCallback(() => {
+    if (isGenusTestActive()) {
+      setInfo(t('genusEditor.test.busy'));
+      return;
+    }
     if (!confirmDiscardIfDirty(t('chrome.openConfirm'))) return;
     if (isTauriShell()) {
       void (async () => {
@@ -3278,6 +3309,10 @@ export default function App() {
 
   const onOpenProjectFile = useCallback(
     (file: File) => {
+      if (isGenusTestActive()) {
+        setInfo(t('genusEditor.test.busy'));
+        return;
+      }
       const reader = new FileReader();
       reader.onload = () => {
         void (async () => {
@@ -3290,7 +3325,7 @@ export default function App() {
       };
       reader.readAsText(file);
     },
-    [loadProjectFromText],
+    [loadProjectFromText, t],
   );
 
   const underlayFileRef = useRef<HTMLInputElement>(null);
@@ -3334,6 +3369,10 @@ export default function App() {
   );
 
   const onNewProject = useCallback(() => {
+    if (isGenusTestActive()) {
+      setInfo(t('genusEditor.test.busy'));
+      return;
+    }
     if (!confirmDiscardIfDirty(t('chrome.newProjectConfirm'))) return;
     try {
       const next = apexNewProject();
@@ -3364,7 +3403,7 @@ export default function App() {
 
   useEffect(() => {
     const onFileKeyDown = (e: KeyboardEvent) => {
-      if (isGenusEditorOpen()) return;
+      if (isGenusEditorOpen() || isGenusTestActive()) return;
       const active = document.activeElement;
       const typing =
         active instanceof HTMLElement &&
@@ -4237,7 +4276,10 @@ export default function App() {
             applyScene(apexGetScene());
             syncCatalog();
           }}
-          onOpenGenus={setGenusEditor}
+          onOpenGenus={(target) => {
+            if (isGenusTestActive()) return;
+            setGenusEditor(target);
+          }}
           onBeginTest={(genusId, place) => {
             applyScene(apexGetScene());
             syncCatalog();

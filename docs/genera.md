@@ -163,7 +163,10 @@ the project to the moment the test started. Leaving the editor with a draft
 that is not in the project yet asks Apply / Discard / Stay.
 
 Discard reloads that snapshot, which clears the undo stack. Apply leaves the
-preview's own undo steps in place.
+preview's own undo steps in place. While the test is open the preview is not
+written to browser storage, and file save / open / new and opening another
+genus wait until Apply or Discard. A refresh during the test loads the
+project from before the test.
 
 Phones open the same editor for the view and for parameters and species.
 Placement, test-in-project, file import/export and saving to the library are
