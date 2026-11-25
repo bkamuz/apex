@@ -34,7 +34,7 @@ function createLinearDimensionTool(): Tool {
     descriptor: { purpose: 'Dimension the distance between two picks in a plan view.' },
     group: 'create',
     tab: ApexTabs.annotate,
-    icon: ApexIcons.sectionCut,
+    icon: ApexIcons.dimension,
     shortcut: 'D',
 
     hint(pendingCount) {

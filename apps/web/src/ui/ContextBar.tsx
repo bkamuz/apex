@@ -79,7 +79,7 @@ export function ContextBar({
   return (
     <div className={`context-bar${notice ? ' context-bar--notice' : ''}`} data-testid="context-bar">
       <span className="ctx-tool">
-        <ToolIconGlyph icon={tool.icon} />
+        <ToolIconGlyph icon={tool.icon} size={16} />
         <b>{toolDisplayLabel(tool)}</b>
       </span>
       {placing ? (

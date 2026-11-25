@@ -2,7 +2,7 @@ import { describeFromComponent } from '../descriptor';
 import { componentDisplayName, modeDisplayLabel, pluralS, t } from '../i18n';
 import type { ComponentDto, PlacementKind } from '../types';
 import type { Vec3 } from '../viewport/ViewportRenderer';
-import { COMPONENT_ICON_BY_ID, type ToolIcon } from './icons';
+import { componentIcon, type ToolIcon } from './icons';
 import {
   requiredPoints,
   toolIdForComponent,
@@ -84,7 +84,7 @@ export function createPlacementTool(
     descriptor: describeFromComponent(component),
     group: 'create',
     tab: options.tab,
-    icon: options.icon ?? COMPONENT_ICON_BY_ID[component.id],
+    icon: options.icon ?? componentIcon(component),
     componentId: component.id,
     modes: modes.length > 0 ? modes : undefined,
     getMode: modes.length > 0 ? () => modeId ?? modes[0].id : undefined,
