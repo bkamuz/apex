@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useI18n } from '../i18n';
+import type { GenusBodyItemDto } from '../types';
 import { apexExecuteCommand, apexListComponents, apexListElements } from '../wasm/apex';
 import { decodeGenusFile, importCommands, isBuiltInGenusId, type GenusFileErrorCode } from './apexgenus';
 import { writeGenusFile, readGenusFile } from './genusFileIo';
 import { deleteGenusFromLibrary, genusLibrary, subscribeGenusLibrary, type LibraryRecord } from './library';
-import { planLibraryInsert } from './libraryInsert';
+import { planLibraryInsert, type GenusLink } from './libraryInsert';
 import './genusEditor.css';
 
 interface Props {
@@ -22,10 +23,37 @@ type Notice =
   | { kind: 'already'; text: string; record: LibraryRecord; replace: boolean }
   | { kind: 'ok'; text: string };
 
-function projectGenus(id: string): { present: boolean; instances: number } {
+function nestedGenusIds(body: readonly GenusBodyItemDto[]): string[] {
+  const ids: string[] = [];
+  for (const item of body) {
+    switch (item.item) {
+      case 'nested':
+        ids.push(item.genus);
+        break;
+      case 'solid':
+      case 'cut':
+        break;
+      default: {
+        const _exhaustive: never = item;
+        return _exhaustive;
+      }
+    }
+  }
+  return ids;
+}
+
+function projectGenera(): { present: (id: string) => boolean; links: GenusLink[]; placed: string[] } {
+  const components = apexListComponents();
+  const links = components.map((component) => ({
+    id: component.id,
+    extends: component.genus?.extends,
+    nests: nestedGenusIds(component.genus?.body ?? []),
+  }));
+  const placed = apexListElements().map((element) => element.component_id);
   return {
-    present: apexListComponents().some((component) => component.id === id),
-    instances: apexListElements().filter((element) => element.component_id === id).length,
+    present: (id) => components.some((component) => component.id === id),
+    links,
+    placed,
   };
 }
 
@@ -71,8 +99,9 @@ export function GenusLibraryPanel({ onChanged }: Props) {
       setNotice({ kind: 'error', text: t('genusFile.err.builtIn') });
       return;
     }
-    const found = projectGenus(record.file.genus.id);
-    const plan = planLibraryInsert(found.present, found.instances);
+    const project = projectGenera();
+    const id = record.file.genus.id;
+    const plan = planLibraryInsert(project.present(id), id, project.links, project.placed);
     switch (plan.kind) {
       case 'already':
         setNotice({
