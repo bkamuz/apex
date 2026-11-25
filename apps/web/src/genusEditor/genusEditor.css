@@ -156,13 +156,24 @@
   margin-left: auto;
 }
 .genus-library-empty,
-.genus-library-error {
+.genus-library-error,
+.genus-library-note {
   margin: 4px 0 0;
   font-size: 12px;
   color: var(--chrome-muted);
 }
 .genus-library-error {
   color: var(--chrome-error-text, #b42318);
+}
+.genus-library-note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  color: var(--chrome-text);
+}
+.genus-library-note--ok {
+  color: var(--chrome-muted);
 }
 .genus-dirty {
   color: var(--chrome-dirty);

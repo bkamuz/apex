@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useI18n } from '../i18n';
-import { apexExecuteCommand } from '../wasm/apex';
+import type { GenusBodyItemDto } from '../types';
+import { apexExecuteCommand, apexListComponents, apexListElements } from '../wasm/apex';
 import { decodeGenusFile, importCommands, isBuiltInGenusId, type GenusFileErrorCode } from './apexgenus';
 import { writeGenusFile, readGenusFile } from './genusFileIo';
 import { deleteGenusFromLibrary, genusLibrary, subscribeGenusLibrary, type LibraryRecord } from './library';
+import { planLibraryInsert, type GenusLink } from './libraryInsert';
 import './genusEditor.css';
 
 interface Props {
@@ -16,11 +18,50 @@ function fileError(code: GenusFileErrorCode, version: number | undefined, t: (ke
   return t(`genusFile.err.${code}`);
 }
 
+type Notice =
+  | { kind: 'error'; text: string }
+  | { kind: 'already'; text: string; record: LibraryRecord; replace: boolean }
+  | { kind: 'ok'; text: string };
+
+function nestedGenusIds(body: readonly GenusBodyItemDto[]): string[] {
+  const ids: string[] = [];
+  for (const item of body) {
+    switch (item.item) {
+      case 'nested':
+        ids.push(item.genus);
+        break;
+      case 'solid':
+      case 'cut':
+        break;
+      default: {
+        const _exhaustive: never = item;
+        return _exhaustive;
+      }
+    }
+  }
+  return ids;
+}
+
+function projectGenera(): { present: (id: string) => boolean; links: GenusLink[]; placed: string[] } {
+  const components = apexListComponents();
+  const links = components.map((component) => ({
+    id: component.id,
+    extends: component.genus?.extends,
+    nests: nestedGenusIds(component.genus?.body ?? []),
+  }));
+  const placed = apexListElements().map((element) => element.component_id);
+  return {
+    present: (id) => components.some((component) => component.id === id),
+    links,
+    placed,
+  };
+}
+
 /** «Моя библиотека» / My library, in the Роды browser. */
 export function GenusLibraryPanel({ onChanged }: Props) {
   const { t } = useI18n();
   const [rows, setRows] = useState<LibraryRecord[]>([]);
-  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
   const reload = () => {
@@ -28,9 +69,10 @@ export function GenusLibraryPanel({ onChanged }: Props) {
       .list()
       .then((list) => {
         setRows(list);
-        setError(null);
       })
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : String(err)));
+      .catch((err: unknown) =>
+        setNotice({ kind: 'error', text: err instanceof Error ? err.message : String(err) }),
+      );
   };
 
   useEffect(() => {
@@ -38,18 +80,44 @@ export function GenusLibraryPanel({ onChanged }: Props) {
     return subscribeGenusLibrary(reload);
   }, []);
 
-  const insert = (record: LibraryRecord) => {
-    if (isBuiltInGenusId(record.file.genus.id)) {
-      setError(t('genusFile.err.builtIn'));
-      return;
-    }
+  const commit = (record: LibraryRecord, mode: 'insert' | 'replace') => {
     try {
       const steps = importCommands(record.file);
       apexExecuteCommand(steps.length === 1 ? steps[0] : { op: 'batch', commands: steps });
-      setError(null);
+      setNotice({
+        kind: 'ok',
+        text: t(mode === 'insert' ? 'browser.library.inserted' : 'browser.library.updated'),
+      });
       onChanged();
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setNotice({ kind: 'error', text: err instanceof Error ? err.message : String(err) });
+    }
+  };
+
+  const insert = (record: LibraryRecord) => {
+    if (isBuiltInGenusId(record.file.genus.id)) {
+      setNotice({ kind: 'error', text: t('genusFile.err.builtIn') });
+      return;
+    }
+    const project = projectGenera();
+    const id = record.file.genus.id;
+    const plan = planLibraryInsert(project.present(id), id, project.links, project.placed);
+    switch (plan.kind) {
+      case 'already':
+        setNotice({
+          kind: 'already',
+          text: t('browser.library.already'),
+          record,
+          replace: plan.replace,
+        });
+        return;
+      case 'insert':
+        commit(record, 'insert');
+        return;
+      default: {
+        const _exhaustive: never = plan;
+        return _exhaustive;
+      }
     }
   };
 
@@ -58,7 +126,7 @@ export function GenusLibraryPanel({ onChanged }: Props) {
     if (!picked) return;
     const decoded = decodeGenusFile(picked.text);
     if (!decoded.ok) {
-      setError(fileError(decoded.code, decoded.version, t));
+      setNotice({ kind: 'error', text: fileError(decoded.code, decoded.version, t) });
       return;
     }
     insert({ id: decoded.file.genus.id, name: decoded.file.genus.name, savedAt: '', file: decoded.file });
@@ -111,7 +179,31 @@ export function GenusLibraryPanel({ onChanged }: Props) {
           </li>
         ))}
       </ul>
-      {error ? <p className="genus-library-error" data-testid="genus-library-error">{error}</p> : null}
+      {notice?.kind === 'error' ? (
+        <p className="genus-library-error" data-testid="genus-library-error" role="alert">
+          {notice.text}
+        </p>
+      ) : null}
+      {notice?.kind === 'already' ? (
+        <p className="genus-library-note" data-testid="genus-library-already" role="status">
+          <span>{notice.text}</span>
+          {notice.replace ? (
+            <button
+              type="button"
+              className="panel-action"
+              data-testid="genus-library-replace"
+              onClick={() => commit(notice.record, 'replace')}
+            >
+              {t('browser.library.replace')}
+            </button>
+          ) : null}
+        </p>
+      ) : null}
+      {notice?.kind === 'ok' ? (
+        <p className="genus-library-note genus-library-note--ok" data-testid="genus-library-status" role="status">
+          {notice.text}
+        </p>
+      ) : null}
     </section>
   );
 }

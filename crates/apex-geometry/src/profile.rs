@@ -201,11 +201,18 @@ fn triangulate_with_holes(loops: &[Vec<Point2>]) -> Result<Vec<[usize; 3]>, Geom
         .map(|p| spade::Point2::new(p[0] as f64, p[1] as f64))
         .collect();
 
-    let cdt = ConstrainedDelaunayTriangulation::<spade::Point2<f64>>::bulk_load_cdt(
+    // `bulk_load_cdt` aborts on overlapping edges. A rejected constraint is
+    // a triangulation error, not a process crash.
+    let mut conflicts = 0u32;
+    let cdt = ConstrainedDelaunayTriangulation::<spade::Point2<f64>>::try_bulk_load_cdt(
         spade_points,
         constraints,
+        |_| conflicts += 1,
     )
     .map_err(|_| GeometryError::Triangulation)?;
+    if conflicts > 0 {
+        return Err(GeometryError::Triangulation);
+    }
 
     let mut triangles = Vec::new();
     for face in cdt.inner_faces() {

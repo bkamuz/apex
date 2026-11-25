@@ -16,6 +16,7 @@
 
 use i_overlay::core::fill_rule::FillRule;
 use i_overlay::core::overlay_rule::OverlayRule;
+use i_overlay::float::simplify::SimplifyShape;
 use i_overlay::float::single::SingleFloatOverlay;
 use spade::{ConstrainedDelaunayTriangulation, Triangulation};
 
@@ -93,7 +94,16 @@ fn clean_ring(ring: &[[f64; 2]], outer: bool) -> Option<Ring> {
 }
 
 /// Snap, orient (outer CCW, holes CW) and drop degenerate rings.
+///
+/// A ring that retraces itself or crosses its own edges — a hairline spike
+/// from a mitre at a folded corner — is rebuilt as a simple contour. The
+/// spike has no area; the wall body is kept. Done here so caps and side
+/// panels are cut from the same outline.
 pub fn clean_region(shapes: Vec<Vec<Vec<[f64; 2]>>>) -> Region {
+    repair_self_overlaps(clean_region_basic(shapes))
+}
+
+fn clean_region_basic(shapes: Vec<Vec<Vec<[f64; 2]>>>) -> Region {
     let mut out = Region::new();
     for shape in shapes {
         let mut rings = shape.into_iter();
@@ -105,6 +115,78 @@ pub fn clean_region(shapes: Vec<Vec<Vec<[f64; 2]>>>) -> Region {
         out.push(cleaned);
     }
     out
+}
+
+fn vkey(p: [f64; 2]) -> [i64; 2] {
+    [(p[0] / GRID).round() as i64, (p[1] / GRID).round() as i64]
+}
+
+fn ring_self_overlaps(ring: &[[f64; 2]]) -> bool {
+    let n = ring.len();
+    if n < 3 {
+        return false;
+    }
+    let keys: Vec<[i64; 2]> = ring.iter().copied().map(vkey).collect();
+    let mut seen_v = std::collections::HashSet::with_capacity(n);
+    for key in &keys {
+        if !seen_v.insert(*key) {
+            return true;
+        }
+    }
+    let mut seen_e = std::collections::HashSet::with_capacity(n);
+    for i in 0..n {
+        let (a, b) = (keys[i], keys[(i + 1) % n]);
+        if a == b {
+            return true;
+        }
+        let edge = if a <= b { (a, b) } else { (b, a) };
+        if !seen_e.insert(edge) {
+            return true;
+        }
+    }
+    for i in 0..n {
+        for j in (i + 1)..n {
+            let i2 = (i + 1) % n;
+            let j2 = (j + 1) % n;
+            if i == j2 || i2 == j || i2 == j2 {
+                continue;
+            }
+            if proper_cross(keys[i], keys[i2], keys[j], keys[j2]) {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+fn proper_cross(a: [i64; 2], b: [i64; 2], c: [i64; 2], d: [i64; 2]) -> bool {
+    let side = |p: [i64; 2], q: [i64; 2], r: [i64; 2]| -> i32 {
+        let cross = (q[0] as i128 - p[0] as i128) * (r[1] as i128 - p[1] as i128)
+            - (q[1] as i128 - p[1] as i128) * (r[0] as i128 - p[0] as i128);
+        cross.signum() as i32
+    };
+    let (ab_c, ab_d) = (side(a, b, c), side(a, b, d));
+    let (cd_a, cd_b) = (side(c, d, a), side(c, d, b));
+    ab_c * ab_d < 0 && cd_a * cd_b < 0
+}
+
+fn region_self_overlaps(region: &Region) -> bool {
+    region.iter().flatten().any(|ring| ring_self_overlaps(ring))
+}
+
+/// Resolve retraced and crossing rings into simple contours. `i64` keeps a
+/// hairline spike distinct from the wall when the mitre clip is hundreds of
+/// metres across. An empty result is rejected so a failed simplify cannot
+/// delete a solid that still has area.
+fn repair_self_overlaps(region: Region) -> Region {
+    if !region_self_overlaps(&region) {
+        return region;
+    }
+    let simplified = clean_region_basic(region.simplify_shape_as::<i64>(FillRule::NonZero));
+    if simplified.is_empty() && !region.is_empty() {
+        return region;
+    }
+    simplified
 }
 
 fn region_op(a: &Region, b: &Region, op: OverlayRule) -> Region {
@@ -952,7 +1034,30 @@ fn zipper(
 }
 
 /// Constrained Delaunay triangulation of one shape (outer + holes).
+///
+/// Overlapping constraint edges make `bulk_load_cdt` abort the process. A
+/// folded wall corner produces exactly those edges (the outline retraces a
+/// hairline spike). The spike is removed first; if a conflict still remains
+/// the call returns a triangulation of the repaired contour instead of
+/// panicking or dropping the cap.
 pub fn triangulate_shape(rings: &[Ring]) -> Vec<[[f64; 2]; 3]> {
+    if let Some(tris) = triangulate_cdt(rings) {
+        return tris;
+    }
+    let fixed = repair_self_overlaps(vec![rings.to_vec()]);
+    let mut out = Vec::new();
+    for shape in &fixed {
+        if let Some(tris) = triangulate_cdt(shape) {
+            out.extend(tris);
+        } else if shape.len() == 1 {
+            out.extend(ear_clip_ring(&shape[0]));
+        }
+    }
+    out
+}
+
+/// `None` when the constraint set is rejected. Never panics.
+fn triangulate_cdt(rings: &[Ring]) -> Option<Vec<[[f64; 2]; 3]>> {
     let mut points: Vec<[f64; 2]> = Vec::new();
     let mut index_of = std::collections::HashMap::<[i64; 2], usize>::new();
     let mut constraints = Vec::new();
@@ -960,7 +1065,7 @@ pub fn triangulate_shape(rings: &[Ring]) -> Vec<[[f64; 2]; 3]> {
         let ids: Vec<usize> = ring
             .iter()
             .map(|v| {
-                let key = [(v[0] / GRID).round() as i64, (v[1] / GRID).round() as i64];
+                let key = vkey(*v);
                 *index_of.entry(key).or_insert_with(|| {
                     points.push(*v);
                     points.len() - 1
@@ -974,17 +1079,23 @@ pub fn triangulate_shape(rings: &[Ring]) -> Vec<[[f64; 2]; 3]> {
             }
         }
     }
+    if points.len() < 3 {
+        return Some(Vec::new());
+    }
     let spade_points: Vec<spade::Point2<f64>> = points
         .iter()
         .map(|p| spade::Point2::new(p[0], p[1]))
         .collect();
-    let cdt = match ConstrainedDelaunayTriangulation::<spade::Point2<f64>>::bulk_load_cdt(
+    let mut conflicts = 0u32;
+    let cdt = ConstrainedDelaunayTriangulation::<spade::Point2<f64>>::try_bulk_load_cdt(
         spade_points,
         constraints,
-    ) {
-        Ok(cdt) => cdt,
-        Err(_) => return Vec::new(),
-    };
+        |_| conflicts += 1,
+    )
+    .ok()?;
+    if conflicts > 0 {
+        return None;
+    }
     let mut out = Vec::new();
     for face in cdt.inner_faces() {
         let v = face.vertices();
@@ -1001,7 +1112,32 @@ pub fn triangulate_shape(rings: &[Ring]) -> Vec<[[f64; 2]; 3]> {
             out.push(tri);
         }
     }
-    out
+    if out.is_empty() {
+        None
+    } else {
+        Some(out)
+    }
+}
+
+/// Ear clip of one simple ring. A self-overlapping ring is refused: clipping
+/// it would fill the spike and leave a wrong cap.
+fn ear_clip_ring(ring: &Ring) -> Vec<[[f64; 2]; 3]> {
+    if ring.len() < 3 || ring_self_overlaps(ring) {
+        return Vec::new();
+    }
+    let mut pts: Vec<[f32; 2]> = ring.iter().map(|p| [p[0] as f32, p[1] as f32]).collect();
+    if ring_area(ring) < 0.0 {
+        pts.reverse();
+    }
+    let Ok(tris) = crate::profile::triangulate_ccw(&pts) else {
+        return Vec::new();
+    };
+    tris.into_iter()
+        .map(|[a, b, c]| {
+            let f = |i: usize| [pts[i][0] as f64, pts[i][1] as f64];
+            [f(a), f(b), f(c)]
+        })
+        .collect()
 }
 
 /// Every undirected edge used by exactly two triangles, in opposite
@@ -1528,5 +1664,36 @@ mod side_strip_tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn a_retraced_spike_triangulates_to_the_wall_body() {
+        // Captured from a corner dragged ~12 m into a fold. The outline
+        // walks out to the mitre tip and back along the same edge.
+        let ring = vec![
+            [-0.09597, 0.02811],
+            [-2.75994, -9.06732],
+            [-2.75995, -9.06733],
+            [-2.75998, -9.06740],
+            [-2.75994, -9.06732],
+            [-2.75995, -9.06733],
+            [-2.36054, -8.22095],
+            [-2.21060, -7.90322],
+            [-2.21058, -7.90318],
+            [0.09597, -0.02811],
+        ];
+        let tris = triangulate_shape(&[ring]);
+        assert!(!tris.is_empty(), "cap must not be dropped");
+        let area: f64 = tris
+            .iter()
+            .map(|[a, b, c]| {
+                let cross = (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
+                cross.abs() * 0.5
+            })
+            .sum();
+        // Wall strip is a few tenths of a square metre; the spike is not.
+        assert!(area > 0.2 && area < 5.0, "area {area}");
+        let plain = triangulate_shape(&[vec![[0.0, 0.0], [6.0, 0.0], [6.0, 0.2], [0.0, 0.2]]]);
+        assert_eq!(plain.len(), 2);
     }
 }
