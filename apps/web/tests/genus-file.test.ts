@@ -4,7 +4,10 @@ import { APEXGENUS_VERSION, decodeGenusFile, encodeGenusFile, genusFile, importC
 import { blankGenusDraft, type GenusDraft } from '../src/genusEditor/model.ts';
 import { closeProjectTest, leaveNeedsPrompt, openProjectTest } from '../src/genusEditor/projectPreview.ts';
 import { deleteGenusFromLibrary, memoryLibraryStore, saveGenusToLibrary } from '../src/genusEditor/library.ts';
+import { planLibraryInsert } from '../src/genusEditor/libraryInsert.ts';
 import { retargetGenusId } from '../src/genusEditor/params.ts';
+import { en } from '../src/i18n/catalogs/en.ts';
+import { ru } from '../src/i18n/catalogs/ru.ts';
 
 const rich = (): GenusDraft => ({
   id: 'user.shelf',
@@ -114,6 +117,20 @@ test('retargeting a new genus id moves species ids with it', () => {
   const next = retargetGenusId(draft, [{ id: 'user.custom.wide', name: 'Wide', values: { width: 2 } }], 'user.smoke.box');
   assert.equal(next.draft.id, 'user.smoke.box');
   assert.equal(next.species[0].id, 'user.smoke.box.wide');
+});
+
+test('inserting a genus that is already in the project is reported, and replace is only offered when nothing is placed', () => {
+  assert.deepEqual(planLibraryInsert(false, 0), { kind: 'insert' });
+  assert.deepEqual(planLibraryInsert(false, 2), { kind: 'insert' });
+  assert.deepEqual(planLibraryInsert(true, 0), { kind: 'already', replace: true });
+  assert.deepEqual(planLibraryInsert(true, 3), { kind: 'already', replace: false });
+  assert.equal(ru['browser.library.already'], 'Род уже есть в проекте');
+  assert.equal(en['browser.library.already'], 'Genus is already in the project');
+  assert.equal(ru['browser.library.inserted'], 'Род вставлен в проект');
+  assert.ok(en['browser.library.inserted']);
+  assert.equal(ru['browser.library.replace'], 'Заменить');
+  assert.equal(en['browser.library.updated'], 'Genus updated in the project');
+  assert.equal(ru['browser.library.updated'], 'Род обновлён в проекте');
 });
 
 test('a blank genus is a point-placed box', () => {
