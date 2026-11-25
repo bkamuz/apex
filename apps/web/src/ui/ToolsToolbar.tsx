@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import type { Tool } from '../tools/Tool';
+import type { Tool, ToolIconName } from '../tools/Tool';
+import { ApexIcons } from '../tools/icons';
 import { tabDisplayLabel, toolDisplayLabel, useI18n } from '../i18n';
 import { ToolIconGlyph } from './ToolIcon';
 import {
@@ -63,7 +64,7 @@ function ToolButton({
         onActivate(tool.id);
       }}
     >
-      <ToolIconGlyph icon={tool.icon} />
+      <ToolIconGlyph icon={tool.icon} size={24} />
       <span className="tool-label">{label}</span>
     </button>
   );
@@ -95,16 +96,16 @@ function RibbonPanel({
   );
 }
 
-function TextButton({
+function ViewButton({
   label,
-  glyph,
+  icon,
   title,
   active,
   onClick,
   testId,
 }: {
   label: string;
-  glyph: string;
+  icon: ToolIconName;
   title: string;
   active?: boolean;
   onClick: () => void;
@@ -123,9 +124,7 @@ function TextButton({
         onClick();
       }}
     >
-      <span className="tool-icon rb-glyph" aria-hidden="true">
-        {glyph}
-      </span>
+      <ToolIconGlyph icon={icon} size={24} />
       <span className="tool-label">{label}</span>
     </button>
   );
@@ -269,34 +268,34 @@ export function ToolsToolbar({
             {activeTab?.id === RIBBON_TABS.view ? (
               <>
                 <RibbonPanel label={t('ribbon.group.navigate')} testId="ribbon-group-navigate">
-                  <TextButton
+                  <ViewButton
                     label={t('cmd.view3d')}
-                    glyph="3D"
+                    icon={ApexIcons.view3d}
                     title={t('toolbar.view3dTitle')}
                     active={view.viewNavigation === '3d'}
                     onClick={() => view.onSetViewNavigation('3d')}
                     testId="ribbon-view-3d"
                   />
-                  <TextButton
+                  <ViewButton
                     label={t('cmd.plan')}
-                    glyph="▭"
+                    icon={ApexIcons.viewPlan}
                     title={t('toolbar.planTitle')}
                     active={view.viewNavigation === 'plan'}
                     onClick={() => view.onSetViewNavigation('plan')}
                     testId="ribbon-view-plan"
                   />
-                  <TextButton
+                  <ViewButton
                     label={t('cmd.fit')}
-                    glyph="⤢"
+                    icon={ApexIcons.viewFit}
                     title={t('toolbar.fitTitle')}
                     onClick={view.onFitView}
                     testId="ribbon-view-fit"
                   />
                 </RibbonPanel>
                 <RibbonPanel label={t('ribbon.group.graphics')} testId="ribbon-group-graphics">
-                  <TextButton
+                  <ViewButton
                     label={t('cmd.thinLines')}
-                    glyph="TL"
+                    icon={ApexIcons.thinLines}
                     title={t('toolbar.thinLinesTitle')}
                     active={view.hairline}
                     onClick={view.onToggleHairline}

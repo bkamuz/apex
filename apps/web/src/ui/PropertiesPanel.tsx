@@ -1005,7 +1005,7 @@ export function PropertiesPanel({
         <div className="inspector-header" data-testid="inspector-header">
           <div className="inspector-heading-row">
             <span className="inspector-cat-icon" title={categoryLabel} aria-label={categoryLabel} role="img">
-              {icon ? <ToolIconGlyph icon={icon} /> : categoryLabel.slice(0, 1)}
+              {icon ? <ToolIconGlyph icon={icon} size={16} /> : categoryLabel.slice(0, 1)}
             </span>
             <h2 className="inspector-lineage" data-testid="inspector-lineage">
               <span title={t('inspector.genus')}>{genusName}</span>

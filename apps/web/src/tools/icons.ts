@@ -1,5 +1,13 @@
+import { TOOL_ICON_SVG, type ToolIconSize } from './iconCatalog.generated';
+
+export type { ToolIconSize } from './iconCatalog.generated';
+
 /**
  * First-party toolbar icon catalog (ontology), parallel to `TOOL_TABS`.
+ *
+ * Glyphs come from the Poché set (`iconCatalog.generated.ts`): one file per
+ * size (16 / 24 / 32 px), each drawn for its own pixel grid, two tones of
+ * `currentColor`.
  *
  * Prefer a catalog name via `ApexIcons.*` / `window.apex.icons.*`.
  * Unknown names render nothing (label-only — never a broken image).
@@ -39,6 +47,20 @@ export const TOOL_ICONS = {
   gate: 'gate',
   siteSurface: 'site-surface',
   terrain: 'terrain',
+  roofPitched: 'roof-pitched',
+  dimension: 'dimension',
+  textNote: 'text-note',
+  component: 'component',
+  genusEditor: 'genus-editor',
+  view3d: 'view-3d',
+  viewPlan: 'view-plan',
+  viewFit: 'view-fit',
+  thinLines: 'thin-lines',
+  railing: 'railing',
+  ceiling: 'ceiling',
+  curtainWall: 'curtain-wall',
+  foundation: 'foundation',
+  wallOpening: 'wall-opening',
 } as const;
 
 export type ToolIconName = (typeof TOOL_ICONS)[keyof typeof TOOL_ICONS];
@@ -53,60 +75,6 @@ export const ApexIcons = TOOL_ICONS;
  */
 export type ToolIcon = ToolIconName | (string & {}) | { svg: string };
 
-/** Flat CAD glyphs: 14×14, stroke currentColor, no fill chrome. */
-const CATALOG_SVG: Readonly<Record<string, string>> = {
-  select:
-    '<path d="M3 2l4 10 2-4 4-2z" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>',
-  move: '<path d="M7 2v10M2 7h10M4.5 4.5L2 7l2.5 2.5M9.5 4.5L12 7l-2.5 2.5" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>',
-  copy: '<rect x="2.5" y="4" width="6.5" height="7.5" fill="none" stroke="currentColor" stroke-width="1.25"/><path d="M5.5 4V2.5h6.5V10H10" fill="none" stroke="currentColor" stroke-width="1.25"/>',
-  parent:
-    '<circle cx="7" cy="3.5" r="1.75" fill="none" stroke="currentColor" stroke-width="1.25"/><circle cx="3.5" cy="10.5" r="1.75" fill="none" stroke="currentColor" stroke-width="1.25"/><circle cx="10.5" cy="10.5" r="1.75" fill="none" stroke="currentColor" stroke-width="1.25"/><path d="M7 5.25v2M7 7.25L3.5 9M7 7.25l3.5 1.75" fill="none" stroke="currentColor" stroke-width="1.25"/>',
-  boolean:
-    '<rect x="2" y="2" width="6.5" height="6.5" fill="none" stroke="currentColor" stroke-width="1.25"/><circle cx="9" cy="9" r="3.25" fill="none" stroke="currentColor" stroke-width="1.25"/>',
-  detach:
-    '<circle cx="4" cy="7" r="2" fill="none" stroke="currentColor" stroke-width="1.25"/><circle cx="10" cy="7" r="2" fill="none" stroke="currentColor" stroke-width="1.25"/><path d="M6 7h2" fill="none" stroke="currentColor" stroke-width="1.25" stroke-dasharray="1.5 1"/>',
-  wall: '<path d="M2 11L7 3l5 8" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/><path d="M3.2 9h7.6" fill="none" stroke="currentColor" stroke-width="1.25"/>',
-  column:
-    '<rect x="4.5" y="2.5" width="5" height="9" fill="none" stroke="currentColor" stroke-width="1.25"/><path d="M3.5 11.5h7" fill="none" stroke="currentColor" stroke-width="1.25"/>',
-  beam: '<path d="M2 5.5h10v3H2z" fill="none" stroke="currentColor" stroke-width="1.25"/><path d="M3.5 3.5v8M10.5 3.5v8" fill="none" stroke="currentColor" stroke-width="1.25"/>',
-  slab: '<path d="M2 4.5h10v5H2z" fill="none" stroke="currentColor" stroke-width="1.25"/><path d="M2 7h10" fill="none" stroke="currentColor" stroke-width="1.25"/>',
-  door: '<path d="M3.5 12V3.5h7V12" fill="none" stroke="currentColor" stroke-width="1.25"/><circle cx="8.5" cy="8" r="0.7" fill="currentColor"/><path d="M3.5 12h8" fill="none" stroke="currentColor" stroke-width="1.25"/>',
-  window:
-    '<rect x="2.5" y="3" width="9" height="8" fill="none" stroke="currentColor" stroke-width="1.25"/><path d="M7 3v8M2.5 7h9" fill="none" stroke="currentColor" stroke-width="1.25"/>',
-  opening:
-    '<rect x="2.5" y="3.5" width="9" height="7" fill="none" stroke="currentColor" stroke-width="1.25" stroke-dasharray="1.6 1.2"/>',
-  stair:
-    '<path d="M2.5 11.5h3v-2.5h3V6.5h3V3.5" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/>',
-  roof: '<path d="M2 8.5L7 3l5 5.5" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/><path d="M3.5 8.5v3h7v-3" fill="none" stroke="currentColor" stroke-width="1.25"/>',
-  pipe: '<path d="M2 7h10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><circle cx="3.5" cy="7" r="1.6" fill="none" stroke="currentColor" stroke-width="1.1"/><circle cx="10.5" cy="7" r="1.6" fill="none" stroke="currentColor" stroke-width="1.1"/>',
-  duct: '<rect x="2" y="4.5" width="10" height="5" rx="0" fill="none" stroke="currentColor" stroke-width="1.25"/><path d="M5 4.5v5M9 4.5v5" fill="none" stroke="currentColor" stroke-width="1.1"/>',
-  cable:
-    '<path d="M2.5 4.5c2 0 2 5 4.5 5s2.5-5 4.5-5" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>',
-  'ref-point':
-    '<circle cx="7" cy="7" r="2.25" fill="none" stroke="currentColor" stroke-width="1.25"/><path d="M7 2.5v2M7 9.5v2M2.5 7h2M9.5 7h2" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>',
-  'ref-plane':
-    '<path d="M2.5 10.5L7 3.5l4.5 7" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/><path d="M3.5 9h7" fill="none" stroke="currentColor" stroke-width="1.25"/>',
-  grid: '<path d="M3 2.5v9M7 2.5v9M11 2.5v9M2.5 4h9M2.5 7h9M2.5 10h9" fill="none" stroke="currentColor" stroke-width="1.15"/>',
-  level:
-    '<path d="M2 11.5h10M2 7.5h10M2 3.5h10" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/><path d="M3.5 11.5V3.5" fill="none" stroke="currentColor" stroke-width="1.1"/>',
-  'construction-line':
-    '<path d="M2.5 11.5L11.5 2.5" fill="none" stroke="currentColor" stroke-width="1.25" stroke-dasharray="2 1.5" stroke-linecap="round"/><circle cx="2.5" cy="11.5" r="1" fill="currentColor"/><circle cx="11.5" cy="2.5" r="1" fill="currentColor"/>',
-  'section-cut':
-    '<path d="M2.5 11.5L11.5 2.5" fill="none" stroke="currentColor" stroke-width="1.35" stroke-linecap="round"/><path d="M4 4.5h3.5v3.5" fill="none" stroke="currentColor" stroke-width="1.15" stroke-linejoin="round"/>',
-  space:
-    '<path d="M3 3.5h8v7H3z" fill="none" stroke="currentColor" stroke-width="1.25"/><path d="M5 6.5h4M7 4.5v4" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/>',
-  'detect-rooms':
-    '<path d="M2.5 3.5h4v4h-4zM7.5 3.5h4v4h-4zM2.5 8.5h9v3h-9z" fill="none" stroke="currentColor" stroke-width="1.2"/><path d="M4.5 5.5h0.01M9.5 5.5h0.01M7 10h0.01" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>',
-  fence:
-    '<path d="M2 11.5V3.5M5 11.5V3.5M8 11.5V3.5M11 11.5V3.5M2 5.5h9M2 8.5h9" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/>',
-  gate:
-    '<path d="M2.5 12V3h4.5v9M11.5 12V3H7v9" fill="none" stroke="currentColor" stroke-width="1.25"/><circle cx="6.2" cy="7.5" r="0.6" fill="currentColor"/><path d="M2.5 12h9" fill="none" stroke="currentColor" stroke-width="1.25"/>',
-  'site-surface':
-    '<path d="M2 10.5L4.5 4h5L12 10.5z" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/><path d="M3.5 8.5h7" fill="none" stroke="currentColor" stroke-width="1.1"/>',
-  terrain:
-    '<path d="M1.5 11L3.5 7.5 5.5 9 8 4.5 10.5 7.5 12.5 6.5 12.5 11z" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/><circle cx="5.5" cy="9" r="0.7" fill="currentColor"/><circle cx="8" cy="4.5" r="0.7" fill="currentColor"/>',
-};
-
 /** Map built-in component ids → catalog icon names. */
 export const COMPONENT_ICON_BY_ID: Readonly<Record<string, ToolIconName>> = {
   'apex.wall': TOOL_ICONS.wall,
@@ -118,7 +86,7 @@ export const COMPONENT_ICON_BY_ID: Readonly<Record<string, ToolIconName>> = {
   'apex.slab_opening': TOOL_ICONS.opening,
   'apex.stair': TOOL_ICONS.stair,
   'apex.roof': TOOL_ICONS.roof,
-  'apex.roof.pitched': TOOL_ICONS.roof,
+  'apex.roof.pitched': TOOL_ICONS.roofPitched,
   'apex.pipe': TOOL_ICONS.pipe,
   'apex.duct': TOOL_ICONS.duct,
   'apex.cable_tray': TOOL_ICONS.cable,
@@ -128,15 +96,46 @@ export const COMPONENT_ICON_BY_ID: Readonly<Record<string, ToolIconName>> = {
   'apex.terrain': TOOL_ICONS.terrain,
 };
 
-export function catalogIconByName(name: string): string | undefined {
-  return CATALOG_SVG[name];
+/**
+ * Icon for a component: its own catalog glyph, else the glyph of the genus it
+ * extends, else the generic component glyph (user components are never
+ * label-only).
+ */
+export function componentIcon(component: { id: string; genus?: { extends?: string } | null }): ToolIconName {
+  const own = COMPONENT_ICON_BY_ID[component.id];
+  if (own) return own;
+  const base = component.genus?.extends;
+  return (base && COMPONENT_ICON_BY_ID[base]) || TOOL_ICONS.component;
+}
+
+/** Nearest shipped size at or above `size` (falls back to the largest). */
+function shippedSize(size: number): ToolIconSize {
+  if (size <= 16) return 16;
+  if (size <= 24) return 24;
+  return 32;
+}
+
+/** Full `<svg>` markup for a catalog name at a size, or `undefined` when unknown. */
+export function catalogIconByName(name: string, size: number = 24): string | undefined {
+  return TOOL_ICON_SVG[shippedSize(size)][name];
+}
+
+/**
+ * Give an icon's mask ids a per-instance prefix so many inline copies of the
+ * same glyph never share (or shadow) one `<mask id>` in the document.
+ */
+export function scopeSvgIds(svg: string, scope: string): string {
+  const safe = scope.replace(/[^a-zA-Z0-9_-]/g, '');
+  return safe ? svg.replace(/apx-p-/g, `apx-${safe}-`) : svg;
 }
 
 /**
  * Resolve a tool icon to SVG markup ready for `dangerouslySetInnerHTML`, or
- * `null` when missing/unknown (caller shows label only).
+ * `null` when missing/unknown (caller shows label only). `size` picks the
+ * pixel-grid version of catalog glyphs; custom inner markup keeps its 14×14
+ * viewBox.
  */
-export function resolveToolIconSvg(icon: ToolIcon | undefined): string | null {
+export function resolveToolIconSvg(icon: ToolIcon | undefined, size: number = 24): string | null {
   if (icon == null) return null;
   if (typeof icon === 'object' && 'svg' in icon) {
     const raw = icon.svg?.trim();
@@ -144,7 +143,5 @@ export function resolveToolIconSvg(icon: ToolIcon | undefined): string | null {
     if (/^<svg[\s>]/i.test(raw)) return raw;
     return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14" width="14" height="14" aria-hidden="true">${raw}</svg>`;
   }
-  const inner = catalogIconByName(String(icon));
-  if (!inner) return null;
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 14 14" width="14" height="14" aria-hidden="true">${inner}</svg>`;
+  return catalogIconByName(String(icon), size) ?? null;
 }

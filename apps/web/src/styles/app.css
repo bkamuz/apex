@@ -7,7 +7,7 @@
   /* Fixed ribbon strip — buttons must not grow this (single dense row). */
   --chrome-ribbon-h: 78px;
   --chrome-ribbon-body-h: 58px;
-  --chrome-ribbon-btn-h: 50px;
+  --chrome-ribbon-btn-h: 54px;
   /* Form controls: dark fields + light text (UA defaults paint black otherwise). */
   --chrome-field-text: var(--chrome-text);
   --grid-axis-fill: var(--chrome-viewport);
@@ -629,24 +629,19 @@ input[type="radio"] {
 
 .tools .tool-icon {
   display: inline-flex;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   flex-shrink: 0;
-  opacity: 0.9;
 }
 
 .tools .tool-icon svg {
   display: block;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
 }
 
 .tools .tool-label {
   line-height: 1;
-}
-
-.tools button.active .tool-icon {
-  opacity: 1;
 }
 
 /* Exclude .active: :hover:not(:disabled) is more specific than .active and
@@ -2964,26 +2959,27 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
 .tools button.rb-btn--big {
   flex-direction: column;
   justify-content: flex-start;
-  gap: 3px;
+  gap: 1px;
   min-width: 52px;
   max-width: 76px;
   height: var(--chrome-ribbon-btn-h);
   min-height: var(--chrome-ribbon-btn-h);
   max-height: var(--chrome-ribbon-btn-h);
-  padding: 5px 4px 3px;
+  /* 24px glyph + two label lines fit the 54px button (labels used to clip to one line). */
+  padding: 1px 4px 1px;
   white-space: normal;
   overflow: hidden;
 }
 
 .tools button.rb-btn--big .tool-icon,
 .tools button.rb-btn--big .tool-icon svg {
-  width: 20px;
-  height: 20px;
+  width: 24px;
+  height: 24px;
 }
 
 .tools button.rb-btn--big .tool-label {
   font-size: 11px;
-  line-height: 1.15;
+  line-height: 1.1;
   text-align: center;
   overflow-wrap: normal;
   word-break: normal;
@@ -2992,15 +2988,7 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
-  max-height: 2.3em;
-}
-
-.tools .rb-glyph {
-  font-family: var(--mono);
-  font-size: 11px;
-  font-weight: 700;
-  align-items: center;
-  justify-content: center;
+  max-height: 2.2em;
 }
 
 .tools button.rb-btn--small {
@@ -3109,8 +3097,8 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
 
 .context-bar .ctx-tool .tool-icon,
 .context-bar .ctx-tool .tool-icon svg {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   display: inline-flex;
 }
 
@@ -3283,7 +3271,7 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
     height: 32px;
     min-height: 32px;
     max-height: 32px;
-    padding: 5px 6px;
+    padding: 3px 5px;
   }
 
   .tools button.rb-btn--big .tool-label,

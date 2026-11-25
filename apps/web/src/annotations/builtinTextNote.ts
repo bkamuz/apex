@@ -12,7 +12,7 @@ function createTextNoteTool(): Tool {
     descriptor: { purpose: 'Place a text note in a plan view.' },
     group: 'create',
     tab: ApexTabs.annotate,
-    icon: ApexIcons.refPoint,
+    icon: ApexIcons.textNote,
     shortcut: 'N',
 
     hint() {

@@ -24,6 +24,9 @@ export {
   ApexIcons,
   TOOL_ICONS,
   COMPONENT_ICON_BY_ID,
+  componentIcon,
   catalogIconByName,
   resolveToolIconSvg,
+  scopeSvgIds,
 } from './icons';
+export type { ToolIconSize } from './icons';

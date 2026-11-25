@@ -1557,11 +1557,11 @@ export function GenusEditorMode(props: GenusEditorModeProps) {
         <div className="genus-mobile-foot">
           {speciesSelect}
           <button type="button" className="genus-btn" data-testid="genus-mobile-params" onClick={() => setMobileParams(true)}>
-            <GenusIcon name="params" /> {t('genusEditor.paramsShort')}
+            <GenusIcon name="params" size={16} /> {t('genusEditor.paramsShort')}
             {issues.size ? <span className="genus-badge-err">{issues.size}</span> : null}
           </button>
           <button type="button" className="genus-btn" data-testid="genus-mobile-structure" onClick={() => setMobileTree(true)}>
-            <GenusIcon name="structure" /> {t('genusEditor.structure')}
+            <GenusIcon name="structure" size={16} /> {t('genusEditor.structure')}
           </button>
         </div>
         <div className="genus-mobile-status">
