@@ -15,7 +15,9 @@
     "test:wall-chain": "node scripts/wall-chain-test.mjs",
     "test:level": "node scripts/level-activation-test.mjs",
     "preview": "vite preview",
-    "wasm:build": "wasm-pack build ../../crates/apex-wasm --target web --out-dir ../../apps/web/src/wasm/pkg --release"
+    "wasm:build": "wasm-pack build ../../crates/apex-wasm --target web --out-dir ../../apps/web/src/wasm/pkg --release",
+    "icons:generate": "python3 scripts/icons/generate.py",
+    "icons:check": "python3 scripts/icons/generate.py --check"
   },
   "dependencies": {
     "@ifc-lite/geometry": "^8.0.2",

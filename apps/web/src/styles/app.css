@@ -2959,13 +2959,14 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
 .tools button.rb-btn--big {
   flex-direction: column;
   justify-content: flex-start;
-  gap: 3px;
+  gap: 1px;
   min-width: 52px;
   max-width: 76px;
   height: var(--chrome-ribbon-btn-h);
   min-height: var(--chrome-ribbon-btn-h);
   max-height: var(--chrome-ribbon-btn-h);
-  padding: 5px 4px 3px;
+  /* 24px glyph + two label lines fit the 54px button (labels used to clip to one line). */
+  padding: 1px 4px 1px;
   white-space: normal;
   overflow: hidden;
 }
@@ -2978,7 +2979,7 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
 
 .tools button.rb-btn--big .tool-label {
   font-size: 11px;
-  line-height: 1.15;
+  line-height: 1.1;
   text-align: center;
   overflow-wrap: normal;
   word-break: normal;
@@ -2987,7 +2988,7 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
-  max-height: 2.3em;
+  max-height: 2.2em;
 }
 
 .tools button.rb-btn--small {
