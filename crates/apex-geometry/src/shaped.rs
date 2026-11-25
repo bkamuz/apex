@@ -214,14 +214,21 @@ impl ShapedSurface {
                 constraints.push([a, b]);
             }
         }
-        let cdt = ConstrainedDelaunayTriangulation::<spade::Point2<f64>>::bulk_load_cdt(
+        let mut conflicts = 0u32;
+        let cdt = ConstrainedDelaunayTriangulation::<spade::Point2<f64>>::try_bulk_load_cdt(
             points
                 .iter()
                 .map(|p| spade::Point2::new(p[0], p[2]))
                 .collect(),
             constraints,
+            |_| conflicts += 1,
         )
         .map_err(|e| GeometryError::Surface(format!("triangulation failed: {e:?}")))?;
+        if conflicts > 0 {
+            return Err(GeometryError::Surface(
+                "triangulation rejected overlapping edges".into(),
+            ));
+        }
         let poly: Vec<[f64; 2]> = boundary
             .iter()
             .map(|&i| [points[i][0], points[i][2]])
