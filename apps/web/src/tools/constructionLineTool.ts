@@ -1,6 +1,7 @@
 import { pluralS, t } from '../i18n';
 import type { Vec3 } from '../viewport/ViewportRenderer';
 import { ApexIcons } from './icons';
+import { remainingPickHint } from './pickHint';
 import type { Tool, ToolContext, ToolTab } from './Tool';
 import { ApexTabs } from './tabs';
 
@@ -31,10 +32,9 @@ export function createConstructionLineTool(tab: ToolTab = ApexTabs.basics): Tool
     icon: ApexIcons.constructionLine,
 
     hint(pendingCount) {
-      const remaining = 2 - pendingCount;
-      return remaining <= 0
-        ? t('tool.construction-line.hintPlacing')
-        : t('tool.construction-line.hintClicks', { n: remaining, s: pluralS(remaining) });
+      return remainingPickHint(pendingCount, 2, t('tool.construction-line.hintPlacing'), (n) =>
+        t('tool.construction-line.hintClicks', { n, s: pluralS(n) }),
+      );
     },
 
     onPointerDown(e, ctx) {

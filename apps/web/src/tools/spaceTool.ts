@@ -1,4 +1,4 @@
-import { t } from '../i18n';
+import { pluralS, t } from '../i18n';
 import type { Vec3 } from '../viewport/ViewportRenderer';
 import { ApexIcons } from './icons';
 import type { Tool, ToolContext, ToolTab } from './Tool';
@@ -50,6 +50,7 @@ export function createSpaceTool(tab: ToolTab = ApexTabs.spaces): Tool {
         return t('tool.space.hintNeedMore', {
           picked: pendingCount,
           need: MIN_POINTS - pendingCount,
+          s: pluralS(pendingCount),
         });
       }
       return t('tool.space.hintClose', { picked: pendingCount });

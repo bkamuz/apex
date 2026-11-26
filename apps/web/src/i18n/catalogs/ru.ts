@@ -284,7 +284,7 @@ export const ru: MessageCatalog = {
   'tool.detect-rooms.found': 'Создано помещений на активном уровне: {n}.',
   'tool.detect-rooms.none': 'На этом уровне нет замкнутых контуров стен. Соедините концы стен.',
   'tool.detect-rooms.already': 'Новых помещений нет. Найдено контуров: {n}; у стен уже могут быть помещения.',
-  'tool.ref.hintPlacing': 'Размещение: {name}.',
+  'tool.ref.hintPlacing': 'Щёлкните, чтобы поставить «{name}».',
   'tool.ref.hintClicks': 'Ещё точек для «{name}»: {n}.',
   'tool.construction-line.hintPlacing': 'Щёлкните первую точку вспомогательной линии.',
   'tool.construction-line.hintClicks': 'Ещё точек для вспомогательной линии: {n}.',
