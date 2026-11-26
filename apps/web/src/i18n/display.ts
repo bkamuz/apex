@@ -1,10 +1,14 @@
 import type { Tool, ToolMode } from '../tools/Tool';
 import type { Exporter } from '../plugins/types';
+import { categoryPlaceLabel } from '../tools/categorySlots';
 import { CATALOGS } from './catalogs';
 import { t } from './t';
 
 /** Toolbar label for a tool (catalog by id, else tool.label). */
 export function toolDisplayLabel(tool: Tool): string {
+  if (tool.id.startsWith('place:category:')) {
+    return categoryPlaceLabel(tool.id.slice('place:category:'.length), tool.label);
+  }
   if (tool.id.startsWith('place:')) {
     const componentId = tool.id.slice('place:'.length);
     return t(`component.${componentId}`, undefined, tool.label);
@@ -14,14 +18,26 @@ export function toolDisplayLabel(tool: Tool): string {
 
 /**
  * Ribbon tooltip: a full sentence from `component.<id>.title` or
- * `tool.<id>.title`. Falls back to the short label when no sentence exists.
+ * `tool.<id>.title`. A category button with no built-in genus uses
+ * `category.place.<id>.title`. Otherwise the tool's purpose, when it says
+ * more than the name.
  */
 export function toolDisplayTitle(tool: Tool): string {
+  if (tool.id.startsWith('place:category:')) {
+    const category = tool.id.slice('place:category:'.length);
+    const specific = t(`category.place.${category}.title`, undefined, '');
+    if (specific) return specific;
+    return t('category.place.title', { name: categoryPlaceLabel(category, tool.label) });
+  }
   const key = tool.id.startsWith('place:')
     ? `component.${tool.id.slice('place:'.length)}.title`
     : `tool.${tool.id}.title`;
   const sentence = t(key, undefined, '');
-  return sentence || toolDisplayLabel(tool);
+  if (sentence) return sentence;
+  const label = toolDisplayLabel(tool);
+  const purpose = tool.descriptor?.purpose?.trim() ?? '';
+  if (purpose && purpose !== label && purpose !== tool.label) return purpose;
+  return label;
 }
 
 /** Draw-mode button label. */

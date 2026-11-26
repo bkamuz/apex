@@ -92,6 +92,7 @@ export function buildRibbon(tools: readonly Tool[]): RibbonTab[] {
   };
 
   for (const tool of tools) {
+    if (tool.hideFromRibbon) continue;
     const kind = tool.group ?? 'create';
     if (kind === 'transform') continue;
     if (kind === 'select') {

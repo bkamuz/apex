@@ -1,5 +1,6 @@
 import { describeFromComponent } from '../descriptor';
-import { componentDisplayName, modeDisplayLabel, pluralS, t } from '../i18n';
+import { componentDisplayName, modeDisplayLabel } from '../i18n/display';
+import { pluralS, t } from '../i18n/t';
 import type { ComponentDto, PlacementKind } from '../types';
 import type { Vec3 } from '../viewport/ViewportRenderer';
 import { componentIcon, type ToolIcon } from './icons';

@@ -1,5 +1,5 @@
 import { describeFromComponent } from '../descriptor';
-import { componentDisplayName } from '../i18n';
+import { componentDisplayName } from '../i18n/display';
 import type { ComponentDto } from '../types';
 import type { Vec3 } from '../viewport/ViewportRenderer';
 import { componentIcon } from './icons';

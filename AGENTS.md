@@ -23,10 +23,11 @@ wrong — fix the abstraction instead. See `crates/apex-core/src/registry.rs`
 for how the built-ins are declared, and `README.md` for the JSON shape.
 
 Two consequences worth remembering:
-- First-party tools are plugins (`apps/web/src/plugins/`). Each plugin
-  contributes one toolbar button. A component variant (round vs rectangular
+- First-party tools are plugins (`apps/web/src/plugins/`). The ribbon shows
+  one button per category (`tools/categoryTool.ts`): built-in and user genera
+  of that category share it. A component variant (round vs rectangular
   column) is a parameter, not a second plugin. A user `defineComponent` call
-  is itself a plugin and gets a default placement tool.
+  registers the genus on that category button; it does not add a ribbon button.
 - The inspector fields are generated from the definition's `ParamSpec` list.
 - `to_js` in `apex-wasm` must keep `serialize_maps_as_objects(true)`. Any
   struct using `#[serde(flatten)]` (such as `ParamSpec`) or a map type (such
@@ -60,7 +61,7 @@ Two consequences worth remembering:
 
 ### Tools and plugins
 
-- One plugin = one toolbar contribution (`apps/web/src/plugins/`). `installPlugins()` rebuilds `ToolRegistry` and the exporter/importer registries from always-on plugins + **enabled system packs** (`systemPacks` in `catalog.ts`, toggled in Settings) plus runtime `window.apex.registerTool` / `registerExporter` / `registerImporter`. See `docs/system-packs.md`.
+- One plugin = one toolbar contribution (`apps/web/src/plugins/`), then `installCategoryTools` folds same-category placement tools onto one button. Built-in command ids stay registered (`place:apex.window`, `place:apex.roof.pitched` as a hidden alias) so hotkeys keep working. `installPlugins()` rebuilds `ToolRegistry` and the exporter/importer registries from always-on plugins + **enabled system packs** (`systemPacks` in `catalog.ts`, toggled in Settings) plus runtime `window.apex.registerTool` / `registerExporter` / `registerImporter`. See `docs/system-packs.md`.
 - `PluginHost` can `registerTool`, `registerComponent`, `registerExporter`, and `registerImporter`. Domain packs (architecture, MEP, IFC) install through that host — never via `if (componentId === …)` in `App.tsx`. Open routes `.ifc` (and other importer extensions) through the importer registry.
 - Placement finish rules live on `ComponentDefinition.placement_options` (`min_points`, `closed`, `seat_on_level`). Openings declare `host_cut`; MEP 3D routes set `seat_on_level: false` (PgUp/PgDn nudges elevation while placing).
 - **Joinable path components** set `joinable: true` on the definition (built-in Wall + Beam). On place (and via `Project::join_paths` / WASM `joinPaths`), peers of the **same component id** on the level get corner miters and T-junctions: sweep `join_start`/`join_end` extensions keep centerlines at user picks; T-hits insert a host polyline vertex and trim the stem. Algorithm: `crates/apex-core/src/path_join.rs` + geometry helpers in `apex-geometry` (`miter_extension`, `stem_trim`, …). Arcs skipped in MVP. No `apex.wall` branches in App/geometry.

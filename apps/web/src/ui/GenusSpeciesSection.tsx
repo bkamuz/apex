@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { componentDisplayName, speciesDisplayName, useI18n } from '../i18n';
+import { generaForCategorySwitch, genusTooltip } from '../tools/categorySlots';
 import { Section } from './inspector/Section';
 import type { ComponentDto, ElementDto, SpeciesDto, ParamValue, SceneDto } from '../types';
 import { apexExecuteCommand, apexRunQuery, apexSelectElement } from '../wasm/apex';
@@ -42,8 +43,10 @@ export function GenusSpeciesSection({
   const [draft, setDraft] = useState<Record<string, ParamValue>>({});
   useEffect(() => setDraft({ ...(current?.values ?? {}) }), [current]);
 
-  const genera = components.filter(
-    (c) => c.default_species && c.category === component.category && c.placement === component.placement,
+  const genera = generaForCategorySwitch(
+    component,
+    components,
+    new Set(speciesRows.map((row) => row.genus)),
   );
   const ownSpecies = speciesRows.filter((t) => t.genus === component.id);
   const specs = component.params.filter(isTypeBound);
@@ -147,9 +150,13 @@ export function GenusSpeciesSection({
         <select
           data-testid="genus-select"
           value={component.id}
+          title={genusTooltip(component)}
           onChange={(e) => {
             const genus = genera.find((f) => f.id === e.target.value);
-            if (genus?.default_species) swap(genus.default_species);
+            if (!genus) return;
+            const next =
+              genus.default_species ?? speciesRows.find((row) => row.genus === genus.id)?.id;
+            if (next) swap(next);
           }}
         >
           {genera.map((f) => (

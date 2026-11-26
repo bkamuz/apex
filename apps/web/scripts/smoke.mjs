@@ -38,6 +38,7 @@ await page.addInitScript(() => {
   if (!sessionStorage.getItem('apex.smoke')) {
     localStorage.removeItem('apex.project');
     localStorage.removeItem('apex.browser');
+    localStorage.removeItem('apex.categoryPlacement');
     localStorage.setItem('apex.gettingStarted.dismissed', '1');
     sessionStorage.setItem('apex.smoke', '1');
   }
@@ -135,10 +136,11 @@ console.log('  architecture ribbon:', buildingTools.join(' | '));
 check('tab label is not a tool button', !buildingTools.includes('Architecture'));
 for (const expected of [
   'Select', 'Wall', 'Column', 'Beam', 'Slab', 'Door', 'Window', 'Slab opening', 'Stair', 'Roof',
-  'Pitched roof', 'Space', 'By walls', 'Level', 'Point', 'Plane', 'Construction line', 'Grid',
+  'Space', 'By walls', 'Level', 'Point', 'Plane', 'Construction line', 'Grid',
 ]) {
   check(`"${expected}" on Architecture tab`, buildingTools.includes(expected));
 }
+check('Pitched roof is a Roof genus, not a ribbon button', !buildingTools.includes('Pitched roof'));
 for (const id of ['select', 'build', 'rooms', 'datums']) {
   check(`ribbon group ${id} is labelled`, ((await page.getByTestId(`ribbon-group-${id}`).textContent()) ?? '').length > 0);
 }
@@ -704,9 +706,10 @@ check('defineComponent accepted', sdkError === null, sdkError ?? '');
 
 await page.waitForTimeout(400);
 const toolsAfter = await toolbarNames();
-check('a tool appeared for it with no app code', toolsAfter.includes('Planter'));
+check('a tool appeared for it with no app code', toolsAfter.includes('Furniture'));
+check('planter genus is not its own ribbon button', !toolsAfter.includes('Planter'));
 
-await useTool('Planter');
+await useTool('Furniture');
 await clickCanvas(0.45, 0.58);
 const afterPlanter = await elementCount();
 check('user component placed like a built-in', afterPlanter === 10, `got ${afterPlanter}`);
@@ -903,10 +906,11 @@ await page.getByTestId('genus-save').click();
 await page.waitForFunction(() => !document.querySelector('[data-testid="genus-dirty"]'));
 await page.getByTestId('genus-exit').click();
 await page.waitForFunction(() => !document.querySelector('[data-testid="genus-editor"]'));
-check('Smoke box tool on toolbar', await toolbarHasTool('Smoke box'));
+check('Smoke box tool on toolbar', await toolbarHasTool('Custom'));
+check('smoke box genus is not its own ribbon button', !(await toolbarNames()).includes('Smoke box'));
 await page.getByTestId('browser-tab-model').click();
 const beforeSmokeBox = await elementCount();
-await useTool('Smoke box');
+await useTool('Custom');
 await clickCanvas(0.52, 0.52);
 const afterSmokeBox = await elementCount();
 check('new genus placed', afterSmokeBox > beforeSmokeBox, `count ${afterSmokeBox}`);
@@ -925,6 +929,48 @@ check('user genus opens in the genus editor', (await page.getByTestId('genus-edi
 await page.getByTestId('genus-exit').click();
 await page.waitForFunction(() => !document.querySelector('[data-testid="genus-editor"]'));
 await page.screenshot({ path: `${OUT}/apex-08-component-editor.png`, fullPage: true });
+
+// A derived window genus stays under the Window button.
+console.log('\n[10b] derived window genus does not grow the ribbon');
+await page.getByTestId('browser-tab-genera').click();
+await archTab.click();
+await page.waitForTimeout(80);
+const buildButtons = () => page.locator('[data-testid="ribbon-group-build"] button.rb-btn--big').count();
+const ribbonBeforeDerive = await buildButtons();
+await page.locator('[data-kind="component_def"][data-id="apex.window"]').click();
+await page.getByTestId('browser-genus-derive').click();
+await page.waitForSelector('[data-testid="genus-editor"]');
+check(
+  'derived window name is localized',
+  (await page.getByTestId('genus-name').inputValue()) === 'Window (copy)',
+  await page.getByTestId('genus-name').inputValue(),
+);
+await page.getByTestId('genus-save').click();
+await page.waitForFunction(() => !document.querySelector('[data-testid="genus-dirty"]'));
+await page.getByTestId('genus-exit').click();
+await page.waitForFunction(() => !document.querySelector('[data-testid="genus-editor"]'));
+await archTab.click();
+await page.waitForTimeout(80);
+const ribbonAfterDerive = await buildButtons();
+check(
+  'derived window does not add a ribbon button',
+  ribbonBeforeDerive === ribbonAfterDerive,
+  `${ribbonBeforeDerive} -> ${ribbonAfterDerive}`,
+);
+check('no Window (copy) ribbon button', !(await toolbarNames()).includes('Window (copy)'));
+await useTool('Window');
+await page.getByTestId('category-type-button').click();
+await page.waitForSelector('[data-testid="category-type-panel"]');
+const derivedGenus = page.getByTestId('category-type-genus-user.window');
+check('derived genus is selectable under Window', (await derivedGenus.count()) === 1);
+const derivedTip = (await derivedGenus.getAttribute('title')) ?? '';
+check(
+  'derived genus tooltip is a description',
+  derivedTip.length > 0 && derivedTip !== 'Window (copy)',
+  derivedTip,
+);
+await page.keyboard.press('Escape');
+await useTool('Select');
 
 // --- 9. Project browser grouping and save/load ----------------------------
 console.log('\n[11] project browser and persistence');
@@ -978,7 +1024,7 @@ check(
   afterReload === beforeReload,
   `before ${beforeReload} after ${afterReload}`,
 );
-check('user component tool survived reload', await toolbarHasTool('Smoke box'));
+check('user component tool survived reload', await toolbarHasTool('Custom'));
 await page.screenshot({ path: `${OUT}/apex-07-browser-save.png`, fullPage: true });
 
 // --- Parent / Detach (after undo-sensitive sections so history stays clean) ---

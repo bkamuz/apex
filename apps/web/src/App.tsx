@@ -204,6 +204,12 @@ import {
   saveTextFileDesktop,
 } from './desktop/projectIo';
 import { useMediaQuery } from './hooks/useMediaQuery';
+import {
+  focusGenusPlacement,
+  genusPaletteEntries,
+  prepareToolActivation,
+  subscribeCategoryPlacement,
+} from './tools/categoryTool';
 import { ToolRegistry } from './tools/registry';
 import { finishOpenGesture } from './tools/placementTool';
 import { requiredPoints, type PointerInfo, type ToolContext } from './tools/Tool';
@@ -1827,10 +1833,11 @@ export default function App() {
 
   const activateTool = useCallback(
     (id: string) => {
+      const resolved = prepareToolActivation(id);
       cancelGesture();
       rendererRef.current?.setHoveredPickIds([]);
-      setToolId(id);
-      const next = registryRef.current.get(id);
+      setToolId(resolved);
+      const next = registryRef.current.get(resolved);
       if (next?.group === 'create') {
         try {
           applyScene(apexClearDatumSelections());
@@ -1854,19 +1861,29 @@ export default function App() {
       }
       else rendererRef.current?.setEditGizmo(null);
       const component = components.find((item) => item.id === next?.componentId);
+      const speciesId = next?.placementSpeciesId?.() ?? '';
+      const placementKey = `${resolved}:${next?.componentId ?? ''}:${speciesId}`;
       if (component) {
         const draft = defaultPlacementParams(component, profiles);
+        if (speciesId) draft.species = speciesId;
         placementParamsRef.current = draft;
-        placementToolIdRef.current = id;
+        placementToolIdRef.current = placementKey;
         setPlacementDraft(draft);
       } else {
         placementParamsRef.current = {};
-        placementToolIdRef.current = id;
+        placementToolIdRef.current = placementKey;
         setPlacementDraft({});
       }
     },
     [applyScene, cancelGesture, components, focusViewportCanvas, profiles, syncEditGizmo],
   );
+
+  useEffect(() => {
+    return subscribeCategoryPlacement(() => {
+      cancelGesture();
+      setToolUiTick((n) => n + 1);
+    });
+  }, [cancelGesture]);
 
   const activateDrawMode = useCallback(
     (id: string) => {
@@ -1877,9 +1894,11 @@ export default function App() {
     [cancelGesture],
   );
 
+  const placementSpecies = tool.placementSpeciesId?.() ?? '';
   useEffect(() => {
-    const switched = placementToolIdRef.current !== toolId;
-    placementToolIdRef.current = toolId;
+    const placementKey = `${toolId}:${tool.componentId ?? ''}:${placementSpecies}`;
+    const switched = placementToolIdRef.current !== placementKey;
+    placementToolIdRef.current = placementKey;
     const component = components.find((item) => item.id === tool.componentId);
     if (!component) {
       placementParamsRef.current = {};
@@ -1888,9 +1907,10 @@ export default function App() {
     }
     if (!switched && Object.keys(placementParamsRef.current).length > 0) return;
     const next = defaultPlacementParams(component, profiles);
+    if (placementSpecies) next.species = placementSpecies;
     placementParamsRef.current = next;
     setPlacementDraft(next);
-  }, [toolId, tool.componentId, components, profiles]);
+  }, [toolId, tool.componentId, placementSpecies, components, profiles]);
 
   const onUndo = useCallback(() => {
     if (isGenusTestActive()) return;
@@ -3738,6 +3758,7 @@ export default function App() {
         run,
       });
     for (const item of tools) {
+      if (item.hideFromRibbon) continue;
       const key = item.id.startsWith('place:')
         ? `component.${item.id.slice('place:'.length)}`
         : `tool.${item.id}.label`;
@@ -3745,6 +3766,18 @@ export default function App() {
         label: toolDisplayLabel(item),
         shortcut: shortcutForCommand(`tool:${item.id}`) ?? item.shortcut,
         extra: [item.label],
+      });
+    }
+    for (const entry of genusPaletteEntries()) {
+      out.push({
+        id: `tool:${entry.id}`,
+        label: entry.label,
+        search: entry.search,
+        group: t('cmd.group.tool'),
+        run: () => {
+          registryRef.current.get(entry.toolId)?.setPlacementTarget?.(entry.genusId, entry.speciesId);
+          activateTool(entry.toolId);
+        },
       });
     }
     if (attachableIds.length > 0) {
@@ -4294,8 +4327,12 @@ export default function App() {
           onBeginTest={(genusId, place) => {
             applyScene(apexGetScene());
             syncCatalog();
-            const toolId = `place:${genusId}`;
-            if (place && registryRef.current.get(toolId)) activateTool(toolId);
+            if (!place) {
+              activateTool(ToolRegistry.selectId);
+              return;
+            }
+            const toolId = focusGenusPlacement(genusId);
+            if (toolId && registryRef.current.get(toolId)) activateTool(toolId);
             else activateTool(ToolRegistry.selectId);
           }}
         />

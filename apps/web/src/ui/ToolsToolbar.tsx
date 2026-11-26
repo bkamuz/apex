@@ -11,6 +11,7 @@ import {
   showModify,
   type RibbonGroup,
 } from './ribbon';
+import { CategoryTypeMenu } from './CategoryTypeMenu';
 import { shortcutForCommand } from './shortcuts';
 
 export interface RibbonViewControls {
@@ -52,7 +53,7 @@ function ToolButton({
   const classes = ['rb-btn', 'rb-btn--big', active ? 'active' : ''].filter(Boolean).join(' ');
   // Activate on pointerdown: an inspector blur/commit can remount the ribbon
   // between mousedown and mouseup and swallow the click (smoke: label → Detect).
-  return (
+  const button = (
     <button
       type="button"
       className={classes}
@@ -68,6 +69,13 @@ function ToolButton({
       <ToolIconGlyph icon={tool.icon} size={24} />
       <span className="tool-label">{label}</span>
     </button>
+  );
+  if (!tool.hasCategoryChoice) return button;
+  return (
+    <span className="rb-split">
+      {button}
+      <CategoryTypeMenu tool={tool} variant="caret" onActivate={onActivate} />
+    </span>
   );
 }
 

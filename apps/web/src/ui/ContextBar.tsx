@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import type { Tool } from '../tools/Tool';
 import type { ComponentDto, ParamValue, ProfileTypeDto, SpeciesDto } from '../types';
 import { modeDisplayLabel, speciesDisplayName, toolDisplayLabel, useI18n } from '../i18n';
+import { CategoryTypeMenu } from './CategoryTypeMenu';
 import { ToolIconGlyph } from './ToolIcon';
 
 export interface ContextBarProps {
@@ -47,11 +48,17 @@ export function ContextBar({
     [components, tool.componentId],
   );
   const placing = Boolean(component);
+  const chosenSpecies = tool.placementSpeciesId?.() ?? null;
   const sp = useMemo(() => {
     if (!component) return undefined;
     const own = species.filter((s) => s.genus === component.id);
-    return own.find((s) => s.id === component.default_species) ?? own.find((s) => s.default) ?? own[0];
-  }, [component, species]);
+    return (
+      own.find((s) => s.id === chosenSpecies) ??
+      own.find((s) => s.id === component.default_species) ??
+      own.find((s) => s.default) ??
+      own[0]
+    );
+  }, [component, species, chosenSpecies]);
   const profile = useMemo(() => {
     if (!component?.params.some((p) => p.id === 'profile')) return undefined;
     const id = String(draft.profile ?? component.params.find((p) => p.id === 'profile')?.default ?? '');
@@ -82,7 +89,9 @@ export function ContextBar({
         <ToolIconGlyph icon={tool.icon} size={16} />
         <b>{toolDisplayLabel(tool)}</b>
       </span>
-      {placing ? (
+      {placing && tool.hasCategoryChoice ? (
+        <CategoryTypeMenu tool={tool} species={species} variant="bar" />
+      ) : placing ? (
         <span className="ctx-item" title={t('ctx.genusSpecies')} data-testid="ctx-genus-species">
           <span className="ctx-k">{t('ctx.genusSpecies')}</span>
           <span>
