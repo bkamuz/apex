@@ -8,7 +8,7 @@ import { importerRegistry } from './importers';
 import { underlayLinkerRegistry } from './underlayLinkers';
 import { pluginsForEnabledPacks } from './packPrefs';
 import { getEnabledPackIds } from './packStore';
-import { registerUserComponentTools } from './userComponentTools';
+import { installCategoryTools, isCategoryPlacementCovered } from '../tools/categoryTool';
 import type { PluginHost } from './types';
 import { assertDescribed } from '../descriptor';
 
@@ -76,9 +76,15 @@ export function installPlugins(
     plugin.install(host);
   }
 
-  registerUserComponentTools(registry, components);
+  installCategoryTools(registry, components);
   for (const tool of extensions.customTools()) {
-    if (!registry.get(tool.id)) host.registerTool(tool);
+    if (registry.get(tool.id)) continue;
+    // defineComponent used to add one ribbon button per genus. The category
+    // tool already places it.
+    if (tool.componentId && tool.id === `place:${tool.componentId}` && isCategoryPlacementCovered(tool.componentId)) {
+      continue;
+    }
+    host.registerTool(tool);
   }
   for (const exporter of extensions.customExporters()) host.registerExporter(exporter);
   for (const importer of extensions.customImporters()) host.registerImporter(importer);

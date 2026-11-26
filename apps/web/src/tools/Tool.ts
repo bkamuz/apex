@@ -224,8 +224,22 @@ export interface Tool {
   readonly icon?: ToolIcon;
   /** Letter hotkey shown in the button tooltip, when set. */
   readonly shortcut?: string;
+  /**
+   * Registered so the command id keeps working (hotkeys, palette aliases)
+   * without a ribbon button. Category tools use this for non-primary built-ins
+   * such as `place:apex.roof.pitched`.
+   */
+  readonly hideFromRibbon?: boolean;
   /** Component this tool places, for placement tools. */
   readonly componentId?: string;
+  /** Category tools: more than one genus, or any genus that has species. */
+  readonly hasCategoryChoice?: boolean;
+  /** Genera placed by this category tool, primary first. */
+  categoryGenera?(): readonly ComponentDto[];
+  /** Species the next placement of this category tool will use. */
+  placementSpeciesId?(): string | null;
+  /** Switch the genus (and species) this category tool places. */
+  setPlacementTarget?(genusId: string, speciesId: string | null): void;
   /** Sub-modes of this tool (e.g. wall line / arc / polyline). */
   readonly modes?: readonly ToolMode[];
   getMode?(): string;

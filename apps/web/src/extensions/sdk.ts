@@ -1,7 +1,6 @@
 import { assertDescribed } from '../descriptor';
 export type { Descriptor, DescriptorExample } from '../descriptor';
 import {
-  apexListComponents,
   apexRegisterComponent,
   apexRegisterOpeningGenerator,
   type OpeningGeneratorFn,
@@ -16,8 +15,7 @@ import {
   type Locale,
 } from '../i18n';
 import { TOOL_ICONS } from '../tools/icons';
-import { createPlacementTool } from '../tools/placementTool';
-import { ApexTabs, TOOL_TABS } from '../tools/tabs';
+import { TOOL_TABS } from '../tools/tabs';
 import type { Tool } from '../tools/Tool';
 import type { Exporter, Importer } from '../plugins/types';
 import { annotationKinds } from '../annotations/registry';
@@ -38,8 +36,9 @@ type Listener = () => void;
 /**
  * Runtime extension surface for modules.
  *
- * A module is a plugin: it installs a component (data the core validates) and
- * a default placement tool. `registerTool` / `registerExporter` / `registerImporter`
+ * A module is a plugin: it installs a component (data the core validates).
+ * Placement joins the one ribbon button for that category — it does not add
+ * a button per genus. `registerTool` / `registerExporter` / `registerImporter`
  * are for gestures and formats the generated helpers cannot express.
  *
  * First-party feature areas live in Settings as system packs
@@ -53,18 +52,13 @@ class ExtensionHost {
   private exporters: Exporter[] = [];
   private importers: Importer[] = [];
 
-  /** Install a component and give it a placement tool, like a first-party plugin. */
+  /**
+   * Install a component. The category ribbon button places it (built-in and
+   * user genera of one category share a button). A custom gesture still goes
+   * through `registerTool`.
+   */
   defineComponent(definition: unknown): void {
     apexRegisterComponent(definition);
-    const id = componentIdOf(definition);
-    const installed = id
-      ? apexListComponents().find((component) => component.id === id)
-      : undefined;
-    if (installed) {
-      // Prefer catalog tab; override via registerTool for a custom tab.
-      this.registerTool(createPlacementTool(installed, { tab: ApexTabs.building }));
-      return;
-    }
     this.emit();
   }
 
@@ -138,12 +132,6 @@ class ExtensionHost {
   private emit(): void {
     for (const listener of this.listeners) listener();
   }
-}
-
-function componentIdOf(definition: unknown): string | null {
-  if (!definition || typeof definition !== 'object' || !('id' in definition)) return null;
-  const id = (definition as { id: unknown }).id;
-  return typeof id === 'string' && id.length > 0 ? id : null;
 }
 
 export const extensions = new ExtensionHost();
