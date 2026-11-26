@@ -13,6 +13,7 @@ export {
 } from './t';
 export {
   toolDisplayLabel,
+  toolDisplayTitle,
   modeDisplayLabel,
   tabDisplayLabel,
   exporterDisplayLabel,

@@ -73,7 +73,7 @@ await page.screenshot({ path: path.join(OUT, 'plan-view-top-down.png'), fullPage
 
 // Grid axis on Basics for bubble labels.
 await page.locator('.tools-tab').filter({ hasText: 'Basics' }).click();
-await useTool('Grid axis');
+await useTool('Grid');
 await clickCanvas(0.35, 0.5);
 await clickCanvas(0.65, 0.5);
 await page.waitForTimeout(400);

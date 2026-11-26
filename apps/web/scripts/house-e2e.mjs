@@ -228,7 +228,7 @@ await page.waitForTimeout(500);
 await frameSite(0);
 
 await page.getByTestId('tools-tab-apex.basics').click().catch(() => {});
-await useTool('Grid axis');
+await useTool('Grid');
 for (const x of AX) {
   await clickW(x, -2);
   await clickW(x, 10);
@@ -369,7 +369,7 @@ for (const [i, e] of [[0, 0], [1, 3]]) {
   await page.locator('.level-list li').nth(i).click();
   await page.waitForTimeout(300);
   elev = e;
-  await useTool('Detect rooms');
+  await useTool('By walls');
   await clickW(2, 2, { snap: false });
   await page.waitForTimeout(300);
   const info = await page.getByTestId('topbar-hint').textContent().catch(() => '');

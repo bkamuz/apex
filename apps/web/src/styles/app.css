@@ -2961,11 +2961,13 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
   justify-content: flex-start;
   gap: 1px;
   min-width: 52px;
-  max-width: 76px;
+  /* Longest ribbon word ("Вспомогательная", ~95px in Inter 11) plus padding.
+     Shorter labels stay narrow; nothing is clipped to a single unbreakable line. */
+  max-width: 112px;
   height: var(--chrome-ribbon-btn-h);
   min-height: var(--chrome-ribbon-btn-h);
   max-height: var(--chrome-ribbon-btn-h);
-  /* 24px glyph + two label lines fit the 54px button (labels used to clip to one line). */
+  /* 24px glyph + two label lines fit the 54px button. */
   padding: 1px 4px 1px;
   white-space: normal;
   overflow: hidden;
@@ -2981,12 +2983,15 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
   font-size: 11px;
   line-height: 1.1;
   text-align: center;
-  overflow-wrap: normal;
+  /* Break a word only when it cannot sit on its own line, so a long noun
+     wraps onto line 2 instead of clipping both ends of centered text. */
+  overflow-wrap: anywhere;
   word-break: normal;
-  hyphens: none;
+  hyphens: manual;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   overflow: hidden;
   max-height: 2.2em;
 }

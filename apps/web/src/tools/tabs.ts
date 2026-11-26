@@ -9,16 +9,16 @@ import type { Tool, ToolTab, ResolvedToolTab } from './Tool';
  */
 export const TOOL_TABS = {
   /**
-   * Foundational drafting tools: Level, Ref point (the point tool), Ref plane,
-   * Construction line, Grid axis, Section cut. LevelList still manages/activates levels.
+   * Foundational drafting tools: Level, Point (the only point tool, id ref-point),
+   * Plane, Construction line, Grid, Section. LevelList still manages/activates levels.
    */
   basics: {
     id: 'apex.basics',
-    label: 'Basics',
+    label: 'Reference',
   },
   building: {
     id: 'apex.building',
-    label: 'Building constructions',
+    label: 'Building',
   },
   /** MEP routes (pipe, duct, cable tray). */
   engineering: {

@@ -1,6 +1,7 @@
 import { pluralS, t } from '../i18n';
 import type { Vec3 } from '../viewport/ViewportRenderer';
 import { ApexIcons } from './icons';
+import { remainingPickHint } from './pickHint';
 import type { Tool, ToolContext, ToolTab } from './Tool';
 import { ApexTabs } from './tabs';
 
@@ -24,17 +25,16 @@ export function createGridAxisTool(tab: ToolTab = ApexTabs.basics): Tool {
 
   return {
     id: 'grid-axis',
-    label: 'Grid axis',
+    label: 'Grid',
     descriptor: { purpose: 'Draw a labelled structural grid axis between two picks.' },
     group: 'create',
     tab,
     icon: ApexIcons.grid,
 
     hint(pendingCount) {
-      const remaining = 2 - pendingCount;
-      return remaining <= 0
-        ? t('tool.grid-axis.hintPlacing')
-        : t('tool.grid-axis.hintClicks', { n: remaining, s: pluralS(remaining) });
+      return remainingPickHint(pendingCount, 2, t('tool.grid-axis.hintPlacing'), (n) =>
+        t('tool.grid-axis.hintClicks', { n, s: pluralS(n) }),
+      );
     },
 
     onPointerDown(e, ctx) {

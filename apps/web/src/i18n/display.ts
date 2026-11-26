@@ -3,13 +3,25 @@ import type { Exporter } from '../plugins/types';
 import { CATALOGS } from './catalogs';
 import { t } from './t';
 
-/** Toolbar / tooltip label for a tool (catalog by id, else tool.label). */
+/** Toolbar label for a tool (catalog by id, else tool.label). */
 export function toolDisplayLabel(tool: Tool): string {
   if (tool.id.startsWith('place:')) {
     const componentId = tool.id.slice('place:'.length);
     return t(`component.${componentId}`, undefined, tool.label);
   }
   return t(`tool.${tool.id}.label`, undefined, tool.label);
+}
+
+/**
+ * Ribbon tooltip: a full sentence from `component.<id>.title` or
+ * `tool.<id>.title`. Falls back to the short label when no sentence exists.
+ */
+export function toolDisplayTitle(tool: Tool): string {
+  const key = tool.id.startsWith('place:')
+    ? `component.${tool.id.slice('place:'.length)}.title`
+    : `tool.${tool.id}.title`;
+  const sentence = t(key, undefined, '');
+  return sentence || toolDisplayLabel(tool);
 }
 
 /** Draw-mode button label. */

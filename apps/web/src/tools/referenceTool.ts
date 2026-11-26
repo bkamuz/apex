@@ -2,6 +2,7 @@ import { pluralS, t } from '../i18n';
 import type { ReferenceKind } from '../types';
 import type { Vec3 } from '../viewport/ViewportRenderer';
 import { ApexIcons } from './icons';
+import { remainingPickHint } from './pickHint';
 import type { Tool, ToolContext, ToolTab } from './Tool';
 import { ApexTabs } from './tabs';
 
@@ -37,11 +38,10 @@ export function createReferenceTool(
     icon: kind === 'point' ? ApexIcons.refPoint : ApexIcons.refPlane,
 
     hint(pendingCount) {
-      const remaining = required - pendingCount;
       const name = t(`tool.${kind === 'point' ? 'ref-point' : 'ref-plane'}.label`, undefined, label);
-      return remaining <= 0
-        ? t('tool.ref.hintPlacing', { name })
-        : t('tool.ref.hintClicks', { name, n: remaining, s: pluralS(remaining) });
+      return remainingPickHint(pendingCount, required, t('tool.ref.hintPlacing', { name }), (n) =>
+        t('tool.ref.hintClicks', { name, n, s: pluralS(n) }),
+      );
     },
 
     onPointerDown(e, ctx) {

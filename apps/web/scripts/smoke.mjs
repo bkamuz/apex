@@ -135,18 +135,18 @@ console.log('  architecture ribbon:', buildingTools.join(' | '));
 check('tab label is not a tool button', !buildingTools.includes('Architecture'));
 for (const expected of [
   'Select', 'Wall', 'Column', 'Beam', 'Slab', 'Door', 'Window', 'Slab opening', 'Stair', 'Roof',
-  'Pitched roof', 'Space', 'Detect rooms', 'Level', 'Ref point', 'Ref plane', 'Construction line', 'Grid axis',
+  'Pitched roof', 'Space', 'By walls', 'Level', 'Point', 'Plane', 'Construction line', 'Grid',
 ]) {
   check(`"${expected}" on Architecture tab`, buildingTools.includes(expected));
 }
 for (const id of ['select', 'build', 'rooms', 'datums']) {
   check(`ribbon group ${id} is labelled`, ((await page.getByTestId(`ribbon-group-${id}`).textContent()) ?? '').length > 0);
 }
-for (const absent of ['Move', 'Copy', 'Parent', 'Detach', 'Boolean']) {
+for (const absent of ['Move', 'Copy', 'Parent', 'No parent', 'Boolean']) {
   check(`"${absent}" hidden without a selection`, !buildingTools.includes(absent));
 }
 check('Pipe is not on Architecture tab', !buildingTools.includes('Pipe'));
-check('Section cut is not on Architecture tab', !buildingTools.includes('Section cut'));
+check('Section is not on Architecture tab', !buildingTools.includes('Section'));
 
 await engineeringTab.click();
 await page.waitForTimeout(80);
@@ -162,9 +162,9 @@ await viewTab.click();
 await page.waitForTimeout(80);
 const viewTools = await toolbarNames();
 console.log('  view ribbon:', viewTools.join(' | '));
-check('"Section cut" on View tab', viewTools.includes('Section cut'));
+check('"Section" on View tab', viewTools.includes('Section'));
 check('Thin lines on View tab', (await page.getByTestId('ribbon-thin-lines').count()) === 1);
-check('no second point tool', !buildingTools.includes('Point'));
+check('one point tool', buildingTools.filter((name) => name === 'Point').length === 1);
 
 check('IFC export button exists', (await page.getByTestId('export-apex.ifc').count()) === 1);
 check('arc wall is not a second tool', !buildingTools.includes('Arc wall'));
@@ -251,11 +251,11 @@ check('join demo walls undone for clean slate', (await elementCount()) === befor
 // --- 3. Reference point and plane tools ------------------------------------
 console.log('\n[3] reference points and planes');
 const refCount = () => page.locator('[data-kind="reference"]').count();
-await useTool('Ref point');
+await useTool('Point');
 await clickCanvas(0.45, 0.55);
 check('ref point created', (await refCount()) >= 1);
 check('ref point auto-selected after place', await isNamedItemSelected('reference', 'Ref point'));
-await useTool('Ref plane');
+await useTool('Plane');
 await clickCanvas(0.5, 0.45);
 await clickCanvas(0.62, 0.45);
 check('ref plane created', (await refCount()) >= 2);
@@ -284,7 +284,7 @@ check('ref point selected via viewport click', await isNamedItemSelected('refere
 // --- 3b. Grid axis (two-click placement + inspector params) ----------------
 console.log('\n[3b] grid axes');
 const gridCount = () => page.locator('[data-kind="grid_axis"]').count();
-await useTool('Grid axis');
+await useTool('Grid');
 await clickCanvas(0.4, 0.62);
 await clickCanvas(0.7, 0.62);
 check('grid axis created', (await gridCount()) >= 1);
@@ -339,7 +339,7 @@ check('construction line created', (await clineCount()) >= 1);
 check('construction line auto-selected', await isTreeItemSelected('construction_line', 0));
 
 const cutCount = () => page.locator('[data-kind="section_cut"]').count();
-await useTool('Section cut');
+await useTool('Section');
 await clickCanvas(0.42, 0.48);
 await clickCanvas(0.68, 0.48);
 check('section cut created', (await cutCount()) >= 1);
@@ -348,7 +348,7 @@ check('section cut auto-selected', await isTreeItemSelected('section_cut', 0));
 console.log('\n[3d2] Properties clears when switching create tools');
 await spacesTab.click();
 await page.waitForTimeout(80);
-await useTool('Detect rooms');
+await useTool('By walls');
 await page.waitForTimeout(200);
 check(
   'section cut deselected in browser after tool change',
@@ -357,7 +357,7 @@ check(
 const inspectorAfterDetect = await page.locator('.inspector-body, .panel-right .empty').first().textContent();
 check(
   'Properties not showing stale section cut inspector',
-  !inspectorAfterDetect?.includes('Section cut') && !inspectorAfterDetect?.includes('This section'),
+  !inspectorAfterDetect?.includes('This section'),
   inspectorAfterDetect?.slice(0, 120) ?? '',
 );
 await page.screenshot({ path: `${OUT}/apex-inspector-clears-on-tool-change.png`, fullPage: true });
@@ -373,7 +373,7 @@ await page.waitForTimeout(80);
 const spacesTools = await toolbarNames();
 console.log('  spaces toolbar:', spacesTools.join(' | '));
 check('"Space" on Spaces tab', spacesTools.includes('Space'));
-check('"Detect rooms" on Spaces tab', spacesTools.includes('Detect rooms'));
+check('"By walls" on Spaces tab', spacesTools.includes('By walls'));
 const spaceCount = () => page.locator('[data-kind="space"]').count();
 await useTool('Space');
 await clickCanvas(0.30, 0.40);
@@ -397,7 +397,7 @@ await page.screenshot({ path: `${OUT}/apex-spaces-placed.png`, fullPage: true })
 // Detect rooms from the four walls placed in [2]; keep the manual Kitchen space.
 console.log('\n[3e2] Detect rooms from wall loops');
 const spacesBeforeDetect = await spaceCount();
-await useTool('Detect rooms');
+await useTool('By walls');
 await clickCanvas(0.5, 0.5);
 await page.waitForTimeout(400);
 const spacesAfterDetect = await spaceCount();
@@ -1007,10 +1007,10 @@ check(
   parentRoundTrip.reason || '',
 );
 check('detach clears parent_id', parentRoundTrip.ok && parentRoundTrip.detached);
-await useTool('Detach');
+await useTool('No parent');
 check(
-  'Detach tool activates',
-  (await page.getByRole('button', { name: 'Detach', exact: true }).getAttribute('class'))?.includes(
+  'No parent tool activates',
+  (await page.getByRole('button', { name: 'No parent', exact: true }).getAttribute('class'))?.includes(
     'active',
   ),
 );

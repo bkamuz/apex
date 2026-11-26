@@ -2,6 +2,7 @@ import type { AnnotationKindRegistration } from './types';
 import { pluralS, t } from '../i18n';
 import type { Tool, ToolContext } from '../tools/Tool';
 import { ApexIcons } from '../tools/icons';
+import { remainingPickHint } from '../tools/pickHint';
 import { ApexTabs } from '../tools/tabs';
 import type { AnnotationAnchorDto, Vec3 } from '../types';
 import { hitTestLineSegments } from './hitTest';
@@ -38,10 +39,9 @@ function createLinearDimensionTool(): Tool {
     shortcut: 'D',
 
     hint(pendingCount) {
-      const remaining = 2 - pendingCount;
-      return remaining <= 0
-        ? t('tool.apex.dimension.hintPlacing')
-        : t('tool.apex.dimension.hintClicks', { n: remaining, s: pluralS(remaining) });
+      return remainingPickHint(pendingCount, 2, t('tool.apex.dimension.hintPlacing'), (n) =>
+        t('tool.apex.dimension.hintClicks', { n, s: pluralS(n) }),
+      );
     },
 
     onPointerDown(e, ctx) {
