@@ -120,7 +120,7 @@ export function ContextBar({
                 className={`mode${drawMode === mode.id ? ' active' : ''}`}
                 aria-label={label}
                 aria-pressed={drawMode === mode.id}
-                title={label}
+                title={t(`mode.${mode.id}.title`, undefined, label)}
                 onClick={() => onActivateDrawMode(mode.id)}
               >
                 {label}

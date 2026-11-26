@@ -58,6 +58,28 @@ test('ribbon, context bar and palette strings exist in EN and RU', () => {
   }
 });
 
+/** Ribbon, palette, and editor tool chrome — both locales, same keys, no family wording. */
+const TOOL_LABEL_KEY = /^(tool\.|tab\.|ribbon\.|palette\.|cmd\.|mode\.|toolbar\.(view|plan|fit|axon|persp|thin|lines)|genusEditor\.(tool|group|tab|layout|show)\.|component\.apex\.)/;
+
+test('RU and EN tool label key sets match', () => {
+  const enKeys = Object.keys(en).filter((k) => TOOL_LABEL_KEY.test(k)).sort();
+  const ruKeys = Object.keys(ru).filter((k) => TOOL_LABEL_KEY.test(k)).sort();
+  assert.deepEqual(ruKeys, enKeys);
+  assert.ok(enKeys.length > 80, String(enKeys.length));
+  const sharedOk = new Set(['3D', 'IFC', 'DXF']);
+  for (const k of enKeys) {
+    const ev = en[k];
+    const rv = ru[k];
+    assert.ok(ev.trim(), `empty en ${k}`);
+    assert.ok(rv.trim(), `empty ru ${k}`);
+    const blob = `${ev} ${rv}`;
+    assert.ok(!/famil/i.test(blob), k);
+    assert.ok(!/семейств/i.test(blob), k);
+    assert.ok(!/Построительн|Аксои|Ящик/.test(rv), k);
+    if (ev === rv && !sharedOk.has(ev)) assert.fail(`${k} is identical in EN and RU: ${ev}`);
+  }
+});
+
 test('browser kind badges and view labels are translated in RU', () => {
   for (const k of ['browser.badge.instance', 'browser.badge.type', 'browser.badge.space', 'viewTab.saveView', 'viewTab.export', 'viewKind.plan', 'viewName.threeD', 'component.apex.roof.pitched']) {
     assert.ok(en[k] && ru[k], k);

@@ -5,6 +5,6 @@ export const refPlanePlugin: Plugin = {
   id: 'apex.ref_plane',
   descriptor: { purpose: 'Reference plane tool.' },
   install(host) {
-    host.registerTool(createReferenceTool('plane', 'Ref plane'));
+    host.registerTool(createReferenceTool('plane', 'Plane'));
   },
 };

@@ -84,7 +84,7 @@ export function createParentTool(): Tool {
 export function createDetachTool(): Tool {
   return {
     id: DETACH_TOOL_ID,
-    label: 'Detach',
+    label: 'No parent',
     descriptor: { purpose: 'Detach the selected elements from their parent.' },
     group: 'transform',
     icon: ApexIcons.detach,

@@ -231,6 +231,19 @@ import { FileMenu } from './ui/FileMenu';
 
 const DEFAULT_LEVEL_RISE = 3;
 
+function attachEndKey(end: 'top' | 'base'): 'attach.end.top' | 'attach.end.base' {
+  switch (end) {
+    case 'top':
+      return 'attach.end.top';
+    case 'base':
+      return 'attach.end.base';
+    default: {
+      const unreachable: never = end;
+      return unreachable;
+    }
+  }
+}
+
 function makeToolRegistry(): ToolRegistry {
   const registry = new ToolRegistry();
   installPlugins(registry, []);
@@ -820,15 +833,11 @@ export default function App() {
       if (next.room_detect_report) {
         const { created, loops_found } = next.room_detect_report;
         if (created > 0) {
-          setInfo(`Detect rooms: ${created} room${created === 1 ? '' : 's'} found on the active level.`);
+          setInfo(t('tool.detect-rooms.found', { n: created }));
         } else if (loops_found === 0) {
-          setInfo(
-            'Detect rooms: 0 rooms — add closed wall loops with joined endpoints on this level.',
-          );
+          setInfo(t('tool.detect-rooms.none'));
         } else {
-          setInfo(
-            `Detect rooms: 0 new rooms (${loops_found} loop${loops_found === 1 ? '' : 's'} found; walls may already have spaces).`,
-          );
+          setInfo(t('tool.detect-rooms.already', { n: loops_found }));
         }
       }
       const renderer = rendererRef.current;
@@ -862,7 +871,7 @@ export default function App() {
       else if (selSpace) setSelectedLevelId(selSpace.level_id);
       if (!draggingRef.current) syncEditGizmo(sel, selRef, selAxis, selLine, selCut, selSpace);
     },
-    [activeViewId, splitTab, syncEditGizmo, syncSceneToRenderer],
+    [activeViewId, splitTab, syncEditGizmo, syncSceneToRenderer, t],
   );
   const applySceneRef = useRef(applyScene);
   applySceneRef.current = applyScene;
@@ -3517,7 +3526,9 @@ export default function App() {
   // only the pick hint (the attach fields themselves are schema params).
   const attachSection = attachPick ? (
     <div className="empty" style={{ padding: 0, marginTop: 4 }} data-testid="attach-pick-hint">
-      {t('attach.pickHint', { end: attachPick.end })}
+      {t('attach.pickHint', {
+        end: t(attachEndKey(attachPick.end)),
+      })}
     </div>
   ) : null;
 

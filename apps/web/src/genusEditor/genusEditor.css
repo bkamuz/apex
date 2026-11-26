@@ -236,17 +236,29 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 3px;
-  min-width: 60px;
+  justify-content: flex-start;
+  gap: 1px;
+  min-width: 52px;
+  max-width: 96px;
   height: 50px;
   padding: 2px 4px;
   border: 1px solid transparent;
   border-radius: 4px;
   background: none;
   font-size: 11px !important;
+  line-height: 1.1;
+  text-align: center;
   cursor: pointer;
-  white-space: nowrap;
+  white-space: normal;
+}
+.genus-tool > span {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  max-height: 2.2em;
 }
 .genus-tool:hover:not(:disabled) {
   background: var(--chrome-hover);

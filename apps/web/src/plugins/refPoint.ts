@@ -5,6 +5,6 @@ export const refPointPlugin: Plugin = {
   id: 'apex.ref_point',
   descriptor: { purpose: 'Reference point tool.' },
   install(host) {
-    host.registerTool(createReferenceTool('point', 'Ref point'));
+    host.registerTool(createReferenceTool('point', 'Point'));
   },
 };

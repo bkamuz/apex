@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import type { Tool, ToolIconName } from '../tools/Tool';
 import { ApexIcons } from '../tools/icons';
-import { tabDisplayLabel, toolDisplayLabel, useI18n } from '../i18n';
+import { tabDisplayLabel, toolDisplayLabel, toolDisplayTitle, useI18n } from '../i18n';
 import { ToolIconGlyph } from './ToolIcon';
 import {
   buildRibbon,
@@ -48,6 +48,7 @@ function ToolButton({
 }) {
   const label = toolDisplayLabel(tool);
   const key = shortcutHint(tool);
+  const tip = toolDisplayTitle(tool);
   const classes = ['rb-btn', 'rb-btn--big', active ? 'active' : ''].filter(Boolean).join(' ');
   // Activate on pointerdown: an inspector blur/commit can remount the ribbon
   // between mousedown and mouseup and swallow the click (smoke: label → Detect).
@@ -57,7 +58,7 @@ function ToolButton({
       className={classes}
       aria-label={label}
       aria-pressed={active}
-      title={key ? `${label} (${key})` : label}
+      title={key ? `${tip} (${key})` : tip}
       data-testid={`tool-${tool.id}`}
       onPointerDown={(e) => {
         if (e.button !== 0) return;
@@ -269,7 +270,7 @@ export function ToolsToolbar({
               <>
                 <RibbonPanel label={t('ribbon.group.navigate')} testId="ribbon-group-navigate">
                   <ViewButton
-                    label={t('cmd.view3d')}
+                    label={t('toolbar.view3d')}
                     icon={ApexIcons.view3d}
                     title={t('toolbar.view3dTitle')}
                     active={view.viewNavigation === '3d'}
@@ -277,7 +278,7 @@ export function ToolsToolbar({
                     testId="ribbon-view-3d"
                   />
                   <ViewButton
-                    label={t('cmd.plan')}
+                    label={t('toolbar.plan')}
                     icon={ApexIcons.viewPlan}
                     title={t('toolbar.planTitle')}
                     active={view.viewNavigation === 'plan'}
@@ -285,7 +286,7 @@ export function ToolsToolbar({
                     testId="ribbon-view-plan"
                   />
                   <ViewButton
-                    label={t('cmd.fit')}
+                    label={t('toolbar.fit')}
                     icon={ApexIcons.viewFit}
                     title={t('toolbar.fitTitle')}
                     onClick={view.onFitView}
@@ -294,7 +295,7 @@ export function ToolsToolbar({
                 </RibbonPanel>
                 <RibbonPanel label={t('ribbon.group.graphics')} testId="ribbon-group-graphics">
                   <ViewButton
-                    label={t('cmd.thinLines')}
+                    label={t('toolbar.thinLines')}
                     icon={ApexIcons.thinLines}
                     title={t('toolbar.thinLinesTitle')}
                     active={view.hairline}
