@@ -1881,6 +1881,9 @@ export default function App() {
   useEffect(() => {
     return subscribeCategoryPlacement(() => {
       cancelGesture();
+      // A genus switch rebuilds the placement tool (Wall starts on Line again).
+      // The highlight has to follow that mode or Arc stays lit while clicks draw a line.
+      setDrawMode(toolRef.current.getMode?.() ?? null);
       setToolUiTick((n) => n + 1);
     });
   }, [cancelGesture]);
