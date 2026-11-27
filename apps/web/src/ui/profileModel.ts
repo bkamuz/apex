@@ -1,3 +1,4 @@
+import { t } from '../i18n/t';
 import type { ComponentDto, ParamSpecDto, ParamValue, ProfileTypeDto } from '../types';
 import { placeholderPolygon } from './sketchModel';
 
@@ -89,9 +90,10 @@ export function defaultNewProfile(category: string, id: string): ProfileTypeDto 
 
 export function profileLabel(profiles: ProfileTypeDto[], id: string): string {
   const found = profiles.find((profile) => profile.id === id);
-  if (found) return found.display_name;
-  const leaf = id.includes('.') ? id.slice(id.lastIndexOf('.') + 1) : id;
-  return leaf.charAt(0).toUpperCase() + leaf.slice(1);
+  const fallback = found
+    ? found.display_name
+    : (id.includes('.') ? id.slice(id.lastIndexOf('.') + 1) : id).replace(/^./, (c) => c.toUpperCase());
+  return t(`profile.${id}`, undefined, fallback);
 }
 
 export function typeValueMap(profile: ProfileTypeDto | undefined): Record<string, ParamValue> {

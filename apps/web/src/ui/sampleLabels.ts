@@ -1,7 +1,22 @@
+import { CATALOGS } from '../i18n/catalogs';
 import { hasMessage, t } from '../i18n/t';
 
 const SAMPLE_KEY = /sample(?:\.[a-z0-9_]+)+/i;
 const PLAN_SUFFIX = /^(\s*[—–-]\s*)plan(\s+\d+)?$/i;
+
+let lowerCatalog: Map<string, string> | null = null;
+
+/** Catalog key for a sample token, matching case-insensitively (`upperHall`). */
+function canonicalSampleKey(raw: string): string | null {
+  const lower = raw.toLowerCase();
+  if (hasMessage(lower)) return lower;
+  if (!lowerCatalog) {
+    lowerCatalog = new Map();
+    for (const key of Object.keys(CATALOGS.en)) lowerCatalog.set(key.toLowerCase(), key);
+  }
+  const hit = lowerCatalog.get(lower);
+  return hit && hasMessage(hit) ? hit : null;
+}
 
 /**
  * Sample document strings (level, room, and view prefixes) are catalog keys
@@ -13,8 +28,8 @@ const PLAN_SUFFIX = /^(\s*[—–-]\s*)plan(\s+\d+)?$/i;
 export function localizeDocumentName(name: string): string {
   const match = SAMPLE_KEY.exec(name);
   if (!match) return name;
-  const key = match[0].toLowerCase();
-  if (!hasMessage(key)) return name;
+  const key = canonicalSampleKey(match[0]);
+  if (!key) return name;
   const rest = name.slice(match.index + match[0].length);
   const suffix = PLAN_SUFFIX.exec(rest);
   const tail = suffix

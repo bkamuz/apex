@@ -132,7 +132,7 @@ export function ViewsSheetsPanel({
   onRenameSheet,
   onDeleteSheet,
 }: Props) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [viewsOpen, setViewsOpen] = useState(true);
   /** Sheets create chrome stays collapsed until needed — empty sheet forms add noise. */
   const [sheetsOpen, setSheetsOpen] = useState(() => sheets.length > 0);
@@ -140,7 +140,7 @@ export function ViewsSheetsPanel({
   const [newOrientation, setNewOrientation] = useState<PaperOrientation>('landscape');
   const [newCustomW, setNewCustomW] = useState(420);
   const [newCustomH, setNewCustomH] = useState(297);
-  const grouped = useMemo(() => viewsByType(views), [views]);
+  const grouped = useMemo(() => viewsByType(views), [views, locale]);
   const levelId = activeLevelId ?? levels[0]?.id ?? '';
 
   return (

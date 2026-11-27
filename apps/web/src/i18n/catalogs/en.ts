@@ -56,6 +56,8 @@ export const en: MessageCatalog = {
   'chrome.newProjectConfirm':
     'Start a new empty project? Unsaved changes in this document will be cleared.',
   'chrome.sampleLoaded': 'Sample house project loaded',
+  'chrome.loadSampleTitle': 'Replace this project with the sample house.',
+  'chrome.loadSampleConfirm': 'Replace the current project with the sample house?',
   'chrome.secondaryView': 'Secondary view',
 
   // —— Getting started ——
@@ -197,6 +199,25 @@ export const en: MessageCatalog = {
   'component.apex.opening.infill': 'Opening infill',
   'component.apex.site_surface': 'Site surface',
   'component.apex.terrain': 'Terrain',
+
+  'profile.apex.rect': 'Rectangle',
+  'profile.apex.round': 'Round',
+  'profile.apex.wall.rect': 'Rectangle',
+  'profile.apex.wall.round': 'Round',
+  'profile.apex.beam.rect': 'Rectangle',
+  'profile.apex.pipe.round': 'Round pipe',
+  'profile.apex.duct.rect': 'Rectangular duct',
+  'profile.apex.tray.rect': 'Cable tray',
+
+  // Default names the core stores in English (`Grid 1`, `Room 3`). Display only.
+  'name.grid': 'Grid',
+  'name.constructionLine': 'Construction line',
+  'name.section': 'Section',
+  'name.room': 'Room',
+  'name.level': 'Level',
+  'name.underlay': 'Underlay',
+  'name.refPoint': 'Ref point',
+  'name.refPlane': 'Ref plane',
 
   // Built-in sample house (stored on the document, shown in the active locale).
   'sample.level.ground': 'Ground floor',

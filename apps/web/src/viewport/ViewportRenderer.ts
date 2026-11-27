@@ -8,6 +8,7 @@ import {
   type Aabb,
 } from './fitView';
 import { PLAN_STYLES, effectiveLineWidthPx, type PlanStyle, type Rgba } from './planStyle';
+import { DEFAULT_ALBEDO, type Rgb } from './appearance';
 import { VIEWPORT_THEMES, themeStore, type ResolvedTheme, type ViewportTheme } from '../theme/theme';
 
 export type Vec3 = [number, number, number];
@@ -45,6 +46,10 @@ export interface SceneMeshData {
   fitBounds?: { min: Vec3; max: Vec3 } | null;
   /** Pick ids for horizontal slabs/floors drawn under walls in plan. */
   slabPickIds?: number[];
+  /** Lit fill albedo per pick id. Missing ids keep the neutral default. */
+  appearanceByPick?: ReadonlyMap<number, Rgb>;
+  /** 0..1 plan-slab mix toward the albedo. Missing ids stay paper. */
+  planWashByPick?: ReadonlyMap<number, number>;
   fitCamera?: boolean;
 }
 
@@ -105,6 +110,8 @@ precision highp float;
 layout(location=0) in vec3 aPos;
 layout(location=1) in vec3 aNormal;
 layout(location=2) in float aPick;
+layout(location=3) in vec3 aColor;
+layout(location=4) in float aWash;
 uniform mat4 uMVP;
 uniform mat4 uModel;
 uniform mat3 uNormalMat;
@@ -116,9 +123,13 @@ out vec3 vWorld;
 flat out float vPick;
 out float vGlass;
 out float vGhost;
+out vec3 vColor;
+out float vWash;
 void main(){
   vec4 world = uModel * vec4(aPos, 1.0);
   vWorld = world.xyz;
+  vColor = aColor;
+  vWash = aWash;
   vNormal = normalize(uNormalMat * aNormal);
   // Window glass is tagged in the core with length-2 normals.
   // Ghosts (shown boolean operands, slab openings) use length-3 normals.
@@ -154,6 +165,8 @@ in vec3 vWorld;
 flat in float vPick;
 in float vGlass;
 in float vGhost;
+in vec3 vColor;
+in float vWash;
 uniform int uGlassPass;
 uniform vec3 uLightDir;
 uniform vec3 uSkyColor;
@@ -291,13 +304,18 @@ void main(){
       ? vec3(0.52, 0.72, 0.28)
       : hoverTint
         ? vec3(0.48, 0.64, 0.34)
-        : vec3(0.72, 0.76, 0.80);
+        : vColor;
   float alpha = uOpacity;
   if (uPlanMode != 0) {
     float above = vWorld.y - uCutY;
     if (above > uCutFade) discard;
     if (above > 0.0) {
       alpha *= 1.0 - clamp(above / max(uCutFade, 1e-4), 0.0, 0.92);
+    }
+    // Projection stays a line drawing. Materials show in 3D; the plan only
+    // tints site and terrain (vWash) so the yard is not one grey field.
+    if (abs(vWorld.y - uCutY) >= 0.12) {
+      base = uSlabFill.rgb;
     }
     if (slab && uMeshLayer != 2 && (selected || hovered)) {
       alpha *= 0.34;
@@ -317,7 +335,9 @@ void main(){
   // walls' cut poche stays legible on top; edges give the thin outline.
   if (uPlanMode != 0 && slab && uGlassPass == 0 && !selected && uSelectionMode != 3
       && !hoverTint) {
-    outColor = vec4(uSlabFill.rgb, uSlabFill.a * alpha);
+    vec3 fill = mix(uSlabFill.rgb, vColor, clamp(vWash, 0.0, 1.0));
+    // Opaque: a see-through floor was letting the terrain sheet paint the rooms.
+    outColor = vec4(fill, 1.0);
     return;
   }
   vec3 color = base * (ambient * 0.45 + vec3(wrap) * 0.7);
@@ -336,8 +356,8 @@ void main(){
       color = mix(vec3(0.55, 0.82, 0.28), color, 0.22);
       alpha = max(alpha, 0.55) * 0.72;
     } else {
-      color = mix(vec3(0.55, 0.75, 0.86), color, selected ? 0.5 : 0.15);
-      alpha *= 0.28;
+      color = mix(vec3(0.58, 0.78, 0.88), color, selected ? 0.45 : 0.12);
+      alpha *= 0.4;
     }
   }
   outColor = vec4(color, alpha);
@@ -948,6 +968,8 @@ export class ViewportRenderer {
   private posBuf: WebGLBuffer;
   private nrmBuf: WebGLBuffer;
   private pickBuf: WebGLBuffer;
+  private colorBuf: WebGLBuffer;
+  private washBuf: WebGLBuffer;
   private idxBuf: WebGLBuffer;
   private edgeVao: WebGLVertexArrayObject;
   private edgeBuf: WebGLBuffer;
@@ -1138,6 +1160,8 @@ export class ViewportRenderer {
     this.posBuf = gl.createBuffer()!;
     this.nrmBuf = gl.createBuffer()!;
     this.pickBuf = gl.createBuffer()!;
+    this.colorBuf = gl.createBuffer()!;
+    this.washBuf = gl.createBuffer()!;
     this.idxBuf = gl.createBuffer()!;
 
     gl.bindVertexArray(this.vao);
@@ -1150,6 +1174,12 @@ export class ViewportRenderer {
     gl.bindBuffer(gl.ARRAY_BUFFER, this.pickBuf);
     gl.enableVertexAttribArray(2);
     gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.colorBuf);
+    gl.enableVertexAttribArray(3);
+    gl.vertexAttribPointer(3, 3, gl.FLOAT, false, 0, 0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.washBuf);
+    gl.enableVertexAttribArray(4);
+    gl.vertexAttribPointer(4, 1, gl.FLOAT, false, 0, 0);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.idxBuf);
     gl.bindVertexArray(null);
 
@@ -1191,6 +1221,10 @@ export class ViewportRenderer {
     // pick attribute unused for ghost — bind dummy zeros via pickBuf of main? Use disabled attrib with constant.
     gl.disableVertexAttribArray(2);
     gl.vertexAttrib1f(2, 0);
+    gl.disableVertexAttribArray(3);
+    gl.vertexAttrib3f(3, DEFAULT_ALBEDO[0], DEFAULT_ALBEDO[1], DEFAULT_ALBEDO[2]);
+    gl.disableVertexAttribArray(4);
+    gl.vertexAttrib1f(4, 0);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.ghostIdxBuf);
     gl.bindVertexArray(null);
 
@@ -1453,12 +1487,33 @@ export class ViewportRenderer {
       edgesRaw instanceof Float32Array ? edgesRaw : new Float32Array(edgesRaw as ArrayLike<number>);
 
     const triCount = indices.length / 3;
-    const pickPerVertex = new Float32Array(positions.length / 3);
+    const vertCount = positions.length / 3;
+    const pickPerVertex = new Float32Array(vertCount);
+    const colorPerVertex = new Float32Array(vertCount * 3);
+    const washPerVertex = new Float32Array(vertCount);
+    const albedo = DEFAULT_ALBEDO;
+    for (let v = 0; v < vertCount; v++) {
+      colorPerVertex[v * 3] = albedo[0];
+      colorPerVertex[v * 3 + 1] = albedo[1];
+      colorPerVertex[v * 3 + 2] = albedo[2];
+    }
+    const colors = data.appearanceByPick;
+    const washes = data.planWashByPick;
     for (let t = 0; t < triCount; t++) {
       const pid = Number(data.pickIds[t] ?? 0);
+      const rgb = colors?.get(pid);
+      const wash = washes?.get(pid) ?? 0;
       pickPerVertex[indices[t * 3]] = pid;
       pickPerVertex[indices[t * 3 + 1]] = pid;
       pickPerVertex[indices[t * 3 + 2]] = pid;
+      for (let k = 0; k < 3; k++) {
+        const v = indices[t * 3 + k];
+        washPerVertex[v] = wash;
+        if (!rgb) continue;
+        colorPerVertex[v * 3] = rgb[0];
+        colorPerVertex[v * 3 + 1] = rgb[1];
+        colorPerVertex[v * 3 + 2] = rgb[2];
+      }
     }
 
     gl.bindBuffer(gl.ARRAY_BUFFER, this.posBuf);
@@ -1467,6 +1522,10 @@ export class ViewportRenderer {
     gl.bufferData(gl.ARRAY_BUFFER, normals, gl.DYNAMIC_DRAW);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.pickBuf);
     gl.bufferData(gl.ARRAY_BUFFER, pickPerVertex, gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.colorBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, colorPerVertex, gl.DYNAMIC_DRAW);
+    gl.bindBuffer(gl.ARRAY_BUFFER, this.washBuf);
+    gl.bufferData(gl.ARRAY_BUFFER, washPerVertex, gl.DYNAMIC_DRAW);
     // ELEMENT_ARRAY_BUFFER binding lives on the VAO — update while it is bound.
     gl.bindVertexArray(this.vao);
     gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, this.idxBuf);
@@ -2829,15 +2888,15 @@ export class ViewportRenderer {
       gl.uniform1f(u.uOpacity, 1.0);
       gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_INT, 0);
     } else if (planLayered) {
-      gl.enable(gl.BLEND);
-      gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-      gl.depthMask(false);
+      // Opaque depth: the nearest slab wins, so a terrain sheet under the
+      // lawn and floors does not paint over them. Walls draw next and win
+      // where they are closer (the cut).
+      gl.disable(gl.BLEND);
+      gl.depthMask(true);
       gl.uniform1i(u.uSelectionMode, 0);
       gl.uniform1f(u.uOpacity, 1.0);
       gl.uniform1i(u.uMeshLayer, 1);
       gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_INT, 0);
-      gl.disable(gl.BLEND);
-      gl.depthMask(true);
       gl.uniform1i(u.uMeshLayer, 2);
       gl.uniform1f(u.uOpacity, 1.0);
       gl.drawElements(gl.TRIANGLES, this.indexCount, gl.UNSIGNED_INT, 0);

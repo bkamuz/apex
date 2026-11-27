@@ -1282,6 +1282,7 @@ input[type="radio"] {
   font-weight: 600;
   text-align: center;
   line-height: 1.2;
+  white-space: normal;
 }
 
 .view-tab-bar {

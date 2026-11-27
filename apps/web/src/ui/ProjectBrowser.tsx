@@ -10,14 +10,12 @@ import type {
   SectionCutDto,
   SpaceDto,
 } from '../types';
-import { t, useI18n } from '../i18n';
+import { componentDisplayName, instanceDisplayName, t, useI18n } from '../i18n';
 import { categoryDisplayLabel } from './categoryLabels';
 import { isUserAuthoredComponent } from './componentModel';
-import { componentDisplayName } from '../i18n';
 import { isGenusComponent } from '../genusEditor/model';
 import { GenusLibraryPanel } from '../genusEditor/GenusLibraryPanel';
 import { profileLabel } from './profileModel';
-import { localizeDocumentName } from './sampleLabels';
 import { ViewsSheetsPanel } from './ViewsSheetsPanel';
 import type { SheetDto, ViewDto } from '../types';
 import { matchesBrowserSearch, type SidebarTab } from './sidebarPrefs';
@@ -636,7 +634,7 @@ export function ProjectBrowser({
   };
 
   const levelName = (id: string) =>
-    localizeDocumentName(levels.find((level) => level.id === id)?.name ?? '—');
+    instanceDisplayName(levels.find((level) => level.id === id)?.name ?? '—');
 
   const items = useMemo(() => {
     const types: BrowserItem[] = profiles.map((profile) => ({
@@ -665,7 +663,7 @@ export function ProjectBrowser({
       key: `instance:${element.id}`,
       kind: 'instance',
       id: element.id,
-      name: element.name,
+      name: instanceDisplayName(element.name),
       category: element.category,
       // A child reads its parent's level, so show the effective one.
       levelName: levelName(element.effective_level_id),
@@ -673,15 +671,18 @@ export function ProjectBrowser({
         ? profileLabel(profiles, element.profile_id)
         : // Name the element's own component (a window is not a "Door" just
           // because both share the opening category).
-          (components.find((c) => c.id === element.component_id)?.display_name ??
-          categoryDisplayLabel(element.category, components)),
+          componentDisplayName(
+            element.component_id,
+            components.find((c) => c.id === element.component_id)?.display_name ??
+              categoryDisplayLabel(element.category, components),
+          ),
       parentId: element.parent_id ?? null,
     }));
     const refs: BrowserItem[] = references.map((reference) => ({
       key: `reference:${reference.id}`,
       kind: 'reference',
       id: reference.id,
-      name: reference.name,
+      name: instanceDisplayName(reference.name),
       category: reference.kind,
       levelName: levelName(reference.level_id),
       profileName: reference.kind,
@@ -690,7 +691,7 @@ export function ProjectBrowser({
       key: `grid:${axis.id}`,
       kind: 'grid_axis',
       id: axis.id,
-      name: axis.name,
+      name: instanceDisplayName(axis.name),
       category: 'grid',
       levelName: levelName(axis.level_id),
       profileName: String(axis.params.label ?? '—'),
@@ -699,7 +700,7 @@ export function ProjectBrowser({
       key: `cline:${line.id}`,
       kind: 'construction_line',
       id: line.id,
-      name: line.name,
+      name: instanceDisplayName(line.name),
       category: 'construction',
       levelName: levelName(line.level_id),
       profileName: String(line.params.label ?? '—'),
@@ -708,7 +709,7 @@ export function ProjectBrowser({
       key: `cut:${cut.id}`,
       kind: 'section_cut',
       id: cut.id,
-      name: cut.name,
+      name: instanceDisplayName(cut.name),
       category: 'section',
       levelName: levelName(cut.level_id),
       profileName: String(cut.params.label ?? '—'),
@@ -717,7 +718,7 @@ export function ProjectBrowser({
       key: `space:${space.id}`,
       kind: 'space',
       id: space.id,
-      name: localizeDocumentName(space.name),
+      name: instanceDisplayName(space.name),
       category: 'space',
       levelName: levelName(space.level_id),
       profileName: String(space.params.label ?? '—'),

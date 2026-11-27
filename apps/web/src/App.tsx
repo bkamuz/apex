@@ -187,6 +187,7 @@ import { SHAPEABLE_COMPONENTS, SlabShapePanel } from './ui/SlabShapePanel';
 import { ToolsToolbar } from './ui/ToolsToolbar';
 import { GettingStartedPanel } from './ui/GettingStartedPanel';
 import { buildSampleProject } from './ui/sampleProject';
+import { appearanceByPick, planWashByPick } from './viewport/appearance';
 import { defaultNewProfile, defaultPlacementParams, nextProfileId } from './ui/profileModel';
 import { AgentBridgeControl } from './ui/AgentBridgeControl';
 import {
@@ -223,6 +224,8 @@ import { extensions, installGlobalSdk } from './extensions/sdk';
 import {
   exporterDisplayLabel,
   exporterDisplayTitle,
+  hasMessage,
+  instanceDisplayName,
   toolDisplayLabel,
   useI18n,
 } from './i18n';
@@ -781,6 +784,8 @@ export default function App() {
         selectedPickIds: selectedPickIds(next),
         fitBounds: sceneFitBounds(next),
         slabPickIds: slabPickIds(next),
+        appearanceByPick: appearanceByPick(next.elements ?? []),
+        planWashByPick: planWashByPick(next.elements ?? []),
         fitCamera,
       });
       syncLevelPlanes(renderer, next);
@@ -823,6 +828,8 @@ export default function App() {
         minorEdgePositions: next.minor_edge_positions ? toFloatArray(next.minor_edge_positions) : [],
         selectedPickIds: [],
         slabPickIds: slabPickIds(next),
+        appearanceByPick: appearanceByPick(next.elements ?? []),
+        planWashByPick: planWashByPick(next.elements ?? []),
         fitCamera: false,
       });
       renderer.setPlanSymbols(next.plan_symbols?.length ? next.plan_symbols : null);
@@ -1421,6 +1428,8 @@ export default function App() {
             edgePositions: next.edge_positions ? toFloatArray(next.edge_positions) : [],
             minorEdgePositions: next.minor_edge_positions ? toFloatArray(next.minor_edge_positions) : [],
             selectedPickIds: selectedPickIds(next),
+            appearanceByPick: appearanceByPick(next.elements ?? []),
+            planWashByPick: planWashByPick(next.elements ?? []),
             fitCamera: false,
           });
           sync(next);
@@ -2630,7 +2639,7 @@ export default function App() {
           }
           if (autoLoadedSample) {
             setShowGettingStarted(false);
-            setInfo(t('chrome.sampleLoaded'));
+            setInfo('chrome.sampleLoaded');
           }
           projectRestoreDoneRef.current = true;
           setReady(true);
@@ -3400,6 +3409,25 @@ export default function App() {
     [linkUnderlayFromText],
   );
 
+  const onLoadSampleProject = useCallback(() => {
+    if (isGenusTestActive()) {
+      setInfo(t('genusEditor.test.busy'));
+      return;
+    }
+    const hasModel = (sceneRef.current?.elements.length ?? 0) > 0;
+    if (hasModel || isProjectDirty()) {
+      if (!window.confirm(t('chrome.loadSampleConfirm'))) return;
+    }
+    try {
+      applyScene(buildSampleProject(), true);
+      setShowGettingStarted(false);
+      setInfo('chrome.sampleLoaded');
+      setError(null);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }, [applyScene, isProjectDirty, t]);
+
   const onNewProject = useCallback(() => {
     if (isGenusTestActive()) {
       setInfo(t('genusEditor.test.busy'));
@@ -3672,7 +3700,11 @@ export default function App() {
         const list = scene?.elements ?? [];
         return (['operand_a', 'operand_b'] as const).map((key) => {
           const id = String(selected.params[key] ?? '');
-          return { key, id, name: list.find((element) => element.id === id)?.name ?? '(missing)' };
+          return {
+            key,
+            id,
+            name: instanceDisplayName(list.find((element) => element.id === id)?.name ?? '(missing)'),
+          };
         });
       })()}
       onSelectElement={(id) => onSelectFromTree(id, false)}
@@ -3681,7 +3713,7 @@ export default function App() {
         const list = scene?.elements ?? [];
         const parentId = list.find((element) => element.id === selected.id)?.parent_id;
         if (!parentId) return null;
-        return list.find((element) => element.id === parentId)?.name ?? parentId;
+        return instanceDisplayName(list.find((element) => element.id === parentId)?.name ?? parentId);
       })()}
       onDetach={() => {
         if (!selected) return;
@@ -3719,7 +3751,7 @@ export default function App() {
       ? t('tool.select.terrainHint')
       : viewportEditable && !shapeEditing && toolId === ToolRegistry.selectId
         ? t('tool.select.terrainEditHint')
-        : (info ?? tool.hint(pending.length));
+        : ((info && hasMessage(info) ? t(info) : info) ?? tool.hint(pending.length));
   const statusText = `${selectHint}${
     pending.length > 0 && tool.group === 'create'
       ? typedLength
@@ -3797,6 +3829,7 @@ export default function App() {
     add('open', 'cmd.open', 'cmd.group.file', onRequestOpenProject, { shortcut: 'Ctrl+O' });
     add('save', 'cmd.save', 'cmd.group.file', onSaveProject, { shortcut: 'Ctrl+S' });
     add('save-as', 'cmd.saveAs', 'cmd.group.file', onSaveProjectAs);
+    add('load-sample', 'gettingStarted.loadSample', 'cmd.group.file', onLoadSampleProject);
     for (const exporter of exporters) {
       const label = exporterDisplayLabel(exporter);
       out.push({
@@ -3890,6 +3923,7 @@ export default function App() {
                 onOpen={onRequestOpenProject}
                 onSave={onSaveProject}
                 onSaveAs={onSaveProjectAs}
+                onLoadSample={onLoadSampleProject}
               >
                 {underlayLinkers.map((linker) => (
                   <button
@@ -4112,16 +4146,7 @@ export default function App() {
                 /* ignore */
               }
             }}
-            onLoadSample={() => {
-              try {
-                applyScene(buildSampleProject(), true);
-                setShowGettingStarted(false);
-                setInfo(t('chrome.sampleLoaded'));
-                setError(null);
-              } catch (err) {
-                setError(err instanceof Error ? err.message : String(err));
-              }
-            }}
+            onLoadSample={onLoadSampleProject}
           />
         ) : null}
         <DocumentViewsHost
