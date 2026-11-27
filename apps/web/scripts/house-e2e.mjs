@@ -1,18 +1,17 @@
 /**
- * Realistic two-storey house, built through the UI like a user would:
- * grid, walls, doors, windows, slabs, stair, roof, rooms, plan views with
- * dimensions and room names, a 3D view, and an A1 sheet exported to
- * SVG / DXF / PDF.
+ * The built-in modern house (apps/web/src/ui/houseSample.ts), checked through
+ * the UI: both plan views, a 3D view, and an A1 sheet exported to SVG / DXF / PDF.
  *
- * Clicks are real mouse events. `window.__apexTest.worldToClient` is only
- * used to aim them at exact world coordinates (Shift snaps to the 1 m grid).
+ * The model is loaded with `loadSampleProject` so the geometry stays the same
+ * as house-mcp. Clicks after that are real mouse events; `worldToClient` only
+ * aims the framing pan.
  *
  *   APEX_SMOKE_URL=http://127.0.0.1:5173/ APEX_HOUSE_OUT=/tmp/house node scripts/house-e2e.mjs
  */
 import { chromium } from 'playwright';
 import { mkdirSync, readFileSync, writeFileSync } from 'fs';
 
-/** Optional: skip the build and start from a saved project.json (sheet/export debugging). */
+/** Optional: skip the load and start from a saved project.json (sheet/export debugging). */
 const RESUME = process.env.APEX_HOUSE_RESUME ? readFileSync(process.env.APEX_HOUSE_RESUME, 'utf8') : null;
 
 const OUT = process.env.APEX_HOUSE_OUT ?? '/tmp/apex-house';
@@ -29,9 +28,8 @@ const browser = await chromium.launch({ headless: true });
 const context = await browser.newContext({ viewport: { width: 1600, height: 1000 }, acceptDownloads: true });
 const page = await context.newPage();
 page.on('pageerror', (e) => note(`page error: ${e.message}`));
-const promptAnswers = [];
 page.on('dialog', async (d) => {
-  if (d.type() === 'prompt') await d.accept(promptAnswers.shift() ?? 'Note');
+  if (d.type() === 'prompt') await d.accept('Note');
   else await d.dismiss();
 });
 await page.addInitScript((resume) => {
@@ -39,6 +37,7 @@ await page.addInitScript((resume) => {
   sessionStorage.setItem('apex.house-e2e', '1');
   localStorage.clear();
   localStorage.setItem('apex.gettingStarted.dismissed', '1');
+  localStorage.setItem('apex.locale', 'en');
   if (resume) localStorage.setItem('apex.project', resume);
 }, RESUME);
 await page.goto(BASE, { waitUntil: 'networkidle' });
@@ -53,50 +52,21 @@ async function shot(name) {
   console.log('  shot', p);
   return p;
 }
-async function errorText() {
-  const banner = page.locator('.error-banner');
-  return (await banner.count()) && (await banner.first().isVisible()) ? (await banner.first().textContent()) : '';
-}
-async function checkError(step) {
-  const t = await errorText();
-  if (t) note(`${step}: error banner "${t.trim()}"`);
-}
 
-async function tabFor(name) {
-  const btn = page.getByRole('button', { name, exact: true });
-  if ((await btn.count()) > 0 && (await btn.first().isVisible())) return btn.first();
-  for (const tab of await page.locator('.tools-tab').all()) {
-    await tab.click();
-    await page.waitForTimeout(50);
-    if ((await btn.count()) > 0 && (await btn.first().isVisible())) return btn.first();
-  }
-  throw new Error(`tool not found: ${name}`);
-}
-async function useTool(name) {
-  await page.keyboard.press('Escape');
-  await (await tabFor(name)).click();
-  await page.waitForTimeout(120);
-}
 async function rawClient(x, z, y) {
   return page.evaluate(([x, y, z]) => window.__apexTest?.worldToClient([x, y, z]), [x, y, z]);
 }
 async function canvasBox() {
   return page.locator('canvas').first().boundingBox();
 }
-async function client(x, z, y) {
-  const p = await rawClient(x, z, y);
-  const b = await canvasBox();
-  if (!p || p[0] < b.x || p[1] < b.y || p[0] > b.x + b.width || p[1] > b.y + b.height) {
-    throw new Error(`world point (${x},${z}) off screen: ${p}`);
-  }
-  return p;
-}
-/** Pan (middle drag) and wheel-zoom until the site rectangle fills the canvas. */
+
+/** Pan (middle drag) and wheel-zoom until the house rectangle fills the canvas. */
+const FRAME = [[-2, -6], [16, -6], [16, 13], [-2, 13]];
 async function frameSite(y = 0) {
-  for (let i = 0; i < 30; i += 1) {
+  for (let i = 0; i < 24; i += 1) {
     const b = await canvasBox();
     const pts = [];
-    for (const [x, z] of [[-3, -3], [13, -3], [13, 11], [-3, 11]]) pts.push(await rawClient(x, z, y));
+    for (const [x, z] of FRAME) pts.push(await rawClient(x, z, y));
     if (pts.some((p) => !p)) return note('site not projectable');
     const xs = pts.map((p) => p[0]);
     const ys = pts.map((p) => p[1]);
@@ -106,411 +76,124 @@ async function frameSite(y = 0) {
     const ty = b.y + b.height / 2;
     const frac = Math.max((Math.max(...xs) - Math.min(...xs)) / b.width, (Math.max(...ys) - Math.min(...ys)) / b.height);
     const centred = Math.abs(cx - tx) < 30 && Math.abs(cy - ty) < 30;
-    if (centred && frac > 0.6 && frac < 0.92) return;
+    if (centred && frac > 0.62 && frac < 0.9) return;
     if (!centred) {
-      // Drag from a point we can grab to the canvas centre.
       const sx = Math.min(Math.max(cx, b.x + 5), b.x + b.width - 5);
       const sy = Math.min(Math.max(cy, b.y + 5), b.y + b.height - 5);
       await page.mouse.move(sx, sy);
       await page.mouse.down({ button: 'middle' });
-      await page.mouse.move(sx + (tx - cx) / 2, sy + (ty - cy) / 2, { steps: 4 });
       await page.mouse.move(sx + (tx - cx), sy + (ty - cy), { steps: 4 });
       await page.mouse.up({ button: 'middle' });
     } else {
       await page.mouse.move(tx, ty);
-      await page.mouse.wheel(0, frac >= 0.92 ? 100 : -100);
+      await page.mouse.wheel(0, frac >= 0.9 ? 100 : -120);
     }
-    await page.waitForTimeout(100);
+    await page.waitForTimeout(80);
   }
   note('could not frame the site (pan/zoom)');
 }
-let elev = 0;
-async function hover(x, z) {
-  const [cx, cy] = await client(x, z, elev);
-  await page.mouse.move(cx, cy);
-}
-async function clickW(x, z, { dbl = false, snap = true } = {}) {
-  const [cx, cy] = await client(x, z, elev);
-  if (snap) await page.keyboard.down('Shift');
-  await page.mouse.move(cx, cy);
-  if (dbl) await page.mouse.dblclick(cx, cy);
-  else await page.mouse.click(cx, cy);
-  if (snap) await page.keyboard.up('Shift');
-  await page.waitForTimeout(120);
-}
-async function polyline(points, opts) {
-  for (let i = 0; i < points.length; i += 1) {
-    await clickW(points[i][0], points[i][1], { ...opts, dbl: i === points.length - 1 });
-  }
-  await page.waitForTimeout(200);
-}
-async function fit() {
-  await page.mouse.move(5, 500);
-  await page.keyboard.press('Escape');
-  await page.keyboard.press('f');
-  await page.waitForTimeout(400);
-  await frameSite(elev);
-}
-/** Set an inspector field of the selected element by its label. */
-async function setField(label, value) {
-  const field = page.locator('.inspector-body .field').filter({ hasText: label }).first();
-  if ((await field.count()) === 0) return note(`no inspector field "${label}"`);
-  const select = field.locator('select');
-  if (await select.count()) await select.first().selectOption(String(value));
-  else {
-    const input = field.locator('input').first();
-    await input.fill(String(value));
-    await input.press('Enter');
-  }
-  await page.waitForTimeout(250);
-}
-async function sceneCounts() {
+
+async function sceneInfo() {
   return page.evaluate(() => {
     const raw = localStorage.getItem('apex.project');
     if (!raw) return null;
     const j = JSON.parse(raw);
-    const els = j.document?.elements ?? j.elements ?? [];
+    const els = Object.values(j.document?.elements ?? j.elements ?? {});
     const by = {};
-    for (const e of Object.values(els)) by[e.component_id] = (by[e.component_id] ?? 0) + 1;
-    return by;
+    for (const e of els) by[e.component_id] = (by[e.component_id] ?? 0) + 1;
+    const spaces = Object.values(j.document?.spaces ?? j.spaces ?? {});
+    const levels = j.document?.levels ?? j.levels ?? [];
+    return {
+      by,
+      spaces: spaces.length,
+      spaceNames: spaces.map((s) => s.name).filter(Boolean),
+      levels: Array.isArray(levels) ? levels.length : Object.keys(levels).length,
+    };
   });
 }
 
-// Footprint 10 x 8 m. Axes 1-3 at x = 0/5/10, A-C at z = 0/4/8.
-// Rooms: Living (x 0-5), Bedroom (x 5-10, z 0-4), Kitchen (x 5-10, z 4-8).
-const AX = [0, 5, 10];
-const AZ = [0, 4, 8];
-
-async function drawStorey({ entrance }) {
-  await page.getByTestId('tools-tab-apex.building').click();
-  await useTool('Wall');
-  await page.getByRole('button', { name: 'Line', exact: true }).click();
-  // Exterior loop, closed by clicking the start again.
-  for (const [x, z] of [[0, 0], [10, 0], [10, 8], [0, 8], [0, 0]]) await clickW(x, z);
-  for (const seg of [[[5, 0], [5, 8]], [[5, 4], [10, 4]]]) {
-    await useTool('Wall');
-    await clickW(...seg[0]);
-    await clickW(...seg[1]);
-    await page.keyboard.press('Escape');
+async function openView(re) {
+  await page.getByTestId('browser-tab-views').click();
+  const row = page.locator('[data-testid^="view-row-"]').filter({ hasText: re }).first();
+  if ((await row.count()) === 0) {
+    note(`view not found: ${re}`);
+    return;
   }
-  await checkError('walls');
-
-  await useTool('Door');
-  const doors = [[5, 2], [5, 6]];
-  if (entrance) doors.push([2, 0]);
-  for (const [x, z] of doors) await clickW(x, z, { snap: false });
-  await useTool('Window');
-  for (const [x, z] of [[7.5, 0], [10, 2], [10, 6], [7.5, 8], [2.5, 8], [0, 4], ...(entrance ? [] : [[2, 0]])])
-    await clickW(x, z, { snap: false });
-  await page.keyboard.press('Escape');
-  await checkError('openings');
-  if (entrance) {
-    // Diagonal (45°) test wall east of the house, with a door and a window,
-    // so the 3D close-ups prove openings follow non-axis walls too.
-    await useTool('Wall');
-    await clickW(10.8, 0.8, { snap: false });
-    await clickW(12.8, 2.8, { snap: false });
-    await page.keyboard.press('Escape');
-    await useTool('Door');
-    await clickW(11.3, 1.3, { snap: false });
-    await useTool('Window');
-    await clickW(12.2, 2.2, { snap: false });
-    await page.keyboard.press('Escape');
-    await checkError('diagonal wall');
-  }
+  await row.click();
+  await page.waitForTimeout(400);
 }
 
 if (!RESUME) {
-// ---------------------------------------------------------------- Level 0
-const firstViewRow = page.locator('[data-testid^="view-row-"]').filter({ hasText: /Plan/i }).first();
-await firstViewRow.click();
-await page.waitForTimeout(500);
-await frameSite(0);
+  await page.waitForFunction(() => typeof window.__apexTest?.loadSampleProject === 'function');
+  const loaded = await page.evaluate(() => window.__apexTest.loadSampleProject());
+  if (loaded !== true) note('loadSampleProject did not return true');
+  await page.waitForTimeout(1200);
 
-await page.getByTestId('tools-tab-apex.basics').click().catch(() => {});
-await useTool('Grid');
-for (const x of AX) {
-  await clickW(x, -2);
-  await clickW(x, 10);
-}
-for (const z of AZ) {
-  await clickW(-2, z);
-  await clickW(12, z);
-}
-await page.keyboard.press('Escape');
-await fit();
-await checkError('grid');
-await shot('l0-grid');
-
-await drawStorey({ entrance: true });
-await useTool('Slab');
-await polyline([[0, 0], [10, 0], [10, 8], [0, 8]]);
-await page.keyboard.press('Escape');
-await checkError('slab L0');
-// Site yard: terrain TIN, fence loop, gate, lawn/paved/driveway.
-await useTool('Terrain');
-await polyline([
-  [-3, -3],
-  [13, -3],
-  [13, 11],
-  [10.2, 11],
-  [10.2, -0.15],
-  [-3, -0.15],
-]);
-await page.keyboard.press('Escape');
-await clickW(11.5, -1.5, { snap: false });
-await page.waitForTimeout(200);
-if (await page.getByTestId('slab-shape-edit').isVisible().catch(() => false)) {
-  await page.getByTestId('slab-shape-edit').click();
-  // Drop the SE corner (handle 1) so the ground grades away from the house.
-  const se = page.getByTestId('shape-handle-1').locator('input');
-  await se.fill('-0.9');
-  await se.press('Enter');
-  await page.waitForTimeout(250);
-  await shot('l0-terrain-heights-edit-plan');
-  await page.getByTestId('slab-shape-edit').click();
-} else note('terrain: no "Edit heights" button');
-await page.keyboard.press('Escape');
-await useTool('Fence');
-const fenceLoop = [[-3, -3], [13, -3], [13, 11], [-3, 11], [-3, -3]];
-for (let i = 0; i < 4; i += 1) {
-  await clickW(fenceLoop[i][0], fenceLoop[i][1]);
-  await clickW(fenceLoop[i + 1][0], fenceLoop[i + 1][1]);
-}
-await page.keyboard.press('Escape');
-await checkError('fence');
-await useTool('Gate');
-await clickW(2.5, -3, { snap: false });
-await page.keyboard.press('Escape');
-await checkError('gate');
-await useTool('Site surface');
-await polyline([[-2.5, 0], [-0.2, 0], [-0.2, 8], [-2.5, 8]]);
-await page.keyboard.press('Escape');
-await useTool('Site surface');
-await polyline([[0.5, -2.5], [4.5, -2.5], [4.5, -0.2], [0.5, -0.2]]);
-await page.keyboard.press('Escape');
-await useTool('Site surface');
-await polyline([[10.2, 3.5], [12.8, 3.5], [12.8, 7.5], [10.2, 7.5]]);
-await page.keyboard.press('Escape');
-await checkError('site yard');
-await shot('l0-walls-openings');
-
-// ---------------------------------------------------------------- Level 1
-await page.getByRole('button', { name: '+ Level' }).click();
-await page.waitForTimeout(400);
-await page.getByTestId('browser-tab-views').click(); // levels live in the Виды tab
-const l1 = page.locator('.level-list li').nth(1);
-await l1.click();
-await page.waitForTimeout(400);
-const badge = await page.locator('.level-list li.active-level').textContent();
-if (!/1/.test(badge ?? '')) note(`level 1 did not activate (active: ${badge})`);
-elev = 3;
-await page.getByTestId('new-plan-view').click();
-await page.waitForTimeout(500);
-const l1Row = page.locator('[data-testid^="view-row-"]').filter({ hasText: /Plan/i }).nth(1);
-await l1Row.click();
-await page.waitForTimeout(500);
-await fit();
-
-await drawStorey({ entrance: false });
-await useTool('Slab');
-await polyline([[0, 0], [10, 0], [10, 8], [0, 8]]);
-await page.keyboard.press('Escape');
-await checkError('slab L1');
-
-// Stair from level 0 up; it should cut the L1 slab.
-await page.locator('.level-list li').nth(0).click();
-await page.waitForTimeout(300);
-elev = 0;
-await useTool('Stair');
-await clickW(1, 1.5, { snap: false });
-await clickW(1, 6, { snap: false });
-await page.keyboard.press('Escape');
-await checkError('stair');
-
-// Roof on level 1, ridge along axis B.
-await page.locator('.level-list li').nth(1).click();
-await page.waitForTimeout(300);
-elev = 3;
-await useTool('Roof');
-await page.getByTestId('category-type-button').click();
-await page.getByTestId('category-type-genus-apex.roof.pitched').click();
-await page.waitForTimeout(120);
-await clickW(0, 4);
-await clickW(10, 4);
-await page.keyboard.press('Escape');
-await checkError('roof');
-
-// Revit-style Attach Top: every L1 exterior wall follows the roof underside
-// (gable ends rise to the ridge, eave walls stop under the slope).
-for (const [x, z] of [[0, 4], [10, 4], [5, 0], [5, 8]]) {
-  await page.keyboard.press('Escape');
-  // The roof now overhangs the walls, so a plan click lands on the roof; pick by geometry.
-  await page.evaluate(([x, z]) => window.__apexTest.selectNear('wall', [x, 3, z]), [x, z]);
-  await page.waitForTimeout(200);
-  const button = page.getByTestId('attach-top');
-  if ((await button.count()) === 0) {
-    note(`wall near (${x}, ${z}): no Attach Top button (selection missed?)`);
-    continue;
-  }
-  await button.first().click();
-  await page.waitForTimeout(300);
-}
-await page.keyboard.press('Escape');
-await checkError('attach gables');
-// One mitred solid: 0.5 m overhang all round, eaves cut square to the slope.
-const roofId = await page.evaluate(() => window.__apexTest.selectLast('apex.roof.pitched'));
-if (!roofId) note('no pitched roof to select');
-await page.waitForTimeout(300);
-await setField('Overhang', 0.5);
-await setField('Eave cut', 'perpendicular');
-await page.keyboard.press('Escape');
-await checkError('roof params');
-
-// Rooms on both levels.
-for (const [i, e] of [[0, 0], [1, 3]]) {
-  await page.locator('.level-list li').nth(i).click();
-  await page.waitForTimeout(300);
-  elev = e;
-  await useTool('By walls');
-  await clickW(2, 2, { snap: false });
-  await page.waitForTimeout(300);
-  const info = await page.getByTestId('topbar-hint').textContent().catch(() => '');
-  console.log(`  rooms L${i}:`, info?.trim());
-}
-console.log('  elements:', JSON.stringify(await sceneCounts()));
-
-// ---------------------------------------------------------------- Annotate
-async function openView(re) {
-  const row = page.locator('[data-testid^="view-row-"]').filter({ hasText: re }).first();
-  await row.click();
-  await page.waitForTimeout(500);
-  const tab = page.locator('.view-tab-open').filter({ hasText: re }).first();
-  if ((await tab.count()) > 0) await tab.click();
-  await page.waitForTimeout(400);
-}
-async function dim(a, b) {
-  await useTool('Dimension');
-  await clickW(a[0], a[1], { snap: false });
-  await clickW(b[0], b[1], { snap: false });
-}
-async function annotatePlan(levelIdx, e, names) {
-  await page.locator('.level-list li').nth(levelIdx).click();
-  elev = e;
-  const planRows = page.locator('[data-testid^="view-row-"]').filter({ hasText: /Plan/i });
-  await planRows.nth(levelIdx).click();
-  await page.waitForTimeout(600);
-  await fit();
-  await page.getByTestId('tools-tab-apex.annotate').click();
-  // Axis-to-axis chain + overall, both directions (clicks on the axis lines).
-  await dim([0, -1], [5, -1]);
-  await dim([5, -1], [10, -1]);
-  await dim([0, -1.8], [10, -1.8]);
-  await dim([-1, 0], [-1, 4]);
-  await dim([-1, 4], [-1, 8]);
-  await dim([-1.8, 0], [-1.8, 8]);
-  // Per-room clear dimensions (wall face to face).
-  await dim([0.1, 7.3], [4.9, 7.3]);
-  await dim([5.1, 1], [9.9, 1]);
-  await dim([9, 0.1], [9, 3.9]);
-  await dim([9, 4.1], [9, 7.9]);
-  await checkError(`dimensions L${levelIdx}`);
-  // Room names: select the room and rename it in Properties (the plan tag
-  // and the sheet's room tag follow the space name).
-  for (const [text, x, z] of names) {
-    await page.keyboard.press('Escape');
-    await clickW(x, z, { snap: false });
-    const input = page.getByTestId('space-name');
-    if (await input.isVisible().catch(() => false)) {
-      await input.fill(text);
-      await input.press('Enter');
-    } else {
-      note(`could not select the room at (${x}, ${z}) to rename it to ${text}`);
+  const info = await sceneInfo();
+  console.log('  elements:', JSON.stringify(info));
+  if (!info) note('no project in localStorage after sample load');
+  else {
+    const need = [
+      ['apex.wall', 20],
+      ['apex.roof', 2],
+      ['apex.column', 3],
+      ['apex.stair', 1],
+      ['apex.slab', 2],
+      ['apex.fence', 4],
+      ['apex.gate', 2],
+      ['apex.site_surface', 8],
+      ['apex.terrain', 1],
+    ];
+    for (const [id, n] of need) {
+      if ((info.by[id] ?? 0) < n) note(`expected ≥${n} ${id}, got ${info.by[id] ?? 0}`);
+    }
+    if (info.levels < 3) note(`expected 3 levels, got ${info.levels}`);
+    if (info.spaces < 13) note(`expected 13 rooms, got ${info.spaces}`);
+    for (const name of ['sample.room.living', 'sample.room.master', 'sample.room.hall']) {
+      if (!info.spaceNames.includes(name)) note(`missing room ${name}`);
     }
   }
-  await page.keyboard.press('Escape');
-  await page.waitForTimeout(400);
-}
-await annotatePlan(0, 0, [['LIVING', 3.5, 6], ['BEDROOM', 7.5, 2], ['KITCHEN', 7.5, 6]]);
-await page.getByTestId('save-view').click().catch(() => {});
-await shot('plan-l0-dimensions');
-await annotatePlan(1, 3, [['HALL / STAIR', 3.5, 6], ['BEDROOM 2', 7.5, 2], ['BEDROOM 3', 7.5, 6]]);
-await page.getByTestId('save-view').click().catch(() => {});
-await shot('plan-l1-dimensions');
 
-// ---------------------------------------------------------------- 3D
-await page.getByTestId('new-3d-view').click();
-await page.waitForTimeout(500);
-await openView(/3D/i);
-await page.keyboard.press('3');
-await fit();
-await page.getByTestId('save-view').click().catch(() => {});
-await shot('3d-view');
-{
-  // Close-ups of hosted openings from inside/outside, several yaws each.
-  const targets = [
-    ['door-x-wall-entrance', [2, 1.05, 0]],
-    ['door-y-wall-interior', [5, 1.05, 2]],
-    ['window-y-wall', [0, 1.6, 4]],
-    ['door-diagonal', [11.3, 1.05, 1.3]],
-    ['window-diagonal', [12.2, 1.6, 2.2]],
+  const labels = await page.locator('.space-label').allTextContents();
+  if (!labels.some((t) => /Living/.test(t))) note(`plan labels not localized: ${labels.join(' | ')}`);
+
+  await openView(/Ground floor/);
+  await page.getByTestId('view-plan').click();
+  await frameSite(0);
+  await shot('plan-ground');
+
+  await openView(/Upper floor/);
+  await page.getByTestId('view-plan').click();
+  await frameSite(3.05);
+  const upperLabels = await page.locator('.space-label').allTextContents();
+  if (!upperLabels.some((t) => /Master bedroom/.test(t))) note(`upper plan labels: ${upperLabels.join(' | ')}`);
+  await shot('plan-upper');
+
+  await openView(/^3D/);
+  await page.getByTestId('view-3d').click();
+  await page.getByTestId('view-persp').click();
+  const views = [
+    ['overview', [6, 2.2, 3], 0.65, 0.38, 28],
+    ['south-glazing', [7, 1.6, 1], 2.35, 0.32, 22],
+    ['cantilever', [5, 2.2, -2], 1.1, 0.28, 16],
+    ['yard', [8, 0.6, -4], 2.6, 0.42, 26],
   ];
-  for (const [name, t] of targets) {
-    for (const [k, yaw] of [0.4, 0.4 + Math.PI / 2, 0.4 + Math.PI, 0.4 + 1.5 * Math.PI].entries()) {
-      await page.evaluate(([t, yaw]) => window.__apexTest.setCamera({ target: t, distance: 3.2, yaw, pitch: 0.22 }), [t, yaw]);
-      await page.waitForTimeout(250);
-      await shot(`3d-close-${name}-${k}`);
-    }
-  }
-  // Gable ends: far views of both, then the wall/roof junction.
-  for (const [name, t, dist, yaw, pitch] of [
-    ['gable-far-a', [5, 4, 4], 24, 0.9, 0.25],
-    ['gable-far-b', [5, 4, 4], 24, 0.9 + Math.PI, 0.25],
-    ['gable-junction-a', [10, 6.8, 1.5], 7, 0.9, 0.15],
-    ['gable-junction-b', [0, 6.8, 6.5], 7, 0.9 + Math.PI, 0.15],
-    ['ridge-closeup', [10.5, 7.6, 4], 4.5, 0.6, 0.3],
-    ['eave-closeup', [10.5, 6, 8.5], 3.5, 0.7, 0.15],
-    ['driveway', [11.5, 0.4, 5.5], 9, 2.2, 0.35],
-    ['yard-fence', [5, 1.0, -3], 18, -0.4, 0.45],
-  ]) {
-    await page.evaluate(([t, d, yaw, pitch]) => window.__apexTest.setCamera({ target: t, distance: d, yaw, pitch }), [t, dist, yaw, pitch]);
-    await page.waitForTimeout(300);
+  for (const [name, target, yaw, pitch, distance] of views) {
+    await page.evaluate((c) => window.__apexTest.setCamera(c), { target, yaw, pitch, distance });
+    await page.waitForTimeout(350);
     await shot(`3d-${name}`);
   }
-  // Shape-edit handles in 3D, with one vertex dragged up by mouse.
-  await page.evaluate(() => window.__apexTest.setCamera({ target: [11.5, 0.4, 5.5], distance: 9, yaw: 2.2, pitch: 0.35 }));
-  await page.waitForTimeout(300);
-  const savedElev = elev;
-  elev = 0.2;
-  await page.getByRole('button', { name: 'Select', exact: true }).first().click().catch(() => {});
-  await clickW(11.5, 5.5, { snap: false });
-  elev = savedElev;
-  await page.waitForTimeout(200);
-  if (await page.getByTestId('slab-shape-edit').isVisible().catch(() => false)) {
-    await page.getByTestId('slab-shape-edit').click();
-    await page.waitForTimeout(300);
-    await page.getByTestId('slab-shape-add-point').click();
-    await page.waitForTimeout(300);
-    const [hx, hy] = await rawClient(10.2, 7.5, 0.2);
-    await page.mouse.move(hx, hy);
-    await page.mouse.down();
-    await page.mouse.move(hx, hy - 40, { steps: 6 });
-    await page.mouse.up();
-    await page.waitForTimeout(400);
-    await shot('3d-driveway-shape-edit');
-    await page.keyboard.press('Control+z');
-    await page.waitForTimeout(300);
-    await page.keyboard.press('Control+z');
-    await page.waitForTimeout(300);
-    await page.getByTestId('slab-shape-edit').click().catch(() => {});
-  } else note('3D: no "Edit shape" button on the driveway');
-  await page.keyboard.press('Escape');
-  await fit();
+
+  writeFileSync(`${OUT}/project.json`, await page.evaluate(() => localStorage.getItem('apex.project') ?? ''));
 }
 
-writeFileSync(`${OUT}/project.json`, await page.evaluate(() => localStorage.getItem('apex.project') ?? ''));
-}
 // ---------------------------------------------------------------- Sheet
+await page.getByTestId('browser-tab-views').click();
+const sheetsGroup = page.locator('.browser-tree-group').filter({ hasText: /Sheets|Листы/ }).last();
+if ((await page.getByTestId('new-sheet-paper-size').count()) === 0) {
+  await sheetsGroup.locator('.browser-tree-toggle').click();
+  await page.waitForTimeout(200);
+}
 await page.getByTestId('new-sheet-paper-size').selectOption('A1');
 await page.getByTestId('new-sheet-paper-orientation').selectOption('landscape');
 await page.getByTestId('new-sheet').click();
@@ -522,12 +205,12 @@ await paper.waitFor({ state: 'visible' });
 const pb = await paper.boundingBox();
 const viewRows = page.locator('[data-testid^="view-row-"]');
 const targets = [
-  [/Plan/i, 0, 0.24, 0.42],
-  [/Plan/i, 1, 0.7, 0.42],
-  [/3D/i, 0, 0.5, 0.8],
+  [/Ground floor/i, 0.24, 0.42],
+  [/Upper floor/i, 0.7, 0.42],
+  [/3D/i, 0.5, 0.8],
 ];
-for (const [re, n, fx, fy] of targets) {
-  await viewRows.filter({ hasText: re }).nth(n).dragTo(paper, {
+for (const [re, fx, fy] of targets) {
+  await viewRows.filter({ hasText: re }).first().dragTo(paper, {
     targetPosition: { x: pb.width * fx, y: pb.height * fy },
     sourcePosition: { x: 30, y: 10 },
   });
@@ -574,4 +257,5 @@ else if (!readFileSync(pdf).subarray(0, 5).toString().startsWith('%PDF')) note('
 writeFileSync(`${OUT}/problems.json`, JSON.stringify(problems, null, 2));
 await context.close();
 await browser.close();
-console.log(problems.length ? `${problems.length} problem(s)` : 'house built without problems');
+console.log(problems.length ? `${problems.length} problem(s)` : 'house checked without problems');
+if (problems.length) process.exit(1);

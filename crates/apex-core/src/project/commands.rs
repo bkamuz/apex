@@ -670,11 +670,24 @@ impl Project {
         if def.category != "opening" {
             return Ok(());
         }
-        let want = if component == "apex.slab_opening" {
-            "slab"
-        } else {
-            "wall"
-        };
+        // Host categories live on the definition (`host_cut`). A gate's host
+        // is a fence; a door's is a wall. Slab openings also cut flat roofs.
+        let mut allowed = def
+            .host_cut
+            .as_ref()
+            .map(|cut| cut.host_categories.clone())
+            .filter(|cats| !cats.is_empty())
+            .unwrap_or_else(|| {
+                vec![if component == "apex.slab_opening" {
+                    "slab".to_string()
+                } else {
+                    "wall".to_string()
+                }]
+            });
+        if component == "apex.slab_opening" && !allowed.iter().any(|c| c == "roof") {
+            allowed.push("roof".to_string());
+        }
+        let want = allowed.join(" or ");
         let Some(parent) = parent else {
             return Err(msg(format!(
                 "{component} must be hosted: pass `parent` = the {want} id (in a batch, \"$N.id\" of the step that created it)"
@@ -690,7 +703,7 @@ impl Project {
             .get(&host)
             .map(|d| d.category.clone())
             .unwrap_or_default();
-        let ok = host_cat == want || (want == "slab" && host_cat == "roof");
+        let ok = allowed.iter().any(|c| c == &host_cat);
         if !host_cat.is_empty() && !ok {
             return Err(msg(format!(
                 "{component} needs a {want} as parent, but {parent} is a {host}"
@@ -2648,6 +2661,21 @@ mod tests {
             .execute_json(&json!({"op": "create_element", "component": "apex.window", "parent": col, "points": [[1, 0, 1]]}).to_string())
             .unwrap_err();
         assert!(err.0.contains("needs a wall"), "{err}");
+        let fence = new_id(
+            &mut p,
+            json!({"op": "create_element", "component": "apex.fence", "points": [[0, 0, 0], [4, 0, 0]], "params": {"height": 1.6}}),
+        );
+        let err = p
+            .execute_json(
+                &json!({"op": "create_element", "component": "apex.gate", "parent": col, "points": [[1, 0, 0]]})
+                    .to_string(),
+            )
+            .unwrap_err();
+        assert!(err.0.contains("needs a fence"), "{err}");
+        new_id(
+            &mut p,
+            json!({"op": "create_element", "component": "apex.gate", "parent": fence, "points": [[2, 0, 0]], "params": {"height": 1.5}}),
+        );
         let wall = new_id(
             &mut p,
             json!({"op": "create_element", "component": "apex.wall", "points": [[0, 0, 0], [4, 0, 0]], "params": {"height": 2.4}}),

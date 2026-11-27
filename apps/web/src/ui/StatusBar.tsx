@@ -2,6 +2,7 @@ import { useI18n } from '../i18n';
 import { THEME_PREFERENCES } from '../theme/theme';
 import { useTheme } from '../theme/useTheme';
 import { SNAP_GROUPS, type SnapFilter, type SnapGroup } from '../tools/elementSnap';
+import { localizeDocumentName } from './sampleLabels';
 
 export interface StatusBarProps {
   levelName: string;
@@ -27,7 +28,7 @@ export function StatusBar(props: StatusBarProps) {
   const nextLocale = locales[(locales.indexOf(locale) + 1) % locales.length];
   return (
     <footer className="statusbar" data-testid="statusbar">
-      <span className="statusbar-level" data-testid="status-level">{props.levelName}</span>
+      <span className="statusbar-level" data-testid="status-level">{localizeDocumentName(props.levelName)}</span>
       {props.snapKind ? (
         <span className="statusbar-live" data-testid="status-snap">
           {t(`snap.kind.${props.snapKind}`, undefined, props.snapKind)}

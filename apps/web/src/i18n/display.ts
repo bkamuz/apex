@@ -2,6 +2,7 @@ import type { Tool, ToolMode } from '../tools/Tool';
 import type { Exporter } from '../plugins/types';
 import { categoryPlaceLabel } from '../tools/categorySlots';
 import { CATALOGS } from './catalogs';
+import { localizeDocumentName } from '../ui/sampleLabels';
 import { t } from './t';
 
 /** Toolbar label for a tool (catalog by id, else tool.label). */
@@ -67,7 +68,7 @@ export function componentDisplayName(componentId: string, fallback: string): str
 /** Display name for a view: default core names ("L1 — Plan 2", "3D View") are shown localized. */
 export function viewDisplayName(name: string): string {
   const plan = /^(.*) — Plan( \d+)?$/.exec(name);
-  if (plan) return `${plan[1]} — ${t('viewName.plan')}${plan[2] ?? ''}`;
+  if (plan) return `${localizeDocumentName(plan[1])} — ${t('viewName.plan')}${plan[2] ?? ''}`;
   const three = /^3D View( \d+)?$/.exec(name);
   if (three) return `${t('viewName.threeD')}${three[1] ?? ''}`;
   return name;

@@ -1486,6 +1486,28 @@ impl Project {
         Ok(())
     }
 
+    /// Rename a level. Undoable. Empty names are refused.
+    pub fn rename_level(&mut self, id: LevelId, name: &str) -> Result<(), RegistryError> {
+        let name = name.trim();
+        if name.is_empty() {
+            return Err(RegistryError::Unknown(
+                "level name cannot be empty".to_string(),
+            ));
+        }
+        let Some(level) = self.document.get_level(id) else {
+            return Err(RegistryError::Unknown(id.to_string()));
+        };
+        if level.name == name {
+            return Ok(());
+        }
+        let before = self.export_snapshot();
+        if let Some(level) = self.document.get_level_mut(id) {
+            level.name = name.to_string();
+        }
+        self.history.record_before(before);
+        Ok(())
+    }
+
     pub fn update_space(
         &mut self,
         id: SpaceId,
@@ -3785,6 +3807,25 @@ mod tests {
             (size_of(mesh)[1] - 3.0).abs() < EPS,
             "the old geometry must survive a rejected edit"
         );
+    }
+
+    #[test]
+    fn rename_level_is_undoable() {
+        let mut project = Project::new();
+        let id = project.document().active_level_id().expect("level");
+        project
+            .rename_level(id, "sample.level.ground")
+            .expect("rename");
+        assert_eq!(
+            project.document().get_level(id).map(|l| l.name.as_str()),
+            Some("sample.level.ground")
+        );
+        project.undo().expect("undo");
+        assert_eq!(
+            project.document().get_level(id).map(|l| l.name.as_str()),
+            Some("Level 0")
+        );
+        assert!(project.rename_level(id, "  ").is_err());
     }
 
     #[test]

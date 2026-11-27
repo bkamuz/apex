@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
+import { useI18n } from '../i18n';
 import type { GridAxisDto, SpaceDto } from '../types';
 import type { ViewportRenderer } from '../viewport/ViewportRenderer';
+import { localizeDocumentName } from './sampleLabels';
 
 interface LabelPos {
   key: string;
@@ -22,6 +24,7 @@ interface Props {
 
 /** Screen-space labels for grid bubbles and space centroids. */
 export function GridAxisLabels({ axes, spaces = [], renderer, selectedIds = [] }: Props) {
+  const { locale } = useI18n();
   const [labels, setLabels] = useState<LabelPos[]>([]);
 
   useEffect(() => {
@@ -76,7 +79,7 @@ export function GridAxisLabels({ axes, spaces = [], renderer, selectedIds = [] }
     };
     frame = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(frame);
-  }, [axes, spaces, renderer, selectedIds]);
+  }, [axes, spaces, renderer, selectedIds, locale]);
 
   if (labels.length === 0) return null;
 
@@ -93,7 +96,7 @@ export function GridAxisLabels({ axes, spaces = [], renderer, selectedIds = [] }
           data-world={label.world.join(',')}
           style={{ left: label.left, top: label.top }}
         >
-          {label.text}
+          {localizeDocumentName(label.text)}
         </div>
       ))}
     </div>

@@ -1065,7 +1065,7 @@ const badge = await page.getByTestId('statusbar').textContent();
 console.log('\nbadge:', badge);
 
 // --- Sample house load (replaces the in-progress smoke document) ------------
-console.log('\n[sample] Load two-storey house sample');
+console.log('\n[sample] Load modern house sample');
 const houseOk = await page.evaluate(() => window.__apexTest?.loadSampleProject?.() === true);
 check('sample house loaded via __apexTest', houseOk);
 await page.waitForTimeout(1500);
@@ -1080,7 +1080,8 @@ const houseCounts = await page.evaluate(() => {
   const levels = j.document?.levels ?? j.levels ?? [];
   return {
     walls: by['apex.wall'] ?? 0,
-    roofs: by['apex.roof.pitched'] ?? 0,
+    columns: by['apex.column'] ?? 0,
+    roofs: by['apex.roof'] ?? 0,
     stairs: by['apex.stair'] ?? 0,
     slabs: by['apex.slab'] ?? 0,
     fences: by['apex.fence'] ?? 0,
@@ -1092,11 +1093,12 @@ const houseCounts = await page.evaluate(() => {
   };
 });
 console.log('  house:', JSON.stringify(houseCounts));
-check('sample has pitched roof', (houseCounts?.roofs ?? 0) >= 1);
+check('sample has flat roofs', (houseCounts?.roofs ?? 0) >= 2);
+check('sample has cantilever columns', (houseCounts?.columns ?? 0) >= 3);
 check('sample has stair', (houseCounts?.stairs ?? 0) >= 1);
-check('sample has ≥2 levels', (houseCounts?.levels ?? 0) >= 2);
-check('sample has ≥4 spaces', (houseCounts?.spaces ?? 0) >= 4);
-check('sample has many walls', (houseCounts?.walls ?? 0) >= 10);
+check('sample has 3 levels', (houseCounts?.levels ?? 0) >= 3);
+check('sample has the room program', (houseCounts?.spaces ?? 0) >= 13);
+check('sample has many walls', (houseCounts?.walls ?? 0) >= 20);
 check('sample has fence loop', (houseCounts?.fences ?? 0) >= 4);
 check('sample has gate', (houseCounts?.gates ?? 0) >= 1);
 check('sample has site surfaces', (houseCounts?.surfaces ?? 0) >= 3);

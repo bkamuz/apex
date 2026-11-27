@@ -20,6 +20,7 @@ import {
   useI18n,
   speciesDisplayName,
 } from '../i18n';
+import { localizeDocumentName } from './sampleLabels';
 import type {
   ComponentDto,
   ConstructionLineDto,
@@ -536,7 +537,7 @@ export function PropertiesPanel({
   onDeleteSpace,
   onDeleteUnderlay,
 }: Props) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
   const [draft, setDraft] = useState<Record<string, ParamValue>>({});
   const [gridDraft, setGridDraft] = useState<Record<string, ParamValue>>({});
   const [lineDraft, setLineDraft] = useState<Record<string, ParamValue>>({});
@@ -803,13 +804,17 @@ export function PropertiesPanel({
           <input
             id="space-name"
             data-testid="space-name"
-            key={`${selectedSpace.id}:${selectedSpace.name}`}
-            defaultValue={selectedSpace.name}
-            onBlur={(e) => onRenameSpace(e.currentTarget.value)}
+            key={`${selectedSpace.id}:${selectedSpace.name}:${locale}`}
+            defaultValue={localizeDocumentName(selectedSpace.name)}
+            onBlur={(e) => {
+              const next = e.currentTarget.value;
+              if (next === localizeDocumentName(selectedSpace.name)) return;
+              onRenameSpace(next);
+            }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') e.currentTarget.blur();
               if (e.key === 'Escape') {
-                e.currentTarget.value = selectedSpace.name;
+                e.currentTarget.value = localizeDocumentName(selectedSpace.name);
                 e.currentTarget.blur();
               }
               e.stopPropagation();
@@ -1142,7 +1147,7 @@ export function PropertiesPanel({
       <div className="inspector-body shell-scroll">
         <div className="field">
           <label>{t('inspector.level')}</label>
-          <div>{selectedLevel.name}</div>
+          <div>{localizeDocumentName(selectedLevel.name)}</div>
         </div>
         <div className="field">
           <label>{t('inspector.elevation')}</label>

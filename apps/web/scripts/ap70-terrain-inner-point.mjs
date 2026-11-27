@@ -89,10 +89,10 @@ async function setLocale(locale) {
 await page.getByRole('button', { name: '3D', exact: true }).click().catch(() => {});
 await page.getByRole('button', { name: 'Axon', exact: true }).click().catch(() => {});
 await page.evaluate((c) => window.__apexTest.setCamera(c), {
-  target: [8, 0.4, 2],
-  yaw: 0.35,
-  pitch: 0.5,
-  distance: 30,
+  target: [12, 0.6, 6],
+  yaw: 0.55,
+  pitch: 0.55,
+  distance: 42,
 });
 await page.waitForTimeout(400);
 
@@ -116,10 +116,10 @@ await shot('02-terrain-selected-ru-hint');
 await setLocale('en');
 await page.getByRole('button', { name: '3D', exact: true }).click().catch(() => {});
 await page.evaluate((c) => window.__apexTest.setCamera(c), {
-  target: [8, 0.4, 2],
-  yaw: 0.35,
-  pitch: 0.5,
-  distance: 30,
+  target: [12, 0.6, 6],
+  yaw: 0.55,
+  pitch: 0.55,
+  distance: 42,
 });
 await page.waitForTimeout(300);
 await selectTerrain();

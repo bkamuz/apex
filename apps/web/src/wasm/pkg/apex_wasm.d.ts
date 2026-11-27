@@ -305,6 +305,8 @@ export function registerProfile(definition_json: string): any;
 
 export function removeSheetViewport(sheet_id: string, viewport_id: string): any;
 
+export function renameLevel(id: string, name: string): any;
+
 export function renameSheet(id: string, number: string, name: string): any;
 
 export function renameSpace(id: string, name: string): any;
@@ -522,6 +524,7 @@ export interface InitOutput {
     readonly registerOpeningGenerator: (a: number, b: number, c: number, d: number, e: any) => [number, number, number];
     readonly registerProfile: (a: number, b: number) => [number, number, number];
     readonly removeSheetViewport: (a: number, b: number, c: number, d: number) => [number, number, number];
+    readonly renameLevel: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly renameSheet: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
     readonly renameSpace: (a: number, b: number, c: number, d: number) => [number, number, number];
     readonly renameView: (a: number, b: number, c: number, d: number) => [number, number, number];

@@ -78,6 +78,7 @@ export const registerComponent: (a: number, b: number) => [number, number, numbe
 export const registerOpeningGenerator: (a: number, b: number, c: number, d: number, e: any) => [number, number, number];
 export const registerProfile: (a: number, b: number) => [number, number, number];
 export const removeSheetViewport: (a: number, b: number, c: number, d: number) => [number, number, number];
+export const renameLevel: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const renameSheet: (a: number, b: number, c: number, d: number, e: number, f: number) => [number, number, number];
 export const renameSpace: (a: number, b: number, c: number, d: number) => [number, number, number];
 export const renameView: (a: number, b: number, c: number, d: number) => [number, number, number];
