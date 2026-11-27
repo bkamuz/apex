@@ -442,6 +442,17 @@ export function buildHouseSampleProject(): SceneDto {
   apexRenameLevel(l0, "sample.level.ground");
   renamePlan(l0, "sample.level.ground");
 
+  // Axes belong to the ground storey. Plan export draws only the view's level,
+  // and create_grid_axis uses whichever level is active.
+  for (let i = 0; i < AX.length; i += 1) {
+    const x = AX[i];
+    apexCreateGridAxis([xz(x, -6, 0), xz(x, 14, 0)], { label: String(i + 1) });
+  }
+  for (let i = 0; i < AZ.length; i += 1) {
+    const z = AZ[i];
+    apexCreateGridAxis([xz(-4, z, 0), xz(18, z, 0)], { label: "ABCDEF"[i] ?? "" });
+  }
+
   scene = apexCreateLevel("sample.level.upper", UPPER);
   const l1 = scene.levels.find((l) => Math.abs(l.elevation - UPPER) < 1e-4)?.id;
   scene = apexCreateLevel("sample.level.roof", ROOF_Y);
@@ -451,15 +462,6 @@ export function buildHouseSampleProject(): SceneDto {
   apexSetActiveLevel(l1);
   apexCreatePlanView(l1);
   renamePlan(l1, "sample.level.upper");
-
-  for (let i = 0; i < AX.length; i += 1) {
-    const x = AX[i];
-    apexCreateGridAxis([xz(x, -6, 0), xz(x, 14, 0)], { label: String(i + 1) });
-  }
-  for (let i = 0; i < AZ.length; i += 1) {
-    const z = AZ[i];
-    apexCreateGridAxis([xz(-4, z, 0), xz(18, z, 0)], { label: "ABCDEF"[i] ?? "" });
-  }
 
   apexSetActiveLevel(l0);
   walls(G_EXT, EXT, GROUND);
