@@ -3419,14 +3419,19 @@ export default function App() {
       if (!window.confirm(t('chrome.loadSampleConfirm'))) return;
     }
     try {
-      applyScene(buildSampleProject(), true);
+      const next = buildSampleProject();
+      // Drop the previous file so Save cannot overwrite it with the sample.
+      clearStoredProject();
+      projectFilePathRef.current = null;
+      applyScene(next, true);
+      markProjectClean(undefined, DEFAULT_PROJECT_FILENAME);
       setShowGettingStarted(false);
       setInfo('chrome.sampleLoaded');
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
-  }, [applyScene, isProjectDirty, t]);
+  }, [applyScene, isProjectDirty, markProjectClean, t]);
 
   const onNewProject = useCallback(() => {
     if (isGenusTestActive()) {
