@@ -1,5 +1,6 @@
 import type { LevelDto } from '../types';
 import { useI18n } from '../i18n';
+import { localizeDocumentName } from './sampleLabels';
 
 interface Props {
   levels: LevelDto[];
@@ -48,7 +49,7 @@ export function LevelList({
                 title={active ? t('panel.activePlane') : t('panel.activateLevel')}
               >
                 <span>
-                  {level.name}
+                  {localizeDocumentName(level.name)}
                   {active ? <span className="level-badge">{t('panel.activeBadge')}</span> : null}
                 </span>
                 <span className="cat">{level.elevation.toFixed(2)} m</span>

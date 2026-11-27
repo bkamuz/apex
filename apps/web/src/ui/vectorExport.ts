@@ -1,4 +1,5 @@
 import type { VectorDrawing2d } from '../types';
+import { localizeDocumentName } from './sampleLabels';
 
 /** Raster placed on the page (e.g. a 3D viewport), in drawing units, bottom-left origin. */
 export interface PlacedImage {
@@ -166,7 +167,7 @@ function buildPage(drawing: VectorDrawing2d, opts: DrawingPageOptions): Page {
       x: mid[0] + Math.sin(rad) * off,
       y: mid[1] - Math.cos(rad) * off,
       size: 2.5 * mm,
-      text: dim.text,
+      text: localizeDocumentName(dim.text),
       centered: true,
       angle,
       bold: false,
@@ -178,7 +179,7 @@ function buildPage(drawing: VectorDrawing2d, opts: DrawingPageOptions): Page {
       x,
       y,
       size: text.height,
-      text: text.text,
+      text: localizeDocumentName(text.text),
       centered: text.centered === true,
       angle: 0,
       bold: text.layer === 'VIEW_TITLE' || text.layer === 'ROOM_NAME' || text.layer === 'GRID_BUBBLE',

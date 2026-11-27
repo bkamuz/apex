@@ -2155,6 +2155,15 @@ pub fn rename_space(id: &str, name: &str) -> Result<JsValue, JsValue> {
     })
 }
 
+#[wasm_bindgen(js_name = renameLevel)]
+pub fn rename_level(id: &str, name: &str) -> Result<JsValue, JsValue> {
+    with_project(|project| {
+        let level = level_id(id)?;
+        project.rename_level(level, name).map_err(err)?;
+        scene(project)
+    })
+}
+
 #[wasm_bindgen(js_name = deleteSelectedSpace)]
 pub fn delete_selected_space() -> Result<JsValue, JsValue> {
     with_project(|project| {

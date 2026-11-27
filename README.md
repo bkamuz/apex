@@ -52,7 +52,7 @@ cd ../desktop && npm install && npm run dev
 
 ### Sample project
 
-The built-in sample is a two-storey house with rooms, a pitched roof, and a **yard**: **terrain** solid (outer + inner height points → TIN top, flat bottom, SE slopes), joinable fence loop, gate at the entrance, and mixed site surfaces (lawn / paved / driveway). Open **Site** in the toolbar for Fence / Gate / Site surface / Terrain.
+The built-in sample is a contemporary two-storey house: a glazed living / kitchen / dining pavilion, a service bar (hall, stair, study, WC, utility), and an upper floor of bedrooms that cantilevers over a paved terrace on round columns. Roofs are flat; the upper roof and the pavilion roof carry a lawn surface. The **yard** is a **terrain** solid (flat pad under the house, gentle rise to the north), a fence with pedestrian and vehicle gates, and lawn / paved / driveway surfaces. Open **Site** in the toolbar for Fence / Gate / Site surface / Terrain. Room and level names follow the UI language.
 
 ### Settings & packs
 
@@ -99,7 +99,7 @@ cd apps/web && npm install && npm run dev
 
 ### Образец проекта
 
-Двухэтажный дом с помещениями, скатной кровлей и **двором**: объёмный рельеф с уклоном на юго-востоке (внешние и внутренние точки высот), замкнутый забор, калитка у входа, покрытия (газон / мощение / проезд). Инструменты участка — вкладка **Участок** (Забор / Калитка / Покрытие / Рельеф).
+Современный двухэтажный дом: остеклённый объём гостиной, кухни и столовой, служебный блок (прихожая, лестница, кабинет, санузел, хозяйственная) и второй этаж со спальнями, консолью над мощёной террасой на круглых колоннах. Кровли плоские; на верхней кровле и на кровле одноэтажного объёма — газон. **Двор**: объёмный **рельеф** (ровная площадка под домом, пологий подъём к северу), забор с калиткой и воротами, покрытия (газон / мощение / проезд). Инструменты участка — вкладка **Участок**. Названия помещений и этажей следуют языку интерфейса.
 
 ### Настройки и пакеты
 

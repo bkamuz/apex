@@ -1,5 +1,5 @@
 /**
- * Hands-on check of the built-in sample house: two storeys, pitched roof,
+ * Hands-on check of the built-in sample house: two storeys, flat roofs,
  * Spaces/rooms, plan Fit, and 3D opening views.
  *
  *   APEX_SMOKE_URL=http://localhost:5173/ APEX_SAMPLE_OUT=/tmp/sample node scripts/sample-e2e.mjs
@@ -81,7 +81,8 @@ console.log('  counts:', JSON.stringify(counts));
 if (!counts) note('no project in localStorage after sample load');
 else {
   if ((counts.by['apex.wall'] ?? 0) < 10) note(`expected many walls, got ${counts.by['apex.wall']}`);
-  if ((counts.by['apex.roof.pitched'] ?? 0) < 1) note('missing pitched roof');
+  if ((counts.by['apex.roof'] ?? 0) < 2) note(`expected ≥2 flat roofs, got ${counts.by['apex.roof']}`);
+  if ((counts.by['apex.column'] ?? 0) < 2) note(`expected columns under the cantilever, got ${counts.by['apex.column']}`);
   if ((counts.by['apex.stair'] ?? 0) < 1) note('missing stair');
   if ((counts.by['apex.slab'] ?? 0) < 2) note(`expected ≥2 slabs, got ${counts.by['apex.slab']}`);
   if ((counts.by['apex.fence'] ?? 0) < 4) note(`expected ≥4 fence runs, got ${counts.by['apex.fence']}`);
@@ -89,8 +90,8 @@ else {
   if ((counts.by['apex.site_surface'] ?? 0) < 3)
     note(`expected ≥3 site surfaces, got ${counts.by['apex.site_surface']}`);
   if ((counts.by['apex.terrain'] ?? 0) < 1) note('missing terrain');
-  if (counts.levels < 2) note(`expected 2 levels, got ${counts.levels}`);
-  if (counts.spaces < 4) note(`expected ≥4 spaces, got ${counts.spaces}`);
+  if (counts.levels < 3) note(`expected 3 levels, got ${counts.levels}`);
+  if (counts.spaces < 10) note(`expected ≥10 spaces, got ${counts.spaces}`);
 }
 
 const spaceLabels = await page.locator('.space-label').count();
@@ -105,14 +106,14 @@ if (!(afterFit.pitch > 1.4)) note(`Fit left Plan (pitch ${afterFit.pitch})`);
 await shot('plan-fit');
 
 // Wheel zoom anchored at living-room centre.
-const [cx, cy] = await w2c(2.5, 0, 4);
+const [cx, cy] = await w2c(9, 0, 3.5);
 await page.mouse.move(cx, cy);
 for (let i = 0; i < 4; i += 1) {
   await page.mouse.wheel(0, -240);
   await page.waitForTimeout(80);
 }
 await page.waitForTimeout(300);
-const [cx2, cy2] = await w2c(2.5, 0, 4);
+const [cx2, cy2] = await w2c(9, 0, 3.5);
 const drift = Math.hypot(cx2 - cx, cy2 - cy);
 console.log(`  wheel zoom drift ${drift.toFixed(1)} px`);
 if (drift > 6) note(`wheel zoom drifted ${drift.toFixed(1)} px from the cursor`);
@@ -140,11 +141,11 @@ await nav('Fit');
 await shot('3d-fit');
 await nav('Persp');
 const views = [
-  ...[0, 1, 2, 3].map((k) => [`door-entrance-yaw${k}`, [2, 1.05, 0], (k * Math.PI) / 2 + 0.35, 0.3, 4.5]),
-  ...[0, 1].map((k) => [`door-interior-yaw${k}`, [5, 1.05, 2], (k * Math.PI) / 2 + 0.35, 0.3, 4.5]),
-  ...[0, 1].map((k) => [`window-west-yaw${k}`, [0, 1.6, 4], (k * Math.PI) / 2 + 0.35, 0.2, 4]),
-  ['overview', [5, 4, 4], 0.9, 0.35, 28],
-  ['gable', [5, 5, 4], 0.9 + Math.PI, 0.3, 24],
+  ...[0, 1, 2, 3].map((k) => [`door-entrance-yaw${k}`, [2, 1.2, 0], (k * Math.PI) / 2 + 0.35, 0.3, 5]),
+  ...[0, 1].map((k) => [`window-living-yaw${k}`, [9, 1.4, 0], (k * Math.PI) / 2 + 0.35, 0.22, 8]),
+  ...[0, 1].map((k) => [`cantilever-yaw${k}`, [5, 2.2, -2], (k * Math.PI) / 2 + 0.4, 0.28, 12]),
+  ['overview', [6, 3, 4], 0.85, 0.42, 32],
+  ['yard', [8, 1.2, -2], 2.4, 0.38, 28],
 ];
 for (const [name, target, yaw, pitch, distance] of views) {
   await page.evaluate((c) => window.__apexTest.setCamera(c), { target, yaw, pitch, distance });

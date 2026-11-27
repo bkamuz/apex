@@ -63,7 +63,8 @@ async function selectTerrain() {
 
 async function canvasClientForTerrain() {
   // Interior plan point on the sample SE yard terrain → [clientX, clientY].
-  const c = await page.evaluate(() => window.__apexTest.worldToClient([12.0, 0.2, 5.5]));
+  // Bare slope east of the house (not the pad, not a site surface).
+  const c = await page.evaluate(() => window.__apexTest.worldToClient([20.0, 0.5, 14.0]));
   if (!c) throw new Error('worldToClient failed');
   return { x: c[0], y: c[1] };
 }
@@ -94,8 +95,8 @@ async function go3dTerrain() {
   await page.waitForTimeout(200);
   await page.evaluate(() => {
     window.__apexTest.setCamera({
-      eye: [22, 14, 18],
-      target: [12, -0.5, 6],
+      eye: [32, 16, 26],
+      target: [8, 1, 4],
       up: [0, 1, 0],
     });
   });

@@ -198,6 +198,23 @@ export const en: MessageCatalog = {
   'component.apex.site_surface': 'Site surface',
   'component.apex.terrain': 'Terrain',
 
+  // Built-in sample house (stored on the document, shown in the active locale).
+  'sample.level.ground': 'Ground floor',
+  'sample.level.upper': 'Upper floor',
+  'sample.level.roof': 'Roof',
+  'sample.room.hall': 'Entrance hall',
+  'sample.room.living': 'Living, kitchen and dining',
+  'sample.room.study': 'Study',
+  'sample.room.wc': 'WC',
+  'sample.room.utility': 'Utility',
+  'sample.room.stair': 'Stair',
+  'sample.room.upperHall': 'Upper hall',
+  'sample.room.bed2': 'Bedroom 2',
+  'sample.room.bed3': 'Bedroom 3',
+  'sample.room.master': 'Master bedroom',
+  'sample.room.bath': 'Bathroom',
+  'sample.room.ensuite': 'Master bathroom',
+
   // Ribbon tooltips (sentence case). Buttons use the short noun above.
   'component.apex.wall.title': 'Place a wall. Line, arc, and polyline are draw modes.',
   'component.apex.column.title': 'Place a column.',

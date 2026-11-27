@@ -17,6 +17,7 @@ import { componentDisplayName } from '../i18n';
 import { isGenusComponent } from '../genusEditor/model';
 import { GenusLibraryPanel } from '../genusEditor/GenusLibraryPanel';
 import { profileLabel } from './profileModel';
+import { localizeDocumentName } from './sampleLabels';
 import { ViewsSheetsPanel } from './ViewsSheetsPanel';
 import type { SheetDto, ViewDto } from '../types';
 import { matchesBrowserSearch, type SidebarTab } from './sidebarPrefs';
@@ -634,7 +635,8 @@ export function ProjectBrowser({
     });
   };
 
-  const levelName = (id: string) => levels.find((level) => level.id === id)?.name ?? '—';
+  const levelName = (id: string) =>
+    localizeDocumentName(levels.find((level) => level.id === id)?.name ?? '—');
 
   const items = useMemo(() => {
     const types: BrowserItem[] = profiles.map((profile) => ({
@@ -715,7 +717,7 @@ export function ProjectBrowser({
       key: `space:${space.id}`,
       kind: 'space',
       id: space.id,
-      name: space.name,
+      name: localizeDocumentName(space.name),
       category: 'space',
       levelName: levelName(space.level_id),
       profileName: String(space.params.label ?? '—'),
@@ -749,6 +751,7 @@ export function ProjectBrowser({
     profiles,
     components,
     levels,
+    locale,
     tab,
     query,
     sortBy,

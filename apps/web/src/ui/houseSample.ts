@@ -1,63 +1,133 @@
 import {
-  apexCommandScene,
   apexCreateElement,
   apexCreateElementWithParent,
   apexCreateGridAxis,
   apexCreateLevel,
+  apexCreatePlanView,
   apexDetectRoomsFromWalls,
   apexGetScene,
   apexGetSelected,
   apexListElements,
   apexNewProject,
+  apexRenameLevel,
   apexRenameSpace,
+  apexRenameView,
   apexSelectElement,
   apexSetActiveLevel,
   apexSetSlabShape,
 } from "../wasm/apex";
-import type { SceneDto, Vec3 } from "../types";
+import type { SceneDto, SlabShapeDto, Vec3, ViewKindDto } from "../types";
 import type { ParamValue } from "../types";
 
-const wallParams: Record<string, ParamValue> = {
-  profile: "apex.wall.rect",
-  height: 3,
-};
+/**
+ * Contemporary two-storey house.
+ *
+ * Ground: solid west/north service bar (hall, stair, utility, WC, study) and a
+ * glazed living / kitchen / dining pavilion to the south-east.
+ * Upper: bedrooms and baths on a bar that cantilevers 2 m south over the
+ * terrace, stopped short of the pavilion so that wing stays single-storey
+ * under its own flat roof. Slim round columns carry the cantilever.
+ * Site: graded terrain (flat pad, rise to the north), fence and gates,
+ * lawn, paved terrace and path, driveway.
+ *
+ * Room and level names are catalog keys (`sample.*`) so the plan follows
+ * the active locale. Same centreline geometry as house-e2e / house-mcp.
+ */
 
-const slabParams: Record<string, ParamValue> = {
-  thickness: 0.2,
-};
+const GROUND = 0;
+const UPPER = 3.05;
+const ROOF_Y = 6;
+const EXT = 0.3;
+const INT = 0.12;
 
-/** Footprint 10 × 8 m. Axes 1–3 at x = 0/5/10, A–C at z = 0/4/8. */
-const AX = [0, 5, 10] as const;
-const AZ = [0, 4, 8] as const;
+type XZ = [number, number];
+type Seg = [XZ, XZ];
 
-const ROOM_NAMES_L0: Array<[string, number, number]> = [
-  ["LIVING", 2.5, 4],
-  ["BEDROOM", 7.5, 2],
-  ["KITCHEN", 7.5, 6],
+const G_EXT: Seg[] = [
+  [[0, 0], [4, 0]],
+  [[4, 0], [14, 0]],
+  [[14, 0], [14, 7]],
+  [[14, 7], [10, 7]],
+  [[10, 7], [10, 11]],
+  [[10, 11], [7, 11]],
+  [[7, 11], [4, 11]],
+  [[4, 11], [0, 11]],
+  [[0, 11], [0, 8]],
+  [[0, 8], [0, 3]],
+  [[0, 3], [0, 0]],
 ];
 
-const ROOM_NAMES_L1: Array<[string, number, number]> = [
-  ["HALL / STAIR", 2.5, 4],
-  ["BEDROOM 2", 7.5, 2],
-  ["BEDROOM 3", 7.5, 6],
+const G_INT: Seg[] = [
+  [[4, 0], [4, 3]],
+  [[4, 3], [4, 7]],
+  [[4, 7], [4, 8]],
+  [[4, 8], [4, 11]],
+  [[0, 3], [4, 3]],
+  [[0, 8], [4, 8]],
+  [[4, 7], [7, 7]],
+  [[7, 7], [10, 7]],
+  [[7, 7], [7, 11]],
+];
+
+const U_EXT: Seg[] = [
+  [[0, -2], [4, -2]],
+  [[4, -2], [7, -2]],
+  [[7, -2], [10, -2]],
+  [[10, -2], [10, 8]],
+  [[10, 8], [10, 11]],
+  [[10, 11], [7, 11]],
+  [[7, 11], [4, 11]],
+  [[4, 11], [0, 11]],
+  [[0, 11], [0, 3]],
+  [[0, 3], [0, -2]],
+];
+
+const U_INT: Seg[] = [
+  [[4, -2], [4, 3]],
+  [[4, 3], [4, 8]],
+  [[4, 8], [4, 11]],
+  [[7, -2], [7, 3]],
+  [[7, 3], [7, 8]],
+  [[7, 8], [7, 11]],
+  [[0, 3], [4, 3]],
+  [[4, 3], [7, 3]],
+  [[4, 8], [7, 8]],
+  [[7, 8], [10, 8]],
+];
+
+/** Grid: 1–5 east, A–F north (cantilever, south facade, partitions). */
+const AX = [0, 4, 7, 10, 14] as const;
+const AZ = [-2, 0, 3, 7, 8, 11] as const;
+
+const ROOMS_GROUND: Array<[string, number, number]> = [
+  ["sample.room.hall", 2, 1.5],
+  ["sample.room.stair", 2, 6],
+  ["sample.room.utility", 2, 9.5],
+  ["sample.room.wc", 5.5, 9],
+  ["sample.room.study", 8.5, 9],
+  ["sample.room.living", 9, 3.5],
+];
+
+const ROOMS_UPPER: Array<[string, number, number]> = [
+  ["sample.room.bed2", 2, 0.5],
+  ["sample.room.bed3", 5.5, 0.5],
+  ["sample.room.master", 8.5, 2],
+  ["sample.room.stair", 2, 7],
+  ["sample.room.upperHall", 5.5, 5.5],
+  ["sample.room.bath", 5.5, 9.5],
+  ["sample.room.ensuite", 8.5, 9.5],
 ];
 
 function xz(x: number, z: number, y: number): Vec3 {
   return [x, y, z];
 }
 
-/** Newest element of a component (create order). */
 function lastId(componentId: string): string | undefined {
   const hits = apexListElements().filter((e) => e.component_id === componentId);
   return hits[hits.length - 1]?.id;
 }
 
-/** Host path element whose centreline contains (x, z) on the active level. */
-function pathHostAt(
-  x: number,
-  z: number,
-  category: string,
-): string | undefined {
+function pathHostAt(x: number, z: number, category: string): string | undefined {
   const levelId = apexGetScene().active_level_id;
   for (const e of apexListElements()) {
     if (e.category !== category) continue;
@@ -85,14 +155,6 @@ function pathHostAt(
   return undefined;
 }
 
-function wallHostAt(x: number, z: number): string | undefined {
-  return pathHostAt(x, z, "wall");
-}
-
-function fenceHostAt(x: number, z: number): string | undefined {
-  return pathHostAt(x, z, "fence");
-}
-
 function pointInPolygon(x: number, z: number, poly: Vec3[]): boolean {
   let inside = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
@@ -105,139 +167,251 @@ function pointInPolygon(x: number, z: number, poly: Vec3[]): boolean {
   return inside;
 }
 
-/**
- * One storey of the demo house: exterior loop, partition walls, doors,
- * windows, and the main slab. Returns exterior wall ids (loop order).
- */
-function buildStorey(
-  elev: number,
-  opts: { entrance: boolean },
-): { exteriorIds: string[] } {
-  const loop: Array<[number, number]> = [
-    [0, 0],
-    [10, 0],
-    [10, 8],
-    [0, 8],
-    [0, 0],
-  ];
-  const exteriorIds: string[] = [];
-  for (let i = 0; i < 4; i += 1) {
-    apexCreateElement(
-      "apex.wall",
-      [xz(loop[i][0], loop[i][1], elev), xz(loop[i + 1][0], loop[i + 1][1], elev)],
-      wallParams,
-      0,
-      "two_point",
-    );
-    const id = lastId("apex.wall");
-    if (id) exteriorIds.push(id);
+function planLevelId(kind: ViewKindDto): string | null {
+  switch (kind.kind) {
+    case "plan":
+      return kind.level_id;
+    case "three_d":
+    case "section":
+      return null;
+    default: {
+      const neverKind: never = kind;
+      return neverKind;
+    }
   }
+}
+
+function wall(a: XZ, b: XZ, thickness: number, elev: number): void {
   apexCreateElement(
     "apex.wall",
-    [xz(5, 0, elev), xz(5, 8, elev)],
-    wallParams,
+    [xz(a[0], a[1], elev), xz(b[0], b[1], elev)],
+    { thickness },
     0,
     "two_point",
   );
-  apexCreateElement(
-    "apex.wall",
-    [xz(5, 4, elev), xz(10, 4, elev)],
-    wallParams,
-    0,
-    "two_point",
-  );
+}
 
-  const doors: Array<[number, number]> = [
-    [5, 2],
-    [5, 6],
-    ...(opts.entrance ? ([[2, 0]] as Array<[number, number]>) : []),
-  ];
-  const windows: Array<[number, number]> = [
-    [7.5, 0],
-    [10, 2],
-    [10, 6],
-    [7.5, 8],
-    [2.5, 8],
-    [0, 4],
-    ...(opts.entrance ? [] : ([[2, 0]] as Array<[number, number]>)),
-  ];
-  for (const [x, z] of doors) {
-    const host = wallHostAt(x, z);
-    if (host) {
-      apexCreateElementWithParent(
-        "apex.door",
-        [xz(x, z, elev)],
-        host,
-        {},
-        0,
-        "point",
-      );
-    }
-  }
-  for (const [x, z] of windows) {
-    const host = wallHostAt(x, z);
-    if (host) {
-      apexCreateElementWithParent(
-        "apex.window",
-        [xz(x, z, elev)],
-        host,
-        {},
-        0,
-        "point",
-      );
-    }
-  }
+function walls(segs: Seg[], thickness: number, elev: number): void {
+  for (const [a, b] of segs) wall(a, b, thickness, elev);
+}
 
-  if (opts.entrance) {
-    // 45° wall east of the house with a door and a window.
-    apexCreateElement(
-      "apex.wall",
-      [xz(10.8, 0.8, elev), xz(12.8, 2.8, elev)],
-      wallParams,
+interface Opening {
+  kind: "apex.door" | "apex.window";
+  at: XZ;
+  params: Record<string, ParamValue>;
+}
+
+function glazing(
+  width: number,
+  height: number,
+  sill: number,
+  columns = 1,
+): Record<string, ParamValue> {
+  return {
+    width,
+    height,
+    sill,
+    columns,
+    sash_width: columns > 1 ? 0.04 : 0,
+    mullion_width: 0.05,
+    frame_width: 0.05,
+  };
+}
+
+function doorParams(width: number, height = 2.1, columns = 1): Record<string, ParamValue> {
+  return {
+    width,
+    height,
+    sill: 0,
+    columns,
+    mullion_width: 0.02,
+    frame_width: 0.06,
+  };
+}
+
+function placeOpenings(items: Opening[], elev: number): void {
+  for (const item of items) {
+    const [x, z] = item.at;
+    const host = pathHostAt(x, z, "wall");
+    if (!host) {
+      throw new Error(`houseSample: no wall at (${x}, ${z})`);
+    }
+    apexCreateElementWithParent(
+      item.kind,
+      [xz(x, z, elev)],
+      host,
+      item.params,
       0,
-      "two_point",
+      "point",
     );
-    const diag = lastId("apex.wall");
-    if (diag) {
-      apexCreateElementWithParent(
-        "apex.door",
-        [xz(11.3, 1.3, elev)],
-        diag,
-        {},
-        0,
-        "point",
-      );
-      apexCreateElementWithParent(
-        "apex.window",
-        [xz(12.2, 2.2, elev)],
-        diag,
-        {},
-        0,
-        "point",
-      );
-    }
   }
+}
 
+function poly(id: string, ring: XZ[], elev: number, params: Record<string, ParamValue>): string {
   apexCreateElement(
-    "apex.slab",
-    [
-      xz(0, 0, elev),
-      xz(10, 0, elev),
-      xz(10, 8, elev),
-      xz(0, 8, elev),
-    ],
-    slabParams,
+    id,
+    ring.map(([x, z]) => xz(x, z, elev)),
+    params,
     0,
     "polyline",
   );
-
-  return { exteriorIds };
+  const created = lastId(id);
+  if (!created) throw new Error(`houseSample: ${id} create failed`);
+  return created;
 }
 
-function renameRoomsOnLevel(
-  levelId: string,
-  names: Array<[string, number, number]>,
-): void {
+function lift(id: string, corners: number, offset: number): void {
+  const shape: SlabShapeDto = {
+    z: Array.from({ length: corners }, () => offset),
+    points: [],
+    creases: [],
+  };
+  apexSetSlabShape(id, shape);
+}
+
+function renamePlan(levelId: string, key: string): void {
+  const scene = apexGetScene();
+  const view = (scene.views ?? []).find((v) => planLevelId(v.kind) === levelId);
+  if (view) apexRenameView(view.id, `${key} — Plan`);
+}
+
+const GROUND_OPENINGS: Opening[] = [
+  { kind: "apex.door", at: [2, 0], params: doorParams(1.2, 2.4) },
+  { kind: "apex.window", at: [3.3, 0], params: glazing(0.7, 2.4, 0) },
+  { kind: "apex.window", at: [6.3, 0], params: glazing(2.6, 2.6, 0, 2) },
+  { kind: "apex.window", at: [9.2, 0], params: glazing(2.4, 2.6, 0, 2) },
+  { kind: "apex.door", at: [11.6, 0], params: doorParams(1.6, 2.4, 2) },
+  { kind: "apex.window", at: [13.2, 0], params: glazing(1.2, 2.6, 0) },
+  { kind: "apex.window", at: [14, 2.2], params: glazing(2.6, 2.6, 0, 2) },
+  { kind: "apex.window", at: [14, 5.2], params: glazing(2.4, 2.6, 0, 2) },
+  { kind: "apex.window", at: [12, 7], params: glazing(2.2, 2.2, 0.15, 2) },
+  { kind: "apex.window", at: [8.5, 11], params: glazing(1.8, 1.5, 0.9) },
+  { kind: "apex.window", at: [5.5, 11], params: glazing(1.2, 1.0, 1.45) },
+  { kind: "apex.window", at: [2, 11], params: glazing(1.6, 1.2, 1.3) },
+  { kind: "apex.window", at: [0, 9.5], params: glazing(1.2, 1.1, 1.3) },
+  { kind: "apex.window", at: [0, 5.5], params: glazing(0.6, 1.8, 1.0) },
+  { kind: "apex.window", at: [0, 1.5], params: glazing(1.4, 1.5, 0.9) },
+  { kind: "apex.door", at: [4, 1.6], params: doorParams(0.95) },
+  { kind: "apex.door", at: [2, 3], params: doorParams(0.9) },
+  { kind: "apex.door", at: [2, 8], params: doorParams(0.85) },
+  { kind: "apex.door", at: [5.5, 7], params: doorParams(0.8) },
+  { kind: "apex.door", at: [8.5, 7], params: doorParams(0.9) },
+];
+
+const UPPER_OPENINGS: Opening[] = [
+  { kind: "apex.window", at: [2, -2], params: glazing(2.6, 2.4, 0, 2) },
+  { kind: "apex.window", at: [5.5, -2], params: glazing(2.0, 2.4, 0, 2) },
+  { kind: "apex.window", at: [8.5, -2], params: glazing(2.0, 2.4, 0, 2) },
+  { kind: "apex.window", at: [10, 1], params: glazing(2.4, 2.4, 0, 2) },
+  { kind: "apex.window", at: [10, 5], params: glazing(2.2, 2.4, 0, 2) },
+  { kind: "apex.window", at: [10, 9.5], params: glazing(1.4, 1.3, 1.05) },
+  { kind: "apex.window", at: [0, 0.5], params: glazing(1.8, 2.2, 0.15) },
+  { kind: "apex.window", at: [0, 6], params: glazing(0.6, 1.8, 0.85) },
+  { kind: "apex.window", at: [2, 11], params: glazing(1.6, 1.2, 1.2) },
+  { kind: "apex.window", at: [5.5, 11], params: glazing(1.2, 1.0, 1.4) },
+  { kind: "apex.window", at: [8.5, 11], params: glazing(1.4, 1.2, 1.2) },
+  { kind: "apex.door", at: [2, 3], params: doorParams(0.9) },
+  { kind: "apex.door", at: [5.5, 3], params: doorParams(0.9) },
+  { kind: "apex.door", at: [4, 5.5], params: doorParams(0.9) },
+  { kind: "apex.door", at: [7, 5.5], params: doorParams(0.9) },
+  { kind: "apex.door", at: [5.5, 8], params: doorParams(0.8) },
+  { kind: "apex.door", at: [8.5, 8], params: doorParams(0.8) },
+];
+
+function buildYard(elev: number): void {
+  const terrainId = poly(
+    "apex.terrain",
+    [
+      [-10, -12],
+      [24, -12],
+      [24, 20],
+      [-10, 20],
+    ],
+    elev,
+    {
+      bottom_offset: 1.4,
+      elevation: 0,
+      contour_interval: 0.25,
+      major_contour_interval: 1,
+      smooth: true,
+    },
+  );
+  const pad: Array<[number, number, number]> = [];
+  for (const x of [-6, 0, 6, 12, 18]) {
+    for (const z of [-8, -2.5, 3, 8.5, 14]) pad.push([x, z, 0]);
+  }
+  apexSetSlabShape(terrainId, {
+    z: [-0.6, -0.3, 1.1, 1.4],
+    points: [
+      ...pad,
+      [-9, -11, -0.4],
+      [22, -11, -0.15],
+      [22, 18, 0.8],
+      [-9, 18, 1.1],
+      [8, -11, -0.25],
+      [-9, 2, 0.35],
+      [22, 6, 0.2],
+    ],
+    creases: [],
+  });
+
+  const fence: Seg[] = [
+    [[-6, -8], [20, -8]],
+    [[20, -8], [20, 16]],
+    [[20, 16], [-6, 16]],
+    [[-6, 16], [-6, -8]],
+  ];
+  const fenceParams = { height: 1.6, thickness: 0.06 };
+  for (const [a, b] of fence) {
+    apexCreateElement(
+      "apex.fence",
+      [xz(a[0], a[1], elev), xz(b[0], b[1], elev)],
+      fenceParams,
+      0,
+      "two_point",
+    );
+  }
+  const pedestrian = pathHostAt(2, -8, "fence");
+  if (pedestrian) {
+    apexCreateElementWithParent(
+      "apex.gate",
+      [xz(2, -8, elev)],
+      pedestrian,
+      { width: 1.2, height: 1.5 },
+      0,
+      "point",
+    );
+  }
+  const vehicle = pathHostAt(20, 3, "fence");
+  if (vehicle) {
+    apexCreateElementWithParent(
+      "apex.gate",
+      [xz(20, 3, elev)],
+      vehicle,
+      { width: 3.2, height: 1.5 },
+      0,
+      "point",
+    );
+  }
+
+  const lawn = { thickness: 0.05, surface_kind: "lawn" };
+  const paved = { thickness: 0.08, surface_kind: "paved" };
+  poly("apex.site_surface", [[-5.6, -0.2], [-0.35, -0.2], [-0.35, 11.2], [-5.6, 11.2]], elev, lawn);
+  poly("apex.site_surface", [[-5.6, 11.4], [12, 11.4], [12, 15.2], [-5.6, 15.2]], elev, lawn);
+  poly("apex.site_surface", [[4.2, -7.4], [14, -7.4], [14, -5], [4.2, -5]], elev, lawn);
+  poly("apex.site_surface", [[0.2, -4.2], [1.15, -4.2], [1.15, -1.2], [0.2, -1.2]], elev, lawn);
+  poly("apex.site_surface", [[3.05, -4.2], [4, -4.2], [4, -1.2], [3.05, -1.2]], elev, lawn);
+  poly("apex.site_surface", [[4.2, -4.8], [14.2, -4.8], [14.2, -0.25], [4.2, -0.25]], elev, paved);
+  poly("apex.site_surface", [[1.3, -7.6], [2.9, -7.6], [2.9, -0.2], [1.3, -0.2]], elev, paved);
+  poly(
+    "apex.site_surface",
+    [[14.2, -0.3], [19.5, -0.3], [19.5, 6.5], [14.2, 6.5]],
+    elev,
+    { thickness: 0.1, surface_kind: "driveway" },
+  );
+}
+
+function renameRooms(levelId: string, names: Array<[string, number, number]>): void {
   const scene = apexGetScene();
   const spaces = (scene.spaces ?? []).filter((s) => s.level_id === levelId);
   for (const [name, x, z] of names) {
@@ -246,219 +420,118 @@ function renameRoomsOnLevel(
   }
 }
 
-const fenceParams: Record<string, ParamValue> = {
-  height: 1.5,
-  thickness: 0.05,
-};
-
-/**
- * Site yard on L0: terrain solid (SE L outside the house) with outer +
- * inner height points, joinable fence loop, gate, lawn / paved / driveway.
- */
-function buildYard(elev: number): void {
-  // Terrain solid L outside the 10×8 house (south + east). Dramatic SE drop +
-  // east mound so the TIN top reads clearly in 3D (not a flat pad).
+function column(x: number, z: number, height: number): void {
   apexCreateElement(
-    "apex.terrain",
-    [
-      xz(-3, -3, elev),
-      xz(13, -3, elev),
-      xz(13, 11, elev),
-      xz(10.2, 11, elev),
-      xz(10.2, -0.15, elev),
-      xz(-3, -0.15, elev),
-    ],
-    { bottom_offset: 1.5, elevation: 0, contour_interval: 0.25, major_contour_interval: 1 },
+    "apex.column",
+    [xz(x, z, GROUND)],
+    { profile: "apex.round", width: 0.22, height },
     0,
-    "polyline",
-  );
-  const terrainId = lastId("apex.terrain");
-  if (!terrainId) {
-    throw new Error("houseSample: terrain create failed");
-  }
-  // Outer: SW, SE, NE-east, NE-inner, house-SE corner, NW-south.
-  apexSetSlabShape(terrainId, {
-    z: [-0.15, -1.5, -0.35, 0.05, 0.05, -0.1],
-    points: [
-      [12.0, 5.5, 0.85],
-      [11.5, -1.6, -1.15],
-      [5.0, -1.7, -0.85],
-      [12.2, 8.5, 0.25],
-    ],
-    creases: [],
-  });
-
-  // Fence rectangle −3..13 × −3..11 (outside the 10×8 house).
-  const fenceLoop: Array<[number, number]> = [
-    [-3, -3],
-    [13, -3],
-    [13, 11],
-    [-3, 11],
-    [-3, -3],
-  ];
-  for (let i = 0; i < 4; i += 1) {
-    apexCreateElement(
-      "apex.fence",
-      [
-        xz(fenceLoop[i][0], fenceLoop[i][1], elev),
-        xz(fenceLoop[i + 1][0], fenceLoop[i + 1][1], elev),
-      ],
-      fenceParams,
-      0,
-      "two_point",
-    );
-  }
-  // Gate on the south fence near the house entrance (x≈2.5, z=−3).
-  const fenceHost = fenceHostAt(2.5, -3);
-  if (fenceHost) {
-    apexCreateElementWithParent(
-      "apex.gate",
-      [xz(2.5, -3, elev)],
-      fenceHost,
-      {},
-      0,
-      "point",
-    );
-  }
-
-  // Lawn west of the house (inside fence; not on the SE topo pad).
-  apexCreateElement(
-    "apex.site_surface",
-    [
-      xz(-2.5, 0, elev),
-      xz(-0.2, 0, elev),
-      xz(-0.2, 8, elev),
-      xz(-2.5, 8, elev),
-    ],
-    { thickness: 0.05, surface_kind: "lawn" },
-    0,
-    "polyline",
-  );
-  // Lawn strip north of the house (west half off-pad; east tip on pad).
-  apexCreateElement(
-    "apex.site_surface",
-    [
-      xz(-2.5, 8.2, elev),
-      xz(10.2, 8.2, elev),
-      xz(10.2, 10.5, elev),
-      xz(-2.5, 10.5, elev),
-    ],
-    { thickness: 0.05, surface_kind: "lawn" },
-    0,
-    "polyline",
-  );
-  // Paved patio south of the entrance (seats on topo pad).
-  apexCreateElement(
-    "apex.site_surface",
-    [
-      xz(0.5, -2.5, elev),
-      xz(4.5, -2.5, elev),
-      xz(4.5, -0.2, elev),
-      xz(0.5, -0.2, elev),
-    ],
-    { thickness: 0.08, surface_kind: "paved" },
-    0,
-    "polyline",
-  );
-  // Driveway east of the house — sits on the graded terrain (no own shape).
-  apexCreateElement(
-    "apex.site_surface",
-    [
-      xz(10.2, 3.5, elev),
-      xz(12.8, 3.5, elev),
-      xz(12.8, 7.5, elev),
-      xz(10.2, 7.5, elev),
-    ],
-    { thickness: 0.1, surface_kind: "driveway" },
-    0,
-    "polyline",
+    "point",
   );
 }
 
 /**
- * Two-storey demo house (10×8 m footprint) with pitched roof, stair,
- * grid axes, Spaces from wall-loop detect, and a site yard (terrain TIN,
- * fence, gate, surfaces) — same construction as `scripts/house-e2e.mjs` /
- * `packages/apex-mcp/scripts/house-mcp.mjs`.
+ * Build the sample and return the scene. Levels: ground, upper, roof.
  */
 export function buildHouseSampleProject(): SceneDto {
   apexNewProject();
   let scene = apexGetScene();
   const l0 = scene.active_level_id ?? scene.levels[0]?.id;
   if (!l0) return scene;
-  apexSetActiveLevel(l0);
+
+  apexRenameLevel(l0, "sample.level.ground");
+  renamePlan(l0, "sample.level.ground");
+
+  scene = apexCreateLevel("sample.level.upper", UPPER);
+  const l1 = scene.levels.find((l) => Math.abs(l.elevation - UPPER) < 1e-4)?.id;
+  scene = apexCreateLevel("sample.level.roof", ROOF_Y);
+  const lRoof = scene.levels.find((l) => Math.abs(l.elevation - ROOF_Y) < 1e-4)?.id;
+  if (!l1 || !lRoof) return apexGetScene();
+
+  apexSetActiveLevel(l1);
+  apexCreatePlanView(l1);
+  renamePlan(l1, "sample.level.upper");
 
   for (let i = 0; i < AX.length; i += 1) {
     const x = AX[i];
-    apexCreateGridAxis([xz(x, -2, 0), xz(x, 10, 0)], {
-      label: String(i + 1),
-    });
+    apexCreateGridAxis([xz(x, -6, 0), xz(x, 14, 0)], { label: String(i + 1) });
   }
   for (let i = 0; i < AZ.length; i += 1) {
     const z = AZ[i];
-    apexCreateGridAxis([xz(-2, z, 0), xz(12, z, 0)], {
-      label: "ABC"[i] ?? "",
-    });
+    apexCreateGridAxis([xz(-4, z, 0), xz(18, z, 0)], { label: "ABCDEF"[i] ?? "" });
   }
 
-  buildStorey(0, { entrance: true });
-
-  // Yard: graded topo pad, fence loop, gate, mixed surfaces.
-  buildYard(0);
-
-  scene = apexCreateLevel("Level 1", 3);
-  const l1 =
-    scene.levels.find((l) => l.id !== l0 && Math.abs(l.elevation - 3) < 1e-6)
-      ?.id ?? scene.levels[scene.levels.length - 1]?.id;
-  if (!l1) return apexGetScene();
+  apexSetActiveLevel(l0);
+  walls(G_EXT, EXT, GROUND);
+  walls(G_INT, INT, GROUND);
+  placeOpenings(GROUND_OPENINGS, GROUND);
+  poly(
+    "apex.slab",
+    [[0, 0], [14, 0], [14, 7], [10, 7], [10, 11], [0, 11]],
+    GROUND,
+    { thickness: 0.22 },
+  );
+  buildYard(GROUND);
+  for (const x of [2, 5.5, 8.5]) column(x, -2, UPPER);
 
   apexSetActiveLevel(l1);
-  const storey1 = buildStorey(3, { entrance: false });
+  walls(U_EXT, EXT, UPPER);
+  walls(U_INT, INT, UPPER);
+  placeOpenings(UPPER_OPENINGS, UPPER);
+  poly(
+    "apex.slab",
+    [[0, -2], [10, -2], [10, 11], [0, 11]],
+    UPPER,
+    { thickness: 0.22 },
+  );
 
-  // Stair from L0; cuts the L1 slab.
   apexSetActiveLevel(l0);
   apexCreateElement(
     "apex.stair",
-    [xz(1, 1.5, 0), xz(1, 6, 0)],
-    { width: 1.0, height: 3 },
+    [xz(1.15, 4.25, GROUND), xz(1.15, 7.75, GROUND)],
+    { width: 1.05, height: UPPER },
     0,
     "two_point",
   );
 
-  // Pitched roof on L1, ridge along axis B.
   apexSetActiveLevel(l1);
-  apexCreateElement(
-    "apex.roof.pitched",
-    [xz(0, 4, 3), xz(10, 4, 3)],
-    {
-      width: 8,
-      overhang: 0.5,
-      eave_cut: "perpendicular",
-    },
-    0,
-    "two_point",
+  poly(
+    "apex.roof",
+    [[10, -0.15], [14.35, -0.15], [14.35, 7.25], [10, 7.25]],
+    UPPER,
+    { thickness: 0.22 },
   );
+  const terraceGarden = poly(
+    "apex.site_surface",
+    [[10.35, 0.35], [13.9, 0.35], [13.9, 6.7], [10.35, 6.7]],
+    UPPER,
+    { thickness: 0.05, surface_kind: "lawn" },
+  );
+  lift(terraceGarden, 4, 0.28);
 
-  // Attach L1 exterior walls to the roof (gables + eaves).
-  if (storey1.exteriorIds.length > 0) {
-    try {
-      apexCommandScene({
-        op: "attach_top",
-        ids: storey1.exteriorIds,
-      });
-    } catch {
-      /* attach is best-effort for the sample */
-    }
-  }
+  apexSetActiveLevel(lRoof);
+  poly(
+    "apex.roof",
+    [[-0.3, -2.3], [10.3, -2.3], [10.3, 11.3], [-0.3, 11.3]],
+    ROOF_Y,
+    { thickness: 0.28 },
+  );
+  const green = poly(
+    "apex.site_surface",
+    [[0.45, -1.55], [9.55, -1.55], [9.55, 10.55], [0.45, 10.55]],
+    ROOF_Y,
+    { thickness: 0.06, surface_kind: "lawn" },
+  );
+  lift(green, 4, 0.34);
 
-  // Spaces from closed wall centreline loops on each level.
   for (const levelId of [l0, l1]) {
     apexSetActiveLevel(levelId);
     apexDetectRoomsFromWalls();
   }
-  renameRoomsOnLevel(l0, ROOM_NAMES_L0);
-  renameRoomsOnLevel(l1, ROOM_NAMES_L1);
+  renameRooms(l0, ROOMS_GROUND);
+  renameRooms(l1, ROOMS_UPPER);
 
   apexSetActiveLevel(l0);
+  apexSelectElement(null);
   return apexGetScene();
 }
