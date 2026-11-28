@@ -149,21 +149,30 @@ pub fn profile_segments(points: &[[f64; 3]], segment: f64, gap: f64) -> Vec<[[f6
     let split = segment >= 0.05;
     let mut out = Vec::with_capacity(pieces.len());
     for i in 0..pieces.len() {
-        let (si, mut a, mut b, len) = pieces[i];
+        let (si, a, b, len) = pieces[i];
         if len < 1e-6 {
             continue;
         }
+        // Inset only when the stone still has a body afterwards. A piece that
+        // the gap would erase stays on its full station instead of vanishing
+        // and leaving the neighbour short of the vertex.
+        let mut start = a;
+        let mut end = b;
         if split && i > 0 && stones_meet(pieces[i - 1], pieces[i]) {
-            a += half;
+            start += half;
         }
         if split && i + 1 < pieces.len() && stones_meet(pieces[i], pieces[i + 1]) {
-            b -= half;
+            end -= half;
         }
-        if b - a < MIN_STONE {
-            continue;
+        if end - start < MIN_STONE {
+            start = a;
+            end = b;
         }
         let seg = [points[si], points[si + 1]];
-        out.push([lerp(seg[0], seg[1], a / len), lerp(seg[0], seg[1], b / len)]);
+        out.push([
+            lerp(seg[0], seg[1], start / len),
+            lerp(seg[0], seg[1], end / len),
+        ]);
     }
     out
 }
@@ -531,6 +540,17 @@ mod tests {
         assert!(
             pieces[3][1][0] - pieces[3][0][0] < 0.5,
             "the last stone is the remainder"
+        );
+    }
+
+    #[test]
+    fn a_two_stone_run_keeps_a_short_stub_on_the_last_stone() {
+        let pieces = profile_segments(&[[0.0, 0.0, 0.0], [2.03, 0.0, 0.0]], 1.0, JOINT_GAP);
+        assert_eq!(pieces.len(), 2);
+        assert!(
+            (pieces[1][1][0] - 2.03).abs() < 1e-6,
+            "the 3 cm stub is not dropped after the joint inset, got {}",
+            pieces[1][1][0]
         );
     }
 

@@ -9,6 +9,7 @@ import {
   MIXED,
   canReset,
   checkNumber,
+  choiceFieldControl,
   commonParams,
   groupSpecs,
   provenanceIndex,
@@ -281,7 +282,8 @@ export function ParamField({
       const current = String(value ?? '');
       const textOf = (option: string) => optionLabel(spec, option, profiles, references, t);
       const currentLabel = mixed ? t('inspector.mixed') : textOf(current);
-      if (options.length > 8) {
+      const control = choiceFieldControl(options.length, mixed);
+      if (control.kind === 'select') {
         return (
           <div className="field field-choice" data-param={spec.id}>
             {label}
@@ -291,7 +293,7 @@ export function ParamField({
               disabled={locked}
               onChange={(e) => onCommit(e.target.value)}
             >
-              {mixed ? (
+              {control.showMixed ? (
                 <option value="__mixed" disabled>
                   {t('inspector.mixed')}
                 </option>
@@ -308,9 +310,14 @@ export function ParamField({
       return (
         <div className="field field-choice" data-param={spec.id}>
           {label}
-          <div className="choice-options" role="radiogroup" aria-label={localizedParamLabel(spec, t)}>
-            {mixed ? (
-              <div className="choice-mixed" title={t('inspector.mixedTitle')}>
+          <div
+            className="choice-options"
+            role="radiogroup"
+            aria-label={localizedParamLabel(spec, t)}
+            data-mixed={control.showMixed ? 'true' : undefined}
+          >
+            {control.showMixed ? (
+              <div className="choice-mixed" data-testid="choice-mixed" title={t('inspector.mixedTitle')}>
                 {t('inspector.mixed')}
               </div>
             ) : null}

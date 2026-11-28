@@ -73,6 +73,19 @@ export function specsForContent(
   return specs;
 }
 
+export type ChoiceFieldControl = { kind: 'select' | 'buttons'; showMixed: boolean };
+
+/**
+ * Lists of at most eight options are wrapping buttons. A mixed multi-selection
+ * keeps its indicator on that control the same way a long list keeps a mixed option.
+ */
+export function choiceFieldControl(optionCount: number, mixed: boolean): ChoiceFieldControl {
+  return {
+    kind: optionCount > 8 ? 'select' : 'buttons',
+    showMixed: mixed,
+  };
+}
+
 /** Display unit for a numeric spec (`m` for lengths unless the spec says otherwise). */
 export function unitFor(spec: ParamSpecDto): string | null {
   if (spec.unit) return spec.unit;

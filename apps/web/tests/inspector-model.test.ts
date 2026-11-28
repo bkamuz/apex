@@ -1,11 +1,13 @@
 // Run: node --experimental-strip-types --test tests/inspector-model.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   GROUP_ORDER,
   MIXED,
   canReset,
   checkNumber,
+  choiceFieldControl,
   commonParams,
   groupForSpec,
   groupSpecs,
@@ -104,4 +106,15 @@ test('site line shows only the fields of the chosen content', () => {
     ['seating', 'content', 'post_height', 'panel_height'],
   );
   assert.equal(specsForContent('apex.wall', specs, 'profile').length, specs.length);
+});
+
+test('a short mixed choice keeps its indicator', () => {
+  assert.deepEqual(choiceFieldControl(8, true), { kind: 'buttons', showMixed: true });
+  assert.deepEqual(choiceFieldControl(2, true), { kind: 'buttons', showMixed: true });
+  assert.deepEqual(choiceFieldControl(9, true), { kind: 'select', showMixed: true });
+  assert.deepEqual(choiceFieldControl(4, false), { kind: 'buttons', showMixed: false });
+  const src = readFileSync(new URL('../src/ui/PropertiesPanel.tsx', import.meta.url), 'utf8');
+  const buttons = src.slice(src.indexOf("control.kind === 'select'"), src.indexOf("case 'profile'"));
+  assert.match(buttons, /control\.showMixed/);
+  assert.match(buttons, /choice-mixed/);
 });
