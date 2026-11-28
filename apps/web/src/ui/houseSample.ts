@@ -28,7 +28,8 @@ import type { ParamValue } from "../types";
  * terrace, stopped short of the pavilion so that wing stays single-storey
  * under its own flat roof. Slim round columns carry the cantilever.
  * Site: graded terrain (flat pad, rise to the north), fence and gates,
- * lawn, paved terrace and path, driveway.
+ * draped lawn and garden paths over most of the yard, a flat paved
+ * terrace and walk, and a flat driveway.
  *
  * Room and level names are catalog keys (`sample.*`) so the plan follows
  * the active locale. Same centreline geometry as house-e2e / house-mcp.
@@ -345,10 +346,10 @@ function buildYard(elev: number): void {
       [8, 4, 0],
       [12, 6, 0],
       [4, 9, 0],
-      [-2, 14, 0.1],
-      [8, 15.5, 0.32],
-      [16, 14, 0.18],
-      [8, 18.2, 0.06],
+      [-2, 14, 0.55],
+      [8, 15.5, 1.2],
+      [16, 14, 0.75],
+      [8, 18.2, 0.4],
       [18, 6, 0.04],
       [2, -6, 0],
     ],
@@ -394,21 +395,40 @@ function buildYard(elev: number): void {
     );
   }
 
-  const lawn = { thickness: 0.05, surface_kind: "lawn" };
-  const paved = { thickness: 0.08, surface_kind: "paved" };
-  poly("apex.site_surface", [[-5.6, -0.2], [-0.35, -0.2], [-0.35, 11.2], [-5.6, 11.2]], elev, lawn);
-  poly("apex.site_surface", [[-5.6, 11.4], [12, 11.4], [12, 15.2], [-5.6, 15.2]], elev, lawn);
-  poly("apex.site_surface", [[4.2, -7.4], [14, -7.4], [14, -5], [4.2, -5]], elev, lawn);
-  poly("apex.site_surface", [[0.2, -4.2], [1.15, -4.2], [1.15, -1.2], [0.2, -1.2]], elev, lawn);
-  poly("apex.site_surface", [[3.05, -4.2], [4, -4.2], [4, -1.2], [3.05, -1.2]], elev, lawn);
-  poly("apex.site_surface", [[4.2, -4.8], [14.2, -4.8], [14.2, -0.25], [4.2, -0.25]], elev, paved);
-  poly("apex.site_surface", [[1.3, -7.6], [2.9, -7.6], [2.9, -0.2], [1.3, -0.2]], elev, paved);
-  poly(
-    "apex.site_surface",
-    [[14.2, -0.3], [19.5, -0.3], [19.5, 6.5], [14.2, 6.5]],
-    elev,
-    { thickness: 0.1, surface_kind: "driveway" },
-  );
+  const lawn = { thickness: 0.05, surface_kind: "lawn", placement_mode: "draped" };
+  const path = { thickness: 0.03, surface_kind: "path", placement_mode: "draped" };
+  const gravel = { thickness: 0.04, surface_kind: "gravel", placement_mode: "draped" };
+  const paved = { thickness: 0.08, surface_kind: "paved", placement_mode: "flat" };
+  const drive = { thickness: 0.1, surface_kind: "driveway", placement_mode: "flat" };
+  // Free yard inside the fence, held back from wall centrelines. Soft
+  // surfaces drape on the terrain; the terrace, walk and driveway stay level.
+  const yards: Array<[XZ[], Record<string, ParamValue>]> = [
+    [[[-5.8, -7.8], [-0.25, -7.8], [-0.25, 15.8], [-5.8, 15.8]], lawn],
+    [[[-0.25, 11.25], [19.8, 11.25], [19.8, 15.8], [-0.25, 15.8]], lawn],
+    [[[10.25, 7.25], [14.25, 7.25], [14.25, 11.25], [10.25, 11.25]], lawn],
+    [[[14.25, 6.7], [19.8, 6.7], [19.8, 11.25], [14.25, 11.25]], lawn],
+    [[[14.4, -7.8], [19.8, -7.8], [19.8, -0.5], [14.4, -0.5]], lawn],
+    [[[3.05, -7.8], [14.05, -7.8], [14.05, -4.95], [3.05, -4.95]], lawn],
+    [[[-0.25, -7.8], [1.15, -7.8], [1.15, -0.25], [-0.25, -0.25]], lawn],
+    [[[3.05, -4.95], [4.05, -4.95], [4.05, -0.25], [3.05, -0.25]], lawn],
+    [
+      [
+        [7.4, 11.45],
+        [8.5, 11.45],
+        [8.5, 13.2],
+        [16.6, 14.7],
+        [16.6, 15.55],
+        [15.7, 15.55],
+        [7.4, 14.05],
+      ],
+      path,
+    ],
+    [[[1.1, 12.3], [6.2, 12.3], [6.2, 14.6], [1.1, 14.6]], gravel],
+    [[[4.2, -4.8], [14.2, -4.8], [14.2, -0.25], [4.2, -0.25]], paved],
+    [[[1.3, -7.6], [2.9, -7.6], [2.9, -0.2], [1.3, -0.2]], paved],
+    [[[14.2, -0.3], [19.5, -0.3], [19.5, 6.5], [14.2, 6.5]], drive],
+  ];
+  for (const [ring, params] of yards) poly("apex.site_surface", ring, elev, params);
 }
 
 function renameRooms(levelId: string, names: Array<[string, number, number]>): void {
@@ -507,7 +527,7 @@ export function buildHouseSampleProject(): SceneDto {
     "apex.site_surface",
     [[10.35, 0.35], [13.9, 0.35], [13.9, 6.7], [10.35, 6.7]],
     UPPER,
-    { thickness: 0.05, surface_kind: "lawn" },
+    { thickness: 0.05, surface_kind: "lawn", placement_mode: "flat" },
   );
   lift(terraceGarden, 4, 0.28);
 
@@ -522,7 +542,7 @@ export function buildHouseSampleProject(): SceneDto {
     "apex.site_surface",
     [[0.45, -1.55], [9.55, -1.55], [9.55, 10.55], [0.45, 10.55]],
     ROOF_Y,
-    { thickness: 0.06, surface_kind: "lawn" },
+    { thickness: 0.06, surface_kind: "lawn", placement_mode: "flat" },
   );
   lift(green, 4, 0.34);
 

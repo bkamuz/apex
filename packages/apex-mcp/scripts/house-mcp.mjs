@@ -162,7 +162,7 @@ await tool('set_slab_shape', {
     z: [0, 0, 0, 0],
     points: [
       [2, 4, 0], [8, 4, 0], [12, 6, 0], [4, 9, 0],
-      [-2, 14, 0.1], [8, 15.5, 0.32], [16, 14, 0.18], [8, 18.2, 0.06],
+      [-2, 14, 0.55], [8, 15.5, 1.2], [16, 14, 0.75], [8, 18.2, 0.4],
       [18, 6, 0.04], [2, -6, 0],
     ],
   },
@@ -173,21 +173,28 @@ for (let i = 0; i < 4; i++) {
 }
 await tool('place_gate', { level: L0, parent: await hostAt(L0, 2, -8, 'apex.fence'), points: [P(2, -8)], params: { width: 1.2, height: 1.5 } });
 await tool('place_gate', { level: L0, parent: await hostAt(L0, 20, 3, 'apex.fence'), points: [P(20, 3)], params: { width: 3.2, height: 1.5 } });
-const lawn = { thickness: 0.05, surface_kind: 'lawn' };
-const paved = { thickness: 0.08, surface_kind: 'paved' };
+const lawn = { thickness: 0.05, surface_kind: 'lawn', placement_mode: 'draped' };
+const path = { thickness: 0.03, surface_kind: 'path', placement_mode: 'draped' };
+const gravel = { thickness: 0.04, surface_kind: 'gravel', placement_mode: 'draped' };
+const paved = { thickness: 0.08, surface_kind: 'paved', placement_mode: 'flat' };
+const drive = { thickness: 0.1, surface_kind: 'driveway', placement_mode: 'flat' };
 const surfaces = [
-  [[-5.6, -0.2], [-0.35, -0.2], [-0.35, 11.2], [-5.6, 11.2], lawn],
-  [[-5.6, 11.4], [12, 11.4], [12, 15.2], [-5.6, 15.2], lawn],
-  [[4.2, -7.4], [14, -7.4], [14, -5], [4.2, -5], lawn],
-  [[0.2, -4.2], [1.15, -4.2], [1.15, -1.2], [0.2, -1.2], lawn],
-  [[3.05, -4.2], [4, -4.2], [4, -1.2], [3.05, -1.2], lawn],
-  [[4.2, -4.8], [14.2, -4.8], [14.2, -0.25], [4.2, -0.25], paved],
-  [[1.3, -7.6], [2.9, -7.6], [2.9, -0.2], [1.3, -0.2], paved],
-  [[14.2, -0.3], [19.5, -0.3], [19.5, 6.5], [14.2, 6.5], { thickness: 0.1, surface_kind: 'driveway' }],
+  { points: [[-5.8, -7.8], [-0.25, -7.8], [-0.25, 15.8], [-5.8, 15.8]], params: lawn },
+  { points: [[-0.25, 11.25], [19.8, 11.25], [19.8, 15.8], [-0.25, 15.8]], params: lawn },
+  { points: [[10.25, 7.25], [14.25, 7.25], [14.25, 11.25], [10.25, 11.25]], params: lawn },
+  { points: [[14.25, 6.7], [19.8, 6.7], [19.8, 11.25], [14.25, 11.25]], params: lawn },
+  { points: [[14.4, -7.8], [19.8, -7.8], [19.8, -0.5], [14.4, -0.5]], params: lawn },
+  { points: [[3.05, -7.8], [14.05, -7.8], [14.05, -4.95], [3.05, -4.95]], params: lawn },
+  { points: [[-0.25, -7.8], [1.15, -7.8], [1.15, -0.25], [-0.25, -0.25]], params: lawn },
+  { points: [[3.05, -4.95], [4.05, -4.95], [4.05, -0.25], [3.05, -0.25]], params: lawn },
+  { points: [[7.4, 11.45], [8.5, 11.45], [8.5, 13.2], [16.6, 14.7], [16.6, 15.55], [15.7, 15.55], [7.4, 14.05]], params: path },
+  { points: [[1.1, 12.3], [6.2, 12.3], [6.2, 14.6], [1.1, 14.6]], params: gravel },
+  { points: [[4.2, -4.8], [14.2, -4.8], [14.2, -0.25], [4.2, -0.25]], params: paved },
+  { points: [[1.3, -7.6], [2.9, -7.6], [2.9, -0.2], [1.3, -0.2]], params: paved },
+  { points: [[14.2, -0.3], [19.5, -0.3], [19.5, 6.5], [14.2, 6.5]], params: drive },
 ];
 for (const ring of surfaces) {
-  const params = ring[4];
-  await tool('place_site_surface', { level: L0, points: ring.slice(0, 4).map(([x, z]) => P(x, z)), params });
+  await tool('place_site_surface', { level: L0, points: ring.points.map(([x, z]) => P(x, z)), params: ring.params });
 }
 for (const x of [2, 5.5, 8.5]) {
   await tool('place_column', { level: L0, points: [P(x, -2)], params: { profile: 'apex.round', width: 0.22, height: UPPER } });
@@ -205,7 +212,7 @@ await tool('place_roof', { level: L1, points: [P(10, -0.15, UPPER), P(14.35, -0.
 const terrace = await tool('place_site_surface', {
   level: L1,
   points: [P(10.35, 0.35, UPPER), P(13.9, 0.35, UPPER), P(13.9, 6.7, UPPER), P(10.35, 6.7, UPPER)],
-  params: { thickness: 0.05, surface_kind: 'lawn' },
+  params: { thickness: 0.05, surface_kind: 'lawn', placement_mode: 'flat' },
 });
 await tool('set_slab_shape', { id: terrace.id, shape: { z: [0.28, 0.28, 0.28, 0.28], points: [] } });
 
@@ -218,7 +225,7 @@ await tool('place_roof', {
 const green = await tool('place_site_surface', {
   level: LRoof,
   points: [P(0.45, -1.55, ROOF_Y), P(9.55, -1.55, ROOF_Y), P(9.55, 10.55, ROOF_Y), P(0.45, 10.55, ROOF_Y)],
-  params: { thickness: 0.06, surface_kind: 'lawn' },
+  params: { thickness: 0.06, surface_kind: 'lawn', placement_mode: 'flat' },
 });
 await tool('set_slab_shape', { id: green.id, shape: { z: [0.34, 0.34, 0.34, 0.34], points: [] } });
 

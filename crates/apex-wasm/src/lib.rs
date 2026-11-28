@@ -170,7 +170,7 @@ struct ElementListDto {
     effective_level_id: String,
     parent_id: Option<String>,
     profile_id: Option<String>,
-    /// Site-surface kind (`lawn` / `paved` / `driveway`) when the element has one.
+    /// Site-surface kind (`lawn` / `path` / `gravel` / `paved` / `driveway`).
     /// Display-only; absent on every other component.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     surface_kind: Option<String>,

@@ -1380,8 +1380,11 @@ export class ViewportRenderer {
   }
 
   setPlanCutHeight(elevation: number, fadeBand = 0.35): void {
+    const fade = Math.max(fadeBand, 0.05);
+    if (this.planCutY === elevation && this.planCutFade === fade) return;
     this.planCutY = elevation;
-    this.planCutFade = Math.max(fadeBand, 0.05);
+    this.planCutFade = fade;
+    this.needsDraw = true;
   }
 
   getPlanCutHeight(): number {
@@ -1809,7 +1812,9 @@ export class ViewportRenderer {
 
   /** Revit-style Thin Lines: every line renders as one device pixel. */
   setHairline(on: boolean): void {
+    if (this.hairline === on) return;
     this.hairline = on;
+    this.needsDraw = true;
   }
 
   isHairline(): boolean {
@@ -3249,15 +3254,15 @@ export class ViewportRenderer {
   }
 
   /**
-   * Render on demand: a frame is drawn only when something may have
-   * changed: any state-changing method call (every public setter, upload,
-   * camera tween step), input on the canvas, a resize, or a camera matrix
-   * that differs from the last drawn frame (orbit, inertia, animations).
-   * A slow heartbeat redraw covers anything else.
+   * Render on demand. A frame is drawn when a state-changing method runs
+   * (setters, uploads, camera steps), the canvas receives input, the window
+   * resizes, or the camera matrix differs from the last drawn frame.
+   * There is no timed heartbeat: label occlusion reads the depth buffer back,
+   * and on software GL that flush is longer than a second for the sample
+   * house. A 1s heartbeat therefore never expired and the view redrew forever.
    */
   private needsDraw = true;
   private lastDrawSig = '';
-  private lastDrawAt = 0;
 
   /** Mark the viewport for a redraw on the next animation frame. */
   invalidate(): void {
@@ -3265,11 +3270,16 @@ export class ViewportRenderer {
   }
 
   private trackChanges(): void {
+    // Queries used while deciding whether to draw. `eyePosition` runs from the
+    // per-frame matrix sample; treating it as a mutation redrew every tick.
+    // Plan-cut and hairline are pushed on every React render with the same
+    // value; they mark themselves dirty only when the value changes.
     const readOnly =
-      /^(constructor|draw|get|is|has|pick|project|unproject|screen|world|build|camera|resize|refresh|bind|to[A-Z]|invalidate|trackChanges|query|measure|hit|find|compute)/;
+      /^(constructor|draw|get|is|has|pick|project|unproject|screen|world|build|camera|resize|refresh|bind|to[A-Z]|invalidate|trackChanges|query|measure|hit|find|compute|begin|eye)/;
+    const selfDirty = new Set(['setPlanCutHeight', 'setHairline']);
     const proto = Object.getPrototypeOf(this) as Record<string, unknown>;
     for (const name of Object.getOwnPropertyNames(proto)) {
-      if (readOnly.test(name)) continue;
+      if (readOnly.test(name) || selfDirty.has(name)) continue;
       const desc = Object.getOwnPropertyDescriptor(proto, name);
       if (!desc || typeof desc.value !== 'function') continue;
       const fn = desc.value as (...a: unknown[]) => unknown;
@@ -3289,16 +3299,15 @@ export class ViewportRenderer {
 
   private loop = (): void => {
     this.raf = requestAnimationFrame(this.loop);
-    const t = performance.now();
     const m = this.buildCameraMatrices();
     const sig = `${this.canvas.width}x${this.canvas.height}|${Array.prototype.join.call(m.viewProj, ',')}`;
-    if (!this.needsDraw && sig === this.lastDrawSig && t - this.lastDrawAt < 1000) {
-      return;
-    }
+    if (!this.needsDraw && sig === this.lastDrawSig) return;
     this.needsDraw = false;
     this.lastDrawSig = sig;
-    this.lastDrawAt = t;
     this.drawFrame();
+    // Helpers called by the draw (pick buffer, line upload) are wrapped as
+    // mutations. Clear again so a finished frame does not schedule the next.
+    this.needsDraw = false;
   };
 
   private drawFrame(): void {

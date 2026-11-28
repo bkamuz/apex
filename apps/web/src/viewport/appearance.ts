@@ -35,6 +35,8 @@ const BY_COMPONENT: Record<string, Rgb> = {
 
 const SURFACE: Record<string, Rgb> = {
   lawn: [0.4, 0.64, 0.26],
+  path: [0.62, 0.48, 0.32],
+  gravel: [0.64, 0.62, 0.56],
   paved: [0.82, 0.8, 0.74],
   driveway: [0.22, 0.23, 0.25],
 };
