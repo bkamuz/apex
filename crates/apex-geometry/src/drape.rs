@@ -338,6 +338,28 @@ impl Index {
     }
 }
 
+/// Highest-facet height queries over a cached terrain cover.
+///
+/// The index is the same one [`drape_polygon`] builds. Callers that sample
+/// many points (a fence, a curb) construct it once per cover instead of
+/// walking every facet per sample.
+pub struct TerrainSampler {
+    index: Index,
+}
+
+impl TerrainSampler {
+    pub fn new(facets: &[TerrainFacet]) -> Self {
+        Self {
+            index: Index::build(facets),
+        }
+    }
+
+    /// Highest terrain `y` at plan `(x, z)`. `None` when no facet covers it.
+    pub fn height_at(&self, x: f64, z: f64) -> Option<f64> {
+        self.index.height_at(x, z)
+    }
+}
+
 /// Project `polygon` (plan x, z, either winding, not closed) onto `facets`.
 ///
 /// Each output triangle lies in one terrain facet, so interior ridges of the
@@ -671,6 +693,14 @@ mod tests {
                     .abs()
             })
             .sum()
+    }
+
+    #[test]
+    fn a_sampler_reads_the_plane_without_walking_it_per_call() {
+        let sampler = TerrainSampler::new(&plane());
+        let y = sampler.height_at(4.0, 5.0).expect("on the plane");
+        assert!((y - 1.0).abs() < 1e-6, "y = 0.2 * z, got {y}");
+        assert!(sampler.height_at(20.0, 5.0).is_none());
     }
 
     #[test]

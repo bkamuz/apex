@@ -356,23 +356,47 @@ function buildYard(elev: number): void {
     creases: [],
   });
 
+  // North–south runs start at the high north end so a level fence
+  // stands on that elevation and the posts reach down the slope.
   const fence: Seg[] = [
     [[-6, -8], [20, -8]],
-    [[20, -8], [20, 16]],
+    [[20, 16], [20, -8]],
     [[20, 16], [-6, 16]],
     [[-6, 16], [-6, -8]],
   ];
-  const fenceParams = { height: 1.6, thickness: 0.06 };
+  const fenceParams = { species: "apex.site_line.fence" };
   for (const [a, b] of fence) {
     apexCreateElement(
-      "apex.fence",
+      "apex.site_line",
       [xz(a[0], a[1], elev), xz(b[0], b[1], elev)],
       fenceParams,
       0,
       "two_point",
     );
   }
-  const pedestrian = pathHostAt(2, -8, "fence");
+  const curb = { species: "apex.site_line.curb" };
+  poly(
+    "apex.site_line",
+    [
+      [7.4, 11.45],
+      [8.5, 11.45],
+      [8.5, 13.2],
+      [16.6, 14.7],
+    ],
+    elev,
+    curb,
+  );
+  poly(
+    "apex.site_line",
+    [
+      [7.4, 14.05],
+      [15.7, 15.55],
+      [16.6, 15.55],
+    ],
+    elev,
+    curb,
+  );
+  const pedestrian = pathHostAt(2, -8, "site_line");
   if (pedestrian) {
     apexCreateElementWithParent(
       "apex.gate",
@@ -383,7 +407,7 @@ function buildYard(elev: number): void {
       "point",
     );
   }
-  const vehicle = pathHostAt(20, 3, "fence");
+  const vehicle = pathHostAt(20, 3, "site_line");
   if (vehicle) {
     apexCreateElementWithParent(
       "apex.gate",

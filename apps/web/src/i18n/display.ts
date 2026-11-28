@@ -116,6 +116,8 @@ export const BUILTIN_SPECIES_IDS = [
   'apex.door.double-1400x2100',
   'apex.door.transom-1000x2500',
   'apex.gate.single-1000x1500',
+  'apex.site_line.fence',
+  'apex.site_line.curb',
 ] as const;
 
 /**

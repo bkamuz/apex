@@ -167,12 +167,29 @@ await tool('set_slab_shape', {
     ],
   },
 });
-const fenceLoop = [[-6, -8], [20, -8], [20, 16], [-6, 16], [-6, -8]];
-for (let i = 0; i < 4; i++) {
-  await tool('place_fence', { level: L0, points: [P(...fenceLoop[i]), P(...fenceLoop[i + 1])], params: { height: 1.6, thickness: 0.06 } });
+const fenceRuns = [
+  [[-6, -8], [20, -8]],
+  [[20, 16], [20, -8]],
+  [[20, 16], [-6, 16]],
+  [[-6, 16], [-6, -8]],
+];
+for (const [a, b] of fenceRuns) {
+  await tool('place_site_line', { level: L0, points: [P(...a), P(...b)], params: { species: 'apex.site_line.fence' } });
 }
-await tool('place_gate', { level: L0, parent: await hostAt(L0, 2, -8, 'apex.fence'), points: [P(2, -8)], params: { width: 1.2, height: 1.5 } });
-await tool('place_gate', { level: L0, parent: await hostAt(L0, 20, 3, 'apex.fence'), points: [P(20, 3)], params: { width: 3.2, height: 1.5 } });
+await tool('place_site_line', {
+  level: L0,
+  placement_kind: 'polyline',
+  points: [P(7.4, 11.45), P(8.5, 11.45), P(8.5, 13.2), P(16.6, 14.7)],
+  params: { species: 'apex.site_line.curb' },
+});
+await tool('place_site_line', {
+  level: L0,
+  placement_kind: 'polyline',
+  points: [P(7.4, 14.05), P(15.7, 15.55), P(16.6, 15.55)],
+  params: { species: 'apex.site_line.curb' },
+});
+await tool('place_gate', { level: L0, parent: await hostAt(L0, 2, -8, 'apex.site_line'), points: [P(2, -8)], params: { width: 1.2, height: 1.5 } });
+await tool('place_gate', { level: L0, parent: await hostAt(L0, 20, 3, 'apex.site_line'), points: [P(20, 3)], params: { width: 3.2, height: 1.5 } });
 const lawn = { thickness: 0.05, surface_kind: 'lawn', placement_mode: 'draped' };
 const path = { thickness: 0.03, surface_kind: 'path', placement_mode: 'draped' };
 const gravel = { thickness: 0.04, surface_kind: 'gravel', placement_mode: 'draped' };

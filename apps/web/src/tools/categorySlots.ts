@@ -38,7 +38,7 @@ export interface RibbonSlot<T extends RibbonComponent = RibbonComponent> {
 }
 
 const ENGINEERING = new Set(['pipe', 'duct', 'cable', 'mep']);
-const SITE = new Set(['fence', 'site', 'surface', 'landscape', 'topo']);
+const SITE = new Set(['fence', 'site', 'site_line', 'surface', 'landscape', 'topo']);
 
 /** Prefer these built-ins when a category has more than one (roof). */
 const PRIMARY_PREFERENCE = [
@@ -54,6 +54,7 @@ const PRIMARY_PREFERENCE = [
   'apex.duct',
   'apex.cable_tray',
   'apex.fence',
+  'apex.site_line',
   'apex.gate',
   'apex.site_surface',
   'apex.terrain',

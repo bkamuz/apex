@@ -17,11 +17,12 @@ mod mesh;
 mod prism;
 mod profile;
 mod shaped;
+mod site_line;
 mod sweep;
 
 pub use csg::{box_mesh, cylinder_mesh, mesh_boolean, mesh_volume, CsgError};
 pub use curve::{Curve, MIN_CURVE_LENGTH};
-pub use drape::{drape_polygon, DrapedPatch, TerrainFacet};
+pub use drape::{drape_polygon, DrapedPatch, TerrainFacet, TerrainSampler};
 pub use error::GeometryError;
 pub use frame::Frame;
 pub use join::{
@@ -39,4 +40,5 @@ pub use prism::{
 };
 pub use profile::{Justification, Point2, Profile};
 pub use shaped::{ContourLines, ShapedSurface, SurfaceMesh, Underside};
+pub use site_line::{profile_line, repeated_line, LineProfile, RepeatedLine};
 pub use sweep::{extrude, sweep, SweepOptions};

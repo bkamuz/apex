@@ -23,6 +23,9 @@ use serde_json::json;
 /// Param holding a slab's sub-element shape.
 pub(crate) const SLAB_SHAPE: &str = "shape";
 
+/// Linear site element: a plan polyline seated on terrain (fence, curb, …).
+pub(crate) const SITE_LINE: &str = "apex.site_line";
+
 use crate::genus::{
     build_opening, OpeningGenerator, OpeningGeometry, OpeningInfill, OpeningPlanSymbol,
     OpeningRecipe, Species, SPECIES_PARAM,
@@ -117,6 +120,9 @@ impl ComponentRegistry {
         registry.register_builder("apex.roof.pitched", Box::new(pitched_roof));
         // Booleans are meshed by the project from their operands.
         registry.register_builder("apex.boolean", Box::new(empty_builder));
+        // The project builds this mesh from the terrain cover. The recipe
+        // exists so a definition without a project still validates.
+        registry.register_builder(SITE_LINE, Box::new(empty_builder));
         registry.register_builder("apex.ifc.mesh", crate::ifc_mesh::ifc_mesh_builder());
         for profile in builtin_profiles() {
             registry
@@ -1305,6 +1311,7 @@ pub fn builtin_components() -> Vec<ComponentDefinition> {
         duct(),
         cable_tray(),
         fence(),
+        site_line(),
         gate(),
         site_surface(),
         terrain(),
@@ -1518,7 +1525,13 @@ fn value_eq(a: Option<&ParamValue>, b: Option<&ParamValue>) -> bool {
     match (a, b) {
         (Some(a), Some(b)) => match (a.as_number(), b.as_number()) {
             (Some(x), Some(y)) => (x - y).abs() < 1e-6,
-            _ => a == b,
+            // JSON strings arrive as Text; a choice stored on a species is
+            // Choice. Same words are the same value, or placing a species
+            // from the UI would derive a new one.
+            _ => match (a.as_text(), b.as_text()) {
+                (Some(x), Some(y)) => x == y,
+                _ => a == b,
+            },
         },
         (None, None) => true,
         _ => false,
@@ -1658,7 +1671,27 @@ pub fn builtin_species() -> Vec<Species> {
             "Gate 1000×1500 single leaf",
             &[],
         ),
+        site_line_species("apex.site_line.fence", "Fence", ParamMap::new()),
+        site_line_species(
+            "apex.site_line.curb",
+            "Curb",
+            ParamMap::new()
+                .with("seating", ParamValue::Choice("by_ends".into()))
+                .with("content", ParamValue::Choice("profile".into()))
+                .with("elevation_offset", ParamValue::Length(0.02))
+                .with("profile_width", ParamValue::Length(0.15))
+                .with("profile_height", ParamValue::Length(0.18)),
+        ),
     ]
+}
+
+fn site_line_species(id: &str, name: &str, values: ParamMap) -> Species {
+    Species {
+        id: id.into(),
+        genus: SITE_LINE.into(),
+        name: name.into(),
+        values,
+    }
 }
 
 fn door() -> ComponentDefinition {
@@ -2062,12 +2095,82 @@ fn fence() -> ComponentDefinition {
     }
 }
 
-/// Gate hosted on a fence — same opening genus as a door, host category `fence`.
+/// Plan polyline seated on terrain. Fence and curb are species of this one genus.
+fn site_line() -> ComponentDefinition {
+    ComponentDefinition {
+        opening: None,
+        default_species: Some("apex.site_line.fence".into()),
+        genus: None,
+        id: SITE_LINE.to_string(),
+        display_name: "Site line".to_string(),
+        category: "site_line".to_string(),
+        source: ComponentSource::BuiltIn,
+        placement: PlacementKind::Path,
+        placement_options: PlacementOptions::default(),
+        params: vec![
+            ParamSpec::text(SPECIES_PARAM, "Species", "apex.site_line.fence"),
+            ParamSpec::choice(
+                "seating",
+                "Seating",
+                &["by_ends", "level_from_start"],
+                "level_from_start",
+            )
+            .as_type(),
+            ParamSpec::choice("content", "Content", &["repeated", "profile"], "repeated").as_type(),
+            ParamSpec::length("elevation_offset", "Elevation offset", 0.0)
+                .with_range(Some(-2.0), Some(5.0))
+                .as_type(),
+            ParamSpec::length("post_height", "Post height", 1.6)
+                .with_range(Some(0.2), Some(6.0))
+                .as_type(),
+            ParamSpec::length("post_spacing", "Post spacing", 2.0)
+                .with_range(Some(0.0), Some(20.0))
+                .as_type(),
+            ParamSpec::length("post_size", "Post size", 0.12)
+                .with_range(Some(0.04), Some(0.6))
+                .as_type(),
+            ParamSpec::length("panel_height", "Panel height", 1.4)
+                .with_range(Some(0.0), Some(6.0))
+                .as_type(),
+            ParamSpec::length("panel_thickness", "Panel thickness", 0.04)
+                .with_range(Some(0.01), Some(0.4))
+                .as_type(),
+            ParamSpec::length("profile_width", "Profile width", 0.15)
+                .with_range(Some(0.05), Some(2.0))
+                .as_type(),
+            ParamSpec::length("profile_height", "Profile height", 0.15)
+                .with_range(Some(0.02), Some(2.0))
+                .as_type(),
+        ],
+        recipe: GeometryRecipe::Custom {
+            builder_id: SITE_LINE.into(),
+        },
+        descriptor: Descriptor::new(
+            "Site line: a plan polyline built relative to the terrain. `seating` is `by_ends` (every vertex sits on the terrain, spans stay straight) or `level_from_start` (the start sits on the terrain and the whole line stays level; `elevation_offset` raises or lowers it). `content` is `repeated` (vertical posts and panels) or `profile` (a vertical rectangular section). Fence and Curb are species of this genus.",
+        )
+        .points("path: 2+ plan points [x, y, z] along the centreline. placement_kind 'polyline' for a chain.")
+        .constraint("points must not repeat consecutively; segments shorter than 1 mm are refused")
+        .example(
+            "A level fence run",
+            json!({"component": "apex.site_line", "points": [[0, 0, 0], [10, 0, 0]], "params": {"species": "apex.site_line.fence"}}),
+        ),
+        host_cut: None,
+        level_height_params: vec![],
+        ifc_entity: Some("IfcBuildingElementProxy".into()),
+        joinable: false,
+        viewport_edit: false,
+    }
+}
+
+/// Gate hosted on a fence or a site line — same opening genus as a door.
 fn gate() -> ComponentDefinition {
     ComponentDefinition {
         opening: Some(opening_recipe(true)),
         default_species: Some("apex.gate.single-1000x1500".into()),
-        genus: Some(GenusDef::opening_body(vec!["fence".into()])),
+        genus: Some(GenusDef::opening_body(vec![
+            "fence".into(),
+            "site_line".into(),
+        ])),
         id: "apex.gate".to_string(),
         display_name: "Gate".to_string(),
         category: "opening".to_string(),
@@ -2090,16 +2193,16 @@ fn gate() -> ComponentDefinition {
             height: Expr::param("height"),
         },
         descriptor: Descriptor::new(
-            "Gate hosted in a fence: cuts an opening through its parent fence and shows a leaf and plan swing symbol.",
+            "Gate hosted in a fence or a site line: cuts an opening through its parent and shows a leaf and plan swing symbol.",
         )
-        .points("point: one point on the host fence's centreline; pass `parent` = the fence id")
-        .constraint("must have a parent whose category is 'fence'; the point is projected onto the fence")
+        .points("point: one point on the host centreline; pass `parent` = the host id")
+        .constraint("must have a parent whose category is 'fence' or 'site_line'; the point is projected onto the host")
         .example(
             "Gate mid-fence",
             json!({"component": "apex.gate", "points": [[2, 0, 0]], "parent": "<fence-id>"}),
         ),
         host_cut: Some(HostCutSpec {
-            host_categories: vec!["fence".into()],
+            host_categories: vec!["fence".into(), "site_line".into()],
         }),
         level_height_params: vec![],
         ifc_entity: Some("IfcDoor".into()),

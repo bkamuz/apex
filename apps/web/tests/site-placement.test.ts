@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import type { ComponentDto, ParamValue } from '../src/types.ts';
+import { placementDraftFor } from '../src/ui/placementDraft.ts';
 import { defaultPlacementParams, syncSitePlacement } from '../src/ui/profileModel.ts';
 
 const site = {
@@ -49,6 +50,41 @@ test('an explicit placement survives a kind change', () => {
   };
   const gravel = syncSitePlacement(flatLawn, { ...flatLawn, surface_kind: 'gravel' });
   assert.equal(gravel.placement_mode, 'flat');
+});
+
+test('a curb species overrides the fence defaults in the placement draft', () => {
+  const line = {
+    id: 'apex.site_line',
+    display_name: 'Site line',
+    category: 'site_line',
+    source: 'built_in',
+    placement: 'path',
+    default_species: 'apex.site_line.fence',
+    params: [
+      { id: 'species', label: 'Species', kind: 'text', default: 'apex.site_line.fence' },
+      { id: 'seating', label: 'Seating', kind: 'choice', binding: 'type', default: 'level_from_start', options: ['by_ends', 'level_from_start'] },
+      { id: 'content', label: 'Content', kind: 'choice', binding: 'type', default: 'repeated', options: ['repeated', 'profile'] },
+      { id: 'elevation_offset', label: 'Elevation offset', kind: 'length', binding: 'type', default: 0 },
+      { id: 'profile_height', label: 'Profile height', kind: 'length', binding: 'type', default: 0.15 },
+    ],
+    recipe: { kind: 'custom' },
+  } as ComponentDto;
+  const draft = placementDraftFor(line, [], 'apex.site_line.curb', [
+    {
+      id: 'apex.site_line.curb',
+      values: {
+        seating: 'by_ends',
+        content: 'profile',
+        elevation_offset: 0.02,
+        profile_height: 0.18,
+      },
+    },
+  ]);
+  assert.equal(draft.species, 'apex.site_line.curb');
+  assert.equal(draft.seating, 'by_ends');
+  assert.equal(draft.content, 'profile');
+  assert.equal(draft.elevation_offset, 0.02);
+  assert.equal(draft.profile_height, 0.18);
 });
 
 test('thickness edits do not rewrite placement', () => {

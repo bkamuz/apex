@@ -139,7 +139,7 @@ if (!RESUME) {
       ['apex.column', 3],
       ['apex.stair', 1],
       ['apex.slab', 2],
-      ['apex.fence', 4],
+      ['apex.site_line', 6],
       ['apex.gate', 2],
       ['apex.site_surface', 8],
       ['apex.terrain', 1],
