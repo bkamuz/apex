@@ -188,7 +188,8 @@ import { ToolsToolbar } from './ui/ToolsToolbar';
 import { GettingStartedPanel } from './ui/GettingStartedPanel';
 import { buildSampleProject } from './ui/sampleProject';
 import { appearanceByPick, planWashByPick } from './viewport/appearance';
-import { defaultNewProfile, defaultPlacementParams, nextProfileId } from './ui/profileModel';
+import { placementDraft as buildPlacementDraft } from './ui/placementDraft';
+import { defaultNewProfile, nextProfileId } from './ui/profileModel';
 import { AgentBridgeControl } from './ui/AgentBridgeControl';
 import {
   clearStoredProject,
@@ -1873,8 +1874,7 @@ export default function App() {
       const speciesId = next?.placementSpeciesId?.() ?? '';
       const placementKey = `${resolved}:${next?.componentId ?? ''}:${speciesId}`;
       if (component) {
-        const draft = defaultPlacementParams(component, profiles);
-        if (speciesId) draft.species = speciesId;
+        const draft = buildPlacementDraft(component, profiles, speciesId);
         placementParamsRef.current = draft;
         placementToolIdRef.current = placementKey;
         setPlacementDraft(draft);
@@ -1918,8 +1918,7 @@ export default function App() {
       return;
     }
     if (!switched && Object.keys(placementParamsRef.current).length > 0) return;
-    const next = defaultPlacementParams(component, profiles);
-    if (placementSpecies) next.species = placementSpecies;
+    const next = buildPlacementDraft(component, profiles, placementSpecies);
     placementParamsRef.current = next;
     setPlacementDraft(next);
   }, [toolId, tool.componentId, placementSpecies, components, profiles]);

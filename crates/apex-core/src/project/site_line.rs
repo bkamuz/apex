@@ -1,0 +1,536 @@
+//! A site line seated on the cached terrain cover.
+//!
+//! The uncut mesh is cached by the cover fingerprint, the path and the
+//! evaluated params. A terrain edit rebuilds the lines on that level; an
+//! unrelated edit hits the cache and does not sample the terrain again.
+//! Hosted gates punch the cached mesh on the way out, so the cache stays the
+//! uncut solid.
+
+use std::hash::{Hash, Hasher};
+
+use apex_geometry::{
+    profile_line, repeated_line, LineProfile, RepeatedLine, TerrainSampler, TriangleMesh,
+};
+use glam::Vec3;
+
+use crate::element::{Element, ElementId};
+use crate::param::ParamMap;
+use crate::registry::SITE_LINE;
+
+use super::Project;
+
+const EMBED: f64 = 0.02;
+/// How far a gate void reaches below the line, so posts in a valley are cut.
+const VOID_BELOW: f32 = 4.0;
+const LINE_CAP: usize = 64;
+
+impl Project {
+    /// Uncut site-line mesh, or `None` when `element` is not a site line.
+    pub(super) fn site_line_mesh(&self, element: &Element) -> Option<TriangleMesh> {
+        if element.component_id != SITE_LINE {
+            return None;
+        }
+        Some(self.cached_site_line(element))
+    }
+
+    /// Site lines on the same level as a terrain element.
+    pub(super) fn site_line_dependents(&self, element: &Element) -> Vec<ElementId> {
+        if !self.is_topo_element(element) {
+            return Vec::new();
+        }
+        let level = self
+            .document
+            .effective_level_id(element.id)
+            .unwrap_or(element.level_id);
+        self.document
+            .elements_on_level(level)
+            .into_iter()
+            .filter(|id| {
+                self.document
+                    .get_element(*id)
+                    .is_some_and(|e| e.component_id == SITE_LINE)
+            })
+            .collect()
+    }
+
+    /// Gate voids. Genus openings are included: the punch is an AABB, not a
+    /// kernel boolean, and it extends below the line so buried posts are cut.
+    pub(super) fn site_line_voids(
+        &self,
+        host_id: ElementId,
+    ) -> Vec<(f32, Vec3, [f32; 3], [f32; 3])> {
+        let Some(host) = self.document.get_element(host_id) else {
+            return Vec::new();
+        };
+        if host.component_id != SITE_LINE {
+            return Vec::new();
+        }
+        let Some(host_def) = self.registry.get(&host.component_id) else {
+            return Vec::new();
+        };
+        let mut voids = Vec::new();
+        for child_id in self.document.children_of(host_id) {
+            let Some(child) = self.document.get_element(child_id) else {
+                continue;
+            };
+            let Some(child_def) = self.registry.get(&child.component_id) else {
+                continue;
+            };
+            let Some(cut) = &child_def.host_cut else {
+                continue;
+            };
+            if !cut
+                .host_categories
+                .iter()
+                .any(|category| category == &host_def.category)
+            {
+                continue;
+            }
+            let Some((mut min, mut max)) = super::opening_void_aabb(child, child_def) else {
+                continue;
+            };
+            min[1] -= VOID_BELOW;
+            max[1] += 0.5;
+            let yaw = self.hosted_opening_yaw(child).unwrap_or(0.0);
+            voids.push((yaw, child.placement.origin(), min, max));
+        }
+        voids
+    }
+
+    fn cached_site_line(&self, element: &Element) -> TriangleMesh {
+        let anchors = element.placement.anchors();
+        let Ok(params) = self
+            .registry
+            .eval_params(&element.component_id, &element.params)
+        else {
+            return TriangleMesh::empty();
+        };
+        let cover = self.terrain_cover(element);
+        let cover_key = cover.as_ref().map(|(key, _)| *key).unwrap_or(0);
+        let key = fingerprint(&anchors, &params, cover_key);
+        if let Some((cached, mesh)) = self.drape_cache().lines.get(&element.id) {
+            if *cached == key {
+                return mesh.clone();
+            }
+        }
+        let sampler = cover
+            .as_ref()
+            .map(|(_, facets)| TerrainSampler::new(facets));
+        let sample = |x: f64, z: f64| sampler.as_ref().and_then(|s| s.height_at(x, z));
+        let points = seated(
+            &anchors,
+            params.text("seating").unwrap_or("level_from_start"),
+            params.number("elevation_offset").unwrap_or(0.0),
+            &sample,
+        );
+        let mesh = if anchors.len() < 2 {
+            TriangleMesh::empty()
+        } else if params.text("content") == Some("profile") {
+            profile_line(
+                &points,
+                &LineProfile {
+                    width: params.number("profile_width").unwrap_or(0.15),
+                    height: params.number("profile_height").unwrap_or(0.15),
+                },
+            )
+        } else {
+            repeated_line(
+                &points,
+                sample,
+                &RepeatedLine {
+                    post_height: params.number("post_height").unwrap_or(1.6),
+                    post_size: params.number("post_size").unwrap_or(0.12),
+                    spacing: params.number("post_spacing").unwrap_or(2.0),
+                    panel_height: params.number("panel_height").unwrap_or(1.4),
+                    panel_thickness: params.number("panel_thickness").unwrap_or(0.04),
+                    embed: EMBED,
+                },
+            )
+        };
+        let mut cache = self.drape_cache();
+        if cache.lines.len() >= LINE_CAP {
+            cache.lines.clear();
+        }
+        cache.lines.insert(element.id, (key, mesh.clone()));
+        mesh
+    }
+}
+
+fn fingerprint(anchors: &[Vec3], params: &ParamMap, cover: u64) -> u64 {
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    cover.hash(&mut hasher);
+    for key in ["seating", "content"] {
+        hasher.write(params.text(key).unwrap_or("").as_bytes());
+    }
+    for key in [
+        "elevation_offset",
+        "post_height",
+        "post_spacing",
+        "post_size",
+        "panel_height",
+        "panel_thickness",
+        "profile_width",
+        "profile_height",
+    ] {
+        params
+            .number(key)
+            .unwrap_or(0.0)
+            .to_bits()
+            .hash(&mut hasher);
+    }
+    for p in anchors {
+        p.x.to_bits().hash(&mut hasher);
+        p.y.to_bits().hash(&mut hasher);
+        p.z.to_bits().hash(&mut hasher);
+    }
+    hasher.finish()
+}
+
+fn seated(
+    anchors: &[Vec3],
+    seating: &str,
+    offset: f64,
+    sample: &impl Fn(f64, f64) -> Option<f64>,
+) -> Vec<[f64; 3]> {
+    let height = |p: Vec3| sample(p.x as f64, p.z as f64).unwrap_or(p.y as f64);
+    if seating == "by_ends" {
+        anchors
+            .iter()
+            .map(|p| [p.x as f64, height(*p) + offset, p.z as f64])
+            .collect()
+    } else {
+        let y = anchors
+            .first()
+            .map(|p| height(*p) + offset)
+            .unwrap_or(offset);
+        anchors
+            .iter()
+            .map(|p| [p.x as f64, y, p.z as f64])
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::param::ParamValue;
+    use crate::placement::{Placement, PlacementKind};
+    use crate::registry::SITE_LINE;
+    use crate::ParamMap;
+    use crate::Project;
+
+    fn poly(pts: &[(f32, f32)]) -> Placement {
+        let v: Vec<Vec3> = pts.iter().map(|&(x, z)| Vec3::new(x, 0.0, z)).collect();
+        PlacementKind::Polyline
+            .build(&v, 0.0, &apex_geometry::Frame::horizontal(0.0))
+            .unwrap()
+    }
+
+    fn line(a: [f32; 2], b: [f32; 2]) -> Placement {
+        Placement::line(Vec3::new(a[0], 0.0, a[1]), Vec3::new(b[0], 0.0, b[1]))
+    }
+
+    fn sloped(project: &mut Project) -> ElementId {
+        let id = project
+            .create_element(
+                "apex.terrain",
+                poly(&[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]),
+                ParamMap::new()
+                    .with("bottom_offset", ParamValue::Length(0.2))
+                    .with("smooth", ParamValue::Bool(false))
+                    .with("contour_interval", ParamValue::Length(5.0)),
+            )
+            .unwrap();
+        project
+            .set_slab_shape(
+                id,
+                &crate::SlabShape {
+                    z: vec![0.0, 0.0, 2.0, 2.0],
+                    points: vec![],
+                    creases: vec![],
+                },
+            )
+            .unwrap();
+        id
+    }
+
+    /// Highest triangle covering plan `(x, z)`.
+    fn top_at(mesh: &TriangleMesh, x: f32, z: f32) -> Option<f32> {
+        let mut best: Option<f32> = None;
+        for t in mesh.indices.chunks(3) {
+            let at = |i: u32| {
+                let k = i as usize * 3;
+                [
+                    mesh.positions[k],
+                    mesh.positions[k + 1],
+                    mesh.positions[k + 2],
+                ]
+            };
+            let p = [at(t[0]), at(t[1]), at(t[2])];
+            let area = (p[1][0] - p[0][0]) * (p[2][2] - p[0][2])
+                - (p[1][2] - p[0][2]) * (p[2][0] - p[0][0]);
+            if area.abs() < 1e-8 {
+                continue;
+            }
+            let l1 =
+                ((p[1][2] - p[2][2]) * (x - p[2][0]) + (p[2][0] - p[1][0]) * (z - p[2][2])) / area;
+            let l2 =
+                ((p[2][2] - p[0][2]) * (x - p[2][0]) + (p[0][0] - p[2][0]) * (z - p[2][2])) / area;
+            let l3 = 1.0 - l1 - l2;
+            if l1 >= -1e-3 && l2 >= -1e-3 && l3 >= -1e-3 {
+                let y = l1 * p[0][1] + l2 * p[1][1] + l3 * p[2][1];
+                best = Some(best.map_or(y, |b| b.max(y)));
+            }
+        }
+        best
+    }
+
+    fn lowest_near(mesh: &TriangleMesh, x: f32, z: f32, r: f32) -> Option<f32> {
+        let mut lo = f32::MAX;
+        let mut hit = false;
+        for p in mesh.positions.chunks(3) {
+            let dx = p[0] - x;
+            let dz = p[2] - z;
+            if dx * dx + dz * dz > r * r {
+                continue;
+            }
+            hit = true;
+            lo = lo.min(p[1]);
+        }
+        hit.then_some(lo)
+    }
+
+    #[test]
+    fn level_from_start_stays_flat_and_posts_reach_the_slope() {
+        let mut project = Project::new();
+        sloped(&mut project);
+        let id = project
+            .create_element(
+                SITE_LINE,
+                line([5.0, 9.0], [5.0, 1.0]),
+                ParamMap::new()
+                    .with("seating", ParamValue::Choice("level_from_start".into()))
+                    .with("content", ParamValue::Choice("repeated".into()))
+                    .with("post_spacing", ParamValue::Length(20.0))
+                    .with("panel_height", ParamValue::Length(1.0))
+                    .with("elevation_offset", ParamValue::Length(0.0)),
+            )
+            .unwrap();
+        let mesh = project.document().get_mesh(id).unwrap();
+        // Start is the high end: terrain y = 0.2 * z = 1.8. The panel stays there.
+        let mid = top_at(mesh, 5.0, 5.0).expect("panel");
+        assert!(
+            mid > 2.5,
+            "level panel top {mid} should stay near 1.8 + 1.0, not the slope"
+        );
+        let post = lowest_near(mesh, 5.0, 1.0, 0.15).expect("low post");
+        assert!(
+            post < 0.4,
+            "low-end post reaches the ground (bottom {post})"
+        );
+    }
+
+    #[test]
+    fn by_ends_is_a_straight_chord_over_a_peak() {
+        let mut project = Project::new();
+        let terrain = project
+            .create_element(
+                "apex.terrain",
+                poly(&[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]),
+                ParamMap::new().with("smooth", ParamValue::Bool(false)),
+            )
+            .unwrap();
+        project
+            .set_slab_shape(
+                terrain,
+                &crate::SlabShape {
+                    z: vec![0.0, 0.0, 0.0, 0.0],
+                    points: vec![[5.0, 5.0, 2.0]],
+                    creases: vec![],
+                },
+            )
+            .unwrap();
+        let ground = project.topo_height_at(
+            project.document().active_level_id().unwrap(),
+            5.0,
+            5.0,
+            None,
+        );
+        assert!(ground.unwrap_or(0.0) > 1.5, "peak {ground:?}");
+        let id = project
+            .create_element(
+                SITE_LINE,
+                line([0.0, 5.0], [10.0, 5.0]),
+                ParamMap::new()
+                    .with("species", ParamValue::Text("apex.site_line.curb".into()))
+                    .with("seating", ParamValue::Text("by_ends".into()))
+                    .with("content", ParamValue::Text("profile".into())),
+            )
+            .unwrap();
+        let element = project.document().get_element(id).unwrap();
+        assert_eq!(
+            element.params.text("species"),
+            Some("apex.site_line.curb"),
+            "text and choice values of the same words stay on the curb species"
+        );
+        let mesh = project.document().get_mesh(id).unwrap();
+        let mid = top_at(mesh, 5.0, 5.0).expect("curb");
+        assert!(
+            mid < 0.5,
+            "curb follows the chord ({mid}), not the peak under it"
+        );
+    }
+
+    #[test]
+    fn a_post_in_a_valley_drops_and_the_panel_stays_on_the_chord() {
+        let mut project = Project::new();
+        let terrain = project
+            .create_element(
+                "apex.terrain",
+                poly(&[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]),
+                ParamMap::new().with("smooth", ParamValue::Bool(false)),
+            )
+            .unwrap();
+        project
+            .set_slab_shape(
+                terrain,
+                &crate::SlabShape {
+                    z: vec![0.0, 0.0, 0.0, 0.0],
+                    points: vec![[5.0, 5.0, -1.5]],
+                    creases: vec![],
+                },
+            )
+            .unwrap();
+        let id = project
+            .create_element(
+                SITE_LINE,
+                line([0.0, 5.0], [10.0, 5.0]),
+                ParamMap::new()
+                    .with("seating", ParamValue::Choice("by_ends".into()))
+                    .with("content", ParamValue::Choice("repeated".into()))
+                    .with("post_spacing", ParamValue::Length(5.0))
+                    .with("panel_height", ParamValue::Length(0.8))
+                    .with("elevation_offset", ParamValue::Length(0.0)),
+            )
+            .unwrap();
+        let mesh = project.document().get_mesh(id).unwrap();
+        let post = lowest_near(mesh, 5.0, 5.0, 0.2).expect("mid post");
+        assert!(post < -1.2, "post drops into the valley, bottom {post}");
+        let panel = top_at(mesh, 2.5, 5.0).expect("panel");
+        assert!(
+            (panel - 0.8).abs() < 0.15,
+            "panel stays on the chord, top {panel}"
+        );
+    }
+
+    #[test]
+    fn an_unrelated_edit_does_not_rebuild_the_line() {
+        let mut project = Project::new();
+        sloped(&mut project);
+        let id = project
+            .create_element(SITE_LINE, line([2.0, 2.0], [8.0, 8.0]), ParamMap::new())
+            .unwrap();
+        let before = project.document().get_mesh(id).unwrap().positions.clone();
+        let wall = project
+            .create_element("apex.wall", line([0.0, 12.0], [4.0, 12.0]), ParamMap::new())
+            .unwrap();
+        project
+            .update_element(
+                wall,
+                Some(ParamMap::new().with("height", ParamValue::Length(4.0))),
+                None,
+                true,
+            )
+            .unwrap();
+        let after = &project.document().get_mesh(id).unwrap().positions;
+        assert_eq!(before, *after);
+    }
+
+    #[test]
+    fn editing_the_terrain_rebuilds_only_the_line_on_that_grade() {
+        let mut project = Project::new();
+        let terrain = sloped(&mut project);
+        let id = project
+            .create_element(
+                SITE_LINE,
+                line([5.0, 9.0], [5.0, 1.0]),
+                ParamMap::new().with("panel_height", ParamValue::Length(1.0)),
+            )
+            .unwrap();
+        let before = top_at(project.document().get_mesh(id).unwrap(), 5.0, 5.0).unwrap();
+        project
+            .set_slab_shape(
+                terrain,
+                &crate::SlabShape {
+                    z: vec![0.0, 0.0, 4.0, 4.0],
+                    points: vec![],
+                    creases: vec![],
+                },
+            )
+            .unwrap();
+        let after = top_at(project.document().get_mesh(id).unwrap(), 5.0, 5.0).unwrap();
+        assert!(
+            after > before + 1.0,
+            "raising the north edge lifts the level line ({before} → {after})"
+        );
+    }
+
+    #[test]
+    fn a_gate_punches_the_line_without_a_boolean() {
+        let mut project = Project::new();
+        let id = project
+            .create_element(
+                SITE_LINE,
+                line([0.0, 0.0], [10.0, 0.0]),
+                ParamMap::new().with("post_spacing", ParamValue::Length(2.0)),
+            )
+            .unwrap();
+        assert!(
+            top_at(project.document().get_mesh(id).unwrap(), 5.0, 0.0).is_some(),
+            "panel before the gate"
+        );
+        project
+            .create_element_with_parent(
+                "apex.gate",
+                Placement::point(Vec3::new(5.0, 0.0, 0.0)),
+                ParamMap::new(),
+                Some(id),
+            )
+            .unwrap();
+        assert!(
+            top_at(project.document().get_mesh(id).unwrap(), 5.0, 0.0).is_none(),
+            "the gate opening is empty"
+        );
+    }
+
+    #[test]
+    fn rebuilding_one_line_stays_within_the_edit_budget() {
+        let mut project = Project::new();
+        sloped(&mut project);
+        let id = project
+            .create_element(SITE_LINE, line([1.0, 1.0], [9.0, 8.0]), ParamMap::new())
+            .unwrap();
+        project
+            .update_element(
+                id,
+                Some(ParamMap::new().with("post_height", ParamValue::Length(1.7))),
+                None,
+                true,
+            )
+            .unwrap();
+        let t0 = std::time::Instant::now();
+        project
+            .update_element(
+                id,
+                Some(ParamMap::new().with("post_height", ParamValue::Length(1.8))),
+                None,
+                true,
+            )
+            .unwrap();
+        let ms = t0.elapsed().as_secs_f64() * 1000.0;
+        assert!(
+            ms < 50.0,
+            "one site-line edit took {ms:.2} ms (debug budget 50 ms)"
+        );
+    }
+}

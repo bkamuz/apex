@@ -1084,7 +1084,7 @@ const houseCounts = await page.evaluate(() => {
     roofs: by['apex.roof'] ?? 0,
     stairs: by['apex.stair'] ?? 0,
     slabs: by['apex.slab'] ?? 0,
-    fences: by['apex.fence'] ?? 0,
+    fences: by['apex.site_line'] ?? 0,
     gates: by['apex.gate'] ?? 0,
     surfaces: by['apex.site_surface'] ?? 0,
     terrains: by['apex.terrain'] ?? 0,
@@ -1099,7 +1099,7 @@ check('sample has stair', (houseCounts?.stairs ?? 0) >= 1);
 check('sample has 3 levels', (houseCounts?.levels ?? 0) >= 3);
 check('sample has the room program', (houseCounts?.spaces ?? 0) >= 13);
 check('sample has many walls', (houseCounts?.walls ?? 0) >= 20);
-check('sample has fence loop', (houseCounts?.fences ?? 0) >= 4);
+check('sample has fence loop', (houseCounts?.fences ?? 0) >= 6);
 check('sample has gate', (houseCounts?.gates ?? 0) >= 1);
 check('sample has site surfaces', (houseCounts?.surfaces ?? 0) >= 3);
 check('sample has terrain', (houseCounts?.terrains ?? 0) >= 1);

@@ -61,7 +61,7 @@ const sampleCounts = async () =>
 let counts = await sampleCounts();
 const ready =
   counts &&
-  (counts['apex.fence'] ?? 0) >= 4 &&
+  (counts['apex.site_line'] ?? 0) >= 6 &&
   (counts['apex.terrain'] ?? 0) >= 1;
 if (!ready) {
   const loadBtn = page.getByTestId('load-sample-project');

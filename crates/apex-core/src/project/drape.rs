@@ -40,10 +40,12 @@ pub(crate) struct DrapeCache {
     covers: HashMap<u64, Arc<Vec<TerrainFacet>>>,
     /// Surface id → (shell fingerprint, mesh).
     shells: HashMap<ElementId, (u64, TriangleMesh)>,
+    /// Site line id → (fingerprint of cover + path + params, uncut mesh).
+    pub(super) lines: HashMap<ElementId, (u64, TriangleMesh)>,
 }
 
 impl Project {
-    fn drape_cache(&self) -> std::sync::MutexGuard<'_, DrapeCache> {
+    pub(super) fn drape_cache(&self) -> std::sync::MutexGuard<'_, DrapeCache> {
         self.drape_cache.lock().unwrap_or_else(|e| e.into_inner())
     }
 
@@ -167,7 +169,7 @@ impl Project {
 
     /// Facets of every terrain on the element's level, plus a fingerprint of
     /// those terrains. `None` when the level has no terrain.
-    fn terrain_cover(&self, element: &Element) -> Option<(u64, Arc<Vec<TerrainFacet>>)> {
+    pub(super) fn terrain_cover(&self, element: &Element) -> Option<(u64, Arc<Vec<TerrainFacet>>)> {
         let level = self
             .document
             .effective_level_id(element.id)

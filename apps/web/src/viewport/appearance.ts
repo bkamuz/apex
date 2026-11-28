@@ -30,6 +30,7 @@ const BY_COMPONENT: Record<string, Rgb> = {
   'apex.window': FRAME,
   'apex.gate': METAL,
   'apex.fence': FENCE,
+  'apex.site_line': FENCE,
   'apex.terrain': SOIL,
 };
 
@@ -51,6 +52,7 @@ const BY_CATEGORY: Record<string, Rgb> = {
   site: SURFACE.paved,
   topo: SOIL,
   fence: FENCE,
+  site_line: FENCE,
 };
 
 /** Per-element fill colour. Site surfaces follow `surface_kind`; glass is tinted in the shader. */

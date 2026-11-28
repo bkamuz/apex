@@ -11,7 +11,7 @@ Apex is a lightweight **BIM** app for buildings and site work — walls, opening
 ### What you get
 
 - Place building elements (walls, columns, beams, slabs, doors, windows, stairs, roofs) and **spaces**
-- **Site / landscape** tools: fence, gate, yard surfaces (lawn, paved, driveway), **terrain** solid (TIN top from height points); link a **DXF** as a plan underlay
+- **Site / landscape** tools: site line (fence and curb species, seated on terrain), gate, yard surfaces (lawn, paved, driveway), **terrain** solid (TIN top from height points); link a **DXF** as a plan underlay
 - Toggle first-party **system packs** in **Settings → Extensions** (Basics, Building, Engineering, Spaces, Site, Annotate, IFC)
 - Same UI in the browser and in a **Tauri 2** desktop shell (native Open / Save)
 - UI language: English or Russian
@@ -52,7 +52,7 @@ cd ../desktop && npm install && npm run dev
 
 ### Sample project
 
-The built-in sample is a contemporary two-storey house: a glazed living / kitchen / dining pavilion, a service bar (hall, stair, study, WC, utility), and an upper floor of bedrooms that cantilevers over a paved terrace on round columns. Roofs are flat; the upper roof and the pavilion roof carry a lawn surface. The **yard** is a **terrain** solid (flat pad under the house, gentle rise to the north), a fence with pedestrian and vehicle gates, and lawn / paved / driveway surfaces. Open **Site** in the toolbar for Fence / Gate / Site surface / Terrain. Room and level names follow the UI language.
+The built-in sample is a contemporary two-storey house: a glazed living / kitchen / dining pavilion, a service bar (hall, stair, study, WC, utility), and an upper floor of bedrooms that cantilevers over a paved terrace on round columns. Roofs are flat; the upper roof and the pavilion roof carry a lawn surface. The **yard** is a **terrain** solid (flat pad under the house, gentle rise to the north), a site-line fence (level from the high end) with pedestrian and vehicle gates, curbs along the path (seated by the ends), and lawn / paved / driveway surfaces. Open **Site** in the toolbar for Site line / Gate / Site surface / Terrain. Room and level names follow the UI language.
 
 ### Settings & packs
 
@@ -158,7 +158,8 @@ Shipped types use this structure (no bespoke per-type geometry forks in the shel
 | `apex.beam` | two points | rectangle swept, hung below the line |
 | `apex.slab` | polyline (double-click to close) | closed boundary extruded for thickness |
 | `apex.fence` | path (joinable) | thin profile along the path (Site pack) |
-| `apex.gate` | hosted on fence | opening cut in the host fence |
+| `apex.site_line` | path | terrain-seated line; species Fence (level, posts and panels) and Curb (by ends, rectangular profile) |
+| `apex.gate` | hosted on fence or site line | opening cut in the host |
 | `apex.site_surface` | closed polyline | thin site region (lawn / paved / driveway) |
 | `apex.terrain` | closed polyline | ground solid: TIN top from outer/inner heights, flat bottom, vertical sides |
 
@@ -247,7 +248,7 @@ Each push to `main` redeploys via `.github/workflows/deploy-pages.yml`.
 
 ### Demo walkthrough
 
-1. Pick a tool. **Basics** / Architecture datums: **Level**, **Ref point** (the only point tool), **Ref plane**, **Construction line**, **Grid axis**, **Section cut**. Building tools: **Wall**, **Column**, **Beam**, **Slab**, openings, roofs. **Engineering**: Pipe / Duct / Cable tray. **Spaces**: closed **Space** polyline. **Site**: Fence / Gate / Site surface / Terrain. With Wall or Fence active, switch **Line** / **Arc** / **Polyline** as offered.
+1. Pick a tool. **Basics** / Architecture datums: **Level**, **Ref point** (the only point tool), **Ref plane**, **Construction line**, **Grid axis**, **Section cut**. Building tools: **Wall**, **Column**, **Beam**, **Slab**, openings, roofs. **Engineering**: Pipe / Duct / Cable tray. **Spaces**: closed **Space** polyline. **Site**: Site line / Gate / Site surface / Terrain. With Wall or Fence active, switch **Line** / **Arc** / **Polyline** as offered.
 2. Click the points that mode needs; a ghost previews the result. Finish polylines with double-click or Enter.
 3. Select an element. **This element** vs **Shared type** fields; **Edit profile** for the 2D sketch. Grid axes, construction lines, section cuts, and spaces edit from the same inspector pattern.
 4. The left **Project** browser lists types, instances, references, grids, annotations, and spaces. **Save** downloads the project (also stored in the browser); **Open** loads a file; **New** starts over.

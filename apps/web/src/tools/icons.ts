@@ -91,6 +91,7 @@ export const COMPONENT_ICON_BY_ID: Readonly<Record<string, ToolIconName>> = {
   'apex.duct': TOOL_ICONS.duct,
   'apex.cable_tray': TOOL_ICONS.cable,
   'apex.fence': TOOL_ICONS.fence,
+  'apex.site_line': TOOL_ICONS.railing,
   'apex.gate': TOOL_ICONS.gate,
   'apex.site_surface': TOOL_ICONS.siteSurface,
   'apex.terrain': TOOL_ICONS.terrain,

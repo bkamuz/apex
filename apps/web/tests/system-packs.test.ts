@@ -62,6 +62,7 @@ const packs = [
     defaultEnabled: true,
     plugins: [
       { id: 'apex.fence' },
+      { id: 'apex.site_line' },
       { id: 'apex.gate' },
       { id: 'apex.site_surface' },
       { id: 'apex.terrain' },

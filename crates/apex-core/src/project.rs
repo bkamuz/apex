@@ -12,6 +12,7 @@ mod genus_build;
 pub mod kernel;
 mod memo;
 mod roof_attach;
+mod site_line;
 mod slab_shape;
 pub use genus_build::GenusParamInput;
 pub use roof_attach::AttachEnd;
@@ -46,7 +47,7 @@ use crate::path_stretch::{plan_stretch_from_edit, plan_stretch_translate};
 use crate::placement::{Placement, PlacementKind};
 use crate::plan_underlay::{PlanUnderlay, PlanUnderlayId, PlanUnderlayLibrary};
 use crate::reference::{RefId, Reference, ReferenceKind};
-use crate::registry::{ComponentRegistry, RegistryError};
+use crate::registry::{ComponentRegistry, RegistryError, SITE_LINE};
 use crate::room_detect::{detect_room_polygons, wall_centerline_segments, ENDPOINT_SNAP};
 use crate::section_cut::{section_cut_param_specs, SectionCut, SectionCutId};
 use crate::space::{space_is_auto, space_param_specs, Space, SpaceId};
@@ -2640,11 +2641,14 @@ impl Project {
             // Genus bodies are unioned per solid in `GenusBuild::mesh`.
             return Ok(mesh);
         }
-        if self.is_topo_element(element) || self.took_draped_mesh(element) {
-            // Terrain and a draped site crust are already closed shells.
-            // Re-stitching either through the exact kernel turns every
-            // terrain facet into a B-rep face: flat shading and a drawn
-            // edge per triangle, which also blows the edit budget.
+        if self.is_topo_element(element)
+            || self.took_draped_mesh(element)
+            || element.component_id == SITE_LINE
+        {
+            // Terrain, a draped site crust, and a site line are already
+            // closed shells of many small faces. Re-stitching them through
+            // the exact kernel turns every facet into a B-rep face and
+            // blows the edit budget.
             return Ok(mesh);
         }
         Ok(crate::kroute::solidify(mesh))
@@ -2714,6 +2718,12 @@ impl Project {
             // A void: the host shows the hole; the opening itself is only a
             // translucent ghost so it can be seen and picked.
             return Ok(self.area_opening_ghost(element, level_id));
+        }
+        if let Some(mut mesh) = self.site_line_mesh(element) {
+            for (yaw, center, min, max) in self.site_line_voids(element.id) {
+                mesh = punch_rotated_box(&mesh, yaw, center, min, max);
+            }
+            return Ok(mesh);
         }
         if let Some(mesh) = self.draped_site_mesh(element) {
             return Ok(mesh);
@@ -5405,7 +5415,9 @@ mod plugin_first_tests {
         let reg = project.registry();
         for t in reg.species_list(None) {
             let def = reg.get(&t.genus).unwrap();
-            let recipe = def.opening.as_ref().unwrap();
+            let Some(recipe) = def.opening.as_ref() else {
+                continue;
+            };
             let mut params = t.values.clone();
             reg.apply_type_values(&t.id, &mut params);
             let params = reg.eval_params(&t.genus, &params).unwrap();
