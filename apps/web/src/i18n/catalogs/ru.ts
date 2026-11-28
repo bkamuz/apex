@@ -742,6 +742,7 @@ export const ru: MessageCatalog = {
   'param.choice.surface_kind.driveway': 'Проезд',
   'param.choice.seating.by_ends': 'По концам',
   'param.choice.seating.level_from_start': 'Горизонтально от начала',
+  'param.choice.seating.each_object': 'Каждый объект по рельефу',
   'param.choice.content.repeated': 'Повтор объектов',
   'param.choice.content.profile': 'Сплошной профиль',
   // —— View cube ——
@@ -1131,6 +1132,7 @@ export const ru: MessageCatalog = {
   "species.apex.door.transom-1000x2500": "Дверь 1000×2500 с остеклённой фрамугой",
   "species.apex.gate.single-1000x1500": "Калитка 1000×1500 однопольная",
   "species.apex.site_line.fence": "Забор",
+  "species.apex.site_line.fence-terrain": "Забор по рельефу",
   "species.apex.site_line.curb": "Бордюр",
   // —— Genus editor: references & dimensions ——
   "genusEditor.tool.polyline": "Ломаная",

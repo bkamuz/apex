@@ -168,13 +168,13 @@ await tool('set_slab_shape', {
   },
 });
 const fenceRuns = [
-  [[-6, -8], [20, -8]],
-  [[20, 16], [20, -8]],
-  [[20, 16], [-6, 16]],
-  [[-6, 16], [-6, -8]],
+  [[[-6, -8], [20, -8]], 'apex.site_line.fence'],
+  [[[20, 16], [20, -8]], 'apex.site_line.fence-terrain'],
+  [[[20, 16], [-6, 16]], 'apex.site_line.fence'],
+  [[[-6, 16], [-6, -8]], 'apex.site_line.fence-terrain'],
 ];
-for (const [a, b] of fenceRuns) {
-  await tool('place_site_line', { level: L0, points: [P(...a), P(...b)], params: { species: 'apex.site_line.fence' } });
+for (const [[a, b], species] of fenceRuns) {
+  await tool('place_site_line', { level: L0, points: [P(...a), P(...b)], params: { species } });
 }
 await tool('place_site_line', {
   level: L0,

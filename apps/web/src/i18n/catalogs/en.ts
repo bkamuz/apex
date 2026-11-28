@@ -762,6 +762,7 @@ export const en: MessageCatalog = {
   'param.choice.surface_kind.driveway': 'Driveway',
   'param.choice.seating.by_ends': 'By ends',
   'param.choice.seating.level_from_start': 'Level from start',
+  'param.choice.seating.each_object': 'Each object on terrain',
   'param.choice.content.repeated': 'Repeated objects',
   'param.choice.content.profile': 'Continuous profile',
   // —— View cube ——
@@ -1151,6 +1152,7 @@ export const en: MessageCatalog = {
   "species.apex.door.transom-1000x2500": "Door 1000×2500 with glazed transom",
   "species.apex.gate.single-1000x1500": "Gate 1000×1500 single leaf",
   "species.apex.site_line.fence": "Fence",
+  "species.apex.site_line.fence-terrain": "Fence on terrain",
   "species.apex.site_line.curb": "Curb",
   // —— Genus editor: references & dimensions ——
   "genusEditor.tool.polyline": "Polyline",
