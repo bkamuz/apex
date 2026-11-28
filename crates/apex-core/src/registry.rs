@@ -2127,6 +2127,10 @@ fn site_surface() -> ComponentDefinition {
                 &["lawn", "path", "gravel", "paved", "driveway"],
                 "lawn",
             ),
+            // Spec default is the soft-kind value (lawn). Paving and driveway
+            // start flat: a missing value is filled from the kind below, and
+            // the placement draft rewrites this when the kind changes. An
+            // explicit `draped` on a driveway is a real choice and stays.
             ParamSpec::choice(
                 "placement_mode",
                 "Placement",

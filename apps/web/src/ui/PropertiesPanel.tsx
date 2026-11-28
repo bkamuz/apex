@@ -39,8 +39,10 @@ import type {
 import {
   applyProfileChange,
   instanceSpecs,
+  placesOnTerrain,
   profileLabel,
   profilesForCategory,
+  syncSitePlacement,
   typeSpecs,
   typeValueMap,
 } from './profileModel';
@@ -616,6 +618,7 @@ export function PropertiesPanel({
       if (typeof patch.profile === 'string') {
         next = applyProfileChange(placement.component, profiles, placement.params, patch.profile);
       }
+      if (placesOnTerrain(placement.component)) next = syncSitePlacement(placement.params, next);
       onPlacementChange(next);
     };
     return (
@@ -967,6 +970,7 @@ export function PropertiesPanel({
       if (typeof patch.profile === 'string' && component) {
         next = applyProfileChange(component, profiles, draft, patch.profile);
       }
+      if (component && placesOnTerrain(component)) next = syncSitePlacement(draft, next);
       setDraft(next);
       onUpdate(next);
     };

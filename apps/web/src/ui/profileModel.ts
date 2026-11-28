@@ -30,6 +30,36 @@ export function typeSpecs(profile: ProfileTypeDto | undefined): ParamSpecDto[] {
   return profile?.params.filter(isTypeBound) ?? [];
 }
 
+/** Soft yard kinds follow the terrain. Paving and a driveway stay level. */
+export function defaultSitePlacementMode(surfaceKind: string): 'draped' | 'flat' {
+  return surfaceKind === 'paved' || surfaceKind === 'driveway' ? 'flat' : 'draped';
+}
+
+/** A site surface: the kind chooses the placement until the user sets one. */
+export function placesOnTerrain(component: Pick<ComponentDto, 'params'>): boolean {
+  const ids = new Set(component.params.map((spec) => spec.id));
+  return ids.has('surface_kind') && ids.has('placement_mode');
+}
+
+/**
+ * When the surface kind changes and placement is still that kind's default,
+ * follow the new kind. An explicit Draped/Flat choice is left alone.
+ * The spec default is always `draped`, so a draft that copies spec defaults
+ * would otherwise drape a new paving surface.
+ */
+export function syncSitePlacement(
+  prev: Record<string, ParamValue>,
+  next: Record<string, ParamValue>,
+): Record<string, ParamValue> {
+  if (typeof next.surface_kind !== 'string' || next.surface_kind === prev.surface_kind) return next;
+  const prevKind = typeof prev.surface_kind === 'string' ? prev.surface_kind : 'lawn';
+  const prevMode = typeof prev.placement_mode === 'string'
+    ? prev.placement_mode
+    : defaultSitePlacementMode(prevKind);
+  if (prevMode !== defaultSitePlacementMode(prevKind)) return next;
+  return { ...next, placement_mode: defaultSitePlacementMode(next.surface_kind) };
+}
+
 export function defaultPlacementParams(
   component: ComponentDto,
   profiles: ProfileTypeDto[],
@@ -43,6 +73,10 @@ export function defaultPlacementParams(
       if (isTypeBound(spec)) continue;
       out[spec.id] = spec.default;
     }
+  }
+  if (placesOnTerrain(component)) {
+    const kind = typeof out.surface_kind === 'string' ? out.surface_kind : 'lawn';
+    out.placement_mode = defaultSitePlacementMode(kind);
   }
   return out;
 }
