@@ -3342,8 +3342,13 @@ impl Project {
             }
             pending = failed;
         }
-        for species in snap.species {
-            // A species whose genus is gone (plugin not loaded) is skipped.
+        // A species whose genus is gone (plugin not loaded) is skipped.
+        // A built-in species saved before a param existed has no key for
+        // it; that key takes the current shipped value, not the genus
+        // default. A key the file stores is not replaced.
+        let mut species = snap.species;
+        crate::registry::fill_missing_builtin_species_params(&mut species);
+        for species in species {
             let _ = next.registry.upsert_species(species);
         }
         let mut elements = snap.elements;

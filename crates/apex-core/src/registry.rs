@@ -1691,6 +1691,27 @@ pub fn builtin_species() -> Vec<Species> {
     ]
 }
 
+/// A shipped species that a saved project only partly describes keeps the
+/// shipped value for every param the file does not store. A value the file
+/// does store stays, including an explicit zero. User species are left
+/// alone: their missing keys still take the genus default.
+pub(crate) fn fill_missing_builtin_species_params(species: &mut [Species]) {
+    let builtins = builtin_species();
+    for species in species {
+        let Some(builtin) = builtins
+            .iter()
+            .find(|item| item.id == species.id && item.genus == species.genus)
+        else {
+            continue;
+        };
+        for (id, value) in builtin.values.iter() {
+            if species.values.get(id).is_none() {
+                species.values.set(id.clone(), value.clone());
+            }
+        }
+    }
+}
+
 fn site_line_species(id: &str, name: &str, values: ParamMap) -> Species {
     Species {
         id: id.into(),

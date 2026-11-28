@@ -1053,4 +1053,120 @@ mod tests {
             "one site-line edit took {ms:.2} ms (debug budget 50 ms)"
         );
     }
+
+    /// Drop one key from a saved species, the way a file written before that
+    /// param existed does.
+    fn drop_species_param(snap: &mut serde_json::Value, id: &str, param: &str) {
+        for species in snap["species"].as_array_mut().unwrap() {
+            if species["id"] == id {
+                species["values"].as_object_mut().unwrap().remove(param);
+            }
+        }
+    }
+
+    #[test]
+    fn an_old_curb_species_without_segment_length_loads_as_one_metre_stones() {
+        let mut project = Project::new();
+        let id = project
+            .create_element(
+                SITE_LINE,
+                line([0.0, 0.0], [4.0, 0.0]),
+                ParamMap::new().with("species", ParamValue::Text("apex.site_line.curb".into())),
+            )
+            .unwrap();
+        let mut snap = serde_json::to_value(project.export_snapshot()).unwrap();
+        drop_species_param(&mut snap, "apex.site_line.curb", "segment_length");
+        drop_species_param(&mut snap, "apex.site_line.fence-terrain", "seating");
+        for element in snap["elements"].as_array_mut().unwrap() {
+            if let Some(params) = element["params"].as_object_mut() {
+                if params.get("species").and_then(|v| v.as_str()) == Some("apex.site_line.curb") {
+                    params.remove("segment_length");
+                }
+            }
+        }
+        // A user species is not a shipped one: a missing key stays on the genus default.
+        snap["species"]
+            .as_array_mut()
+            .unwrap()
+            .push(serde_json::json!({
+                "id": "user.apex.site_line.old",
+                "genus": "apex.site_line",
+                "name": "Old copy",
+                "values": { "content": "profile", "seating": "by_ends" }
+            }));
+
+        let mut loaded = Project::new();
+        loaded
+            .import_snapshot(serde_json::from_value(snap).unwrap())
+            .unwrap();
+        let curb = loaded.registry().species("apex.site_line.curb").unwrap();
+        assert!(
+            (curb.values.number("segment_length").unwrap() - 1.0).abs() < 1e-9,
+            "a missing curb segment length takes the shipped 1 m"
+        );
+        let element = loaded.document().get_element(id).unwrap();
+        assert!((element.params.number("segment_length").unwrap() - 1.0).abs() < 1e-9);
+        let mesh = loaded.document().get_mesh(id).unwrap();
+        assert!(
+            top_at(mesh, 0.4, 0.0).is_some(),
+            "the restored curb has a stone"
+        );
+        assert!(
+            top_at(mesh, 1.0, 0.0).is_none(),
+            "1 m stones leave a joint at the station"
+        );
+        assert_eq!(
+            loaded
+                .registry()
+                .species("apex.site_line.fence-terrain")
+                .unwrap()
+                .values
+                .text("seating"),
+            Some("each_object")
+        );
+        assert_eq!(
+            loaded
+                .registry()
+                .species("user.apex.site_line.old")
+                .unwrap()
+                .values
+                .number("segment_length"),
+            Some(0.0)
+        );
+    }
+
+    #[test]
+    fn a_stored_segment_length_of_zero_is_not_replaced_on_load() {
+        let mut project = Project::new();
+        project
+            .update_species(
+                "apex.site_line.curb",
+                None,
+                &ParamMap::new().with("segment_length", ParamValue::Length(0.0)),
+            )
+            .unwrap();
+        let id = project
+            .create_element(
+                SITE_LINE,
+                line([0.0, 0.0], [4.0, 0.0]),
+                ParamMap::new().with("species", ParamValue::Text("apex.site_line.curb".into())),
+            )
+            .unwrap();
+        let snap = project.export_snapshot();
+        let mut loaded = Project::new();
+        loaded.import_snapshot(snap).unwrap();
+        assert_eq!(
+            loaded
+                .registry()
+                .species("apex.site_line.curb")
+                .unwrap()
+                .values
+                .number("segment_length"),
+            Some(0.0)
+        );
+        assert!(
+            top_at(loaded.document().get_mesh(id).unwrap(), 1.0, 0.0).is_some(),
+            "an explicit 0 stays one continuous piece"
+        );
+    }
 }
