@@ -71,7 +71,12 @@ impl Project {
         let u = Vec3::new(dir.x, 0.0, dir.z).try_normalize()?;
         let n = Vec3::new(-u.z, 0.0, u.x);
         let center = project_onto_curve_xz(curve, origin).unwrap_or(origin);
-        let center = Vec3::new(center.x, origin.y, center.z);
+        let mut center = Vec3::new(center.x, origin.y, center.z);
+        // A site line's stored path is the level. The leaf sits on the
+        // seated line, which may be higher (high start, or an offset).
+        if let Some(y) = self.site_line_height_at(host, center.x as f64, center.z as f64) {
+            center.y = y as f32;
+        }
         let params = self
             .registry
             .eval_params(&element.component_id, &element.params)

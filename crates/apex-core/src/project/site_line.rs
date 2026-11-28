@@ -33,24 +33,83 @@ impl Project {
         Some(self.cached_site_line(element))
     }
 
-    /// Site lines on the same level as a terrain element.
+    /// Site lines on the same level as a terrain element, plus the openings
+    /// hosted on a site line. A terrain edit rebuilds the lines and their
+    /// gates; editing the line itself rebuilds only the gates (the line
+    /// mesh is already fresh).
     pub(super) fn site_line_dependents(&self, element: &Element) -> Vec<ElementId> {
-        if !self.is_topo_element(element) {
+        let lines: Vec<ElementId> = if self.is_topo_element(element) {
+            let level = self
+                .document
+                .effective_level_id(element.id)
+                .unwrap_or(element.level_id);
+            self.document
+                .elements_on_level(level)
+                .into_iter()
+                .filter(|id| {
+                    self.document
+                        .get_element(*id)
+                        .is_some_and(|e| e.component_id == SITE_LINE)
+                })
+                .collect()
+        } else if element.component_id == SITE_LINE {
+            vec![element.id]
+        } else {
             return Vec::new();
+        };
+        let mut out = Vec::new();
+        for id in lines {
+            if self.is_topo_element(element) {
+                out.push(id);
+            }
+            out.extend(self.hosted_openings(id));
         }
-        let level = self
-            .document
-            .effective_level_id(element.id)
-            .unwrap_or(element.level_id);
+        out
+    }
+
+    fn hosted_openings(&self, host_id: ElementId) -> Vec<ElementId> {
         self.document
-            .elements_on_level(level)
+            .children_of(host_id)
             .into_iter()
             .filter(|id| {
-                self.document
-                    .get_element(*id)
-                    .is_some_and(|e| e.component_id == SITE_LINE)
+                self.document.get_element(*id).is_some_and(|child| {
+                    self.registry
+                        .get(&child.component_id)
+                        .is_some_and(|def| def.host_cut.is_some())
+                })
             })
             .collect()
+    }
+
+    /// World Y of the seated line at plan `(x, z)`.
+    ///
+    /// The stored path stays at the level. The mesh, a gate leaf, and the
+    /// gate void use this height instead, so a line that starts on high
+    /// ground or carries an elevation offset is cut where it actually is.
+    pub(crate) fn site_line_height_at(&self, host: &Element, x: f64, z: f64) -> Option<f64> {
+        if host.component_id != SITE_LINE {
+            return None;
+        }
+        let params = self
+            .registry
+            .eval_params(&host.component_id, &host.params)
+            .ok()?;
+        let anchors = host.placement.anchors();
+        if anchors.len() < 2 {
+            return None;
+        }
+        let cover = self.terrain_cover(host);
+        let sampler = cover
+            .as_ref()
+            .map(|(_, facets)| TerrainSampler::new(facets));
+        let sample = |px: f64, pz: f64| sampler.as_ref().and_then(|s| s.height_at(px, pz));
+        let points = seated(
+            &anchors,
+            params.text("seating").unwrap_or("level_from_start"),
+            params.number("elevation_offset").unwrap_or(0.0),
+            &sample,
+        );
+        height_on_polyline(&points, x, z)
     }
 
     /// Gate voids. Genus openings are included: the punch is an AABB, not a
@@ -89,10 +148,16 @@ impl Project {
             let Some((mut min, mut max)) = super::opening_void_aabb(child, child_def) else {
                 continue;
             };
+            let origin = child.placement.origin();
+            if let Some(y) = self.site_line_height_at(host, origin.x as f64, origin.z as f64) {
+                let dy = y as f32 - origin.y;
+                min[1] += dy;
+                max[1] += dy;
+            }
             min[1] -= VOID_BELOW;
             max[1] += 0.5;
             let yaw = self.hosted_opening_yaw(child).unwrap_or(0.0);
-            voids.push((yaw, child.placement.origin(), min, max));
+            voids.push((yaw, origin, min, max));
         }
         voids
     }
@@ -184,6 +249,27 @@ fn fingerprint(anchors: &[Vec3], params: &ParamMap, cover: u64) -> u64 {
         p.z.to_bits().hash(&mut hasher);
     }
     hasher.finish()
+}
+
+/// Height of the closest point on the seated polyline.
+fn height_on_polyline(points: &[[f64; 3]], x: f64, z: f64) -> Option<f64> {
+    let mut best: Option<(f64, f64)> = None;
+    for w in points.windows(2) {
+        let (ax, ay, az) = (w[0][0], w[0][1], w[0][2]);
+        let (bx, by, bz) = (w[1][0], w[1][1], w[1][2]);
+        let (dx, dz) = (bx - ax, bz - az);
+        let len2 = dx * dx + dz * dz;
+        if len2 < 1e-12 {
+            continue;
+        }
+        let t = (((x - ax) * dx + (z - az) * dz) / len2).clamp(0.0, 1.0);
+        let d2 = (x - (ax + t * dx)).powi(2) + (z - (az + t * dz)).powi(2);
+        let y = ay + t * (by - ay);
+        if best.is_none_or(|(bd, _)| d2 < bd) {
+            best = Some((d2, y));
+        }
+    }
+    best.map(|(_, y)| y)
 }
 
 fn seated(
@@ -500,6 +586,101 @@ mod tests {
         assert!(
             top_at(project.document().get_mesh(id).unwrap(), 5.0, 0.0).is_none(),
             "the gate opening is empty"
+        );
+    }
+
+    #[test]
+    fn a_gate_on_a_raised_line_cuts_the_panels_and_sits_on_them() {
+        let mut project = Project::new();
+        let terrain = sloped(&mut project);
+        // High contour (z = 8 → terrain 1.6) plus an offset the path does not store.
+        let id = project
+            .create_element(
+                SITE_LINE,
+                line([1.0, 8.0], [9.0, 8.0]),
+                ParamMap::new()
+                    .with("seating", ParamValue::Choice("level_from_start".into()))
+                    .with("content", ParamValue::Choice("repeated".into()))
+                    .with("post_spacing", ParamValue::Length(20.0))
+                    .with("panel_height", ParamValue::Length(1.0))
+                    .with("elevation_offset", ParamValue::Length(0.4)),
+            )
+            .unwrap();
+        let gate = project
+            .create_element_with_parent(
+                "apex.gate",
+                Placement::point(Vec3::new(5.0, 0.0, 8.0)),
+                ParamMap::new(),
+                Some(id),
+            )
+            .unwrap();
+        let host = project.document().get_mesh(id).unwrap();
+        assert!(
+            top_at(host, 5.0, 8.0).is_none(),
+            "the opening reaches the panels above the level"
+        );
+        let leaf = project.document().get_mesh(gate).unwrap();
+        let bottom = lowest_near(leaf, 5.0, 8.0, 1.0).expect("gate leaf");
+        assert!(
+            (bottom - 2.0).abs() < 0.25,
+            "leaf sits on the seated line (1.6 + 0.4), bottom {bottom}"
+        );
+
+        project
+            .set_slab_shape(
+                terrain,
+                &crate::SlabShape {
+                    z: vec![0.0, 0.0, 4.0, 4.0],
+                    points: vec![],
+                    creases: vec![],
+                },
+            )
+            .unwrap();
+        let raised = lowest_near(project.document().get_mesh(gate).unwrap(), 5.0, 8.0, 1.0)
+            .expect("gate after the grade change");
+        assert!(
+            raised > bottom + 1.0,
+            "the leaf follows the terrain ({bottom} → {raised})"
+        );
+        assert!(
+            top_at(project.document().get_mesh(id).unwrap(), 5.0, 8.0).is_none(),
+            "the opening follows the raised panels"
+        );
+    }
+
+    #[test]
+    fn a_gate_on_a_sloping_line_sits_on_the_local_chord() {
+        let mut project = Project::new();
+        sloped(&mut project);
+        let id = project
+            .create_element(
+                SITE_LINE,
+                line([5.0, 1.0], [5.0, 9.0]),
+                ParamMap::new()
+                    .with("seating", ParamValue::Choice("by_ends".into()))
+                    .with("content", ParamValue::Choice("repeated".into()))
+                    .with("post_spacing", ParamValue::Length(20.0))
+                    .with("panel_height", ParamValue::Length(1.0)),
+            )
+            .unwrap();
+        let gate = project
+            .create_element_with_parent(
+                "apex.gate",
+                Placement::point(Vec3::new(5.0, 0.0, 5.0)),
+                ParamMap::new(),
+                Some(id),
+            )
+            .unwrap();
+        // Ends are at terrain 0.2 and 1.8; the chord at mid-span is 1.0.
+        let bottom = lowest_near(project.document().get_mesh(gate).unwrap(), 5.0, 5.0, 1.0)
+            .expect("gate leaf");
+        assert!(
+            (bottom - 1.0).abs() < 0.25,
+            "leaf follows the chord, bottom {bottom}"
+        );
+        assert!(
+            top_at(project.document().get_mesh(id).unwrap(), 5.0, 5.0).is_none(),
+            "the opening is cut at the chord, not at the level"
         );
     }
 
