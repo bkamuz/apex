@@ -110,6 +110,11 @@ impl Project {
             params.number("elevation_offset").unwrap_or(0.0),
             &sample,
         );
+        if params.text("content") == Some("profile") {
+            if let Some(stones) = profile_stones(&anchors, &points, &params, &sample) {
+                return height_on_segments(&stones, x, z);
+            }
+        }
         height_on_polyline(&points, x, z)
     }
 
@@ -247,7 +252,6 @@ fn fingerprint(anchors: &[Vec3], params: &ParamMap, cover: u64) -> u64 {
     hasher.finish()
 }
 
-/// Height of the closest point on the seated polyline.
 /// Continuous profile, or one stone per `segment` metres.
 ///
 /// A positive segment length breaks the line at that spacing and at every
@@ -260,13 +264,30 @@ fn profile_mesh(
     params: &ParamMap,
     sample: &impl Fn(f64, f64) -> Option<f64>,
 ) -> TriangleMesh {
-    let segment = params.number("segment_length").unwrap_or(0.0);
     let spec = LineProfile {
         width: params.number("profile_width").unwrap_or(0.15),
         height: params.number("profile_height").unwrap_or(0.15),
     };
-    if segment < 0.05 || seated_points.len() < 2 {
+    let Some(stones) = profile_stones(anchors, seated_points, params, sample) else {
         return profile_line(seated_points, &spec);
+    };
+    let mut mesh = TriangleMesh::empty();
+    for piece in stones {
+        mesh.append(&profile_line(&piece, &spec));
+    }
+    mesh
+}
+
+/// Seated stones, when the profile is segmented. `None` is one continuous piece.
+fn profile_stones(
+    anchors: &[Vec3],
+    seated_points: &[[f64; 3]],
+    params: &ParamMap,
+    sample: &impl Fn(f64, f64) -> Option<f64>,
+) -> Option<Vec<[[f64; 3]; 2]>> {
+    let segment = params.number("segment_length").unwrap_or(0.0);
+    if segment < 0.05 || seated_points.len() < 2 {
+        return None;
     }
     let offset = params.number("elevation_offset").unwrap_or(0.0);
     let level = params.text("seating") != Some("by_ends");
@@ -279,7 +300,7 @@ fn profile_mesh(
             .map(|p| [p.x as f64, p.y as f64, p.z as f64])
             .collect()
     };
-    let mut mesh = TriangleMesh::empty();
+    let mut stones = Vec::new();
     for piece in profile_segments(&source, segment, JOINT_GAP) {
         let mut a = piece[0];
         let mut b = piece[1];
@@ -291,16 +312,39 @@ fn profile_mesh(
             a[1] = y(a);
             b[1] = y(b);
         }
-        mesh.append(&profile_line(&[a, b], &spec));
+        stones.push([a, b]);
     }
-    mesh
+    Some(stones)
 }
 
+/// Height of the closest point on the seated polyline.
 fn height_on_polyline(points: &[[f64; 3]], x: f64, z: f64) -> Option<f64> {
     let mut best: Option<(f64, f64)> = None;
     for w in points.windows(2) {
         let (ax, ay, az) = (w[0][0], w[0][1], w[0][2]);
         let (bx, by, bz) = (w[1][0], w[1][1], w[1][2]);
+        let (dx, dz) = (bx - ax, bz - az);
+        let len2 = dx * dx + dz * dz;
+        if len2 < 1e-12 {
+            continue;
+        }
+        let t = (((x - ax) * dx + (z - az) * dz) / len2).clamp(0.0, 1.0);
+        let d2 = (x - (ax + t * dx)).powi(2) + (z - (az + t * dz)).powi(2);
+        let y = ay + t * (by - ay);
+        if best.is_none_or(|(bd, _)| d2 < bd) {
+            best = Some((d2, y));
+        }
+    }
+    best.map(|(_, y)| y)
+}
+
+/// Closest height on the stones themselves. The gap between two stones is
+/// not a segment, so a point in the joint snaps to the nearer stone.
+fn height_on_segments(segments: &[[[f64; 3]; 2]], x: f64, z: f64) -> Option<f64> {
+    let mut best: Option<(f64, f64)> = None;
+    for seg in segments {
+        let (ax, ay, az) = (seg[0][0], seg[0][1], seg[0][2]);
+        let (bx, by, bz) = (seg[1][0], seg[1][1], seg[1][2]);
         let (dx, dz) = (bx - ax, bz - az);
         let len2 = dx * dx + dz * dz;
         if len2 < 1e-12 {
@@ -810,6 +854,57 @@ mod tests {
         assert!(
             top_at(project.document().get_mesh(id).unwrap(), 5.0, 5.0).is_none(),
             "the opening is cut at the chord, not at the level"
+        );
+    }
+
+    #[test]
+    fn a_gate_on_segmented_curb_sits_on_the_local_stone() {
+        let mut project = Project::new();
+        let terrain = project
+            .create_element(
+                "apex.terrain",
+                poly(&[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]),
+                ParamMap::new().with("smooth", ParamValue::Bool(false)),
+            )
+            .unwrap();
+        project
+            .set_slab_shape(
+                terrain,
+                &crate::SlabShape {
+                    z: vec![0.0, 0.0, 0.0, 0.0],
+                    points: vec![[5.0, 5.0, 2.0]],
+                    creases: vec![],
+                },
+            )
+            .unwrap();
+        let id = project
+            .create_element(
+                SITE_LINE,
+                line([0.0, 5.0], [10.0, 5.0]),
+                ParamMap::new().with("species", ParamValue::Text("apex.site_line.curb".into())),
+            )
+            .unwrap();
+        let gate = project
+            .create_element_with_parent(
+                "apex.gate",
+                Placement::point(Vec3::new(4.5, 0.0, 5.0)),
+                ParamMap::new(),
+                Some(id),
+            )
+            .unwrap();
+        let ground = project
+            .topo_height_at(
+                project.document().active_level_id().unwrap(),
+                4.5,
+                5.0,
+                None,
+            )
+            .unwrap_or(0.0);
+        let bottom = lowest_near(project.document().get_mesh(gate).unwrap(), 4.5, 5.0, 1.0)
+            .expect("gate leaf");
+        assert!(
+            (f64::from(bottom) - ground).abs() < 0.35,
+            "leaf sits on the stone at the peak ({bottom}), ground {ground}, not on the outer chord"
         );
     }
 

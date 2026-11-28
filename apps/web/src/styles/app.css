@@ -3631,6 +3631,13 @@ input.is-invalid { border-color: var(--danger) !important; outline: 1px solid va
   border-color: var(--chrome-active-border, currentColor);
   background: var(--chrome-bg-hint);
 }
+.choice-mixed {
+  font-size: 12px;
+  line-height: 1.3;
+  padding: 4px 6px;
+  border: 1px dashed currentColor;
+  border-radius: 4px;
+}
 .inspector-body .field .field-unit { font-size: 12px; }
 .button-row--compact button { font-size: 12px; padding: 3px 8px; }
 .species-note { font-size: 12px; }

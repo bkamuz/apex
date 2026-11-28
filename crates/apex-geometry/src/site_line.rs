@@ -73,57 +73,110 @@ pub fn repeated_line(
     mesh
 }
 
+/// A stone shorter than this, once the joint gap is taken out, is not drawn.
+const MIN_STONE: f64 = 0.02;
+
 /// Straight stones along `points`.
 ///
-/// `segment` below 5 cm keeps each span as one mitred piece (no extra
-/// joints). Otherwise each span is cut every `segment` metres in plan, the
-/// last stone shorter, and every joint — including a polyline vertex — is
-/// pulled back by half of `gap`. The returned endpoints keep the input
-/// heights (interpolated along the span); the caller may replace them.
+/// `segment` below 5 cm keeps each span as one piece (no extra joints).
+/// Otherwise each span is cut every `segment` metres in plan. A remainder
+/// too short to stand on its own is kept on the previous stone, so the run
+/// still reaches the vertex or the path end. A whole span that short is
+/// omitted and its neighbours are not pulled back for a joint that is not
+/// there. Surviving joints, including a polyline vertex, are pulled back by
+/// half of `gap`. Endpoints keep the input heights.
 pub fn profile_segments(points: &[[f64; 3]], segment: f64, gap: f64) -> Vec<[[f64; 3]; 2]> {
     let points = clean(points);
-    let mut out = Vec::new();
     if points.len() < 2 {
-        return out;
+        return Vec::new();
     }
-    let spans = points.len() - 1;
     let half = (gap * 0.5).max(0.0);
-    for (si, seg) in points.windows(2).enumerate() {
+    let fold_under = MIN_STONE + gap.max(0.0);
+    let mut spans: Vec<Vec<(f64, f64)>> = Vec::with_capacity(points.len() - 1);
+    for seg in points.windows(2) {
         let len = plan_len(seg[0], seg[1]);
         if len < 1e-4 {
+            spans.push(Vec::new());
             continue;
         }
         if segment < 0.05 {
-            out.push([seg[0], seg[1]]);
+            spans.push(vec![(0.0, len)]);
             continue;
         }
         let mut ds = vec![0.0];
-        if segment >= 0.05 {
-            let mut d = segment;
-            while d < len - 1e-3 {
-                ds.push(d);
-                d += segment;
-            }
+        let mut d = segment;
+        while d < len - 1e-3 {
+            ds.push(d);
+            d += segment;
         }
         ds.push(len);
+        let mut folded: Vec<(f64, f64)> = Vec::new();
         for w in ds.windows(2) {
-            let mut a = w[0];
-            let mut b = w[1];
-            let joint_start = si > 0 || a > 1e-6;
-            let joint_end = si + 1 < spans || (len - b) > 1e-6;
-            if joint_start {
-                a += half;
-            }
-            if joint_end {
-                b -= half;
-            }
-            if b - a < 0.02 {
+            let (a, b) = (w[0], w[1]);
+            if b - a < 1e-6 {
                 continue;
             }
-            out.push([lerp(seg[0], seg[1], a / len), lerp(seg[0], seg[1], b / len)]);
+            if b - a < fold_under {
+                if let Some(prev) = folded.last_mut() {
+                    prev.1 = b;
+                    continue;
+                }
+            }
+            folded.push((a, b));
+        }
+        if folded.len() >= 2 && folded[0].1 - folded[0].0 < fold_under {
+            folded[1].0 = folded[0].0;
+            folded.remove(0);
+        }
+        spans.push(folded);
+    }
+    let any_real = spans
+        .iter()
+        .any(|span| span.iter().any(|p| p.1 - p.0 >= fold_under));
+    if any_real {
+        for span in &mut spans {
+            span.retain(|p| p.1 - p.0 >= fold_under);
         }
     }
+    // (span, start, end, span length)
+    let mut pieces: Vec<(usize, f64, f64, f64)> = Vec::new();
+    for (si, span) in spans.iter().enumerate() {
+        let len = plan_len(points[si], points[si + 1]);
+        for &(a, b) in span {
+            pieces.push((si, a, b, len));
+        }
+    }
+    let split = segment >= 0.05;
+    let mut out = Vec::with_capacity(pieces.len());
+    for i in 0..pieces.len() {
+        let (si, mut a, mut b, len) = pieces[i];
+        if len < 1e-6 {
+            continue;
+        }
+        if split && i > 0 && stones_meet(pieces[i - 1], pieces[i]) {
+            a += half;
+        }
+        if split && i + 1 < pieces.len() && stones_meet(pieces[i], pieces[i + 1]) {
+            b -= half;
+        }
+        if b - a < MIN_STONE {
+            continue;
+        }
+        let seg = [points[si], points[si + 1]];
+        out.push([lerp(seg[0], seg[1], a / len), lerp(seg[0], seg[1], b / len)]);
+    }
     out
+}
+
+/// Consecutive stones share a joint. A span that was omitted is not a joint,
+/// so the neighbours run out to their own vertices.
+fn stones_meet(prev: (usize, f64, f64, f64), next: (usize, f64, f64, f64)) -> bool {
+    let (span, _, end, span_len) = prev;
+    let (next_span, start, _, _) = next;
+    if span == next_span {
+        return (start - end).abs() < 1e-3;
+    }
+    next_span == span + 1 && start < 1e-3 && (span_len - end).abs() < 1e-3
 }
 
 /// Vertical rectangular prism along the seated centreline, mitred in plan.
@@ -478,6 +531,38 @@ mod tests {
         assert!(
             pieces[3][1][0] - pieces[3][0][0] < 0.5,
             "the last stone is the remainder"
+        );
+    }
+
+    #[test]
+    fn a_short_remainder_stays_on_the_stone_and_reaches_the_end() {
+        let pieces = profile_segments(&[[0.0, 0.0, 0.0], [1.03, 0.0, 0.0]], 1.0, JOINT_GAP);
+        assert_eq!(pieces.len(), 1, "the 3 cm stub is not its own stone");
+        assert!(pieces[0][0][0].abs() < 1e-6);
+        assert!(
+            (pieces[0][1][0] - 1.03).abs() < 1e-6,
+            "the run reaches the path end, got {}",
+            pieces[0][1][0]
+        );
+    }
+
+    #[test]
+    fn a_dropped_span_does_not_pull_the_neighbours_back() {
+        let pieces = profile_segments(
+            &[
+                [0.0, 0.0, 0.0],
+                [1.0, 0.0, 0.0],
+                [1.03, 0.0, 0.0],
+                [2.03, 0.0, 0.0],
+            ],
+            1.0,
+            JOINT_GAP,
+        );
+        assert_eq!(pieces.len(), 2);
+        assert!((pieces[0][1][0] - 1.0).abs() < 1e-6, "reaches the vertex");
+        assert!(
+            (pieces[1][0][0] - 1.03).abs() < 1e-6,
+            "starts at the next vertex"
         );
     }
 

@@ -309,6 +309,11 @@ export function ParamField({
         <div className="field field-choice" data-param={spec.id}>
           {label}
           <div className="choice-options" role="radiogroup" aria-label={localizedParamLabel(spec, t)}>
+            {mixed ? (
+              <div className="choice-mixed" title={t('inspector.mixedTitle')}>
+                {t('inspector.mixed')}
+              </div>
+            ) : null}
             {options.map((option) => {
               const text = textOf(option);
               const on = !mixed && current === option;
