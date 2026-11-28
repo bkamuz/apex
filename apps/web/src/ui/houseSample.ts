@@ -329,28 +329,28 @@ function buildYard(elev: number): void {
     ],
     elev,
     {
-      bottom_offset: 1.4,
+      // A thin crust: the vertical face is only this deep. Boundary elevations
+      // stay at the rim so the side is not a cut wall of (max − min + offset).
+      bottom_offset: 0.06,
       elevation: 0,
-      contour_interval: 0.25,
-      major_contour_interval: 1,
+      contour_interval: 0.1,
+      major_contour_interval: 0.4,
       smooth: true,
     },
   );
-  const pad: Array<[number, number, number]> = [];
-  for (const x of [-6, 0, 6, 12, 18]) {
-    for (const z of [-8, -2.5, 3, 8.5, 14]) pad.push([x, z, 0]);
-  }
   apexSetSlabShape(terrainId, {
-    z: [-0.6, -0.3, 1.1, 1.4],
+    z: [0, 0, 0, 0],
     points: [
-      ...pad,
-      [-9, -11, -0.4],
-      [22, -11, -0.15],
-      [22, 18, 0.8],
-      [-9, 18, 1.1],
-      [8, -11, -0.25],
-      [-9, 2, 0.35],
-      [22, 6, 0.2],
+      [2, 4, 0],
+      [8, 4, 0],
+      [12, 6, 0],
+      [4, 9, 0],
+      [-2, 14, 0.1],
+      [8, 15.5, 0.32],
+      [16, 14, 0.18],
+      [8, 18.2, 0.06],
+      [18, 6, 0.04],
+      [2, -6, 0],
     ],
     creases: [],
   });

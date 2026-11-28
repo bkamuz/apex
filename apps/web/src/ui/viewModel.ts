@@ -1,4 +1,4 @@
-import { t } from '../i18n';
+import { t } from '../i18n/t';
 import type {
   DetailLevel,
   EdgeStyle,
@@ -160,7 +160,8 @@ export function defaultViewSettings(): {
 export function viewsByType(views: ViewDto[]): Record<string, ViewDto[]> {
   const groups: Record<string, ViewDto[]> = {};
   for (const view of views) {
-    const key = view.type_label || viewKindLabel(view.kind);
+    // Core `type_label` is English ("Plan", "3D"). The folder heading follows the locale.
+    const key = viewKindLabel(view.kind);
     if (!groups[key]) groups[key] = [];
     groups[key].push(view);
   }

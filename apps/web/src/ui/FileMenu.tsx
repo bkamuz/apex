@@ -7,6 +7,7 @@ type Props = {
   onOpen: () => void;
   onSave: () => void;
   onSaveAs: () => void;
+  onLoadSample: () => void;
   /** Extra items (exporters such as IFC) shown under a separator. */
   children?: ReactNode;
 };
@@ -15,7 +16,7 @@ type Props = {
  * Industrial Option C File menu: New / Open / Save / Save As.
  * Keeps document ops out of flat export buttons; exporters stay siblings.
  */
-export function FileMenu({ dirty, onNew, onOpen, onSave, onSaveAs, children }: Props) {
+export function FileMenu({ dirty, onNew, onOpen, onSave, onSaveAs, onLoadSample, children }: Props) {
   const { t } = useI18n();
   const detailsRef = useRef<HTMLDetailsElement>(null);
 
@@ -59,6 +60,15 @@ export function FileMenu({ dirty, onNew, onOpen, onSave, onSaveAs, children }: P
         >
           {t('chrome.new')}
           <kbd>{t('chrome.newShortcut')}</kbd>
+        </button>
+        <button
+          type="button"
+          role="menuitem"
+          data-testid="load-sample-project"
+          title={t('chrome.loadSampleTitle')}
+          onClick={() => run(onLoadSample)}
+        >
+          {t('gettingStarted.loadSample')}
         </button>
         <button
           type="button"

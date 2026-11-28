@@ -56,6 +56,8 @@ export const ru: MessageCatalog = {
   'chrome.newProjectConfirm':
     'Создать пустой проект? Несохранённые изменения в этом документе будут сброшены.',
   'chrome.sampleLoaded': 'Загружен образец дома',
+  'chrome.loadSampleTitle': 'Заменить этот проект образцом дома.',
+  'chrome.loadSampleConfirm': 'Заменить текущий проект образцом дома?',
   'chrome.secondaryView': 'Второй вид',
 
   'gettingStarted.kicker': 'Начните здесь',
@@ -192,6 +194,24 @@ export const ru: MessageCatalog = {
   'component.apex.opening.infill': 'Заполнение проёма',
   'component.apex.site_surface': 'Покрытие участка',
   'component.apex.terrain': 'Рельеф',
+
+  'profile.apex.rect': 'Прямоугольник',
+  'profile.apex.round': 'Круглый',
+  'profile.apex.wall.rect': 'Прямоугольник',
+  'profile.apex.wall.round': 'Круглый',
+  'profile.apex.beam.rect': 'Прямоугольник',
+  'profile.apex.pipe.round': 'Круглая труба',
+  'profile.apex.duct.rect': 'Прямоугольный воздуховод',
+  'profile.apex.tray.rect': 'Кабельный лоток',
+
+  'name.grid': 'Ось',
+  'name.constructionLine': 'Вспомогательная линия',
+  'name.section': 'Разрез',
+  'name.room': 'Помещение',
+  'name.level': 'Уровень',
+  'name.underlay': 'Подложка',
+  'name.refPoint': 'Опорная точка',
+  'name.refPlane': 'Опорная плоскость',
 
   'sample.level.ground': 'Первый этаж',
   'sample.level.upper': 'Второй этаж',

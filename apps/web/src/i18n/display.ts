@@ -65,6 +65,39 @@ export function componentDisplayName(componentId: string, fallback: string): str
   return t(`component.${componentId}`, undefined, fallback);
 }
 
+const INSTANCE_COUNT = /^(.+?) (\d+)$/;
+let instanceStems: Array<[string, string]> | null = null;
+
+function numberedInstanceStems(): Array<[string, string]> {
+  if (instanceStems) return instanceStems;
+  const rows: Array<[string, string]> = [];
+  for (const [key, value] of Object.entries(CATALOGS.en)) {
+    const numbered =
+      (key.startsWith('component.') && !key.endsWith('.title')) || key.startsWith('name.');
+    if (!numbered || !value) continue;
+    rows.push([value, key]);
+  }
+  rows.sort((a, b) => b[0].length - a[0].length || a[0].localeCompare(b[0]));
+  instanceStems = rows;
+  return rows;
+}
+
+/**
+ * Default instance names ("Door 1", "Wall 22") follow the active locale.
+ * The stored document string is unchanged. Names a person typed stay as stored.
+ */
+export function instanceDisplayName(name: string): string {
+  const asDocument = localizeDocumentName(name);
+  if (asDocument !== name) return asDocument;
+  const match = INSTANCE_COUNT.exec(name);
+  if (!match) return name;
+  const stem = match[1];
+  for (const [en, key] of numberedInstanceStems()) {
+    if (stem === en) return `${t(key)} ${match[2]}`;
+  }
+  return name;
+}
+
 /** Display name for a view: default core names ("L1 — Plan 2", "3D View") are shown localized. */
 export function viewDisplayName(name: string): string {
   const plan = /^(.*) — Plan( \d+)?$/.exec(name);

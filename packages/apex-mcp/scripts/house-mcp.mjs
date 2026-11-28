@@ -154,15 +154,17 @@ await tool('place_slab', { level: L0, points: [P(0, 0), P(14, 0), P(14, 7), P(10
 const pad = await tool('place_terrain', {
   level: L0,
   points: [P(-10, -12), P(24, -12), P(24, 20), P(-10, 20)],
-  params: { bottom_offset: 1.4, elevation: 0, contour_interval: 0.25, major_contour_interval: 1, smooth: true },
+  params: { bottom_offset: 0.06, elevation: 0, contour_interval: 0.1, major_contour_interval: 0.4, smooth: true },
 });
-const padPts = [];
-for (const x of [-6, 0, 6, 12, 18]) for (const z of [-8, -2.5, 3, 8.5, 14]) padPts.push([x, z, 0]);
 await tool('set_slab_shape', {
   id: pad.id,
   shape: {
-    z: [-0.6, -0.3, 1.1, 1.4],
-    points: [...padPts, [-9, -11, -0.4], [22, -11, -0.15], [22, 18, 0.8], [-9, 18, 1.1], [8, -11, -0.25], [-9, 2, 0.35], [22, 6, 0.2]],
+    z: [0, 0, 0, 0],
+    points: [
+      [2, 4, 0], [8, 4, 0], [12, 6, 0], [4, 9, 0],
+      [-2, 14, 0.1], [8, 15.5, 0.32], [16, 14, 0.18], [8, 18.2, 0.06],
+      [18, 6, 0.04], [2, -6, 0],
+    ],
   },
 });
 const fenceLoop = [[-6, -8], [20, -8], [20, 16], [-6, 16], [-6, -8]];

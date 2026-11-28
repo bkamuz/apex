@@ -19,6 +19,7 @@ export {
   exporterDisplayLabel,
   exporterDisplayTitle,
   componentDisplayName,
+  instanceDisplayName,
   viewDisplayName,
   speciesDisplayName,
   BUILTIN_SPECIES_IDS,

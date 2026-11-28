@@ -170,6 +170,10 @@ struct ElementListDto {
     effective_level_id: String,
     parent_id: Option<String>,
     profile_id: Option<String>,
+    /// Site-surface kind (`lawn` / `paved` / `driveway`) when the element has one.
+    /// Display-only; absent on every other component.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    surface_kind: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -807,6 +811,13 @@ fn scene_dto(project: &Project) -> SceneDto {
                         .and_then(|element| element.parent_id)
                         .map(|id| id.to_string()),
                     profile_id,
+                    surface_kind: project.document().get_element(e.id).and_then(|element| {
+                        element
+                            .params
+                            .text("surface_kind")
+                            .filter(|kind| !kind.is_empty())
+                            .map(str::to_string)
+                    }),
                 }
             })
             .collect(),

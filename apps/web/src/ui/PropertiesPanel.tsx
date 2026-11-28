@@ -17,10 +17,10 @@ import {
 } from './inspector/model';
 import {
   componentDisplayName,
-  useI18n,
+  instanceDisplayName,
   speciesDisplayName,
+  useI18n,
 } from '../i18n';
-import { localizeDocumentName } from './sampleLabels';
 import type {
   ComponentDto,
   ConstructionLineDto,
@@ -654,7 +654,7 @@ export function PropertiesPanel({
       <div className="inspector-body shell-scroll">
         <div className="field">
           <label>{t('inspector.name')}</label>
-          <div>{selectedReference.name}</div>
+          <div>{instanceDisplayName(selectedReference.name)}</div>
         </div>
         <div className="field">
           <label>{t('inspector.type')}</label>
@@ -696,7 +696,7 @@ export function PropertiesPanel({
       <div className="inspector-body shell-scroll">
         <div className="field">
           <label>{t('inspector.name')}</label>
-          <div>{selectedGridAxis.name}</div>
+          <div>{instanceDisplayName(selectedGridAxis.name)}</div>
         </div>
         <div className="field">
           <label>{t('inspector.type')}</label>
@@ -731,7 +731,7 @@ export function PropertiesPanel({
       <div className="inspector-body shell-scroll">
         <div className="field">
           <label>{t('inspector.name')}</label>
-          <div>{selectedConstructionLine.name}</div>
+          <div>{instanceDisplayName(selectedConstructionLine.name)}</div>
         </div>
         <div className="field">
           <label>{t('inspector.type')}</label>
@@ -766,7 +766,7 @@ export function PropertiesPanel({
       <div className="inspector-body shell-scroll">
         <div className="field">
           <label>{t('inspector.name')}</label>
-          <div>{selectedSectionCut.name}</div>
+          <div>{instanceDisplayName(selectedSectionCut.name)}</div>
         </div>
         <div className="field">
           <label>{t('inspector.type')}</label>
@@ -805,16 +805,16 @@ export function PropertiesPanel({
             id="space-name"
             data-testid="space-name"
             key={`${selectedSpace.id}:${selectedSpace.name}:${locale}`}
-            defaultValue={localizeDocumentName(selectedSpace.name)}
+            defaultValue={instanceDisplayName(selectedSpace.name)}
             onBlur={(e) => {
               const next = e.currentTarget.value;
-              if (next === localizeDocumentName(selectedSpace.name)) return;
+              if (next === instanceDisplayName(selectedSpace.name)) return;
               onRenameSpace(next);
             }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') e.currentTarget.blur();
               if (e.key === 'Escape') {
-                e.currentTarget.value = localizeDocumentName(selectedSpace.name);
+                e.currentTarget.value = instanceDisplayName(selectedSpace.name);
                 e.currentTarget.blur();
               }
               e.stopPropagation();
@@ -854,7 +854,7 @@ export function PropertiesPanel({
       <div className="inspector-body shell-scroll">
         <div className="field">
           <label>{t('inspector.name')}</label>
-          <div>{selectedUnderlay.name}</div>
+          <div>{instanceDisplayName(selectedUnderlay.name)}</div>
         </div>
         <div className="field">
           <label>{t('inspector.type')}</label>
@@ -1023,7 +1023,7 @@ export function PropertiesPanel({
             </h2>
           </div>
           <div className="inspector-title" title={selected.id} data-testid="inspector-title">
-            {selected.name}
+            {instanceDisplayName(selected.name)}
           </div>
           {genusSection}
           {speciesSpec ? (
@@ -1102,7 +1102,7 @@ export function PropertiesPanel({
           <Section id="identity" title={t('inspector.group.identity')} defaultClosed>
             <div className="field">
               <label>{t('inspector.name')}</label>
-              <div>{selected.name}</div>
+              <div>{instanceDisplayName(selected.name)}</div>
             </div>
             <div className="field">
               <label>{t('inspector.genusId')}</label>
@@ -1147,7 +1147,7 @@ export function PropertiesPanel({
       <div className="inspector-body shell-scroll">
         <div className="field">
           <label>{t('inspector.level')}</label>
-          <div>{localizeDocumentName(selectedLevel.name)}</div>
+          <div>{instanceDisplayName(selectedLevel.name)}</div>
         </div>
         <div className="field">
           <label>{t('inspector.elevation')}</label>
