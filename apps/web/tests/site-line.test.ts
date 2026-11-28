@@ -196,11 +196,41 @@ test('level segments stay flat on a slope', () => {
   assert.ok(Math.abs(low - high) < 0.05, `level stones ${high} vs ${low}`);
 });
 
+test('each object seats the mid post on the peak and the panel between posts', () => {
+  newProject();
+  const before = new Set(scene().elements.map((el) => el.id));
+  createElement(
+    'apex.terrain',
+    JSON.stringify([[0, 0, 0], [10, 0, 0], [10, 0, 10], [0, 0, 10]]),
+    0,
+    JSON.stringify({ smooth: false }),
+    'polyline',
+  );
+  const terrain = scene().elements.find((el) => el.component_id === 'apex.terrain' && !before.has(el.id));
+  if (!terrain) throw new Error('missing terrain');
+  setSlabShape(terrain.id, JSON.stringify({ z: [0, 0, 0, 0], points: [[5, 5, 2]], creases: [] }));
+  const id = place([[0, 5], [10, 5]], {
+    seating: 'each_object',
+    content: 'repeated',
+    post_spacing: 5,
+    post_height: 1,
+    panel_height: 0.8,
+    elevation_offset: 0,
+  });
+  const view = scene();
+  const pick = pickOf(id);
+  const post = lowestNear(view, pick, 5, 5, 0.15);
+  assert.ok(post > 1.5, `post bottom ${post} stands on the peak, not on the chord`);
+  const panel = topAt(view, pick, 2.5, 5);
+  assert.ok(panel > 1.4 && panel < 2.2, `panel top ${panel} follows the posts`);
+});
+
 test('site line strings exist in EN and RU', () => {
   const keys = [
     'component.apex.site_line',
     'component.apex.site_line.title',
     'species.apex.site_line.fence',
+    'species.apex.site_line.fence-terrain',
     'species.apex.site_line.curb',
     'inspector.cat.site_line',
     'param.label.seating',
@@ -213,6 +243,7 @@ test('site line strings exist in EN and RU', () => {
     'inspector.shape.hintIdle',
     'param.choice.seating.by_ends',
     'param.choice.seating.level_from_start',
+    'param.choice.seating.each_object',
     'param.choice.content.repeated',
     'param.choice.content.profile',
   ];
@@ -227,6 +258,8 @@ test('site line strings exist in EN and RU', () => {
   assert.equal(ru['param.choice.seating.by_ends'], 'По концам');
   assert.equal(en['param.choice.seating.level_from_start'], 'Level from start');
   assert.equal(ru['param.choice.seating.level_from_start'], 'Горизонтально от начала');
+  assert.equal(en['param.choice.seating.each_object'], 'Each object on terrain');
+  assert.equal(ru['param.choice.seating.each_object'], 'Каждый объект по рельефу');
   assert.equal(en['param.choice.content.repeated'], 'Repeated objects');
   assert.equal(ru['param.choice.content.repeated'], 'Повтор объектов');
   assert.equal(en['param.choice.content.profile'], 'Continuous profile');
@@ -235,6 +268,10 @@ test('site line strings exist in EN and RU', () => {
   newProject();
   const comps = listComponents() as Array<{ id: string; params: Array<{ id: string; options?: string[] }> }>;
   const line = comps.find((c) => c.id === 'apex.site_line');
-  assert.deepEqual(line?.params.find((p) => p.id === 'seating')?.options, ['by_ends', 'level_from_start']);
+  assert.deepEqual(line?.params.find((p) => p.id === 'seating')?.options, [
+    'by_ends',
+    'level_from_start',
+    'each_object',
+  ]);
   assert.deepEqual(line?.params.find((p) => p.id === 'content')?.options, ['repeated', 'profile']);
 });

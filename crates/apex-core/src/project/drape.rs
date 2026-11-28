@@ -40,8 +40,20 @@ pub(crate) struct DrapeCache {
     covers: HashMap<u64, Arc<Vec<TerrainFacet>>>,
     /// Surface id → (shell fingerprint, mesh).
     shells: HashMap<ElementId, (u64, TriangleMesh)>,
-    /// Site line id → (fingerprint of cover + path + params, uncut mesh).
-    pub(super) lines: HashMap<ElementId, (u64, TriangleMesh)>,
+    /// Site line id → uncut mesh plus the seated centreline a gate reads.
+    /// Rebuilt only when the cover, the path, or the params change.
+    pub(super) lines: HashMap<ElementId, CachedSiteLine>,
+}
+
+/// Cached site line. `polyline` is the seated centreline (one point per post
+/// when each object sits on the terrain). `stones` replaces it for a
+/// segmented profile.
+#[derive(Clone)]
+pub(super) struct CachedSiteLine {
+    pub key: u64,
+    pub mesh: TriangleMesh,
+    pub polyline: Vec<[f64; 3]>,
+    pub stones: Option<Vec<[[f64; 3]; 2]>>,
 }
 
 impl Project {

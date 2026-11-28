@@ -23,6 +23,12 @@ pub struct RepeatedLine {
     pub panel_thickness: f64,
     /// Extra depth below the lower of the line and the ground.
     pub embed: f64,
+    /// Each post stands on the terrain under it. Each panel follows the
+    /// straight line between those two ground points, so a bay can slope
+    /// while the path chord stays straight.
+    pub on_terrain: bool,
+    /// Added to the sampled ground when `on_terrain` is set.
+    pub lift: f64,
 }
 
 /// Rectangular section, width across the line and height straight up.
@@ -41,7 +47,7 @@ pub const JOINT_GAP: f64 = 0.02;
 /// on the seated line (still embedded by `embed`).
 pub fn repeated_line(
     points: &[[f64; 3]],
-    ground: impl Fn(f64, f64) -> Option<f64>,
+    ground: &impl Fn(f64, f64) -> Option<f64>,
     spec: &RepeatedLine,
 ) -> TriangleMesh {
     let points = clean(points);
@@ -57,12 +63,19 @@ pub fn repeated_line(
     let mut last_post: Option<[f64; 3]> = None;
     for seg in points.windows(2) {
         let tangent = segment_tangent(seg[0], seg[1]);
-        let stations = stations(seg[0], seg[1], spec.spacing);
+        let mut stations = stations(seg[0], seg[1], spec.spacing);
+        if spec.on_terrain {
+            for p in &mut stations {
+                if let Some(g) = ground(p[0], p[2]) {
+                    p[1] = g + spec.lift;
+                }
+            }
+        }
         for i in 0..stations.len() {
             let p = stations[i];
             let duplicate = last_post.is_some_and(|q| plan_len(p, q) < 1e-3);
             if !duplicate {
-                add_post(&mut mesh, p, tangent, &ground, post_s, post_h, embed);
+                add_post(&mut mesh, p, tangent, ground, post_s, post_h, embed);
                 last_post = Some(p);
             }
             if panel_h > 1e-4 && i + 1 < stations.len() {
@@ -246,6 +259,37 @@ fn stations(a: [f64; 3], b: [f64; 3], spacing: f64) -> Vec<[f64; 3]> {
     }
     ds.push(len);
     ds.into_iter().map(|d| lerp(a, b, d / len)).collect()
+}
+
+/// Post positions along `points`. When `on_terrain` is set, each post's
+/// height is the ground under it plus `lift`, not the chord through the
+/// path vertices. Shared vertices are kept once.
+pub fn posts_along(
+    points: &[[f64; 3]],
+    spacing: f64,
+    on_terrain: bool,
+    lift: f64,
+    ground: &impl Fn(f64, f64) -> Option<f64>,
+) -> Vec<[f64; 3]> {
+    let points = clean(points);
+    let mut out = Vec::new();
+    for seg in points.windows(2) {
+        let mut stations = stations(seg[0], seg[1], spacing);
+        if on_terrain {
+            for p in &mut stations {
+                if let Some(g) = ground(p[0], p[2]) {
+                    p[1] = g + lift;
+                }
+            }
+        }
+        for p in stations {
+            if out.last().is_some_and(|q| plan_len(*q, p) < 1e-3) {
+                continue;
+            }
+            out.push(p);
+        }
+    }
+    out
 }
 
 fn add_post(
@@ -474,7 +518,7 @@ mod tests {
     fn posts_land_on_vertices_and_on_the_spacing() {
         let mesh = repeated_line(
             &[[0.0, 1.0, 0.0], [6.0, 1.0, 0.0]],
-            |_, _| Some(0.0),
+            &|_, _| Some(0.0),
             &RepeatedLine {
                 post_height: 1.5,
                 post_size: 0.1,
@@ -482,6 +526,8 @@ mod tests {
                 panel_height: 1.2,
                 panel_thickness: 0.04,
                 embed: 0.02,
+                on_terrain: false,
+                lift: 0.0,
             },
         );
         for x in [0.0, 2.0, 4.0, 6.0] {
@@ -500,7 +546,7 @@ mod tests {
     fn a_post_in_a_valley_reaches_the_ground_and_the_panel_does_not() {
         let mesh = repeated_line(
             &[[0.0, 0.0, 0.0], [4.0, 0.0, 0.0]],
-            |x, _| {
+            &|x, _| {
                 if (x - 2.0).abs() < 0.2 {
                     Some(-1.5)
                 } else {
@@ -514,6 +560,8 @@ mod tests {
                 panel_height: 0.8,
                 panel_thickness: 0.04,
                 embed: 0.02,
+                on_terrain: false,
+                lift: 0.0,
             },
         );
         let (lo, hi) = y_span_near(&mesh, 2.0, 0.0, 0.1).expect("mid post");
@@ -524,6 +572,42 @@ mod tests {
             plo > -0.05,
             "panel does not follow the valley, bottom {plo}"
         );
+    }
+
+    #[test]
+    fn each_post_stands_on_its_own_ground_and_the_panel_follows() {
+        let ground = |x: f64, _: f64| Some(if x < 5.0 { -0.3 * x } else { -0.3 * (10.0 - x) });
+        let spec = RepeatedLine {
+            post_height: 1.0,
+            post_size: 0.12,
+            spacing: 5.0,
+            panel_height: 0.8,
+            panel_thickness: 0.04,
+            embed: 0.02,
+            on_terrain: true,
+            lift: 0.0,
+        };
+        let mesh = repeated_line(&[[0.0, 0.0, 0.0], [10.0, 0.0, 0.0]], &ground, &spec);
+        let (lo, hi) = y_span_near(&mesh, 5.0, 0.0, 0.1).expect("mid post");
+        assert!(lo < -1.4, "post stands in the valley, bottom {lo}");
+        assert!(
+            (hi - (-1.5 + 1.0)).abs() < 0.05,
+            "post top follows the ground, not the chord, {hi}"
+        );
+        // Panel vertices sit at the bay ends, inset from the posts. The end
+        // next to the valley is almost at ground -1.5, not on the chord.
+        let (plo, phi) = y_span_near(&mesh, 4.94, 0.0, 0.03).expect("panel");
+        assert!(plo < -1.3, "panel bottom follows the posts, {plo}");
+        assert!(phi < -0.5, "panel top follows the posts, {phi}");
+        let posts = posts_along(
+            &[[0.0, 0.0, 0.0], [10.0, 0.0, 0.0]],
+            5.0,
+            true,
+            0.0,
+            &ground,
+        );
+        assert_eq!(posts.len(), 3);
+        assert!((posts[1][1] - (-1.5)).abs() < 1e-6, "cached post height");
     }
 
     #[test]

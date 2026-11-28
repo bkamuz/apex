@@ -9,8 +9,8 @@
 use std::hash::{Hash, Hasher};
 
 use apex_geometry::{
-    profile_line, profile_segments, repeated_line, LineProfile, RepeatedLine, TerrainSampler,
-    TriangleMesh, JOINT_GAP,
+    posts_along, profile_line, profile_segments, repeated_line, LineProfile, RepeatedLine,
+    TerrainSampler, TriangleMesh, JOINT_GAP,
 };
 use glam::Vec3;
 
@@ -18,6 +18,7 @@ use crate::element::{Element, ElementId};
 use crate::param::ParamMap;
 use crate::registry::SITE_LINE;
 
+use super::drape::CachedSiteLine;
 use super::Project;
 
 const EMBED: f64 = 0.02;
@@ -31,7 +32,7 @@ impl Project {
         if element.component_id != SITE_LINE {
             return None;
         }
-        Some(self.cached_site_line(element))
+        Some(self.cached_site_line(element).mesh)
     }
 
     /// Site lines on the same level as a terrain element, plus the openings
@@ -91,31 +92,11 @@ impl Project {
         if host.component_id != SITE_LINE {
             return None;
         }
-        let params = self
-            .registry
-            .eval_params(&host.component_id, &host.params)
-            .ok()?;
-        let anchors = host.placement.anchors();
-        if anchors.len() < 2 {
-            return None;
+        let cached = self.cached_site_line(host);
+        if let Some(stones) = &cached.stones {
+            return height_on_segments(stones, x, z);
         }
-        let cover = self.terrain_cover(host);
-        let sampler = cover
-            .as_ref()
-            .map(|(_, facets)| TerrainSampler::new(facets));
-        let sample = |px: f64, pz: f64| sampler.as_ref().and_then(|s| s.height_at(px, pz));
-        let points = seated(
-            &anchors,
-            params.text("seating").unwrap_or("level_from_start"),
-            params.number("elevation_offset").unwrap_or(0.0),
-            &sample,
-        );
-        if params.text("content") == Some("profile") {
-            if let Some(stones) = profile_stones(&anchors, &points, &params, &sample) {
-                return height_on_segments(&stones, x, z);
-            }
-        }
-        height_on_polyline(&points, x, z)
+        height_on_polyline(&cached.polyline, x, z)
     }
 
     /// Gate voids. Genus openings are included: the punch is an AABB, not a
@@ -168,56 +149,86 @@ impl Project {
         voids
     }
 
-    fn cached_site_line(&self, element: &Element) -> TriangleMesh {
+    fn cached_site_line(&self, element: &Element) -> CachedSiteLine {
         let anchors = element.placement.anchors();
         let Ok(params) = self
             .registry
             .eval_params(&element.component_id, &element.params)
         else {
-            return TriangleMesh::empty();
+            return CachedSiteLine {
+                key: 0,
+                mesh: TriangleMesh::empty(),
+                polyline: Vec::new(),
+                stones: None,
+            };
         };
         let cover = self.terrain_cover(element);
         let cover_key = cover.as_ref().map(|(key, _)| *key).unwrap_or(0);
         let key = fingerprint(&anchors, &params, cover_key);
-        if let Some((cached, mesh)) = self.drape_cache().lines.get(&element.id) {
-            if *cached == key {
-                return mesh.clone();
+        if let Some(hit) = self.drape_cache().lines.get(&element.id) {
+            if hit.key == key {
+                return hit.clone();
             }
         }
         let sampler = cover
             .as_ref()
             .map(|(_, facets)| TerrainSampler::new(facets));
         let sample = |x: f64, z: f64| sampler.as_ref().and_then(|s| s.height_at(x, z));
-        let points = seated(
-            &anchors,
-            params.text("seating").unwrap_or("level_from_start"),
-            params.number("elevation_offset").unwrap_or(0.0),
-            &sample,
-        );
-        let mesh = if anchors.len() < 2 {
-            TriangleMesh::empty()
+        let seating = params.text("seating").unwrap_or("level_from_start");
+        let offset = params.number("elevation_offset").unwrap_or(0.0);
+        let points = seated(&anchors, seating, offset, &sample);
+        let each = seating == "each_object";
+        let (mesh, polyline, stones) = if anchors.len() < 2 {
+            (TriangleMesh::empty(), Vec::new(), None)
         } else if params.text("content") == Some("profile") {
-            profile_mesh(&anchors, &points, &params, &sample)
+            let stones = profile_stones(&anchors, &points, &params, &sample);
+            let mesh = match &stones {
+                Some(pieces) => {
+                    let mut mesh = TriangleMesh::empty();
+                    let spec = line_profile(&params);
+                    for piece in pieces {
+                        mesh.append(&profile_line(piece, &spec));
+                    }
+                    mesh
+                }
+                None => profile_line(&points, &line_profile(&params)),
+            };
+            (mesh, points, stones)
         } else {
-            repeated_line(
+            let spacing = params.number("post_spacing").unwrap_or(2.0);
+            let mesh = repeated_line(
                 &points,
-                sample,
+                &sample,
                 &RepeatedLine {
                     post_height: params.number("post_height").unwrap_or(1.6),
                     post_size: params.number("post_size").unwrap_or(0.12),
-                    spacing: params.number("post_spacing").unwrap_or(2.0),
+                    spacing,
                     panel_height: params.number("panel_height").unwrap_or(1.4),
                     panel_thickness: params.number("panel_thickness").unwrap_or(0.04),
                     embed: EMBED,
+                    on_terrain: each,
+                    lift: offset,
                 },
-            )
+            );
+            let polyline = if each {
+                posts_along(&points, spacing, true, offset, &sample)
+            } else {
+                points
+            };
+            (mesh, polyline, None)
+        };
+        let cached = CachedSiteLine {
+            key,
+            mesh,
+            polyline,
+            stones,
         };
         let mut cache = self.drape_cache();
         if cache.lines.len() >= LINE_CAP {
             cache.lines.clear();
         }
-        cache.lines.insert(element.id, (key, mesh.clone()));
-        mesh
+        cache.lines.insert(element.id, cached.clone());
+        cached
     }
 }
 
@@ -252,30 +263,11 @@ fn fingerprint(anchors: &[Vec3], params: &ParamMap, cover: u64) -> u64 {
     hasher.finish()
 }
 
-/// Continuous profile, or one stone per `segment` metres.
-///
-/// A positive segment length breaks the line at that spacing and at every
-/// polyline vertex. In `by_ends` each stone sits on the terrain at its own
-/// two ends. In `level_from_start` every stone keeps the start elevation.
-/// Zero length is one mitred piece.
-fn profile_mesh(
-    anchors: &[Vec3],
-    seated_points: &[[f64; 3]],
-    params: &ParamMap,
-    sample: &impl Fn(f64, f64) -> Option<f64>,
-) -> TriangleMesh {
-    let spec = LineProfile {
+fn line_profile(params: &ParamMap) -> LineProfile {
+    LineProfile {
         width: params.number("profile_width").unwrap_or(0.15),
         height: params.number("profile_height").unwrap_or(0.15),
-    };
-    let Some(stones) = profile_stones(anchors, seated_points, params, sample) else {
-        return profile_line(seated_points, &spec);
-    };
-    let mut mesh = TriangleMesh::empty();
-    for piece in stones {
-        mesh.append(&profile_line(&piece, &spec));
     }
-    mesh
 }
 
 /// Seated stones, when the profile is segmented. `None` is one continuous piece.
@@ -290,7 +282,9 @@ fn profile_stones(
         return None;
     }
     let offset = params.number("elevation_offset").unwrap_or(0.0);
-    let level = params.text("seating") != Some("by_ends");
+    // Level from start keeps every stone on one elevation. By ends and
+    // each-object both sit a stone on the terrain under its own two ends.
+    let level = params.text("seating") == Some("level_from_start");
     let y_level = seated_points.first().map(|p| p[1]).unwrap_or(0.0);
     let source: Vec<[f64; 3]> = if level {
         seated_points.to_vec()
@@ -367,7 +361,9 @@ fn seated(
     sample: &impl Fn(f64, f64) -> Option<f64>,
 ) -> Vec<[f64; 3]> {
     let height = |p: Vec3| sample(p.x as f64, p.z as f64).unwrap_or(p.y as f64);
-    if seating == "by_ends" {
+    // Each object seats posts itself. Vertices still sit on the terrain so a
+    // missing sample leaves the chord as a fallback.
+    if seating != "level_from_start" {
         anchors
             .iter()
             .map(|p| [p.x as f64, height(*p) + offset, p.z as f64])
@@ -472,6 +468,41 @@ mod tests {
             lo = lo.min(p[1]);
         }
         hit.then_some(lo)
+    }
+
+    fn highest_near(mesh: &TriangleMesh, x: f32, z: f32, r: f32) -> Option<f32> {
+        let mut hi = f32::MIN;
+        let mut hit = false;
+        for p in mesh.positions.chunks(3) {
+            let dx = p[0] - x;
+            let dz = p[2] - z;
+            if dx * dx + dz * dz > r * r {
+                continue;
+            }
+            hit = true;
+            hi = hi.max(p[1]);
+        }
+        hit.then_some(hi)
+    }
+
+    fn peaked(project: &mut Project) {
+        let terrain = project
+            .create_element(
+                "apex.terrain",
+                poly(&[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]),
+                ParamMap::new().with("smooth", ParamValue::Bool(false)),
+            )
+            .unwrap();
+        project
+            .set_slab_shape(
+                terrain,
+                &crate::SlabShape {
+                    z: vec![0.0, 0.0, 0.0, 0.0],
+                    points: vec![[5.0, 5.0, 2.0]],
+                    creases: vec![],
+                },
+            )
+            .unwrap();
     }
 
     #[test]
@@ -905,6 +936,90 @@ mod tests {
         assert!(
             (f64::from(bottom) - ground).abs() < 0.35,
             "leaf sits on the stone at the peak ({bottom}), ground {ground}, not on the outer chord"
+        );
+    }
+
+    #[test]
+    fn each_object_seats_every_post_and_the_panel_between_them() {
+        let mut project = Project::new();
+        peaked(&mut project);
+        let ground = project
+            .topo_height_at(
+                project.document().active_level_id().unwrap(),
+                5.0,
+                5.0,
+                None,
+            )
+            .unwrap_or(0.0);
+        assert!(ground > 1.5, "peak {ground}");
+        let id = project
+            .create_element(
+                SITE_LINE,
+                line([0.0, 5.0], [10.0, 5.0]),
+                ParamMap::new()
+                    .with("seating", ParamValue::Choice("each_object".into()))
+                    .with("content", ParamValue::Choice("repeated".into()))
+                    .with("post_spacing", ParamValue::Length(5.0))
+                    .with("post_height", ParamValue::Length(1.0))
+                    .with("panel_height", ParamValue::Length(0.8))
+                    .with("elevation_offset", ParamValue::Length(0.0)),
+            )
+            .unwrap();
+        let mesh = project.document().get_mesh(id).unwrap();
+        let top = highest_near(mesh, 5.0, 5.0, 0.15).expect("mid post");
+        assert!(
+            (f64::from(top) - (ground + 1.0)).abs() < 0.15,
+            "post top {top} stands on the peak {ground}, not on the chord"
+        );
+        let panel = top_at(mesh, 2.5, 5.0).expect("panel");
+        assert!(
+            (panel - 1.8).abs() < 0.25,
+            "panel top {panel} follows the line between the end and the peak"
+        );
+    }
+
+    #[test]
+    fn a_gate_on_each_object_sits_on_the_bay() {
+        let mut project = Project::new();
+        peaked(&mut project);
+        let id = project
+            .create_element(
+                SITE_LINE,
+                line([0.0, 5.0], [10.0, 5.0]),
+                ParamMap::new()
+                    .with("seating", ParamValue::Choice("each_object".into()))
+                    .with("content", ParamValue::Choice("repeated".into()))
+                    .with("post_spacing", ParamValue::Length(10.0))
+                    .with("panel_height", ParamValue::Length(0.8))
+                    .with("elevation_offset", ParamValue::Length(0.0)),
+            )
+            .unwrap();
+        let gate = project
+            .create_element_with_parent(
+                "apex.gate",
+                Placement::point(Vec3::new(5.0, 0.0, 5.0)),
+                ParamMap::new(),
+                Some(id),
+            )
+            .unwrap();
+        let ground = project
+            .topo_height_at(
+                project.document().active_level_id().unwrap(),
+                5.0,
+                5.0,
+                None,
+            )
+            .unwrap_or(0.0);
+        assert!(ground > 1.5, "peak under the gate {ground}");
+        let bottom = lowest_near(project.document().get_mesh(gate).unwrap(), 5.0, 5.0, 1.0)
+            .expect("gate leaf");
+        assert!(
+            f64::from(bottom) < 0.35,
+            "leaf sits on the bay between the end posts ({bottom}), not on the peak {ground}"
+        );
+        assert!(
+            top_at(project.document().get_mesh(id).unwrap(), 5.0, 5.0).is_none(),
+            "the opening is cut through the panel on that bay"
         );
     }
 

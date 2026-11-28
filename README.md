@@ -52,7 +52,7 @@ cd ../desktop && npm install && npm run dev
 
 ### Sample project
 
-The built-in sample is a contemporary two-storey house: a glazed living / kitchen / dining pavilion, a service bar (hall, stair, study, WC, utility), and an upper floor of bedrooms that cantilevers over a paved terrace on round columns. Roofs are flat; the upper roof and the pavilion roof carry a lawn surface. The **yard** is a **terrain** solid (flat pad under the house, gentle rise to the north), a site-line fence (level from the high end) with pedestrian and vehicle gates, curbs along the path (1 m stones, each seated by its own ends), and lawn / paved / driveway surfaces. Open **Site** in the toolbar for Site line / Gate / Site surface / Terrain. Fence is a species of Site line. Room and level names follow the UI language.
+The built-in sample is a contemporary two-storey house: a glazed living / kitchen / dining pavilion, a service bar (hall, stair, study, WC, utility), and an upper floor of bedrooms that cantilevers over a paved terrace on round columns. Roofs are flat; the upper roof and the pavilion roof carry a lawn surface. The **yard** is a **terrain** solid (flat pad under the house, gentle rise to the north), a site-line fence (the contour runs stay level; the two runs down the slope seat each post and panel on the ground) with pedestrian and vehicle gates, curbs along the path (1 m stones, each seated by its own ends), and lawn / paved / driveway surfaces. Open **Site** in the toolbar for Site line / Gate / Site surface / Terrain. Fence is a species of Site line. Room and level names follow the UI language.
 
 ### Settings & packs
 
@@ -158,7 +158,7 @@ Shipped types use this structure (no bespoke per-type geometry forks in the shel
 | `apex.beam` | two points | rectangle swept, hung below the line |
 | `apex.slab` | polyline (double-click to close) | closed boundary extruded for thickness |
 | `apex.fence` | path (joinable) | legacy fence; still loads, no ribbon button |
-| `apex.site_line` | path | terrain-seated line; species Fence (level, posts and panels) and Curb (by ends, 1 m stones) |
+| `apex.site_line` | path | terrain-seated line; species Fence (level), Fence on terrain (each post and panel), and Curb (by ends, 1 m stones) |
 | `apex.gate` | hosted on fence or site line | opening cut in the host |
 | `apex.site_surface` | closed polyline | thin site region (lawn / paved / driveway) |
 | `apex.terrain` | closed polyline | ground solid: TIN top from outer/inner heights, flat bottom, vertical sides |

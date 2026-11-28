@@ -356,20 +356,21 @@ function buildYard(elev: number): void {
     creases: [],
   });
 
-  // North–south runs start at the high north end so a level fence
-  // stands on that elevation and the posts reach down the slope.
-  const fence: Seg[] = [
-    [[-6, -8], [20, -8]],
-    [[20, 16], [20, -8]],
-    [[20, 16], [-6, 16]],
-    [[-6, 16], [-6, -8]],
+  // North and south follow the contour and stay level. The two runs that
+  // cross the slope seat each post and panel on the ground under them.
+  const levelFence = { species: "apex.site_line.fence" };
+  const gradeFence = { species: "apex.site_line.fence-terrain" };
+  const fence: Array<[Seg, { species: string }]> = [
+    [[[-6, -8], [20, -8]], levelFence],
+    [[[20, 16], [20, -8]], gradeFence],
+    [[[20, 16], [-6, 16]], levelFence],
+    [[[-6, 16], [-6, -8]], gradeFence],
   ];
-  const fenceParams = { species: "apex.site_line.fence" };
-  for (const [a, b] of fence) {
+  for (const [[a, b], params] of fence) {
     apexCreateElement(
       "apex.site_line",
       [xz(a[0], a[1], elev), xz(b[0], b[1], elev)],
-      fenceParams,
+      params,
       0,
       "two_point",
     );
