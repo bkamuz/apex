@@ -253,7 +253,8 @@ export const en: MessageCatalog = {
   'component.apex.cable_tray.title': 'Draw a cable tray. Page Up and Page Down set the elevation.',
   'component.apex.fence.title': 'Place a fence.',
   'component.apex.gate.title': 'Place a gate in a fence.',
-  'component.apex.site_surface.title': 'Place a site surface: lawn, paving, or driveway.',
+  'component.apex.site_surface.title':
+    'Place a site surface: lawn, path, gravel, paving, or driveway. Soft surfaces follow the terrain.',
   'component.apex.terrain.title': 'Place terrain from height points.',
 
   // —— Tool labels (ribbon: short nouns; modify actions stay one-word commands) ——
@@ -682,6 +683,7 @@ export const en: MessageCatalog = {
   'param.label.solid_b': 'Solid B',
   'param.label.overhang': 'Overhang',
   'param.label.pitch': 'Pitch',
+  'param.label.placement': 'Placement',
   'param.label.profile': 'Profile',
   'param.label.radius': 'Radius',
   'param.label.riser': 'Riser',
@@ -724,6 +726,13 @@ export const en: MessageCatalog = {
   'param.unit.mm': 'mm',
   'param.unit.rad': 'rad',
   'param.unit.deg': '°',
+  'param.choice.placement_mode.draped': 'Draped on terrain',
+  'param.choice.placement_mode.flat': 'Flat',
+  'param.choice.surface_kind.lawn': 'Lawn',
+  'param.choice.surface_kind.path': 'Path',
+  'param.choice.surface_kind.gravel': 'Gravel',
+  'param.choice.surface_kind.paved': 'Paving',
+  'param.choice.surface_kind.driveway': 'Driveway',
   // —— View cube ——
   'viewCube.front': 'FRONT',
   'viewCube.back': 'BACK',
@@ -751,7 +760,7 @@ export const en: MessageCatalog = {
   'settings.pack.spaces.desc': 'Closed space polylines, and spaces created from wall loops.',
   'settings.pack.site': 'Site / landscape',
   'settings.pack.site.desc':
-    'Yard fencing, gates, site surfaces (lawn, paved, driveway), terrain solids from height points, and linked DXF plan underlays.',
+    'Yard fencing, gates, site surfaces (lawn, path, gravel, paving, driveway), terrain solids from height points, and linked DXF plan underlays.',
   'settings.pack.annotate': 'Annotate',
   'settings.pack.annotate.desc': 'View annotations — dimensions and notes on saved views.',
   'settings.pack.ifc': 'IFC import / export',

@@ -7,6 +7,7 @@ use std::collections::BTreeMap;
 
 mod booleans;
 pub mod commands;
+mod drape;
 mod genus_build;
 pub mod kernel;
 mod memo;
@@ -213,6 +214,8 @@ pub struct Project {
     /// element's plan bounds (see `roof_attach::clip_key`): a roof edit
     /// that only changes the roof away from a wall (overhang) reuses it.
     pub(crate) attach_clips: std::sync::Mutex<std::collections::HashMap<u64, TriangleMesh>>,
+    /// Terrain tops and draped crusts, keyed by the inputs that built them.
+    drape_cache: std::sync::Mutex<drape::DrapeCache>,
     /// When >0, placement edits skip connected-joinable stretch (batch translate
     /// plans stretch itself so multi-select movers are not double-pulled).
     suppress_join_stretch: u32,
@@ -255,6 +258,7 @@ impl Project {
             kernel: Default::default(),
             memo: Default::default(),
             attach_clips: Default::default(),
+            drape_cache: Default::default(),
             suppress_join_stretch: 0,
             deferred: None,
             edited: Default::default(),
@@ -2636,10 +2640,11 @@ impl Project {
             // Genus bodies are unioned per solid in `GenusBuild::mesh`.
             return Ok(mesh);
         }
-        if self.is_topo_element(element) {
-            // Terrain is already one closed shell. Re-stitching it through
-            // the exact kernel turns every TIN triangle into a B-rep face:
-            // flat shading and a drawn edge per triangle (not a toposurface).
+        if self.is_topo_element(element) || self.took_draped_mesh(element) {
+            // Terrain and a draped site crust are already closed shells.
+            // Re-stitching either through the exact kernel turns every
+            // terrain facet into a B-rep face: flat shading and a drawn
+            // edge per triangle, which also blows the edit budget.
             return Ok(mesh);
         }
         Ok(crate::kroute::solidify(mesh))
@@ -2709,6 +2714,9 @@ impl Project {
             // A void: the host shows the hole; the opening itself is only a
             // translucent ghost so it can be seen and picked.
             return Ok(self.area_opening_ghost(element, level_id));
+        }
+        if let Some(mesh) = self.draped_site_mesh(element) {
+            return Ok(mesh);
         }
         if let Some(mesh) = self.shaped_slab_mesh(element) {
             return Ok(mesh);
@@ -3332,6 +3340,7 @@ impl Project {
         for element in &mut elements {
             Self::migrate_component_id(element);
             next.migrate_species(element);
+            next.migrate_site_placement(element);
         }
 
         next.document.load_contents(

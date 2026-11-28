@@ -245,7 +245,8 @@ export const ru: MessageCatalog = {
   'component.apex.cable_tray.title': 'Провести кабельный лоток. Page Up и Page Down задают отметку.',
   'component.apex.fence.title': 'Поставить забор.',
   'component.apex.gate.title': 'Поставить калитку в забор.',
-  'component.apex.site_surface.title': 'Поставить покрытие участка: газон, мощение или проезд.',
+  'component.apex.site_surface.title':
+    'Поставить покрытие участка: газон, дорожка, гравий, мощение или проезд. Мягкие покрытия повторяют рельеф.',
   'component.apex.terrain.title': 'Поставить рельеф по точкам высот.',
 
   'tool.select.label': 'Выбор',
@@ -662,6 +663,7 @@ export const ru: MessageCatalog = {
   'param.label.solid_b': 'Тело B',
   'param.label.overhang': 'Свес',
   'param.label.pitch': 'Уклон',
+  'param.label.placement': 'Размещение',
   'param.label.profile': 'Профиль',
   'param.label.radius': 'Радиус',
   'param.label.riser': 'Подступёнок',
@@ -704,6 +706,13 @@ export const ru: MessageCatalog = {
   'param.unit.mm': 'мм',
   'param.unit.rad': 'рад',
   'param.unit.deg': '°',
+  'param.choice.placement_mode.draped': 'По рельефу',
+  'param.choice.placement_mode.flat': 'Плоско',
+  'param.choice.surface_kind.lawn': 'Газон',
+  'param.choice.surface_kind.path': 'Дорожка',
+  'param.choice.surface_kind.gravel': 'Гравий',
+  'param.choice.surface_kind.paved': 'Мощение',
+  'param.choice.surface_kind.driveway': 'Проезд',
   // —— View cube ——
   'viewCube.front': 'СПЕРЕДИ',
   'viewCube.back': 'СЗАДИ',
@@ -731,7 +740,7 @@ export const ru: MessageCatalog = {
   'settings.pack.spaces.desc': 'Замкнутые контуры помещений и помещения по контурам стен.',
   'settings.pack.site': 'Участок',
   'settings.pack.site.desc':
-    'Ограждение, калитки, покрытия двора (газон, мощение, подъезд), рельеф по точкам высот и связанные DXF-подложки плана.',
+    'Ограждение, калитки, покрытия двора (газон, дорожка, гравий, мощение, проезд), рельеф по точкам высот и связанные DXF-подложки плана.',
   'settings.pack.annotate': 'Аннотации',
   'settings.pack.annotate.desc': 'Аннотации видов — размеры и заметки на сохранённых видах.',
   'settings.pack.ifc': 'IFC импорт / экспорт',

@@ -20,6 +20,7 @@ import {
   instanceDisplayName,
   speciesDisplayName,
   useI18n,
+  type MessageParams,
 } from '../i18n';
 import type {
   ComponentDto,
@@ -122,13 +123,14 @@ function optionLabel(
   option: string,
   profiles: ProfileTypeDto[],
   references: ReferenceDto[],
+  t: (key: string, params?: MessageParams, fallback?: string) => string,
 ): string {
   if (spec.kind === 'profile') return profileLabel(profiles, option);
   if (spec.kind === 'reference' && option) {
     return references.find((reference) => reference.id === option)?.name ?? option;
   }
   if (spec.id === 'species' && option) return speciesName(option);
-  return option;
+  return t(`param.choice.${spec.id}.${option}`, undefined, option);
 }
 
 /** Numeric input that keeps the typed text, flags invalid input and never commits NaN. */
@@ -292,7 +294,7 @@ export function ParamField({
               <option key={option || '__none'} value={option}>
                 {spec.kind === 'reference' && option === ''
                   ? t('inspector.placementRef')
-                  : optionLabel(spec, option, profiles, references)}
+                  : optionLabel(spec, option, profiles, references, t)}
               </option>
             ))}
           </select>

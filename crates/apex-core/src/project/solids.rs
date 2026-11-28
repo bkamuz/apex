@@ -893,6 +893,7 @@ impl Project {
         out.extend(self.boolean_dependents(element));
         out.extend(self.roof_dependents(element));
         out.extend(self.neighbour_cut_dependents(element));
+        out.extend(self.drape_dependents(element));
         if element.component_id == STAIR {
             out.extend(
                 self.document

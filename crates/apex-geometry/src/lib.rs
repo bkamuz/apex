@@ -8,6 +8,7 @@
 
 mod csg;
 mod curve;
+mod drape;
 mod error;
 mod frame;
 mod join;
@@ -20,6 +21,7 @@ mod sweep;
 
 pub use csg::{box_mesh, cylinder_mesh, mesh_boolean, mesh_volume, CsgError};
 pub use curve::{Curve, MIN_CURVE_LENGTH};
+pub use drape::{drape_polygon, DrapedPatch, TerrainFacet};
 pub use error::GeometryError;
 pub use frame::Frame;
 pub use join::{

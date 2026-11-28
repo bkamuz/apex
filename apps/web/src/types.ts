@@ -408,7 +408,7 @@ export interface ElementListDto {
   effective_level_id: string;
   parent_id?: string | null;
   profile_id?: string | null;
-  /** `lawn` / `paved` / `driveway` on site surfaces. */
+  /** `lawn` / `path` / `gravel` / `paved` / `driveway` on site surfaces. */
   surface_kind?: string | null;
 }
 

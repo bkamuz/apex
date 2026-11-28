@@ -22,6 +22,7 @@ use serde_json::json;
 
 /// Param holding a slab's sub-element shape.
 pub(crate) const SLAB_SHAPE: &str = "shape";
+
 use crate::genus::{
     build_opening, OpeningGenerator, OpeningGeometry, OpeningInfill, OpeningPlanSymbol,
     OpeningRecipe, Species, SPECIES_PARAM,
@@ -34,6 +35,15 @@ use crate::genus_body::{
 use crate::param::{ParamError, ParamKind, ParamMap, ParamSpec, ParamValue};
 use crate::placement::{Placement, PlacementKind};
 use crate::reference::{Reference, ReferenceFilter};
+
+/// Placement of a site surface when the element has not chosen one.
+/// Soft kinds follow the terrain; paving and driveways stay level.
+pub(crate) fn default_site_placement_mode(surface_kind: &str) -> &'static str {
+    match surface_kind {
+        "paved" | "driveway" => "flat",
+        _ => "draped",
+    }
+}
 
 #[derive(Debug, Clone, PartialEq, Error)]
 pub enum RegistryError {
@@ -785,6 +795,17 @@ impl ComponentRegistry {
         component_id: &str,
         raw: &ParamMap,
     ) -> Result<ParamMap, RegistryError> {
+        let owned;
+        let raw = if component_id == "apex.site_surface" && raw.text("placement_mode").is_none() {
+            let kind = raw.text("surface_kind").unwrap_or("lawn");
+            owned = raw.clone().with(
+                "placement_mode",
+                ParamValue::Choice(default_site_placement_mode(kind).to_string()),
+            );
+            &owned
+        } else {
+            raw
+        };
         let definition = self.require(component_id)?;
         let component_params = definition.resolve_params(raw)?;
         let mut specs = definition.params.clone();
@@ -2087,7 +2108,7 @@ fn gate() -> ComponentDefinition {
     }
 }
 
-/// Yard surface (lawn / paved / driveway): thin closed slab on the active level.
+/// Yard surface: a thin closed slab, flat or draped on the terrain.
 fn site_surface() -> ComponentDefinition {
     ComponentDefinition {
         opening: None,
@@ -2103,11 +2124,18 @@ fn site_surface() -> ComponentDefinition {
             ParamSpec::choice(
                 "surface_kind",
                 "Surface",
-                &["lawn", "paved", "driveway"],
+                &["lawn", "path", "gravel", "paved", "driveway"],
                 "lawn",
+            ),
+            ParamSpec::choice(
+                "placement_mode",
+                "Placement",
+                &["draped", "flat"],
+                "draped",
             ),
             ParamSpec::length("thickness", "Thickness", 0.05),
             // Sub-element shape (JSON, see `project::slab_shape`); empty = flat.
+            // Ignored while placement_mode is draped — the terrain supplies the heights.
             ParamSpec::text(SLAB_SHAPE, "Shape", ""),
         ],
         recipe: GeometryRecipe::Extrude {
@@ -2116,7 +2144,7 @@ fn site_surface() -> ComponentDefinition {
             height: Expr::param("thickness"),
         },
         descriptor: Descriptor::new(
-            "Yard surface: a closed plan boundary extruded by `thickness`. Seats on terrain when one covers the pick, otherwise on the level. `surface_kind` selects lawn / paved / driveway. Optional slopes via set_slab_shape.",
+            "Yard surface: a closed plan boundary. `surface_kind` selects lawn / path / gravel / paved / driveway. `placement_mode` is `draped` (the outline is clipped to the terrain triangulation and given a thin crust above the ground) or `flat` (a level extrusion). Lawn, path and gravel default to draped; paved and driveway default to flat. With no terrain under the outline, draped falls back to the flat extrusion. Optional slopes via set_slab_shape apply in flat mode.",
         )
         .points("polyline: 3+ boundary points, closed automatically (do not repeat the first point)")
         .constraint("boundary must be simple (non self-intersecting)")
