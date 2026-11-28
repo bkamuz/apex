@@ -1680,7 +1680,8 @@ pub fn builtin_species() -> Vec<Species> {
                 .with("content", ParamValue::Choice("profile".into()))
                 .with("elevation_offset", ParamValue::Length(0.02))
                 .with("profile_width", ParamValue::Length(0.15))
-                .with("profile_height", ParamValue::Length(0.18)),
+                .with("profile_height", ParamValue::Length(0.18))
+                .with("segment_length", ParamValue::Length(1.0)),
         ),
     ]
 }
@@ -2141,12 +2142,15 @@ fn site_line() -> ComponentDefinition {
             ParamSpec::length("profile_height", "Profile height", 0.15)
                 .with_range(Some(0.02), Some(2.0))
                 .as_type(),
+            ParamSpec::length("segment_length", "Segment length", 0.0)
+                .with_range(Some(0.0), Some(20.0))
+                .as_type(),
         ],
         recipe: GeometryRecipe::Custom {
             builder_id: SITE_LINE.into(),
         },
         descriptor: Descriptor::new(
-            "Site line: a plan polyline built relative to the terrain. `seating` is `by_ends` (every vertex sits on the terrain, spans stay straight) or `level_from_start` (the start sits on the terrain and the whole line stays level; `elevation_offset` raises or lowers it). `content` is `repeated` (vertical posts and panels) or `profile` (a vertical rectangular section). Fence and Curb are species of this genus.",
+            "Site line: a plan polyline built relative to the terrain. `seating` is `by_ends` (every vertex sits on the terrain, spans stay straight) or `level_from_start` (the start sits on the terrain and the whole line stays level; `elevation_offset` raises or lowers it). `content` is `repeated` (vertical posts and panels) or `profile` (a vertical rectangular section). `segment_length` splits a profile into stones of that plan length (0 = one piece); in `by_ends` each stone sits on the terrain at its own ends. Fence and Curb are species of this genus.",
         )
         .points("path: 2+ plan points [x, y, z] along the centreline. placement_kind 'polyline' for a chain.")
         .constraint("points must not repeat consecutively; segments shorter than 1 mm are refused")

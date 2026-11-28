@@ -147,8 +147,53 @@ test('by ends is a straight curb over a peak', () => {
   const selected = getSelected() as { params: Record<string, unknown> };
   assert.equal(selected.params.species, 'apex.site_line.curb');
   assert.equal(selected.params.content, 'profile');
+  const view = scene();
+  const pick = pickOf(id);
+  const stone = topAt(view, pick, 4.5, 5);
+  assert.ok(stone > 1.5, `1 m stone beside the peak sits on the ground (${stone})`);
+  assert.equal(Number.isFinite(topAt(view, pick, 5, 5)), false, 'joint gap on the 1 m station');
+});
+
+test('a zero segment length is one chord over a peak', () => {
+  newProject();
+  const before = new Set(scene().elements.map((el) => el.id));
+  createElement(
+    'apex.terrain',
+    JSON.stringify([[0, 0, 0], [10, 0, 0], [10, 0, 10], [0, 0, 10]]),
+    0,
+    JSON.stringify({ smooth: false }),
+    'polyline',
+  );
+  const terrain = scene().elements.find((el) => el.component_id === 'apex.terrain' && !before.has(el.id));
+  if (!terrain) throw new Error('missing terrain');
+  setSlabShape(terrain.id, JSON.stringify({ z: [0, 0, 0, 0], points: [[5, 5, 2]], creases: [] }));
+  const id = place([[0, 5], [10, 5]], {
+    seating: 'by_ends',
+    content: 'profile',
+    segment_length: 0,
+    profile_height: 0.15,
+    elevation_offset: 0,
+  });
   const mid = topAt(scene(), pickOf(id), 5, 5);
-  assert.ok(mid < 0.5, `curb follows the chord (${mid}), not the peak`);
+  assert.ok(mid < 0.5, `one piece follows the chord (${mid}), not the peak`);
+});
+
+test('level segments stay flat on a slope', () => {
+  newProject();
+  slopedTerrain();
+  const id = place([[5, 9], [5, 1]], {
+    seating: 'level_from_start',
+    content: 'profile',
+    segment_length: 2,
+    profile_height: 0.2,
+    elevation_offset: 0,
+  });
+  const view = scene();
+  const pick = pickOf(id);
+  const high = topAt(view, pick, 5, 8);
+  const low = topAt(view, pick, 5, 2);
+  assert.ok(Math.abs(high - 2) < 0.15, `high stone ${high}`);
+  assert.ok(Math.abs(low - high) < 0.05, `level stones ${high} vs ${low}`);
 });
 
 test('site line strings exist in EN and RU', () => {
@@ -161,6 +206,11 @@ test('site line strings exist in EN and RU', () => {
     'param.label.seating',
     'param.label.content',
     'param.label.elevation_offset',
+    'param.label.segment_length',
+    'inspector.shape.edit',
+    'inspector.shape.reset',
+    'inspector.shape.sectionTitle',
+    'inspector.shape.hintIdle',
     'param.choice.seating.by_ends',
     'param.choice.seating.level_from_start',
     'param.choice.content.repeated',

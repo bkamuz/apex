@@ -207,7 +207,7 @@ if ((await topoItem.count()) > 0) {
 await shot('apex-terrain');
 
 await clickTab('Site');
-await page.getByRole('button', { name: 'Fence', exact: true }).click().catch(() => {});
+await page.getByRole('button', { name: /Site line|Линейный элемент/ }).click().catch(() => {});
 await page.waitForTimeout(200);
 await page.evaluate((c) => window.__apexTest.setCamera(c), {
   target: [5, 1.0, 4],

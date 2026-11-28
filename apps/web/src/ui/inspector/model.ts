@@ -48,6 +48,31 @@ export function groupSpecs(
   return GROUP_ORDER.filter((g) => buckets.has(g)).map((g) => ({ id: g, specs: buckets.get(g)! }));
 }
 
+const SITE_LINE_REPEATED = new Set([
+  'post_height',
+  'post_spacing',
+  'post_size',
+  'panel_height',
+  'panel_thickness',
+]);
+const SITE_LINE_PROFILE = new Set(['profile_width', 'profile_height', 'segment_length']);
+
+/**
+ * Species fields for the chosen site-line content. Other genera are unchanged.
+ * Repeated objects hide the profile; a continuous profile hides the posts.
+ */
+export function specsForContent(
+  componentId: string,
+  specs: ParamSpecDto[],
+  content: ParamValue | undefined,
+): ParamSpecDto[] {
+  if (componentId !== 'apex.site_line') return specs;
+  const mode = String(content ?? 'repeated');
+  if (mode === 'profile') return specs.filter((spec) => !SITE_LINE_REPEATED.has(spec.id));
+  if (mode === 'repeated') return specs.filter((spec) => !SITE_LINE_PROFILE.has(spec.id));
+  return specs;
+}
+
 /** Display unit for a numeric spec (`m` for lengths unless the spec says otherwise). */
 export function unitFor(spec: ParamSpecDto): string | null {
   if (spec.unit) return spec.unit;
@@ -61,9 +86,15 @@ export type NumberCheck =
   | { ok: false; reason: 'empty' | 'nan' | 'min' | 'max'; limit?: number };
 
 /** Validate typed numeric input against the spec's range. Never yields NaN. */
-export function checkNumber(text: string, spec: Pick<ParamSpecDto, 'min' | 'max'>): NumberCheck {
+export function checkNumber(
+  text: string,
+  spec: Pick<ParamSpecDto, 'min' | 'max'> & { id?: string },
+): NumberCheck {
   const trimmed = text.trim().replace(',', '.');
-  if (trimmed === '') return { ok: false, reason: 'empty' };
+  // An empty segment length is one continuous piece (the same as 0).
+  if (trimmed === '') {
+    return spec.id === 'segment_length' ? { ok: true, value: 0 } : { ok: false, reason: 'empty' };
+  }
   const value = Number(trimmed);
   if (!Number.isFinite(value)) return { ok: false, reason: 'nan' };
   if (spec.min != null && value < spec.min - 1e-12) return { ok: false, reason: 'min', limit: spec.min };

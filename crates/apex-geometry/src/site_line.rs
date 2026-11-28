@@ -32,6 +32,9 @@ pub struct LineProfile {
     pub height: f64,
 }
 
+/// Plan gap left between stones so a joint reads as two pieces.
+pub const JOINT_GAP: f64 = 0.02;
+
 /// Posts at every vertex and at `spacing` along each span, panels between them.
 ///
 /// `ground(x, z)` is the terrain under a post. `None` leaves the post sitting
@@ -68,6 +71,59 @@ pub fn repeated_line(
         }
     }
     mesh
+}
+
+/// Straight stones along `points`.
+///
+/// `segment` below 5 cm keeps each span as one mitred piece (no extra
+/// joints). Otherwise each span is cut every `segment` metres in plan, the
+/// last stone shorter, and every joint — including a polyline vertex — is
+/// pulled back by half of `gap`. The returned endpoints keep the input
+/// heights (interpolated along the span); the caller may replace them.
+pub fn profile_segments(points: &[[f64; 3]], segment: f64, gap: f64) -> Vec<[[f64; 3]; 2]> {
+    let points = clean(points);
+    let mut out = Vec::new();
+    if points.len() < 2 {
+        return out;
+    }
+    let spans = points.len() - 1;
+    let half = (gap * 0.5).max(0.0);
+    for (si, seg) in points.windows(2).enumerate() {
+        let len = plan_len(seg[0], seg[1]);
+        if len < 1e-4 {
+            continue;
+        }
+        if segment < 0.05 {
+            out.push([seg[0], seg[1]]);
+            continue;
+        }
+        let mut ds = vec![0.0];
+        if segment >= 0.05 {
+            let mut d = segment;
+            while d < len - 1e-3 {
+                ds.push(d);
+                d += segment;
+            }
+        }
+        ds.push(len);
+        for w in ds.windows(2) {
+            let mut a = w[0];
+            let mut b = w[1];
+            let joint_start = si > 0 || a > 1e-6;
+            let joint_end = si + 1 < spans || (len - b) > 1e-6;
+            if joint_start {
+                a += half;
+            }
+            if joint_end {
+                b -= half;
+            }
+            if b - a < 0.02 {
+                continue;
+            }
+            out.push([lerp(seg[0], seg[1], a / len), lerp(seg[0], seg[1], b / len)]);
+        }
+    }
+    out
 }
 
 /// Vertical rectangular prism along the seated centreline, mitred in plan.
@@ -406,5 +462,34 @@ mod tests {
             plo > -0.05,
             "panel does not follow the valley, bottom {plo}"
         );
+    }
+
+    #[test]
+    fn a_long_run_splits_into_stones_with_a_gap_at_each_joint() {
+        let pieces = profile_segments(&[[0.0, 0.0, 0.0], [3.5, 0.0, 0.0]], 1.0, JOINT_GAP);
+        assert_eq!(pieces.len(), 4, "1 + 1 + 1 + 0.5");
+        assert!(pieces[0][0][0].abs() < 1e-6, "the outer start is not inset");
+        assert!(
+            (pieces[3][1][0] - 3.5).abs() < 1e-6,
+            "the outer end is not inset"
+        );
+        let gap = pieces[1][0][0] - pieces[0][1][0];
+        assert!((gap - JOINT_GAP).abs() < 1e-6, "joint gap {gap}");
+        assert!(
+            pieces[3][1][0] - pieces[3][0][0] < 0.5,
+            "the last stone is the remainder"
+        );
+    }
+
+    #[test]
+    fn a_zero_segment_length_is_one_piece_per_span() {
+        let pieces = profile_segments(
+            &[[0.0, 0.0, 0.0], [2.0, 0.0, 0.0], [2.0, 0.0, 2.0]],
+            0.0,
+            JOINT_GAP,
+        );
+        assert_eq!(pieces.len(), 2);
+        assert!(pieces[0][0][0].abs() < 1e-6);
+        assert!((pieces[0][1][0] - 2.0).abs() < 1e-6);
     }
 }

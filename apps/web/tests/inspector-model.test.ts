@@ -10,6 +10,7 @@ import {
   groupForSpec,
   groupSpecs,
   provenanceIndex,
+  specsForContent,
   stepFor,
   unitFor,
 } from '../src/ui/inspector/model.ts';
@@ -78,4 +79,29 @@ test('multi-selection keeps common params and marks mixed values', () => {
   assert.equal(rows[1].value, MIXED);
   assert.equal(rows[2].value, 'a');
   assert.deepEqual(commonParams([{ specs: wall, values: {} }, { specs: [spec('x')], values: {} }]), []);
+});
+
+test('an empty segment length is one continuous piece', () => {
+  assert.deepEqual(checkNumber('', { id: 'segment_length', min: 0, max: 20 }), { ok: true, value: 0 });
+  assert.deepEqual(checkNumber(' ', {}), { ok: false, reason: 'empty' });
+});
+
+test('site line shows only the fields of the chosen content', () => {
+  const specs = [
+    spec('seating', 'choice'),
+    spec('content', 'choice'),
+    spec('post_height'),
+    spec('panel_height'),
+    spec('profile_width'),
+    spec('segment_length'),
+  ];
+  assert.deepEqual(
+    specsForContent('apex.site_line', specs, 'profile').map((s) => s.id),
+    ['seating', 'content', 'profile_width', 'segment_length'],
+  );
+  assert.deepEqual(
+    specsForContent('apex.site_line', specs, 'repeated').map((s) => s.id),
+    ['seating', 'content', 'post_height', 'panel_height'],
+  );
+  assert.equal(specsForContent('apex.wall', specs, 'profile').length, specs.length);
 });

@@ -40,5 +40,7 @@ pub use prism::{
 };
 pub use profile::{Justification, Point2, Profile};
 pub use shaped::{ContourLines, ShapedSurface, SurfaceMesh, Underside};
-pub use site_line::{profile_line, repeated_line, LineProfile, RepeatedLine};
+pub use site_line::{
+    profile_line, profile_segments, repeated_line, LineProfile, RepeatedLine, JOINT_GAP,
+};
 pub use sweep::{extrude, sweep, SweepOptions};

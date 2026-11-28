@@ -9,7 +9,8 @@
 use std::hash::{Hash, Hasher};
 
 use apex_geometry::{
-    profile_line, repeated_line, LineProfile, RepeatedLine, TerrainSampler, TriangleMesh,
+    profile_line, profile_segments, repeated_line, LineProfile, RepeatedLine, TerrainSampler,
+    TriangleMesh, JOINT_GAP,
 };
 use glam::Vec3;
 
@@ -191,13 +192,7 @@ impl Project {
         let mesh = if anchors.len() < 2 {
             TriangleMesh::empty()
         } else if params.text("content") == Some("profile") {
-            profile_line(
-                &points,
-                &LineProfile {
-                    width: params.number("profile_width").unwrap_or(0.15),
-                    height: params.number("profile_height").unwrap_or(0.15),
-                },
-            )
+            profile_mesh(&anchors, &points, &params, &sample)
         } else {
             repeated_line(
                 &points,
@@ -236,6 +231,7 @@ fn fingerprint(anchors: &[Vec3], params: &ParamMap, cover: u64) -> u64 {
         "panel_thickness",
         "profile_width",
         "profile_height",
+        "segment_length",
     ] {
         params
             .number(key)
@@ -252,6 +248,54 @@ fn fingerprint(anchors: &[Vec3], params: &ParamMap, cover: u64) -> u64 {
 }
 
 /// Height of the closest point on the seated polyline.
+/// Continuous profile, or one stone per `segment` metres.
+///
+/// A positive segment length breaks the line at that spacing and at every
+/// polyline vertex. In `by_ends` each stone sits on the terrain at its own
+/// two ends. In `level_from_start` every stone keeps the start elevation.
+/// Zero length is one mitred piece.
+fn profile_mesh(
+    anchors: &[Vec3],
+    seated_points: &[[f64; 3]],
+    params: &ParamMap,
+    sample: &impl Fn(f64, f64) -> Option<f64>,
+) -> TriangleMesh {
+    let segment = params.number("segment_length").unwrap_or(0.0);
+    let spec = LineProfile {
+        width: params.number("profile_width").unwrap_or(0.15),
+        height: params.number("profile_height").unwrap_or(0.15),
+    };
+    if segment < 0.05 || seated_points.len() < 2 {
+        return profile_line(seated_points, &spec);
+    }
+    let offset = params.number("elevation_offset").unwrap_or(0.0);
+    let level = params.text("seating") != Some("by_ends");
+    let y_level = seated_points.first().map(|p| p[1]).unwrap_or(0.0);
+    let source: Vec<[f64; 3]> = if level {
+        seated_points.to_vec()
+    } else {
+        anchors
+            .iter()
+            .map(|p| [p.x as f64, p.y as f64, p.z as f64])
+            .collect()
+    };
+    let mut mesh = TriangleMesh::empty();
+    for piece in profile_segments(&source, segment, JOINT_GAP) {
+        let mut a = piece[0];
+        let mut b = piece[1];
+        if level {
+            a[1] = y_level;
+            b[1] = y_level;
+        } else {
+            let y = |p: [f64; 3]| sample(p[0], p[2]).unwrap_or(p[1]) + offset;
+            a[1] = y(a);
+            b[1] = y(b);
+        }
+        mesh.append(&profile_line(&[a, b], &spec));
+    }
+    mesh
+}
+
 fn height_on_polyline(points: &[[f64; 3]], x: f64, z: f64) -> Option<f64> {
     let mut best: Option<(f64, f64)> = None;
     for w in points.windows(2) {
@@ -460,10 +504,95 @@ mod tests {
             "text and choice values of the same words stay on the curb species"
         );
         let mesh = project.document().get_mesh(id).unwrap();
-        let mid = top_at(mesh, 5.0, 5.0).expect("curb");
+        // The curb species is 1 m stones. A stone beside the peak sits on
+        // the ground there, not on the chord through the outer ends.
+        let ground = project
+            .topo_height_at(
+                project.document().active_level_id().unwrap(),
+                4.5,
+                5.0,
+                None,
+            )
+            .unwrap_or(0.0);
+        let stone = top_at(mesh, 4.5, 5.0).expect("stone beside the peak");
+        let stone = f64::from(stone);
+        assert!(
+            stone > ground + 0.1 && stone < ground + 0.4,
+            "stone top {stone} follows the ground {ground}, not the outer chord"
+        );
+        assert!(
+            top_at(mesh, 5.0, 5.0).is_none(),
+            "a joint gap sits on the 1 m station"
+        );
+    }
+
+    #[test]
+    fn a_zero_segment_length_is_one_chord_over_a_peak() {
+        let mut project = Project::new();
+        let terrain = project
+            .create_element(
+                "apex.terrain",
+                poly(&[(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]),
+                ParamMap::new().with("smooth", ParamValue::Bool(false)),
+            )
+            .unwrap();
+        project
+            .set_slab_shape(
+                terrain,
+                &crate::SlabShape {
+                    z: vec![0.0, 0.0, 0.0, 0.0],
+                    points: vec![[5.0, 5.0, 2.0]],
+                    creases: vec![],
+                },
+            )
+            .unwrap();
+        let id = project
+            .create_element(
+                SITE_LINE,
+                line([0.0, 5.0], [10.0, 5.0]),
+                ParamMap::new()
+                    .with("seating", ParamValue::Choice("by_ends".into()))
+                    .with("content", ParamValue::Choice("profile".into()))
+                    .with("segment_length", ParamValue::Length(0.0))
+                    .with("profile_height", ParamValue::Length(0.15))
+                    .with("elevation_offset", ParamValue::Length(0.0)),
+            )
+            .unwrap();
+        let mid = top_at(project.document().get_mesh(id).unwrap(), 5.0, 5.0).expect("curb");
         assert!(
             mid < 0.5,
-            "curb follows the chord ({mid}), not the peak under it"
+            "one piece follows the chord ({mid}), not the peak"
+        );
+    }
+
+    #[test]
+    fn level_segments_stay_flat_on_a_slope() {
+        let mut project = Project::new();
+        sloped(&mut project);
+        let id = project
+            .create_element(
+                SITE_LINE,
+                line([5.0, 9.0], [5.0, 1.0]),
+                ParamMap::new()
+                    .with("seating", ParamValue::Choice("level_from_start".into()))
+                    .with("content", ParamValue::Choice("profile".into()))
+                    .with("segment_length", ParamValue::Length(2.0))
+                    .with("profile_height", ParamValue::Length(0.2))
+                    .with("elevation_offset", ParamValue::Length(0.0)),
+            )
+            .unwrap();
+        let mesh = project.document().get_mesh(id).unwrap();
+        // Start is the high end, terrain y = 0.2 * 9 = 1.8. Stones stay there.
+        let high = top_at(mesh, 5.0, 8.0).expect("high stone");
+        let low = top_at(mesh, 5.0, 2.0).expect("low stone");
+        assert!((high - 2.0).abs() < 0.15, "high stone top {high}");
+        assert!(
+            (low - high).abs() < 0.05,
+            "level stones share one elevation ({high} vs {low})"
+        );
+        assert!(
+            top_at(mesh, 5.0, 7.0).is_none(),
+            "a joint gap at the 2 m station"
         );
     }
 

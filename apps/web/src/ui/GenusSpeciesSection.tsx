@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { componentDisplayName, speciesDisplayName, useI18n } from '../i18n';
 import { generaForCategorySwitch, genusTooltip } from '../tools/categorySlots';
+import { specsForContent } from './inspector/model';
 import { Section } from './inspector/Section';
 import type { ComponentDto, ElementDto, SpeciesDto, ParamValue, SceneDto } from '../types';
 import { apexExecuteCommand, apexRunQuery, apexSelectElement } from '../wasm/apex';
@@ -111,6 +112,8 @@ export function GenusSpeciesSection({
   if (part === 'params') {
     if (!current) return null;
     const shared = current.instances > 1;
+    const content = current.values.content ?? specs.find((spec) => spec.id === 'content')?.default;
+    const shown = specsForContent(component.id, specs, content);
     return (
       <Section id="species" title={t('inspector.group.species')} dataSection="species-values">
         <div className={`species-note${shared ? ' is-shared' : ''}`} data-testid="species-usage">
@@ -118,8 +121,8 @@ export function GenusSpeciesSection({
             ? t('inspector.speciesAffects', { n: current.instances })
             : t('inspector.speciesAffectsOne')}
         </div>
-        {specs.length === 0 ? <div className="empty">{t('inspector.speciesValuesEmpty')}</div> : null}
-        {specs.map((spec) => (
+        {shown.length === 0 ? <div className="empty">{t('inspector.speciesValuesEmpty')}</div> : null}
+        {shown.map((spec) => (
           <ParamField
             key={spec.id}
             spec={spec}

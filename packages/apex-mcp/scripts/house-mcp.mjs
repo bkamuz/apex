@@ -180,13 +180,13 @@ await tool('place_site_line', {
   level: L0,
   placement_kind: 'polyline',
   points: [P(7.4, 11.45), P(8.5, 11.45), P(8.5, 13.2), P(16.6, 14.7)],
-  params: { species: 'apex.site_line.curb' },
+  params: { species: 'apex.site_line.curb', segment_length: 1 },
 });
 await tool('place_site_line', {
   level: L0,
   placement_kind: 'polyline',
   points: [P(7.4, 14.05), P(15.7, 15.55), P(16.6, 15.55)],
-  params: { species: 'apex.site_line.curb' },
+  params: { species: 'apex.site_line.curb', segment_length: 1 },
 });
 await tool('place_gate', { level: L0, parent: await hostAt(L0, 2, -8, 'apex.site_line'), points: [P(2, -8)], params: { width: 1.2, height: 1.5 } });
 await tool('place_gate', { level: L0, parent: await hostAt(L0, 20, 3, 'apex.site_line'), points: [P(20, 3)], params: { width: 3.2, height: 1.5 } });
