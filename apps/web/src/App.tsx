@@ -2495,6 +2495,7 @@ export default function App() {
             runQuery: apexRunQuery,
             kernelStatus: apexKernelStatus,
             elementSnapGeometry: apexElementSnapGeometry,
+            getScene: apexGetScene,
           },
           /** Run a project command the way the UI does (scene + kernel pump). */
           command: (cmd: Record<string, unknown>) => applyScene(apexCommandScene(cmd)),

@@ -9,6 +9,7 @@ import {
   MIXED,
   canReset,
   checkNumber,
+  choiceFieldControl,
   commonParams,
   groupSpecs,
   provenanceIndex,
@@ -276,14 +277,84 @@ export function ParamField({
         </div>
       );
 
-    case 'choice':
+    case 'choice': {
+      const options = spec.options ?? [];
+      const current = String(value ?? '');
+      const textOf = (option: string) => optionLabel(spec, option, profiles, references, t);
+      const currentLabel = mixed ? t('inspector.mixed') : textOf(current);
+      const control = choiceFieldControl(options.length, Boolean(mixed));
+      if (control.kind === 'select') {
+        return (
+          <div className="field field-choice" data-param={spec.id}>
+            {label}
+            <select
+              value={mixed ? '__mixed' : current}
+              title={currentLabel}
+              disabled={locked}
+              onChange={(e) => onCommit(e.target.value)}
+            >
+              {control.showMixed ? (
+                <option value="__mixed" disabled>
+                  {t('inspector.mixed')}
+                </option>
+              ) : null}
+              {options.map((option) => (
+                <option key={option || '__none'} value={option} title={textOf(option)}>
+                  {textOf(option)}
+                </option>
+              ))}
+            </select>
+          </div>
+        );
+      }
+      return (
+        <div className="field field-choice" data-param={spec.id}>
+          {label}
+          <div
+            className="choice-options"
+            role="radiogroup"
+            aria-label={localizedParamLabel(spec, t)}
+            data-mixed={control.showMixed ? 'true' : undefined}
+          >
+            {control.showMixed ? (
+              <div className="choice-mixed" data-testid="choice-mixed" title={t('inspector.mixedTitle')}>
+                {t('inspector.mixed')}
+              </div>
+            ) : null}
+            {options.map((option) => {
+              const text = textOf(option);
+              const on = !mixed && current === option;
+              return (
+                <button
+                  key={option || '__none'}
+                  type="button"
+                  className={on ? 'is-on' : undefined}
+                  aria-pressed={on}
+                  title={text}
+                  disabled={locked}
+                  onClick={() => onCommit(option)}
+                >
+                  {text}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+
     case 'profile':
     case 'reference':
       return (
-        <div className="field" data-param={spec.id}>
+        <div className="field field-choice" data-param={spec.id}>
           {label}
           <select
             value={mixed ? '__mixed' : String(value ?? '')}
+            title={
+              mixed
+                ? t('inspector.mixed')
+                : optionLabel(spec, String(value ?? ''), profiles, references, t)
+            }
             disabled={locked}
             onChange={(e) => onCommit(e.target.value)}
           >
@@ -670,7 +741,7 @@ export function PropertiesPanel({
         <div className="field">
           <label>{t('inspector.origin')}</label>
           <div>
-            {ox.toFixed(3)}, {oy.toFixed(3)}, {oz.toFixed(3)} m
+            {ox.toFixed(3)}, {oy.toFixed(3)}, {oz.toFixed(3)} {t('param.unit.m')}
           </div>
         </div>
         {selectedReference.kind === 'plane' ? (
@@ -683,7 +754,7 @@ export function PropertiesPanel({
             </div>
             <div className="field">
               <label>{t('inspector.offset')}</label>
-              <div>{(selectedReference.offset ?? 0).toFixed(3)} m</div>
+              <div>{(selectedReference.offset ?? 0).toFixed(3)} {t('param.unit.m')}</div>
             </div>
           </>
         ) : null}
@@ -1055,7 +1126,7 @@ export function PropertiesPanel({
                 <div className="field">
                   <label>
                     <span className="field-label-text">{t('inspector.length')}</span>
-                    <span className="field-unit">m</span>
+                    <span className="field-unit">{t('param.unit.m')}</span>
                   </label>
                   <div className="mono">{selected.length.toFixed(3)}</div>
                 </div>
@@ -1064,7 +1135,7 @@ export function PropertiesPanel({
                 <div className="field" data-testid="wall-thickness-field">
                   <label>
                     <span className="field-label-text">{t('inspector.wallThickness')}</span>
-                    <span className="field-unit">m</span>
+                    <span className="field-unit">{t('param.unit.m')}</span>
                   </label>
                   <NumberInput
                     spec={{ id: 'thickness', label: '', kind: 'length', default: 0.2, min: 0.02 }}
@@ -1156,7 +1227,10 @@ export function PropertiesPanel({
           <div>{instanceDisplayName(selectedLevel.name)}</div>
         </div>
         <div className="field">
-          <label>{t('inspector.elevation')}</label>
+          <label>
+            <span className="field-label-text">{t('inspector.elevation')}</span>
+            <span className="field-unit">{t('param.unit.m')}</span>
+          </label>
           <input
             type="number"
             step={0.1}

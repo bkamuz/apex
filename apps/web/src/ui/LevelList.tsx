@@ -52,7 +52,7 @@ export function LevelList({
                   {localizeDocumentName(level.name)}
                   {active ? <span className="level-badge">{t('panel.activeBadge')}</span> : null}
                 </span>
-                <span className="cat">{level.elevation.toFixed(2)} m</span>
+                <span className="cat">{level.elevation.toFixed(2)} {t('param.unit.m')}</span>
               </li>
             );
           })}

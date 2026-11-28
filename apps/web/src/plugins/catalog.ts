@@ -97,7 +97,8 @@ export const systemPacks: readonly SystemPack[] = [
     descriptionKey: 'settings.pack.site.desc',
     defaultEnabled: true,
     plugins: [
-      componentPlugin('apex.fence', { tab: ApexTabs.site }),
+      // The old joinable fence stays in the core so saved documents load.
+      // New fences are the Site line species, on this one button.
       componentPlugin('apex.site_line', { tab: ApexTabs.site }),
       hostedComponentPlugin('apex.gate', { tab: ApexTabs.site }),
       componentPlugin('apex.site_surface', { tab: ApexTabs.site }),

@@ -374,7 +374,7 @@ function buildYard(elev: number): void {
       "two_point",
     );
   }
-  const curb = { species: "apex.site_line.curb" };
+  const curb = { species: "apex.site_line.curb", segment_length: 1 };
   poly(
     "apex.site_line",
     [

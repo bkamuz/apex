@@ -1,15 +1,18 @@
 // Run: node --experimental-strip-types --test tests/inspector-model.test.ts
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import {
   GROUP_ORDER,
   MIXED,
   canReset,
   checkNumber,
+  choiceFieldControl,
   commonParams,
   groupForSpec,
   groupSpecs,
   provenanceIndex,
+  specsForContent,
   stepFor,
   unitFor,
 } from '../src/ui/inspector/model.ts';
@@ -78,4 +81,40 @@ test('multi-selection keeps common params and marks mixed values', () => {
   assert.equal(rows[1].value, MIXED);
   assert.equal(rows[2].value, 'a');
   assert.deepEqual(commonParams([{ specs: wall, values: {} }, { specs: [spec('x')], values: {} }]), []);
+});
+
+test('an empty segment length is one continuous piece', () => {
+  assert.deepEqual(checkNumber('', { id: 'segment_length', min: 0, max: 20 }), { ok: true, value: 0 });
+  assert.deepEqual(checkNumber(' ', {}), { ok: false, reason: 'empty' });
+});
+
+test('site line shows only the fields of the chosen content', () => {
+  const specs = [
+    spec('seating', 'choice'),
+    spec('content', 'choice'),
+    spec('post_height'),
+    spec('panel_height'),
+    spec('profile_width'),
+    spec('segment_length'),
+  ];
+  assert.deepEqual(
+    specsForContent('apex.site_line', specs, 'profile').map((s) => s.id),
+    ['seating', 'content', 'profile_width', 'segment_length'],
+  );
+  assert.deepEqual(
+    specsForContent('apex.site_line', specs, 'repeated').map((s) => s.id),
+    ['seating', 'content', 'post_height', 'panel_height'],
+  );
+  assert.equal(specsForContent('apex.wall', specs, 'profile').length, specs.length);
+});
+
+test('a short mixed choice keeps its indicator', () => {
+  assert.deepEqual(choiceFieldControl(8, true), { kind: 'buttons', showMixed: true });
+  assert.deepEqual(choiceFieldControl(2, true), { kind: 'buttons', showMixed: true });
+  assert.deepEqual(choiceFieldControl(9, true), { kind: 'select', showMixed: true });
+  assert.deepEqual(choiceFieldControl(4, false), { kind: 'buttons', showMixed: false });
+  const src = readFileSync(new URL('../src/ui/PropertiesPanel.tsx', import.meta.url), 'utf8');
+  const buttons = src.slice(src.indexOf("control.kind === 'select'"), src.indexOf("case 'profile'"));
+  assert.match(buttons, /control\.showMixed/);
+  assert.match(buttons, /choice-mixed/);
 });

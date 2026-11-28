@@ -84,7 +84,7 @@ export function SlabShapePanel({
   return (
     <div className="inspector-section" data-section="slab-shape">
       <div className="section-title">
-        {terrain ? t('inspector.terrain.sectionTitle') : 'Shape (sub-elements)'}
+        {terrain ? t('inspector.terrain.sectionTitle') : t('inspector.shape.sectionTitle')}
       </div>
       <div className="parent-row">
         <button
@@ -97,10 +97,10 @@ export function SlabShapePanel({
           {editing
             ? terrain
               ? t('inspector.terrain.editActive')
-              : 'Finish editing'
+              : t('inspector.shape.finish')
             : terrain
               ? t('inspector.terrain.editIdle')
-              : 'Edit shape'}
+              : t('inspector.shape.edit')}
         </button>
         <button
           type="button"
@@ -108,17 +108,20 @@ export function SlabShapePanel({
           disabled={flat}
           onClick={() => onChange({ z: [], points: [], creases: [] })}
         >
-          {terrain ? t('inspector.terrain.reset') : 'Reset shape'}
+          {terrain ? t('inspector.terrain.reset') : t('inspector.shape.reset')}
         </button>
       </div>
       <div className="empty" style={{ padding: 0, margin: '4px 0' }}>
         {editing
           ? terrain
             ? t('inspector.terrain.hintEditing')
-            : 'Drag a point up/down in 3D, or type its offset. Thickness stays constant (vertical).'
+            : t('inspector.shape.hintEditing')
           : terrain
             ? t('inspector.terrain.hintIdle', { offset: info.thickness.toFixed(3) })
-            : `Thickness ${info.thickness.toFixed(3)} m, measured vertically.`}
+            : t('inspector.shape.hintIdle', {
+                thickness: info.thickness.toFixed(3),
+                unit: t('param.unit.m'),
+              })}
       </div>
       {editing ? (
         <>
@@ -131,7 +134,7 @@ export function SlabShapePanel({
             >
               <label>
                 {label(h.crease_index)}{' '}
-                {terrain ? t('inspector.terrain.elevation') : 'Z offset'}
+                {terrain ? t('inspector.terrain.elevation') : t('inspector.shape.zOffset')}
                 {h.kind === 'point'
                   ? ` (${h.position[0].toFixed(2)}, ${h.position[2].toFixed(2)})`
                   : ''}
@@ -175,10 +178,10 @@ export function SlabShapePanel({
               onChange(next);
             }}
           >
-            {terrain ? t('inspector.terrain.addInnerCentre') : 'Add point (centre)'}
+            {terrain ? t('inspector.terrain.addInnerCentre') : t('inspector.shape.addPoint')}
           </button>
           <div className="field">
-            <label>Creases</label>
+            <label>{t('inspector.shape.creases')}</label>
             {info.shape.creases.map((c, i) => (
               <div className="parent-row" key={`${c[0]}-${c[1]}-${i}`}>
                 <span>
@@ -220,7 +223,7 @@ export function SlabShapePanel({
                   onChange(next);
                 }}
               >
-                Add crease
+                {t('inspector.shape.addCrease')}
               </button>
             </div>
           </div>

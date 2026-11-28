@@ -1066,19 +1066,16 @@ console.log('\nbadge:', badge);
 
 // --- Sample house load (replaces the in-progress smoke document) ------------
 console.log('\n[sample] Load modern house sample');
-const houseOk = await page.evaluate(() => window.__apexTest?.loadSampleProject?.() === true);
-check('sample house loaded via __apexTest', houseOk);
-await page.waitForTimeout(1500);
 const houseCounts = await page.evaluate(() => {
-  const raw = localStorage.getItem('apex.project');
-  if (!raw) return null;
-  const j = JSON.parse(raw);
-  const els = Object.values(j.document?.elements ?? j.elements ?? {});
+  const ok = window.__apexTest?.loadSampleProject?.() === true;
+  const scene = window.__apexTest?.api?.getScene?.();
+  const els = scene?.elements ?? [];
   const by = {};
   for (const e of els) by[e.component_id] = (by[e.component_id] ?? 0) + 1;
-  const spaces = Object.values(j.document?.spaces ?? j.spaces ?? {});
-  const levels = j.document?.levels ?? j.levels ?? [];
+  const spaces = scene?.spaces ?? [];
+  const levels = scene?.levels ?? [];
   return {
+    ok,
     walls: by['apex.wall'] ?? 0,
     columns: by['apex.column'] ?? 0,
     roofs: by['apex.roof'] ?? 0,
@@ -1092,6 +1089,8 @@ const houseCounts = await page.evaluate(() => {
     levels: Array.isArray(levels) ? levels.length : Object.keys(levels).length,
   };
 });
+const houseOk = houseCounts?.ok === true;
+check('sample house loaded via __apexTest', houseOk);
 console.log('  house:', JSON.stringify(houseCounts));
 check('sample has flat roofs', (houseCounts?.roofs ?? 0) >= 2);
 check('sample has cantilever columns', (houseCounts?.columns ?? 0) >= 3);

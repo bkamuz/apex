@@ -66,6 +66,7 @@ test('a curb species overrides the fence defaults in the placement draft', () =>
       { id: 'content', label: 'Content', kind: 'choice', binding: 'type', default: 'repeated', options: ['repeated', 'profile'] },
       { id: 'elevation_offset', label: 'Elevation offset', kind: 'length', binding: 'type', default: 0 },
       { id: 'profile_height', label: 'Profile height', kind: 'length', binding: 'type', default: 0.15 },
+      { id: 'segment_length', label: 'Segment length', kind: 'length', binding: 'type', default: 0 },
     ],
     recipe: { kind: 'custom' },
   } as ComponentDto;
@@ -77,6 +78,7 @@ test('a curb species overrides the fence defaults in the placement draft', () =>
         content: 'profile',
         elevation_offset: 0.02,
         profile_height: 0.18,
+        segment_length: 1,
       },
     },
   ]);
@@ -85,6 +87,7 @@ test('a curb species overrides the fence defaults in the placement draft', () =>
   assert.equal(draft.content, 'profile');
   assert.equal(draft.elevation_offset, 0.02);
   assert.equal(draft.profile_height, 0.18);
+  assert.equal(draft.segment_length, 1);
 });
 
 test('thickness edits do not rewrite placement', () => {
