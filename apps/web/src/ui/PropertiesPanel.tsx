@@ -282,7 +282,7 @@ export function ParamField({
       const current = String(value ?? '');
       const textOf = (option: string) => optionLabel(spec, option, profiles, references, t);
       const currentLabel = mixed ? t('inspector.mixed') : textOf(current);
-      const control = choiceFieldControl(options.length, mixed);
+      const control = choiceFieldControl(options.length, Boolean(mixed));
       if (control.kind === 'select') {
         return (
           <div className="field field-choice" data-param={spec.id}>
